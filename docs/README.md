@@ -1,29 +1,30 @@
-# TITULO DO PROJETO
+# Ajuda-aí
 
-**Nome completo do Aluno 1, email do aluno 1**
-
-**Nome completo do Aluno 2, email do aluno 2**
-
-**Nome completo do Aluno 3, email do aluno 3**
+- Arthur Gonçalves Vieira: agvieira@sga.pucminas.br
+- Arthur Henrique de Lima Santos: ahlsantos@sga.pucminas.com
+- Fernanda Soares Oliveira Cunha: fernanda.soares.1366648@sga.pucminas.com
+- Gabriel Lacerda Lemos: gabriel.lacerda@sga.pucminas.br
+- Luiz Arthur Costa e Costa: luiz.arthur@sga.pucminas.br
+- Matheus Guilherme Viana Pereira: matheus.pereira.1339269@sga.pucminas.br
 
 ---
 
 Professores:
 
-**Prof. Nome do Prof 1**
-
-**Prof. Nome do Prof 2**
+- Leonardo Vilela Cardoso
+- João Paulo Carneiro Aramuni
+- Artur Martins Mol
 
 ---
 
-_Curso de Engenharia de Software, Campus Lourdes_
+_Curso de Engenharia de Software, Campus Coração Eucarístico_
 
 _Instituto de Informática e Ciências Exatas – Pontifícia Universidade de Minas Gerais (PUC MINAS), Belo Horizonte – MG – Brasil_
 
 ---
 
-_**Resumo**. Escrever aqui o resumo. O resumo deve contextualizar rapidamente o trabalho, descrever seu objetivo e, ao final,
-mostrar algum resultado relevante do trabalho (até 10 linhas)._
+**Resumo**. 
+_O Ajuda-a propõe o desenvolvimento de uma plataforma voltada à integração e ao acompanhamento de alunos ingressantes por meio de um programa de apadrinhamento acadêmico. O sistema busca facilitar a comunicação entre padrinhos, apadrinhados e a coordenação, além de auxiliar na formação dos grupos de apadrinhamento a partir de critérios de compatibilidade definidos pela coordenação. A plataforma também disponibiliza um feed de comunicados, informações acadêmicas e recursos de gamificação, como XP, níveis e conquistas, com o objetivo de estimular a participação dos estudantes. Como resultado, foi definida uma solução capaz de centralizar as atividades do programa, automatizar parte do processo de compatibilidade e proporcionar um ambiente de comunicação e integração entre os participantes._
 
 ---
 
@@ -73,3 +74,4 @@ _Inclua o URL do repositório (Github, Bitbucket, etc) onde você armazenou o c�
 | Repositório de código | GitHub            | https://github.com/XXXXXXX    |
 | Hospedagem do site    | Heroku            | https://XXXXXXX.herokuapp.com |
 | Protótipo Interativo  | MavelApp ou Figma | https://figma.com/XXXXXXX     |
+
