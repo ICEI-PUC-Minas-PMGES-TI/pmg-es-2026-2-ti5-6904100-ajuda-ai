@@ -1,6 +1,6 @@
 # Ajuda-aí
 
-O objetivo do **Ajuda aí** é **facilitar a integração e adaptação dos alunos ingressantes ao curso, conectando-os a alunos veteranos por meio de um programa de apadrinhamento e oferecendo ferramentas de comunicação, orientação acadêmica e gamificação para incentivar a participação e a colaboração entre os estudantes.
+O objetivo do **Ajuda aí** é facilitar a integração e adaptação dos alunos ingressantes ao curso, conectando-os a alunos veteranos por meio de um programa de apadrinhamento e oferecendo ferramentas de comunicação, orientação acadêmica e gamificação para incentivar a participação e a colaboração entre os estudantes.
 
 
 ## Integrantes
