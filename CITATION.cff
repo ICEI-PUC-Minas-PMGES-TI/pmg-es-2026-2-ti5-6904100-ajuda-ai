@@ -1,30 +1,38 @@
 cff-version: 1.0.1
 message: Please cite this software using these metadata.
-title: 
+title: Ajuda-aí
 authors:
-  - family-names: 
-    given-names: 
-  - family-names: 
-    given-names: 
-  - family-names: 
-    given-names: 
-  - family-names: 
-    given-names: 
-  - family-names: 
-    given-names: 
-  - family-names: 
-    given-names:
+  - family-names: Vieira
+    given-names: Arthur Gonçalves
+  - family-names: Santos
+    given-names: Arthur Henrique de Lima
+  - family-names: Lemos
+  - family-names: Cunha
+    given-names: Fernanda Soares Oliveira 
+    given-names: Gabriel Lacerda
+  - family-names: Costa
+    given-names: Luiz Arthur Costa e 
+  - family-names: Pereira
+    given-names: Matheus Guilherme Viana
+
   - name-suffix: Professor
     affiliation: PUC Minas
-    family-names: 
-    given-names: 
+    family-names: Mol
+    given-names: Artur Martins
   - name-suffix: Professor
     affiliation: PUC Minas
-    family-names: 
-    given-names: 
-keywords:
-  - 
-  - 
+    family-names: Aramuni
+    given-names: João Paulo Carneiro
+  - name-suffix: Professor
+    affiliation: PUC Minas
+    family-names: Cardoso
+    given-names: Leonardo Vilela
+
+keywords: .
+  - Apadrinhamento acadêmico; 
+  - Integração estudantil;
+  - Compatibilidade de alunos
+
 repository-code: 
 license: CC-BY-4.0
 version: 1.0.0
