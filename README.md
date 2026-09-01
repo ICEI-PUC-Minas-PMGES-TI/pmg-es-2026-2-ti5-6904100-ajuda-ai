@@ -1,18 +1,22 @@
-# Nome do projeto
+# Ajuda-aí
 
-Escreva um ou dois  parágrafo resumindo o objetivo do seu projeto.
+O objetivo do **Ajuda aí** é **facilitar a integração e adaptação dos alunos ingressantes ao curso, conectando-os a alunos veteranos por meio de um programa de apadrinhamento e oferecendo ferramentas de comunicação, orientação acadêmica e gamificação para incentivar a participação e a colaboração entre os estudantes.
+
 
 ## Integrantes
 
-* Nome completo do aluno 1
-* Nome completo do aluno 2
-* Nome completo do aluno 3
-* Nome completo do aluno 4
+* Arthur Gonçalves Vieira 
+* Arthur Henrique de Lima Santos
+* Fernanda Soares Oliveira Cunha
+* Gabriel Lacerda Lemos
+* Luiz Arthur Costa e Costa
+* Matheus Guilherme Viana Pereira
 
 ## Orientadores
 
-* Nome completo do professor 1
-* Nome completo do professor 2
+* Leonardo Vilela Cardoso
+* João Paulo Carneiro Aramuni
+* Artur Martins Mol
 
 ## Instruções de utilização
 
