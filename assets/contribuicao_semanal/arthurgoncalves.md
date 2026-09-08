@@ -3,9 +3,7 @@
 
 
 **Aluno:** Arthur Gonçalves Vieira
-
 **Projeto:** Ajuda-aí
-
 **Papel no projeto:** Desenvolvedor  
 
 ## Contribuição
