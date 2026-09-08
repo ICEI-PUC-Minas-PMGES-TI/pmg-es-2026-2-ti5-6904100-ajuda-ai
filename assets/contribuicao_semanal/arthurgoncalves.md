@@ -2,9 +2,9 @@
 
 
 
-**Aluno:** Gabriel Lacerda Lemos  
+**Aluno:** Arthur Gonçalves Vieira
 **Projeto:** Ajuda-aí  
-**Papel no projeto:** Arquiteto / Desenvolvedor  
+**Papel no projeto:** Desenvolvedor  
 
 ## Contribuição
 
