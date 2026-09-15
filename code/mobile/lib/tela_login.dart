@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'tela_home.dart';
 import 'theme/colors.dart';
 import 'widgets/campus_photo.dart';
 
@@ -20,11 +21,9 @@ class LoginPage extends StatelessWidget {
             child: _LoginContent(
               bottomInset: bottomInset,
               onMicrosoftPressed: () {
-                // TODO: implementar o login Microsoft.
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Login ainda não implementado.'),
-                  ),
+                // TODO: autenticar de fato; por ora a navegação é direta.
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const HomePage()),
                 );
               },
             ),
@@ -97,7 +96,6 @@ class _LoginContent extends StatelessWidget {
               SizedBox(height: aroundHero),
               _MicrosoftButton(onPressed: onMicrosoftPressed),
               SizedBox(height: afterButton),
-              // SafeArea já descontou bottomInset da altura disponível.
               SizedBox(
                 height: (CampusPhoto.heightFor(context) * 0.98 - bottomInset)
                     .clamp(0.0, double.infinity),
