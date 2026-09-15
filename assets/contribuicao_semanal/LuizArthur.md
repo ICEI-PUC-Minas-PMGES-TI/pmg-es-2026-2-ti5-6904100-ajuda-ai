@@ -20,3 +20,8 @@
 
 - Diagrama de componentes
 - DER
+
+### Sprint 3
+### Semana 3 (09/09 - 15/09)
+
+- Criar o banco e as tabelas
