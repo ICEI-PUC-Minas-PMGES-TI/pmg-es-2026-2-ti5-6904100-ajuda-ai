@@ -21,3 +21,10 @@
 
 - slides para a apresentação inicial do projeto;
 - implementação dos docs/3.requisitos.md
+
+### Sprint 3
+### Semana 3 (08/09 - 15/09)
+
+- Ata de reunião de kickoff
+- Planejamento da Sprint
+- Fechamento da Sprint
