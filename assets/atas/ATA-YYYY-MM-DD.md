@@ -35,7 +35,7 @@ Estiveram presentes na reunião:
 | RF01 - Login e identificação de perfil | Equipe | A funcionalidade encontra-se parcialmente desenvolvida e continuará em desenvolvimento na próxima sprint. |
 | RF13 - Mapa da PUC | Equipe | A funcionalidade encontra-se parcialmente desenvolvida e continuará sendo trabalhada na próxima sprint. |
 | GitHub Projects | Arthur Gonçalves Vieira / Equipe | Foi definida a reorganização do quadro para que os requisitos estejam de acordo com a documentação atual do projeto. |
-| Sprint 4 | Equipe | Os requisitos em desenvolvimento permanecerão como In Progress e os próximos requisitos selecionados serão movidos para Ready. |
+| Sprint 4 | Equipe | Foi definido que a Sprint 4 terá continuidade dos RF01 e RF13 e início dos RF02, RF03 e RF04. |
 | Requisitos | Equipe | Os requisitos antigos ou que não correspondem mais ao escopo atual deverão ser atualizados ou removidos do quadro. |
 
 ## Ações e pendências
@@ -45,7 +45,7 @@ Estiveram presentes na reunião:
 | N | Continuar o desenvolvimento do RF01 - Login e identificação de perfil | Matheus Guilherme Viana Pereira | Sprint 4 |
 | N | Continuar o desenvolvimento do RF13 - Mapa da PUC | Gabriel Lacerda Lemos | Sprint 4 |
 | S | Revisar e reorganizar os requisitos no GitHub Projects | Arthur Gonçalves Vieira | 15/09/2026 |
-| N | Definir e iniciar os próximos requisitos planejados para a Sprint 4 | Equipe | Sprint 4 |
+| S | Definir e iniciar o planejamento da Sprint 4 | Equipe | 14/09/2026 |
 
 ## Outras notas e informações
 
