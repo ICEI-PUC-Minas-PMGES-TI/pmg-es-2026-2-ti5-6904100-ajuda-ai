@@ -1,16 +1,30 @@
-# Relatório Individual de Contribuição — Sprint 1
+# Relatório Individual de Contribuição
 
-**Aluno:** Matheus Guilherme Viana Pereira\
-**Projeto:** Ajuda-aí\
+**Aluno:** Matheus Guilherme Viana Pereira
+
+**Projeto:** Ajuda-aí
+
 **Papel no projeto:** Desenvolvedor
 
 ## Contribuição
 
-Durante a sprint, fui responsável por:
+### Sprint 1
+### Semana 1 (04/08 - 11/08)
 
-- atualização da visão do produto;
-- definição e revisão do escopo e dos limites da solução;
-- elaboração e revisão das personas do projeto;
-- consolidação da visão, do escopo e das personas no documento `docs/2.nosso_produto.md`;
-- preparação do conteúdo e do roteiro dos slides de visão e escopo do produto para a apresentação inicial do projeto.
+- Elaboração e revisão das personas do projeto
+- Consolidação da visão, do escopo e das personas em `docs/2.nosso_produto.md`
 
+
+### Sprint 2
+### Semana 2 (18/08 - 08/09)
+
+- Atualização da visão do produto
+- Definição e revisão do escopo e dos limites da solução
+
+### Sprint 3
+### Semana 3 (09/09 - 15/09)
+
+- RF01 - Login e identificação de perfil (desenvolvimento parcial)
+- Implementação do aplicativo mobile em Flutter: estrutura do projeto, tema e componentes visuais
+- Implementação da tela de login
+- Implementação parcial do backend
