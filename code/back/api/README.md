@@ -39,6 +39,11 @@ A API fica disponível em `http://localhost:3000`.
 | `GET` | `/me` | Dados do usuário autenticado. Aceita `?perfil=` para alternar entre os perfis. |
 | `GET` | `/me/vinculos` | Padrinho ou apadrinhados vinculados ao usuário. |
 | `GET` | `/avisos` | Avisos publicados pela coordenação. |
+| `GET` | `/publicacoes` | Lista as publicações criadas durante a execução da API. |
+| `POST` | `/publicacoes` | Cria uma publicação com zero curtidas e zero comentários. |
+| `POST` | `/publicacoes/:id/comentarios` | Adiciona um comentário à publicação. |
+| `POST` | `/publicacoes/:id/curtidas` | Adiciona ou remove uma curtida (`delta: 1` ou `-1`). |
+| `DELETE` | `/publicacoes/:id` | Apaga uma publicação criada pelo usuário. |
 
 Exemplo:
 

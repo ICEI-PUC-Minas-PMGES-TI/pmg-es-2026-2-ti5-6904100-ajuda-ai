@@ -24,7 +24,10 @@ class AjudaAiApp extends StatelessWidget {
       title: 'Ajuda-aí',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: AppColors.primary,
+          brightness: Brightness.light,
+        ).copyWith(primary: AppColors.primary, surface: Colors.white),
         scaffoldBackgroundColor: AppColors.background,
         fontFamily: 'Poppins',
       ),

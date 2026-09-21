@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
-import 'tela_login.dart';
+import 'tela_feed.dart';
 import 'theme/colors.dart';
+import 'widgets/app_bottom_navigation.dart';
 
 const double _gutter = 20;
 
@@ -11,7 +12,7 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppAccents.headerBottom,
+      backgroundColor: Colors.white,
       body: SingleChildScrollView(
         padding: EdgeInsets.zero,
         child: Column(
@@ -901,145 +902,28 @@ class _BarraInferior extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.ink.withValues(alpha: 0.08),
-            blurRadius: 20,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 70,
-          child: Row(
-            children: [
-              Expanded(
-                child: _ItemBarra(
-                  icone: Icons.map_outlined,
-                  rotulo: 'Mapa',
-                  onTap: () => _emBreve(context, 'Mapa'),
-                ),
-              ),
-              Expanded(
-                child: _ItemBarra(
-                  icone: Icons.star_outline_rounded,
-                  rotulo: 'Missões',
-                  onTap: () => _emBreve(context, 'Missões'),
-                ),
-              ),
-              const Expanded(child: _BotaoInicio()),
-              Expanded(
-                child: _ItemBarra(
-                  icone: Icons.chat_bubble_outline_rounded,
-                  rotulo: 'Chat',
-                  onTap: () => _emBreve(context, 'Chat'),
-                ),
-              ),
-              Expanded(
-                child: _ItemBarra(
-                  icone: Icons.logout_rounded,
-                  rotulo: 'Sair',
-                  onTap: () => Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (_) => const LoginPage()),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ItemBarra extends StatelessWidget {
-  const _ItemBarra({
-    required this.icone,
-    required this.rotulo,
-    required this.onTap,
-  });
-
-  final IconData icone;
-  final String rotulo;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkResponse(
-      onTap: onTap,
-      radius: 40,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icone, size: 24, color: AppColors.muted),
-          const SizedBox(height: 4),
-          Text(
-            rotulo,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              color: AppColors.muted,
-              fontSize: 11,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BotaoInicio extends StatelessWidget {
-  const _BotaoInicio();
-
-  @override
-  Widget build(BuildContext context) {
-    return OverflowBox(
-      maxHeight: 96,
-      alignment: Alignment.bottomCenter,
-      child: Transform.translate(
-        offset: const Offset(0, -20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.35),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.home_rounded,
-                size: 28,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Início',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                color: AppColors.primary,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return AppBottomNavigation(
+      selected: AppDestination.inicio,
+      onSelected: (destination) {
+        switch (destination) {
+          case AppDestination.feed:
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const FeedPage()),
+            );
+            break;
+          case AppDestination.inicio:
+            break;
+          case AppDestination.mapa:
+            _emBreve(context, 'Mapa');
+            break;
+          case AppDestination.missoes:
+            _emBreve(context, 'Missões');
+            break;
+          case AppDestination.perfil:
+            _emBreve(context, 'Perfil');
+            break;
+        }
+      },
     );
   }
 }

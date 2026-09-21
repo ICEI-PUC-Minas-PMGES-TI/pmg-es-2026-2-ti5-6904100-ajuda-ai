@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 
 abstract final class AppColors {
-  static const Color primary = Color(0xFF5B2D90);
-  static const Color background = Color(0xFFFAFAFC);
-  static const Color lavender = Color(0xFFF1EBFB);
+  // Sampled from docs/design/referencia-mobile-original.png.
+  static const Color primary = Color(0xFF420594);
+  static const Color background = Colors.white;
+  static const Color lavender = Color(0xFFF5F2FB);
   static const Color ink = Color(0xFF1B1340);
   static const Color muted = Color(0xFF7C8598);
 }
 
 abstract final class AppAccents {
-  static const Color headerTop = Color(0xFF6D35A8);
-  static const Color headerBottom = Color(0xFF4B2280);
+  static const Color headerTop = Color(0xFF331471);
+  static const Color headerBottom = Color(0xFF2C1565);
+  static const Color navigationMuted = Color(0xFF8B8995);
   static const Color star = Color(0xFFFBBF24);
   static const Color success = Color(0xFF16A34A);
   static const Color successBg = Color(0xFFE8F8EE);
