@@ -25,3 +25,8 @@
 ### Semana 3 (09/09 - 15/09)
 
 - Criar o banco e as tabelas
+
+### Semana 4 (16/09 - 22/09)
+
+- Criação Estrutura Analítica do Projeto
+- Planejamento Sprint 4
