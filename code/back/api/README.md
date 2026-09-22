@@ -4,12 +4,13 @@ Back-end da aplicação, desenvolvido em NestJS com TypeScript.
 
 ## Estado atual
 
-Versão parcial. Os endpoints respondem com dados fictícios mantidos em memória
-(`src/dados/dados.ts`), sem banco de dados e sem autenticação real. A rota de login
-devolve um token simulado apenas para permitir o fluxo de navegação dos clientes.
+Versão parcial. Os dados de usuário e os demais dados de negócio ainda são fictícios
+e mantidos em memória (`src/dados/dados.ts`). O login, porém, valida o ID token
+emitido pelo Microsoft Entra ID e emite um JWT da própria API. Somente contas do
+domínio institucional configurado e previamente cadastradas podem entrar.
 
-Persistência com PostgreSQL e TypeORM, autenticação JWT e mensageria estão previstas
-para as próximas sprints.
+Persistência com PostgreSQL e TypeORM e mensageria estão previstas para as próximas
+sprints.
 
 ## Pré-requisitos
 
@@ -25,6 +26,11 @@ npm install
 
 ## Execução
 
+Copie `.env.example` para `.env` e preencha `MICROSOFT_TENANT_ID`,
+`MICROSOFT_CLIENT_ID` e `JWT_SECRET`. O `MICROSOFT_CLIENT_ID` deve ser o mesmo usado
+pelo aplicativo móvel para solicitar o ID token. Em produção, a API não inicia sem
+`JWT_SECRET`.
+
 ```bash
 npm run start:dev
 ```
@@ -35,9 +41,9 @@ A API fica disponível em `http://localhost:3000`.
 
 | Método | Rota | Descrição |
 | --- | --- | --- |
-| `POST` | `/auth/login` | Autentica e devolve token e dados do usuário. Aceita `{ "perfil": "apadrinhado" \| "padrinho" \| "coordenador" }` no corpo. |
-| `GET` | `/me` | Dados do usuário autenticado. Aceita `?perfil=` para alternar entre os perfis. |
-| `GET` | `/me/vinculos` | Padrinho ou apadrinhados vinculados ao usuário. |
+| `POST` | `/auth/login` | Valida um ID token Microsoft e devolve o JWT da API e os dados do usuário. |
+| `GET` | `/me` | Dados do usuário autenticado. Exige JWT no cabeçalho `Authorization`. |
+| `GET` | `/me/vinculos` | Padrinho ou apadrinhados vinculados ao usuário. Exige JWT. |
 | `GET` | `/avisos` | Avisos publicados pela coordenação. |
 | `GET` | `/publicacoes` | Lista as publicações criadas durante a execução da API. |
 | `POST` | `/publicacoes` | Cria uma publicação com zero curtidas e zero comentários. |
@@ -50,7 +56,10 @@ Exemplo:
 ```bash
 curl -X POST http://localhost:3000/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"perfil":"padrinho"}'
+  -d '{"idToken":"ID_TOKEN_RECEBIDO_DA_MICROSOFT"}'
+
+curl http://localhost:3000/me \
+  -H 'Authorization: Bearer JWT_DEVOLVIDO_PELA_API'
 ```
 
 ## Build e verificação
@@ -58,4 +67,5 @@ curl -X POST http://localhost:3000/auth/login \
 ```bash
 npm run build
 npm run lint
+npm test
 ```

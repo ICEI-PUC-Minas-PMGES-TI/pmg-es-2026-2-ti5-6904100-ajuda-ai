@@ -13,8 +13,25 @@ export class UsuariosService {
     return usuario;
   }
 
+  buscarPorId(id: number): Usuario {
+    const usuario = Object.values(USUARIOS).find((item) => item.id === id);
+
+    if (!usuario) {
+      throw new NotFoundException('Usuário não encontrado.');
+    }
+
+    return usuario;
+  }
+
   listarVinculos(perfil: Perfil = 'apadrinhado'): Usuario[] {
     const usuario = this.buscarPorPerfil(perfil);
+    const ids = VINCULOS[usuario.id] ?? [];
+
+    return Object.values(USUARIOS).filter((outro) => ids.includes(outro.id));
+  }
+
+  listarVinculosPorId(id: number): Usuario[] {
+    const usuario = this.buscarPorId(id);
     const ids = VINCULOS[usuario.id] ?? [];
 
     return Object.values(USUARIOS).filter((outro) => ids.includes(outro.id));

@@ -1,18 +1,22 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { UsuariosService } from './usuarios.service.js';
-import type { Perfil } from '../dados/dados.js';
 
 @Controller('me')
+@UseGuards(JwtAuthGuard)
 export class UsuariosController {
   constructor(private readonly usuariosService: UsuariosService) {}
 
   @Get()
-  perfil(@Query('perfil') perfil?: Perfil) {
-    return this.usuariosService.buscarPorPerfil(perfil);
+  perfil(@Req() requisicao: AuthenticatedRequest) {
+    return this.usuariosService.buscarPorId(Number(requisicao.user.sub));
   }
 
   @Get('vinculos')
-  vinculos(@Query('perfil') perfil?: Perfil) {
-    return this.usuariosService.listarVinculos(perfil);
+  vinculos(@Req() requisicao: AuthenticatedRequest) {
+    return this.usuariosService.listarVinculosPorId(
+      Number(requisicao.user.sub),
+    );
   }
 }
