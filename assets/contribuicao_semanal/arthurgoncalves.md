@@ -31,4 +31,4 @@
 
 ### Semana 4 (16/09 - 22/09)
 
-- Implementação da Tela do Feed 
+- Implementação (Parcial) da Tela do Feed 
