@@ -14,15 +14,14 @@ authors:
     given-names: Luiz Arthur Costa e 
   - family-names: Pereira
     given-names: Matheus Guilherme Viana
-
   - name-suffix: Professor
     affiliation: PUC Minas
     family-names: Mol
     given-names: Artur Martins
   - name-suffix: Professor
     affiliation: PUC Minas
-    family-names: Aramuni
-    given-names: João Paulo Carneiro
+    family-names: Carneiro Aramuni
+    given-names: João Paulo
   - name-suffix: Professor
     affiliation: PUC Minas
     family-names: Cardoso
