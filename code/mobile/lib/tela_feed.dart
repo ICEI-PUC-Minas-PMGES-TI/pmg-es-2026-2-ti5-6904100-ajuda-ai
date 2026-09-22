@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 
 import 'tela_home.dart';
+import 'tela_perfil.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
 
@@ -1285,7 +1286,9 @@ class _BarraFeed extends StatelessWidget {
             _mensagem(context, 'Missões');
             break;
           case AppDestination.perfil:
-            _mensagem(context, 'Perfil');
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const ProfilePage()),
+            );
             break;
         }
       },

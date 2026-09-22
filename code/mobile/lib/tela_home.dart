@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'tela_feed.dart';
+import 'tela_perfil.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
 
@@ -920,7 +921,9 @@ class _BarraInferior extends StatelessWidget {
             _emBreve(context, 'Missões');
             break;
           case AppDestination.perfil:
-            _emBreve(context, 'Perfil');
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const ProfilePage()),
+            );
             break;
         }
       },
