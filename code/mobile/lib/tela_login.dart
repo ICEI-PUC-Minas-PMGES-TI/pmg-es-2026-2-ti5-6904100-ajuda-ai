@@ -3,15 +3,24 @@ import 'package:flutter/material.dart';
 import 'tela_home.dart';
 import 'theme/colors.dart';
 import 'widgets/campus_photo.dart';
+import 'widgets/login_success_transition.dart';
 
-class LoginPage extends StatelessWidget {
+class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
+
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  bool _showTransition = false;
 
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
-    return Scaffold(
+    late final Widget loginScreen;
+    loginScreen = Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         children: [
@@ -21,9 +30,18 @@ class LoginPage extends StatelessWidget {
             child: _LoginContent(
               bottomInset: bottomInset,
               onMicrosoftPressed: () {
-                // TODO: autenticar de fato; por ora a navegação é direta.
+                // TODO: iniciar a transição após autenticação real da Microsoft.
+                if (_showTransition) return;
+                _showTransition = true;
                 Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const HomePage()),
+                  PageRouteBuilder<void>(
+                    pageBuilder: (context, animation, secondaryAnimation) =>
+                        LoginSuccessTransition(
+                          background: loginScreen,
+                          destination: const HomePage(),
+                        ),
+                    transitionDuration: Duration.zero,
+                  ),
                 );
               },
             ),
@@ -31,6 +49,7 @@ class LoginPage extends StatelessWidget {
         ],
       ),
     );
+    return loginScreen;
   }
 }
 

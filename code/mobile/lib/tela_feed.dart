@@ -1240,7 +1240,7 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
   Future<void> _adicionarImagem() async {
     if (_imagens.length >= 10) return;
 
-    final resultado = await FilePicker.platform.pickFiles(
+    final resultado = await FilePicker.pickFiles(
       type: FileType.image,
       allowMultiple: true,
       withData: true,

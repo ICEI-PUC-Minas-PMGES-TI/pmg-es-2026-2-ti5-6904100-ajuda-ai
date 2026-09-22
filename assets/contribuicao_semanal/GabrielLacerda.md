@@ -20,3 +20,11 @@
 - modelagem arquitetural;
 - ajustes no projeto do PUC Maps;
 - wireframes.
+
+### Sprint 4
+### Semana 4 (16/09 - 22/09)
+
+- animação de transição pós-login no mobile (`LoginSuccessTransition`) com SVG institucional;
+- testes de widget da tela de login e da transição;
+- `docker-compose` do Postgres local e `.env.example` (sem versionar secrets);
+- abertura da PR `ajuste-login` → `main`, atualizando a branch com o que já estava na main.
