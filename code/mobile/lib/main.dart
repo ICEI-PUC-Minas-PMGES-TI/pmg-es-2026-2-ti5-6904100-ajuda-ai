@@ -1,17 +1,9 @@
-import 'package:device_preview/device_preview.dart';
-import 'package:device_preview/presets.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'tela_login.dart';
 import 'theme/colors.dart';
 
-Future<void> main() async {
-  if (kDebugMode) {
-    DevicePreview.enable();
-    await DevicePreview.maybeController?.applyPreset(DevicePresets.pixel10);
-  }
-
+void main() {
   runApp(const AjudaAiApp());
 }
 
