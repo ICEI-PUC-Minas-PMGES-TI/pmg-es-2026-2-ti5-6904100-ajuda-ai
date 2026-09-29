@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'tela_home.dart';
+import 'tela_cadastro.dart';
 import 'theme/colors.dart';
 import 'widgets/campus_photo.dart';
 import 'widgets/login_success_transition.dart';
@@ -30,7 +30,7 @@ class _LoginPageState extends State<LoginPage> {
             child: _LoginContent(
               bottomInset: bottomInset,
               onMicrosoftPressed: () {
-                // TODO: iniciar a transição após autenticação real da Microsoft.
+                // TODO: iniciar a transição após autenticação da Microsoft.
                 if (_showTransition) return;
                 _showTransition = true;
                 Navigator.of(context).pushReplacement(
@@ -38,7 +38,7 @@ class _LoginPageState extends State<LoginPage> {
                     pageBuilder: (context, animation, secondaryAnimation) =>
                         LoginSuccessTransition(
                           background: loginScreen,
-                          destination: const HomePage(),
+                          destination: const CadastroPage(),
                         ),
                     transitionDuration: Duration.zero,
                   ),

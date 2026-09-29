@@ -4,11 +4,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ajuda_ai/main.dart';
-import 'package:ajuda_ai/tela_home.dart';
+import 'package:ajuda_ai/tela_cadastro.dart';
 import 'package:ajuda_ai/widgets/login_success_transition.dart';
 
 void main() {
-  testWidgets('aguarda o giro antes de abrir a home', (tester) async {
+  testWidgets('aguarda o giro antes de abrir o cadastro', (tester) async {
     await tester.pumpWidget(const AjudaAiApp());
     await tester.tap(find.text('Entrar com a Microsoft'));
     await tester.pump();
@@ -20,13 +20,13 @@ void main() {
       tester.widget<ImageFiltered>(find.byType(ImageFiltered)).enabled,
       isTrue,
     );
-    expect(find.byType(HomePage), findsOneWidget);
+    expect(find.byType(CadastroPage), findsOneWidget);
     expect(
       tester.widget<Opacity>(find.byKey(const ValueKey('home-fade'))).opacity,
       0,
     );
     await tester.pumpAndSettle();
-    expect(find.byType(HomePage), findsOneWidget);
+    expect(find.byType(CadastroPage), findsOneWidget);
     expect(
       tester.widget<Opacity>(find.byKey(const ValueKey('home-fade'))).opacity,
       1,
