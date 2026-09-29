@@ -32,3 +32,9 @@
 ### Semana 4 (16/09 - 22/09)
 
 - Implementação (Parcial) da Tela do Feed 
+
+### Semana 5 (23/09 - 29/09)
+
+- Finalização da tela do Feed;
+- Implementação parcial das telas da jornada do apadrinhamento, em conjunto com Matheus Guilherme Viana Pereira;
+- Elaboração da ata da reunião semanal.
