@@ -60,7 +60,8 @@ class RevisaoCadastroPage extends StatelessWidget {
     return EstruturaCadastro(
       children: [
         const TituloPasso(
-          passo: 3,
+          passo: 2,
+          total: 2,
           titulo: 'Revise suas informações',
           subtitulo:
               'Confira os dados do seu cadastro antes de enviar para '

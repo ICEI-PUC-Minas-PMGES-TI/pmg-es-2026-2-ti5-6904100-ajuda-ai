@@ -4,7 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'dados_cadastro.dart';
-import 'tela_cadastro_perfil.dart';
+import 'tela_participacao.dart';
 import 'theme/colors.dart';
 import 'widgets/campos_cadastro.dart';
 
@@ -81,7 +81,7 @@ class _CadastroPageState extends State<CadastroPage> {
 
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => PerfilCadastroPage(
+        builder: (_) => ParticipacaoPage(
           dados: DadosCadastro(
             nome: _nomeController.text.trim(),
             email: widget.email,
@@ -101,6 +101,7 @@ class _CadastroPageState extends State<CadastroPage> {
       children: [
         const TituloPasso(
           passo: 1,
+          total: 2,
           titulo: 'Complete seu perfil',
           subtitulo:
               'Essas informações serão usadas para personalizar sua '

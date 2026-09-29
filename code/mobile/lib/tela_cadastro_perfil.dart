@@ -118,7 +118,8 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
     return EstruturaCadastro(
       children: [
         const TituloPasso(
-          passo: 2,
+          passo: 1,
+          total: 2,
           titulo: 'Conte sobre você',
           subtitulo:
               'Essas respostas ajudam a encontrar um padrinho '

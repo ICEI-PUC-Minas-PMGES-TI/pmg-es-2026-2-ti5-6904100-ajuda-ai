@@ -120,11 +120,13 @@ class TituloPasso extends StatelessWidget {
   const TituloPasso({
     super.key,
     required this.passo,
+    required this.total,
     required this.titulo,
     required this.subtitulo,
   });
 
   final int passo;
+  final int total;
   final String titulo;
   final String subtitulo;
 
@@ -133,7 +135,7 @@ class TituloPasso extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (passo > 1)
+        if (Navigator.of(context).canPop())
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: Tooltip(
@@ -165,7 +167,7 @@ class TituloPasso extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            IndicadorPasso(passo: passo, total: 3),
+            IndicadorPasso(passo: passo, total: total),
           ],
         ),
         const SizedBox(height: 10),
