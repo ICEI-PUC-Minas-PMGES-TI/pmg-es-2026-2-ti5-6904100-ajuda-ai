@@ -4,6 +4,9 @@
 **Projeto:** Ajuda-aí  
 **Papel no projeto:** Product Manager / Gerente do Projeto  
 
+### Sprint 2
+### Semana 2 (18/08 - 08/09)
+
 ## Contribuição
 
 Durante a sprint, fui responsável por:
@@ -15,3 +18,15 @@ Durante a sprint, fui responsável por:
 - planejamento do projeto e do backlog;
 - slides para a apresentação inicial do projeto
 
+
+### Sprint 2
+### Semana 2 (18/08 - 08/09)
+
+- slides para a apresentação inicial do projeto;
+- wireframes.
+
+### Sprint 4
+### Semana 4 (16/09 - 22/09)
+
+- documentação e telas de todo o projeto.
+- roadmap
