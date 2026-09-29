@@ -31,8 +31,9 @@
 
 ### Semana 4 (16/09 - 22/09)
 
-- Implementação (Parcial) da Tela do Feed 
+- Implementação (Parcial) da Tela do Feed
 
+### Sprint 4
 ### Semana 5 (23/09 - 29/09)
 
 - Finalização da tela do Feed;
