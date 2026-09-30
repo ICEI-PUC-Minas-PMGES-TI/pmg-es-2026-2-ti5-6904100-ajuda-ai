@@ -140,34 +140,46 @@ class HistoricoParticipacaoPage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _Resumo(
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final resumos = [
+                    _Resumo(
                       valor: '$_totalApadrinhados',
                       rotulo: 'Apadrinhados no total',
                       icone: Icons.groups_outlined,
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _Resumo(
+                    _Resumo(
                       valor: '$_semestresComoPadrinho',
                       rotulo: 'Semestres como padrinho',
                       icone: Icons.emoji_events_outlined,
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _Resumo(
+                    _Resumo(
                       valor: 'Transição',
                       rotulo: primeiro == null || primeiro == atual
                           ? (atual?.rotulo ?? '—')
                           : '${primeiro.rotulo} → ${atual!.rotulo}',
                       icone: Icons.trending_up,
                     ),
-                  ),
-                ],
+                  ];
+                  if (constraints.maxWidth < 520) {
+                    return Column(
+                      children: [
+                        for (var i = 0; i < resumos.length; i++) ...[
+                          if (i > 0) const SizedBox(height: 8),
+                          resumos[i],
+                        ],
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      for (var i = 0; i < resumos.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 8),
+                        Expanded(child: resumos[i]),
+                      ],
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 18),
               _LinhaDoTempo(ciclos: ciclos),
@@ -276,8 +288,8 @@ class _LinhaDoTempo extends StatelessWidget {
                   style: const TextStyle(
                     fontFamily: 'Inter',
                     color: AppColors.muted,
-                    fontSize: 10,
-                    height: 1.2,
+                    fontSize: 12,
+                    height: 1.25,
                   ),
                 ),
                 const SizedBox(height: 6),

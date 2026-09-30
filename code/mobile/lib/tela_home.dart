@@ -603,6 +603,32 @@ class _EtiquetaXp extends StatelessWidget {
   }
 }
 
+class _AvatarPadrinho extends StatelessWidget {
+  const _AvatarPadrinho();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 60,
+      height: 60,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.lavender,
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+      ),
+      child: const Text(
+        'TM',
+        style: TextStyle(
+          color: AppColors.primary,
+          fontSize: 20,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
 class _CardPadrinho extends StatelessWidget {
   const _CardPadrinho();
 
@@ -621,30 +647,34 @@ class _CardPadrinho extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Container(
-                width: 60,
-                height: 60,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.lavender,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.18),
-                  ),
-                ),
-                child: const Text(
-                  'TM',
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final botao = OutlinedButton.icon(
+                onPressed: () => _emBreve(context, 'Conversas'),
+                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                label: const Text(
+                  'Conversar',
                   style: TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  backgroundColor: Colors.white,
+                  side: const BorderSide(color: AppAccents.cardBorder),
+                  minimumSize: const Size.fromHeight(44),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              );
+              const identidade = Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -685,32 +715,34 @@ class _CardPadrinho extends StatelessWidget {
                     ),
                   ],
                 ),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => _emBreve(context, 'Conversas'),
-                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
-                label: const Text(
-                  'Conversar',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  backgroundColor: Colors.white,
-                  side: const BorderSide(color: AppAccents.cardBorder),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-              ),
-            ],
+              );
+              const avatar = _AvatarPadrinho();
+              if (constraints.maxWidth < 340) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Row(
+                      children: [
+                        avatar,
+                        SizedBox(width: 12),
+                        identidade,
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    botao,
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  avatar,
+                  const SizedBox(width: 12),
+                  identidade,
+                  const SizedBox(width: 8),
+                  botao,
+                ],
+              );
+            },
           ),
         ],
       ),

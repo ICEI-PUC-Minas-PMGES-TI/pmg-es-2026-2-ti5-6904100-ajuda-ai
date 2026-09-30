@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'tela_feed.dart';
 import 'tela_historico.dart';
 import 'tela_home.dart';
+import 'tela_login.dart';
 import 'tela_padrinho_definido.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
@@ -61,11 +62,28 @@ class ProfilePage extends StatelessWidget {
                   fontSize: 12,
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 18),
               const _PessoaPerfil(),
-              const SizedBox(height: 10),
+              const SizedBox(height: 16),
               _VinculoAtivo(onTap: () => _abrirPadrinho(context)),
-              const SizedBox(height: 12),
+              const SizedBox(height: 20),
+              const _TituloSecao('Sobre mim'),
+              const SizedBox(height: 8),
+              const _BlocoTexto(
+                'Gosto de tecnologia, inovação e projetos no campus. '
+                'Estou no primeiro período e quero conhecer a rotina da PUC.',
+              ),
+              const SizedBox(height: 18),
+              const _TituloSecao('Informações acadêmicas'),
+              const SizedBox(height: 8),
+              const _InfoAcademica(
+                linhas: [
+                  ('Curso', 'Engenharia Química'),
+                  ('Período', '1º período'),
+                  ('E-mail institucional', 'ana.clara@pucminas.edu.br'),
+                ],
+              ),
+              const SizedBox(height: 18),
               _TituloSecao(
                 'Minha jornada',
                 acao: TextButton(
@@ -78,7 +96,7 @@ class ProfilePage extends StatelessWidget {
                   ),
                   child: const Row(
                     children: [
-                      Text('Ver histórico', style: TextStyle(fontSize: 11)),
+                      Text('Ver histórico', style: TextStyle(fontSize: 14)),
                       SizedBox(width: 2),
                       Icon(Icons.chevron_right, size: 17),
                     ],
@@ -97,7 +115,29 @@ class ProfilePage extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               _ProximoEncontro(onTap: () => _aviso(context, 'Próximo encontro')),
-              const SizedBox(height: 10),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _sair(context),
+                  icon: const Icon(Icons.logout_rounded),
+                  label: const Text('Sair da conta'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFDC2626),
+                    minimumSize: const Size.fromHeight(52),
+                    side: const BorderSide(color: Color(0xFFFECACA)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    textStyle: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
             ],
           ),
         ),
@@ -125,6 +165,13 @@ class ProfilePage extends StatelessWidget {
   void _abrirHistorico(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const HistoricoParticipacaoPage()),
+    );
+  }
+
+  void _sair(BuildContext context) {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+      (route) => false,
     );
   }
 
@@ -226,7 +273,7 @@ class _Tag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xFFF0E8FC),
         borderRadius: BorderRadius.circular(15),
@@ -235,7 +282,7 @@ class _Tag extends StatelessWidget {
         label,
         style: const TextStyle(
           color: AppColors.primary,
-          fontSize: 9,
+          fontSize: 12,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -256,7 +303,7 @@ class _VinculoAtivo extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(15),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(10, 8, 10, 7),
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
           decoration: BoxDecoration(
             border: Border.all(color: const Color(0xFFD1F3DF)),
             borderRadius: BorderRadius.circular(15),
@@ -275,14 +322,15 @@ class _VinculoAtivo extends StatelessWidget {
                         Text('Apadrinhado ativo',
                             style: TextStyle(
                                 color: AppColors.ink,
-                                fontSize: 14,
+                                fontSize: 16,
                                 fontWeight: FontWeight.w800)),
+                        SizedBox(height: 2),
                         Text(
                           'Você já está vinculada ao programa e pode conversar com seu padrinho.',
                           style: TextStyle(
                               color: AppColors.muted,
-                              fontSize: 10,
-                              height: 1.2),
+                              fontSize: 13,
+                              height: 1.3),
                         ),
                       ],
                     ),
@@ -303,24 +351,24 @@ class _VinculoAtivo extends StatelessWidget {
                     Icon(Icons.person_outline, color: AppColors.primary, size: 19),
                     SizedBox(width: 7),
                     Text('Padrinho: ',
-                        style: TextStyle(color: AppColors.muted, fontSize: 10)),
+                        style: TextStyle(color: AppColors.muted, fontSize: 14)),
                     Text('Rodrigo Silva',
                         style: TextStyle(
                             color: AppColors.ink,
-                            fontSize: 10,
+                            fontSize: 14,
                             fontWeight: FontWeight.w700)),
                   ],
                 ),
               ),
-              const SizedBox(height: 5),
-              const Row(
-                children: [
-                  Expanded(child: _MiniDado(Icons.groups_rounded, '1', 'Padrinho')),
-                  _Separador(),
-                  Expanded(child: _MiniDado(Icons.emoji_events_rounded, 'Grupo 08', 'Seu grupo')),
-                  _Separador(),
-                  Expanded(child: _MiniDado(Icons.calendar_month_rounded, 'Programa 2026/2', 'Período atual')),
-                ],
+              const SizedBox(height: 10),
+              const _MiniDado(Icons.groups_rounded, '1', 'Padrinho'),
+              const SizedBox(height: 6),
+              const _MiniDado(Icons.emoji_events_rounded, 'Grupo 08', 'Seu grupo'),
+              const SizedBox(height: 6),
+              const _MiniDado(
+                Icons.calendar_month_rounded,
+                'Programa 2026/2',
+                'Período atual',
               ),
             ],
           ),
@@ -340,24 +388,28 @@ class _MiniDado extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icone, color: AppColors.primary, size: 16),
-        const SizedBox(width: 4),
+        Icon(icone, color: AppColors.primary, size: 18),
+        const SizedBox(width: 8),
         Flexible(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(valor,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+          child: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: valor,
                   style: const TextStyle(
-                      color: AppColors.ink,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w800)),
-              Text(rotulo,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.muted, fontSize: 8)),
-            ],
+                    color: AppColors.ink,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                TextSpan(
+                  text: '  $rotulo',
+                  style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                ),
+              ],
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],
@@ -365,16 +417,89 @@ class _MiniDado extends StatelessWidget {
   }
 }
 
-class _Separador extends StatelessWidget {
-  const _Separador();
+class _BlocoTexto extends StatelessWidget {
+  const _BlocoTexto(this.texto);
+  final String texto;
 
   @override
-  Widget build(BuildContext context) => Container(
-        height: 28,
-        width: 1,
-        margin: const EdgeInsets.symmetric(horizontal: 5),
-        color: _borda,
-      );
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: _borda),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text(
+        texto,
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          color: AppColors.ink,
+          fontSize: 14,
+          height: 1.4,
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoAcademica extends StatelessWidget {
+  const _InfoAcademica({required this.linhas});
+  final List<(String, String)> linhas;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: _borda),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        children: [
+          for (var index = 0; index < linhas.length; index++) ...[
+            if (index > 0) const Divider(height: 1, color: _borda),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 5,
+                    child: Text(
+                      linhas[index].$1,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        color: AppColors.muted,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 6,
+                    child: Text(
+                      linhas[index].$2,
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        color: AppColors.ink,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 class _TituloSecao extends StatelessWidget {
@@ -390,7 +515,7 @@ class _TituloSecao extends StatelessWidget {
           child: Text(titulo,
               style: const TextStyle(
                   color: AppColors.ink,
-                  fontSize: 15,
+                  fontSize: 18,
                   fontWeight: FontWeight.w800)),
         ),
         if (acao != null) acao!,
@@ -410,21 +535,30 @@ class _ResumoJornada extends StatelessWidget {
       (Icons.calendar_month_rounded, '3', 'Encontros\nrealizados', AppAccents.tileAzul, AppColors.primary),
       (Icons.place_rounded, '5', 'Locais\nvisitados', AppAccents.tileLilas, AppColors.primary),
     ];
-    return Row(
-      children: [
-        for (var index = 0; index < itens.length; index++) ...[
-          if (index > 0) const SizedBox(width: 5),
-          Expanded(
-            child: _JornadaCard(
-              icone: itens[index].$1,
-              valor: itens[index].$2,
-              rotulo: itens[index].$3,
-              fundoIcone: itens[index].$4,
-              corIcone: itens[index].$5,
-            ),
-          ),
-        ],
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final colunas = constraints.maxWidth >= 560 ? 4 : 2;
+        const espaco = 10.0;
+        final largura =
+            (constraints.maxWidth - espaco * (colunas - 1)) / colunas;
+        return Wrap(
+          spacing: espaco,
+          runSpacing: espaco,
+          children: [
+            for (final item in itens)
+              SizedBox(
+                width: largura,
+                child: _JornadaCard(
+                  icone: item.$1,
+                  valor: item.$2,
+                  rotulo: item.$3,
+                  fundoIcone: item.$4,
+                  corIcone: item.$5,
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
@@ -447,8 +581,8 @@ class _JornadaCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 52,
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      constraints: const BoxConstraints(minHeight: 78),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: _borda),
@@ -460,12 +594,12 @@ class _JornadaCard extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 27,
-            height: 27,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(color: fundoIcone, shape: BoxShape.circle),
-            child: Icon(icone, color: corIcone, size: 16),
+            child: Icon(icone, color: corIcone, size: 20),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -476,12 +610,12 @@ class _JornadaCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                         color: AppColors.ink,
-                        fontSize: 9,
+                        fontSize: 16,
                         fontWeight: FontWeight.w800)),
                 Text(rotulo,
                     maxLines: 2,
                     style: const TextStyle(
-                        color: AppColors.muted, fontSize: 7, height: 1.1)),
+                        color: AppColors.muted, fontSize: 12, height: 1.2)),
               ],
             ),
           ),
@@ -526,17 +660,17 @@ class _AcessosRapidos extends StatelessWidget {
               onTap: acessos[index].$3,
               borderRadius: BorderRadius.circular(11),
               child: SizedBox(
-                height: 28,
+                height: 52,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
                   child: Row(
                     children: [
-                      Icon(acessos[index].$1, color: AppColors.primary, size: 17),
+                      Icon(acessos[index].$1, color: AppColors.primary, size: 22),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Text(acessos[index].$2,
                             style: const TextStyle(
-                                color: AppColors.ink, fontSize: 10)),
+                                color: AppColors.ink, fontSize: 15)),
                       ),
                       const Icon(Icons.chevron_right,
                           color: AppColors.muted, size: 18),
@@ -565,7 +699,7 @@ class _ProximoEncontro extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           decoration: BoxDecoration(
             border: Border.all(color: const Color(0xFFE9DFFF)),
             borderRadius: BorderRadius.circular(12),
@@ -588,21 +722,20 @@ class _ProximoEncontro extends StatelessWidget {
                     Text('PRÓXIMO ENCONTRO',
                         style: TextStyle(
                             color: AppColors.primary,
-                            fontSize: 8,
+                            fontSize: 12,
                             fontWeight: FontWeight.w800,
                             letterSpacing: .4)),
-                    SizedBox(height: 2),
+                    SizedBox(height: 4),
                     Text('Praça da Liberdade • sexta-feira, 16:00',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                             color: AppColors.ink,
-                            fontSize: 10,
+                            fontSize: 15,
+                            height: 1.25,
                             fontWeight: FontWeight.w700)),
+                    SizedBox(height: 2),
                     Text('Encontro do Grupo 08 com seu padrinho Rodrigo Silva.',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: AppColors.muted, fontSize: 9)),
+                        style: TextStyle(
+                            color: AppColors.muted, fontSize: 13, height: 1.3)),
                   ],
                 ),
               ),

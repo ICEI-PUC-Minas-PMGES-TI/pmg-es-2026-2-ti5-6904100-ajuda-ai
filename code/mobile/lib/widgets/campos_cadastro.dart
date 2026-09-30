@@ -36,48 +36,68 @@ class EstruturaCadastro extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final estreita = MediaQuery.sizeOf(context).width < 720;
+    final formulario = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
+    final aviso = const Text(
+      'Seus dados são usados apenas para melhorar sua '
+      'experiência no programa.',
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontFamily: 'Inter',
+        color: AppColors.muted,
+        fontSize: 13,
+        height: 1.4,
+      ),
+    );
+
     return Scaffold(
-      backgroundColor: AppColors.lavender,
+      backgroundColor: estreita ? Colors.white : AppColors.lavender,
       body: SafeArea(
         child: Column(
           children: [
             const _BarraLogos(),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-                child: Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(18, 22, 18, 18),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.06),
-                            blurRadius: 24,
-                            offset: const Offset(0, 8),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      estreita ? 20 : 16,
+                      estreita ? 8 : 16,
+                      estreita ? 20 : 16,
+                      24,
+                    ),
+                    child: Column(
+                      children: [
+                        if (estreita)
+                          formulario
+                        else
+                          Container(
+                            padding: const EdgeInsets.fromLTRB(18, 22, 18, 18),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.primary.withValues(
+                                    alpha: 0.06,
+                                  ),
+                                  blurRadius: 24,
+                                  offset: const Offset(0, 8),
+                                ),
+                              ],
+                            ),
+                            child: formulario,
                           ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: children,
-                      ),
+                        const SizedBox(height: 18),
+                        aviso,
+                      ],
                     ),
-                    const SizedBox(height: 18),
-                    const Text(
-                      'Seus dados são usados apenas para melhorar sua '
-                      'experiência no programa.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        color: AppColors.muted,
-                        fontSize: 12,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
