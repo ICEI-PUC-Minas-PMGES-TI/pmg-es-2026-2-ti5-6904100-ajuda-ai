@@ -11,7 +11,7 @@
 ## Contribuição
 
 ### Sprint 1
-### Semana 1 (01/09 - 08/09)
+### Semana 1 (04/08 - 18/08)
 
 - implementação do template no Github 
 - requisitos funcionais e não funcionais.
@@ -29,11 +29,11 @@
 - Planejamento da Sprint
 - Fechamento da Sprint
 
+### Sprint 4
 ### Semana 4 (16/09 - 22/09)
 
 - Implementação (Parcial) da Tela do Feed
 
-### Sprint 4
 ### Semana 5 (23/09 - 29/09)
 
 - Finalização da tela do Feed;
