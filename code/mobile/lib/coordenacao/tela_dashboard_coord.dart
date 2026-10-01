@@ -370,11 +370,12 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
         sliver: SliverGrid(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             mainAxisSpacing: 10,
             crossAxisSpacing: 10,
-            childAspectRatio: 1.55,
+            // Altura acompanha a fonte do sistema; proporção fixa estourava em telas estreitas.
+            mainAxisExtent: MediaQuery.textScalerOf(context).scale(60) + 24,
           ),
           delegate: SliverChildListDelegate([
             _Kpi(
@@ -916,53 +917,54 @@ class _Barras extends StatelessWidget {
     final max = itens.map((e) => e.$2).fold<int>(1, (a, b) => a > b ? a : b);
     const chartHeight = 100.0;
 
-    return SizedBox(
-      height: 148,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          for (final item in itens)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Text(
-                      '${item.$2}',
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
-                    ),
-                    const SizedBox(height: 4),
-                    SizedBox(
-                      height: chartHeight,
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Container(
-                          height: item.$2 == 0 ? 0 : chartHeight * (item.$2 / max).clamp(0.12, 1.0),
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: item.$3,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+    // Sem altura fixa: rótulos maiores (fonte do sistema) não estouram.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        for (final item in itens)
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${item.$2}',
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                  ),
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    height: chartHeight,
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Container(
+                        height: item.$2 == 0 ? 0 : chartHeight * (item.$2 / max).clamp(0.12, 1.0),
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: item.$3,
+                          borderRadius: BorderRadius.circular(8),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
+                  ),
+                  const SizedBox(height: 6),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
                       item.$1,
-                      textAlign: TextAlign.center,
+                      maxLines: 1,
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF5C5678),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 }
