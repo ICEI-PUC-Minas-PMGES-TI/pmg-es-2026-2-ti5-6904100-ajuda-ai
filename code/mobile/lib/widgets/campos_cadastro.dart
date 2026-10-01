@@ -496,12 +496,7 @@ class CampoMultiSelecao extends StatelessWidget {
         Container(
           width: double.infinity,
           constraints: const BoxConstraints(minHeight: 48),
-          padding: EdgeInsets.fromLTRB(
-            12,
-            selecionados.isEmpty ? 4 : 12,
-            8,
-            4,
-          ),
+          padding: EdgeInsets.fromLTRB(12, selecionados.isEmpty ? 4 : 12, 8, 4),
           decoration: EstiloCampo.decoracao(erro: erro),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -514,10 +509,7 @@ class CampoMultiSelecao extends StatelessWidget {
                     runSpacing: 8,
                     children: [
                       for (final item in chipsVisiveis)
-                        _Chip(
-                          texto: item,
-                          onRemover: () => onRemover(item),
-                        ),
+                        _Chip(texto: item, onRemover: () => onRemover(item)),
                       if (extras > 0)
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -717,4 +709,129 @@ class BotaoCadastro extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Caixa de seleção com texto clicável (ex.: declaração obrigatória).
+class CampoDeclaracao extends StatelessWidget {
+  const CampoDeclaracao({
+    super.key,
+    required this.texto,
+    required this.valor,
+    required this.onChanged,
+    this.erro = false,
+    this.mensagemErro,
+  });
+
+  final String texto;
+  final bool valor;
+  final ValueChanged<bool> onChanged;
+  final bool erro;
+  final String? mensagemErro;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            onTap: () => onChanged(!valor),
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(4, 4, 12, 4),
+              decoration: EstiloCampo.decoracao(erro: erro),
+              child: Row(
+                children: [
+                  Checkbox(
+                    value: valor,
+                    activeColor: AppColors.primary,
+                    onChanged: (novo) => onChanged(novo ?? false),
+                  ),
+                  Expanded(
+                    child: Text(
+                      texto,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        color: AppColors.ink,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (erro && mensagemErro != null) MensagemErroCampo(mensagemErro!),
+      ],
+    );
+  }
+}
+
+/// Botão principal com estado de envio ("Enviando...") que bloqueia toques.
+class BotaoEnvio extends StatelessWidget {
+  const BotaoEnvio({
+    super.key,
+    required this.texto,
+    required this.enviando,
+    required this.onPressed,
+    this.textoEnviando = 'Enviando...',
+  });
+
+  final String texto;
+  final String textoEnviando;
+  final bool enviando;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: enviando,
+      child: Opacity(
+        opacity: enviando ? 0.7 : 1,
+        child: BotaoCadastro(
+          texto: enviando ? textoEnviando : texto,
+          onPressed: onPressed,
+        ),
+      ),
+    );
+  }
+}
+
+/// SnackBar de erro com ação "Tentar novamente".
+void mostrarErroComRetentativa(
+  BuildContext context,
+  String mensagem,
+  VoidCallback tentarNovamente,
+) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(mensagem),
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: 'Tentar novamente',
+          onPressed: tentarNovamente,
+        ),
+      ),
+    );
+}
+
+/// Aviso de que o envio ficou salvo apenas neste aparelho (sem conexão).
+void mostrarSalvoLocalmente(BuildContext context) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Sem conexão com o servidor: suas respostas ficaram salvas neste '
+          'aparelho.',
+        ),
+      ),
+    );
 }

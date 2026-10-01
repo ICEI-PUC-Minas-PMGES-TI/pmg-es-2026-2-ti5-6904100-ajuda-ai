@@ -101,7 +101,7 @@ class _CadastroPageState extends State<CadastroPage> {
       children: [
         const TituloPasso(
           passo: 1,
-          total: 2,
+          total: 3,
           titulo: 'Complete seu perfil',
           subtitulo:
               'Essas informações serão usadas para personalizar sua '

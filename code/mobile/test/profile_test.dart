@@ -1,13 +1,30 @@
+import 'package:ajuda_ai/configuracoes/tela_config_aparencia.dart';
+import 'package:ajuda_ai/configuracoes/tela_configuracoes.dart';
 import 'package:ajuda_ai/dados_cadastro.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/status_participacao.dart';
 import 'package:ajuda_ai/tela_login.dart';
+import 'package:ajuda_ai/tela_padrinho_definido.dart';
 import 'package:ajuda_ai/tela_participacao.dart';
 import 'package:ajuda_ai/tela_perfil.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'helpers/api_falsa.dart';
+
+const _camila = DadosCadastro(
+  nome: 'Camila Duarte',
+  email: 'camila@pucminas.edu.br',
+  curso: 'Engenharia de Software',
+  periodo: 1,
+  turno: 'Noite',
+  interesses: ['Tecnologia', 'Inovação'],
+);
+
 void main() {
+  late ApiFalsa api;
+
+  setUp(() => api = ApiFalsa().instalar());
   tearDown(SessaoUsuario.atual.limpar);
 
   testWidgets('perfil exibe informacoes sem idioma', (tester) async {
@@ -130,5 +147,94 @@ void main() {
 
     expect(find.byType(LoginPage), findsOneWidget);
     expect(find.text('Entrar com a Microsoft'), findsOneWidget);
+  });
+
+  testWidgets('engrenagem abre configurações com as seis seções', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
+
+    await tester.tap(find.byTooltip('Configurações'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ConfiguracoesPage), findsOneWidget);
+    for (final secao in [
+      'Notificação e Preferências',
+      'Privacidade e Visibilidade',
+      'Apadrinhamento',
+      'Aparência e Acessibilidade',
+      'Dados e Armazenamento',
+      'Suporte',
+    ]) {
+      expect(find.text(secao), findsOneWidget);
+    }
+
+    await tester.tap(find.text('Notificação e Preferências'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Novidades do feed'));
+    await tester.pumpAndSettle();
+    expect(SessaoUsuario.atual.preferencias['notificacoesFeed'], isTrue);
+    await tester.tap(find.byTooltip('Voltar'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Aparência e Acessibilidade'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AparenciaConfigPage), findsOneWidget);
+    await tester.tap(find.text('Grande'));
+    await tester.pumpAndSettle();
+    expect(SessaoUsuario.atual.escalaTexto.value, 1.15);
+  });
+
+  testWidgets('perfil de apadrinhado ativo usa a situação do backend', (
+    tester,
+  ) async {
+    api.situacao = situacaoApadrinhadoAtivo();
+    SessaoUsuario.atual.definir(
+      dadosCadastro: _camila,
+      escolha: Participacao.apadrinhado,
+    );
+
+    await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
+    await tester.pumpAndSettle();
+
+    expect(SessaoUsuario.atual.status, StatusParticipacao.apadrinhadoAtivo);
+    expect(find.text('Apadrinhado ativo'), findsOneWidget);
+    expect(find.text('Padrinho: Thiago Moreira'), findsOneWidget);
+    expect(find.text('Grupo 08'), findsWidgets);
+    expect(find.text('Tecnologia'), findsOneWidget);
+    expect(find.text('Minha jornada'), findsOneWidget);
+    expect(find.text('Acessos rápidos'), findsOneWidget);
+    expect(find.text('Meu padrinho'), findsOneWidget);
+
+    await tester.tap(find.text('Apadrinhado ativo'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PadrinhoDefinidoPage), findsOneWidget);
+    expect(find.text('Thiago Moreira'), findsOneWidget);
+  });
+
+  testWidgets('aguardando padrinho mostra o card e o aviso do mapa', (
+    tester,
+  ) async {
+    SessaoUsuario.atual.definir(
+      dadosCadastro: _camila,
+      escolha: Participacao.apadrinhado,
+    );
+
+    await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Aguardando padrinho'), findsOneWidget);
+    expect(find.text('Minha jornada'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Explorar mapa'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Explorar mapa'));
+    await tester.pump();
+
+    expect(find.textContaining('app Mapa da PUC'), findsOneWidget);
   });
 }

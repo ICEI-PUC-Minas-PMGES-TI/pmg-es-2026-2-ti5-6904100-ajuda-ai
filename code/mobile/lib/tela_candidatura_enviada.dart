@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'tela_perfil.dart';
+import 'tela_status_candidatura.dart';
 import 'theme/colors.dart';
 import 'widgets/campos_cadastro.dart';
 
@@ -61,9 +62,30 @@ class CandidaturaEnviadaPage extends StatelessWidget {
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-                  child: BotaoCadastro(
-                    texto: 'Ir para meu perfil',
-                    onPressed: () => _irParaPerfil(context),
+                  child: Column(
+                    children: [
+                      BotaoCadastro(
+                        texto: 'Ir para meu perfil',
+                        onPressed: () => _irParaPerfil(context),
+                      ),
+                      const SizedBox(height: 6),
+                      TextButton.icon(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const StatusCandidaturaPage(),
+                          ),
+                        ),
+                        icon: const Icon(Icons.timeline, size: 18),
+                        label: const Text('Acompanhar status da candidatura'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          textStyle: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],

@@ -45,13 +45,24 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 );
               },
-              onCoordenacaoPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const TelaCoordenacao(),
-                  ),
-                );
-              },
+            ),
+          ),
+          // Fora do fluxo vertical para não comprimir a ilustração.
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topRight,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2, right: 6),
+                child: _LinkCoordenacao(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const TelaCoordenacao(),
+                      ),
+                    );
+                  },
+                ),
+              ),
             ),
           ),
         ],
@@ -87,15 +98,38 @@ class _BackgroundShapes extends StatelessWidget {
   );
 }
 
+class _LinkCoordenacao extends StatelessWidget {
+  const _LinkCoordenacao({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      onPressed: onPressed,
+      icon: const Icon(Icons.admin_panel_settings_outlined, size: 16),
+      label: const Text('Área da coordenação'),
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.primary,
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        textStyle: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
 class _LoginContent extends StatelessWidget {
   const _LoginContent({
     required this.onMicrosoftPressed,
-    required this.onCoordenacaoPressed,
     required this.bottomInset,
   });
 
   final VoidCallback onMicrosoftPressed;
-  final VoidCallback onCoordenacaoPressed;
   final double bottomInset;
 
   @override
@@ -108,7 +142,7 @@ class _LoginContent extends StatelessWidget {
         final topGap = (height * 0.060).clamp(20.0, 46.0);
         final afterLockup = (height * 0.069).clamp(28.0, 56.0);
         final aroundHero = (height * 0.015).clamp(8.0, 16.0);
-        final afterButton = (height * 0.018).clamp(8.0, 16.0);
+        final afterButton = (height * 0.027).clamp(12.0, 24.0);
 
         return Padding(
           padding: EdgeInsets.symmetric(
@@ -125,22 +159,8 @@ class _LoginContent extends StatelessWidget {
               SizedBox(height: aroundHero),
               _MicrosoftButton(onPressed: onMicrosoftPressed),
               SizedBox(height: afterButton),
-              TextButton(
-                onPressed: onCoordenacaoPressed,
-                style: TextButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  minimumSize: const Size.fromHeight(44),
-                  textStyle: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                child: const Text('Área da coordenação'),
-              ),
-              SizedBox(height: afterButton),
               SizedBox(
-                height: (CampusPhoto.heightFor(context) * 0.90 - bottomInset)
+                height: (CampusPhoto.heightFor(context) * 0.98 - bottomInset)
                     .clamp(0.0, double.infinity),
               ),
             ],

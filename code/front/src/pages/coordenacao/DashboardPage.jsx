@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import Icon from '../../components/Icon';
+import Modal from '../../components/Modal';
 
 function formatarAtualizacao(iso) {
   if (!iso) return '—';
@@ -351,7 +352,7 @@ export default function DashboardPage() {
             <button
               type="button"
               disabled={acoes?.podeCriarComunicado === false}
-              onClick={() => ir('configuracoes')}
+              onClick={() => ir('configuracoes', { secao: 'comunicados' })}
             >
               <Icon name="megaphone" size={20} />
               <span>Criar comunicado</span>
@@ -454,34 +455,31 @@ export default function DashboardPage() {
       </footer>
 
       {detalhe && (
-        <div className="modal-backdrop" onClick={() => setDetalhe(null)}>
-          <div
-            className="modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cand-detail-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="cand-detail-title">Candidatura</h2>
-            <p><strong>{detalhe.nome}</strong></p>
-            <p>{detalhe.curso}{detalhe.periodo ? ` · ${detalhe.periodo}º período` : ''}</p>
-            <p>Status: {detalhe.statusRotulo}</p>
-            <p>Programa: {detalhe.programa}</p>
-            <div className="modal-actions">
+        <Modal
+          titulo="Candidatura"
+          onFechar={() => setDetalhe(null)}
+          acoes={(
+            <>
               <button
                 type="button"
-                className="primary-button"
+                className="primary-button inline"
                 onClick={() => {
+                  const id = detalhe.id;
                   setDetalhe(null);
-                  ir('candidaturas');
+                  ir('candidaturas', { id: String(id) });
                 }}
               >
-                Ver na lista
+                Abrir candidatura <Icon name="arrow" size={16} />
               </button>
               <button type="button" className="ghost-button" onClick={() => setDetalhe(null)}>Fechar</button>
-            </div>
-          </div>
-        </div>
+            </>
+          )}
+        >
+          <p><strong>{detalhe.nome}</strong></p>
+          <p>{detalhe.curso}{detalhe.periodo ? ` · ${detalhe.periodo}º período` : ''}</p>
+          <p>Status: <span className={`status-pill ${badgeClass(detalhe.status)}`}>{detalhe.statusRotulo}</span></p>
+          <p>Programa: {detalhe.programa}</p>
+        </Modal>
       )}
     </div>
   );

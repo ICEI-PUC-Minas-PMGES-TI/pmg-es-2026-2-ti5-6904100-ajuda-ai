@@ -1,14 +1,32 @@
 import 'package:flutter/material.dart';
 
 import 'dados_cadastro.dart';
+import 'models/formulario.dart';
+import 'services/api_config.dart';
+import 'sessao_usuario.dart';
 import 'tela_cadastro_concluido.dart';
 import 'theme/colors.dart';
 import 'widgets/campos_cadastro.dart';
+import 'widgets/perguntas_adicionais.dart';
 
-class RevisaoCadastroPage extends StatelessWidget {
-  const RevisaoCadastroPage({super.key, required this.dados});
+class RevisaoCadastroPage extends StatefulWidget {
+  const RevisaoCadastroPage({
+    super.key,
+    required this.dados,
+    this.perguntasAdicionais = const [],
+  });
 
   final DadosCadastro dados;
+  final List<PerguntaFormulario> perguntasAdicionais;
+
+  @override
+  State<RevisaoCadastroPage> createState() => _RevisaoCadastroPageState();
+}
+
+class _RevisaoCadastroPageState extends State<RevisaoCadastroPage> {
+  bool _enviando = false;
+
+  DadosCadastro get dados => widget.dados;
 
   static String _simNao(bool? valor) => switch (valor) {
     true => 'Sim',
@@ -17,12 +35,30 @@ class RevisaoCadastroPage extends StatelessWidget {
   };
   void _editar(BuildContext context) => Navigator.of(context).pop();
 
-  void _enviar(BuildContext context) {
-    // TODO: enviar o cadastro ao backend.
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const CadastroConcluidoPage()),
-      (_) => false,
-    );
+  /// Envia o cadastro (`POST /participacoes/cadastro-apadrinhado`).
+  /// Sem conexão, segue com o estado local (ver [SessaoUsuario]); com erro do
+  /// backend, fica na tela e oferece "Tentar novamente".
+  Future<void> _enviar() async {
+    if (_enviando) return;
+    setState(() => _enviando = true);
+    try {
+      final enviado = await SessaoUsuario.atual.cadastrarApadrinhado(
+        dadosCadastro: dados,
+      );
+      if (!mounted) return;
+      if (!enviado) mostrarSalvoLocalmente(context);
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const CadastroConcluidoPage()),
+        (_) => false,
+      );
+    } catch (erro) {
+      if (!mounted) return;
+      setState(() => _enviando = false);
+      final mensagem = erro is ApiException
+          ? 'Não foi possível enviar seu cadastro: ${erro.mensagem}'
+          : 'Não foi possível enviar seu cadastro. Tente novamente.';
+      mostrarErroComRetentativa(context, mensagem, _enviar);
+    }
   }
 
   @override
@@ -55,13 +91,19 @@ class RevisaoCadastroPage extends StatelessWidget {
         'Outras informações',
         dados.outrasInformacoes,
       ),
+      for (final pergunta in widget.perguntasAdicionais)
+        (
+          Icons.help_outline,
+          pergunta.enunciado,
+          PerguntasAdicionais.formatar(dados.extras[pergunta.id]),
+        ),
     ];
 
     return EstruturaCadastro(
       children: [
         const TituloPasso(
-          passo: 2,
-          total: 2,
+          passo: 3,
+          total: 3,
           titulo: 'Revise suas informações',
           subtitulo:
               'Confira os dados do seu cadastro antes de enviar para '
@@ -73,7 +115,7 @@ class RevisaoCadastroPage extends StatelessWidget {
             icone: icone,
             titulo: titulo,
             valor: valor,
-            onEditar: () => _editar(context),
+            onEditar: _enviando ? () {} : () => _editar(context),
           ),
         const SizedBox(height: 6),
         const AvisoCadastro(
@@ -90,9 +132,10 @@ class RevisaoCadastroPage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 22),
-        BotaoCadastro(
+        BotaoEnvio(
           texto: 'Enviar cadastro',
-          onPressed: () => _enviar(context),
+          enviando: _enviando,
+          onPressed: _enviar,
         ),
       ],
     );

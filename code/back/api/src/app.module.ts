@@ -5,6 +5,7 @@ import { DataSource, type DataSourceOptions } from 'typeorm';
 import { AuthModule } from './auth/auth.module.js';
 import { AvisosModule } from './avisos/avisos.module.js';
 import { CoordenacaoModule } from './coordenacao/coordenacao.module.js';
+import { FormulariosModule } from './formularios/formularios.module.js';
 import { ParticipacoesModule } from './participacoes/participacoes.module.js';
 import { ProgramasModule } from './programas/programas.module.js';
 import { UsuariosModule } from './usuarios/usuarios.module.js';
@@ -60,6 +61,7 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
     PublicacoesModule,
     ParticipacoesModule,
     ProgramasModule,
+    FormulariosModule,
     CoordenacaoModule,
   ],
 })

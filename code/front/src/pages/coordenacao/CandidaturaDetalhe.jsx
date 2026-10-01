@@ -1,0 +1,297 @@
+import { useCallback, useEffect, useId, useState } from 'react';
+import { api } from '../../api/client';
+import Icon from '../../components/Icon';
+import Modal from '../../components/Modal';
+import { textoResposta } from '../../components/PerguntasAdicionais';
+import { Avatar, badgeClass, dataCurta, DefinirPadrinho } from './comum';
+
+function simNao(valor) {
+  if (valor === true) return 'Sim';
+  if (valor === false) return 'Não';
+  return 'Não informado';
+}
+
+function Bloco({ icon, titulo, children, extra }) {
+  return (
+    <section className="detail-block">
+      <h3><Icon name={icon} size={17} /> {titulo}{extra}</h3>
+      {children}
+    </section>
+  );
+}
+
+function Chips({ itens, vazio = 'Não informado' }) {
+  if (!itens?.length) return <p className="detail-muted">{vazio}</p>;
+  return <ul className="detail-chips">{itens.map((i) => <li key={i}>{i}</li>)}</ul>;
+}
+
+export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFechar, onAtualizado }) {
+  const [detalhe, setDetalhe] = useState(null);
+  const [erro, setErro] = useState('');
+  const [observacoes, setObservacoes] = useState('');
+  const [salvandoObs, setSalvandoObs] = useState(false);
+  const [obsSalvas, setObsSalvas] = useState(false);
+  const [acao, setAcao] = useState('');
+  const [erroAcao, setErroAcao] = useState('');
+  const [confirmarRejeicao, setConfirmarRejeicao] = useState(false);
+  const [perguntas, setPerguntas] = useState({});
+  const statusId = useId();
+  const obsId = useId();
+
+  const carregar = useCallback(async () => {
+    setErro('');
+    try {
+      const dados = await api.candidatura(id);
+      setDetalhe(dados);
+      setObservacoes(dados.observacoes || '');
+    } catch (error) {
+      setErro(error.message || 'Não foi possível carregar a candidatura.');
+    }
+  }, [id]);
+
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  const tipoFormulario = detalhe?.papel === 'apadrinhado' ? 'apadrinhado' : 'padrinho';
+  const temExtras = detalhe?.respostas?.extras && Object.keys(detalhe.respostas.extras).length > 0;
+  useEffect(() => {
+    if (!temExtras) return undefined;
+    let ativo = true;
+    api.formularioCoordenacao(tipoFormulario, detalhe.programa)
+      .then((f) => { if (ativo) setPerguntas(Object.fromEntries((f.perguntas || []).map((p) => [p.id, p.enunciado]))); })
+      .catch(() => {});
+    return () => { ativo = false; };
+  }, [temExtras, tipoFormulario, detalhe?.programa]);
+
+  async function executar(nome, fn, mensagem) {
+    setAcao(nome);
+    setErroAcao('');
+    try {
+      const atualizado = await fn();
+      // Observações só mudam pelo botão "Salvar observações": preserva o rascunho digitado.
+      setDetalhe((atual) => ({ ...atualizado, observacoes: atual?.observacoes ?? atualizado.observacoes }));
+      onAtualizado?.(atualizado, mensagem);
+    } catch (error) {
+      setErroAcao(error.message || 'Não foi possível concluir a ação.');
+    } finally {
+      setAcao('');
+    }
+  }
+
+  async function salvarObservacoes() {
+    setSalvandoObs(true);
+    setErroAcao('');
+    setObsSalvas(false);
+    try {
+      const atualizado = await api.atualizarCandidatura(id, { observacoes });
+      setDetalhe(atualizado);
+      setObsSalvas(true);
+    } catch (error) {
+      setErroAcao(error.message || 'Não foi possível salvar as observações.');
+    } finally {
+      setSalvandoObs(false);
+    }
+  }
+
+  if (erro) {
+    return (
+      <div className="cand-detail" role="alert">
+        <button type="button" className="back-to-list" onClick={onFechar}><Icon name="arrowLeft" size={16} /> Voltar à lista</button>
+        <div className="dash-inline-error">{erro}<button type="button" onClick={carregar}>Tentar novamente</button></div>
+      </div>
+    );
+  }
+  if (!detalhe) {
+    return <div className="cand-detail"><div className="coord-state" role="status"><div className="coord-spinner" aria-hidden="true" /><p>Carregando detalhes…</p></div></div>;
+  }
+
+  const r = detalhe.respostas || {};
+  const ehApadrinhado = detalhe.papel === 'apadrinhado';
+  const aprovada = detalhe.papel === 'padrinho';
+  const rejeitada = detalhe.status === 'nao_aprovado';
+  const decidida = aprovada || rejeitada;
+  const extras = r.extras || {};
+
+  return (
+    <article className="cand-detail" aria-labelledby={`cand-${id}-nome`}>
+      <button type="button" className="back-to-list" onClick={onFechar}><Icon name="arrowLeft" size={16} /> Voltar à lista</button>
+
+      <header className="detail-head">
+        <Avatar pessoa={detalhe} tamanho="lg" />
+        <div>
+          <h2 id={`cand-${id}-nome`}>{detalhe.nome}</h2>
+          <p><Icon name="school" size={15} /> {detalhe.curso}{detalhe.periodo ? ` • ${detalhe.periodo}º período` : ''}</p>
+          <p><Icon name="calendar" size={15} /> {ehApadrinhado ? 'Cadastro enviado' : 'Candidatura enviada'} em {dataCurta(detalhe.criadoEm)}</p>
+          <p><Icon name="mail" size={15} /> <a href={`mailto:${detalhe.email}`}>{detalhe.email}</a></p>
+          <div className="detail-tags">
+            <span className={`status-pill ${badgeClass(detalhe.status, detalhe.papel)}`}>{detalhe.statusRotulo}</span>
+            {!ehApadrinhado && (
+              <span className="detail-tag"><Icon name="school" size={14} /> {detalhe.jaFoiApadrinhadoEm ? `Já foi apadrinhado em ${detalhe.jaFoiApadrinhadoEm}` : 'Nunca foi apadrinhado'}</span>
+            )}
+            {!ehApadrinhado && (
+              <span className="detail-tag"><Icon name="home" size={14} /> {detalhe.numeroCandidatura > 1 ? `${detalhe.numeroCandidatura}ª candidatura para padrinho` : 'Primeira candidatura'}</span>
+            )}
+            {detalhe.grupo && <span className="detail-tag"><Icon name="groups" size={14} /> {detalhe.grupo}</span>}
+          </div>
+        </div>
+      </header>
+
+      <div className={`detail-grid${ehApadrinhado ? ' is-apadrinhado' : ''}`}>
+        <div className="detail-main">
+          {!ehApadrinhado && (
+            <>
+              <Bloco icon="info" titulo="Critérios deste semestre" extra={<span className="detail-note">Programa {detalhe.programa}</span>}>
+                <ul className="check-list">{detalhe.criterios.map((c) => <li key={c}><Icon name="check" size={14} /> {c}</li>)}</ul>
+              </Bloco>
+              <Bloco icon="checkCircle" titulo="Autoavaliação do candidato">
+                {r.declaraPreRequisitos ? (
+                  <ul className="check-list">
+                    <li><Icon name="check" size={14} /> Declarou aprovação em AEDS 1.</li>
+                    <li><Icon name="check" size={14} /> Declarou aprovação em Cálculo 1.</li>
+                    <li><Icon name="check" size={14} /> {detalhe.periodo && detalhe.periodo > 1 ? `Está no ${detalhe.periodo}º período.` : 'Período informado no perfil.'}</li>
+                  </ul>
+                ) : (
+                  <p className="detail-warn"><Icon name="alert" size={15} /> O candidato não declarou os pré-requisitos.</p>
+                )}
+              </Bloco>
+              <Bloco icon="file" titulo="Motivação"><p className="detail-text">{r.motivacao || 'Não informada.'}</p></Bloco>
+              <Bloco icon="star" titulo="Experiências relevantes"><p className="detail-text">{r.experiencias || 'Não informadas.'}</p></Bloco>
+            </>
+          )}
+          {ehApadrinhado && (
+            <>
+              <Bloco icon="chat" titulo="O que espera do padrinho"><p className="detail-text">{r.expectativa || 'Não informado.'}</p></Bloco>
+              {r.outrasInformacoes && <Bloco icon="file" titulo="Outras informações"><p className="detail-text">{r.outrasInformacoes}</p></Bloco>}
+            </>
+          )}
+          <div className="detail-two">
+            <Bloco icon="tag" titulo={ehApadrinhado ? 'Áreas em que quer apoio' : 'Áreas que pode apoiar'}><Chips itens={r.areas} /></Bloco>
+            <Bloco icon="clock" titulo="Disponibilidade"><Chips itens={r.disponibilidade} /></Bloco>
+          </div>
+          <Bloco icon="person" titulo="Perfil">
+            <dl className="detail-facts">
+              <div><dt>Gênero</dt><dd>{r.genero || 'Não informado'}</dd></div>
+              <div><dt>Bolsista ProUni</dt><dd>{simNao(r.bolsistaProuni)}</dd></div>
+              <div><dt>De outra cidade</dt><dd>{simNao(r.deOutraCidade)}</dd></div>
+              {r.turno && <div><dt>Turno</dt><dd>{r.turno}</dd></div>}
+            </dl>
+            {r.interesses?.length > 0 && <><p className="detail-sub">Interesses</p><Chips itens={r.interesses} /></>}
+          </Bloco>
+          {Object.keys(extras).length > 0 && (
+            <Bloco icon="form" titulo="Perguntas adicionais">
+              <dl className="detail-extras">
+                {Object.entries(extras).map(([pid, valor]) => (
+                  <div key={pid}><dt>{perguntas[pid] || `Pergunta ${pid}`}</dt><dd>{textoResposta(valor) || '—'}</dd></div>
+                ))}
+              </dl>
+            </Bloco>
+          )}
+          <Bloco icon="history" titulo="Histórico no programa">
+            {detalhe.historico?.length ? (
+              <ul className="detail-history">
+                {detalhe.historico.map((h) => <li key={h.id}><strong>{h.programa}</strong> · {h.papel === 'candidato' ? 'Candidato' : h.papel === 'padrinho' ? 'Padrinho' : 'Apadrinhado'} · {h.statusRotulo}</li>)}
+              </ul>
+            ) : (
+              <p className="detail-muted">{ehApadrinhado ? 'Primeira participação no programa.' : 'Primeira candidatura — sem participações anteriores.'}</p>
+            )}
+          </Bloco>
+        </div>
+
+        <aside className="detail-side">
+          {modoApadrinhado || ehApadrinhado ? (
+            <section className="detail-block">
+              <h3><Icon name="link" size={17} /> Vínculo</h3>
+              {detalhe.grupo ? (
+                <p className="detail-text">Já vinculado ao {detalhe.grupo}.</p>
+              ) : (
+                <DefinirPadrinho
+                  apadrinhado={detalhe}
+                  programa={detalhe.programa || programa}
+                  onVinculado={(res) => {
+                    setDetalhe((atual) => ({ ...atual, grupo: res.apadrinhado?.grupo || res.padrinho?.grupo }));
+                    onAtualizado?.({ ...detalhe, grupo: res.apadrinhado?.grupo }, `${detalhe.nome} agora tem padrinho: ${res.padrinho?.nome} (${res.padrinho?.grupo || res.apadrinhado?.grupo}).`);
+                  }}
+                />
+              )}
+            </section>
+          ) : (
+            <section className="detail-block">
+              <h3><Icon name="chart" size={17} /> Status da análise</h3>
+              <label className="sr-only" htmlFor={statusId}>Status da análise</label>
+              <select
+                id={statusId}
+                className="detail-select"
+                value={decidida ? 'decidida' : detalhe.status}
+                disabled={decidida || Boolean(acao)}
+                onChange={(e) => executar('status', () => api.atualizarCandidatura(id, { status: e.target.value }), 'Status atualizado.')}
+              >
+                {decidida && <option value="decidida">{detalhe.statusRotulo}</option>}
+                <option value="pendente">Nova</option>
+                <option value="em_analise">Em análise</option>
+              </select>
+              <div className="decision-buttons">
+                <button type="button" className="decision approve" disabled={aprovada || Boolean(acao)} onClick={() => executar('aprovar', () => api.aprovarCandidatura(id), `Candidatura de ${detalhe.nome} aprovada.`)}>
+                  <Icon name="check" size={17} /> {acao === 'aprovar' ? 'Aprovando…' : aprovada ? 'Aprovada' : 'Aprovar candidatura'}
+                </button>
+                <button type="button" className="decision reject" disabled={decidida || Boolean(acao)} onClick={() => setConfirmarRejeicao(true)}>
+                  <Icon name="close" size={17} /> {rejeitada ? 'Rejeitada' : 'Rejeitar candidatura'}
+                </button>
+                <button type="button" className="decision review" disabled={decidida || detalhe.status === 'em_analise' || Boolean(acao)} onClick={() => executar('revisao', () => api.atualizarCandidatura(id, { status: 'em_analise' }), 'Candidatura marcada para revisão (em análise).')}>
+                  <Icon name="refresh" size={17} /> {acao === 'revisao' ? 'Enviando…' : 'Solicitar revisão'}
+                </button>
+              </div>
+              {decidida && <p className="detail-muted small">{aprovada ? 'Candidatura aprovada: o candidato já é padrinho neste ciclo.' : 'Candidatura rejeitada neste ciclo.'}</p>}
+            </section>
+          )}
+
+          {erroAcao && <p className="form-error" role="alert"><Icon name="alert" size={15} /> {erroAcao}</p>}
+
+          <section className="detail-block">
+            <h3><Icon name="form" size={17} /> <label htmlFor={obsId}>Observações da coordenação</label></h3>
+            <textarea
+              id={obsId}
+              className="detail-textarea"
+              rows={5}
+              maxLength={1000}
+              value={observacoes}
+              placeholder="Adicione observações sobre esta candidatura…"
+              onChange={(e) => { setObservacoes(e.target.value); setObsSalvas(false); }}
+            />
+            <div className="obs-foot">
+              <span>{observacoes.length}/1000</span>
+              <button type="button" className="mini-btn" onClick={salvarObservacoes} disabled={salvandoObs || observacoes === (detalhe.observacoes || '')}>
+                <Icon name="save" size={14} /> {salvandoObs ? 'Salvando…' : 'Salvar observações'}
+              </button>
+            </div>
+            {obsSalvas && <p className="detail-ok" role="status"><Icon name="check" size={14} /> Observações salvas.</p>}
+            <p className="private-note"><Icon name="info" size={15} /> Estas informações são privadas e visíveis apenas para a coordenação do programa.</p>
+          </section>
+        </aside>
+      </div>
+
+      {confirmarRejeicao && (
+        <Modal
+          titulo="Rejeitar candidatura?"
+          descricao={`A candidatura de ${detalhe.nome} será marcada como não aprovada neste ciclo.`}
+          onFechar={() => setConfirmarRejeicao(false)}
+          acoes={(
+            <>
+              <button type="button" className="ghost-button" onClick={() => setConfirmarRejeicao(false)} data-autofocus>Cancelar</button>
+              <button
+                type="button"
+                className="danger-button"
+                onClick={() => {
+                  setConfirmarRejeicao(false);
+                  executar('rejeitar', () => api.rejeitarCandidatura(id), `Candidatura de ${detalhe.nome} rejeitada.`);
+                }}
+              >
+                Rejeitar
+              </button>
+            </>
+          )}
+        />
+      )}
+    </article>
+  );
+}

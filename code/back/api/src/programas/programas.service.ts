@@ -1,8 +1,14 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ParticipacoesService } from '../participacoes/participacoes.service.js';
 import { EtapaPrograma, ProgramaEntity } from './entities/programa.entity.js';
+import { ORDEM_ETAPAS } from './etapas.js';
 
 @Injectable()
 export class ProgramasService implements OnModuleInit {
@@ -117,6 +123,59 @@ export class ProgramasService implements OnModuleInit {
         encerramentoEm: `${fimSemestre}-20`,
       }),
     );
+  }
+
+  /** Atualiza etapa, flags, vagas e datas do programa (painel "Programas"). */
+  async atualizar(
+    codigo: string,
+    corpo: Record<string, unknown>,
+  ): Promise<ProgramaEntity> {
+    const programa = await this.buscarPorCodigo(codigo);
+    if (!programa) {
+      throw new NotFoundException(`Programa ${codigo} não encontrado.`);
+    }
+
+    if (corpo.etapaAtual !== undefined) {
+      if (!ORDEM_ETAPAS.includes(corpo.etapaAtual as EtapaPrograma)) {
+        throw new BadRequestException('Etapa do programa inválida.');
+      }
+      programa.etapaAtual = corpo.etapaAtual as EtapaPrograma;
+    }
+    for (const chave of [
+      'inscricoesAbertas',
+      'formularioPublicado',
+      'matchingPendente',
+    ] as const) {
+      if (typeof corpo[chave] === 'boolean') programa[chave] = corpo[chave];
+    }
+    for (const chave of ['vagasApadrinhados', 'gruposPrevistos'] as const) {
+      if (corpo[chave] !== undefined) {
+        const valor = Number(corpo[chave]);
+        if (!Number.isInteger(valor) || valor < 0 || valor > 10000) {
+          throw new BadRequestException(`Valor inválido para ${chave}.`);
+        }
+        programa[chave] = valor;
+      }
+    }
+    for (const chave of [
+      'inscricoesInicio',
+      'inscricoesFim',
+      'analiseInicio',
+      'analiseFim',
+      'formacaoInicio',
+      'formacaoFim',
+      'andamentoInicio',
+      'andamentoFim',
+      'encerramentoEm',
+    ] as const) {
+      const valor = corpo[chave];
+      if (valor === undefined) continue;
+      if (typeof valor !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+        throw new BadRequestException(`Data inválida em ${chave} (use AAAA-MM-DD).`);
+      }
+      programa[chave] = valor;
+    }
+    return this.programas.save(programa);
   }
 
   private proximoCodigo(): string {

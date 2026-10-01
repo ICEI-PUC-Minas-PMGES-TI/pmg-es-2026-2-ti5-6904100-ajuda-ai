@@ -1,20 +1,34 @@
-import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { buscarUsuarioPorEmail, USUARIOS } from '../dados/dados.js';
 import {
   ParticipacaoEntity,
   StatusParticipacaoRegistro,
 } from '../participacoes/entities/participacao.entity.js';
 import { ParticipacoesService } from '../participacoes/participacoes.service.js';
-import { EtapaPrograma, ProgramaEntity } from '../programas/entities/programa.entity.js';
+import { ProgramaEntity } from '../programas/entities/programa.entity.js';
+import {
+  formatarData,
+  montarEtapas,
+  ROTULOS_STATUS_PROGRAMA,
+} from '../programas/etapas.js';
+import { perfilDoRegistro } from '../participacoes/perfil.js';
 import { ProgramasService } from '../programas/programas.service.js';
+import { AvisosService } from '../avisos/avisos.service.js';
+import { FormulariosService } from '../formularios/formularios.service.js';
 
 @Injectable()
 export class CoordenacaoService implements OnModuleInit {
   constructor(
     private readonly programasService: ProgramasService,
     private readonly participacoesService: ParticipacoesService,
+    private readonly formulariosService: FormulariosService,
+    private readonly avisosService: AvisosService,
     @InjectRepository(ParticipacaoEntity)
     private readonly participacoes: Repository<ParticipacaoEntity>,
   ) {}
@@ -166,7 +180,7 @@ export class CoordenacaoService implements OnModuleInit {
         rejeitadas,
         total: candidaturasInscritas,
       },
-      etapas: this.montarEtapas(programa),
+      etapas: montarEtapas(programa),
       candidaturasRecentes: recentes,
       pontosAtencao,
       acoes: {
@@ -239,19 +253,7 @@ export class CoordenacaoService implements OnModuleInit {
   }
 
   private enriquecerCandidatura(item: ParticipacaoEntity) {
-    const usuario =
-      buscarUsuarioPorEmail(item.usuarioId) ||
-      Object.values(USUARIOS).find(
-        (u) => String(u.id) === item.usuarioId,
-      );
-    const nome = usuario?.nome ?? this.nomeDoEmail(item.usuarioId);
-    const iniciais = nome
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((p) => p[0]?.toUpperCase() ?? '')
-      .join('');
-
+    const perfil = perfilDoRegistro(item);
     return {
       id: item.id,
       usuarioId: item.usuarioId,
@@ -261,11 +263,12 @@ export class CoordenacaoService implements OnModuleInit {
       grupo: item.grupo ?? null,
       apadrinhados: item.apadrinhados,
       criadoEm: item.criadoEm,
-      nome,
-      curso: usuario?.curso ?? 'Curso não informado',
-      periodo: usuario?.periodo ?? null,
-      fotoUrl: usuario?.fotoUrl ?? null,
-      iniciais,
+      nome: perfil.nome,
+      email: perfil.email,
+      curso: perfil.curso,
+      periodo: perfil.periodo,
+      fotoUrl: perfil.fotoUrl,
+      iniciais: perfil.iniciais,
       statusRotulo: this.rotuloStatus(item),
     };
   }
@@ -279,46 +282,6 @@ export class CoordenacaoService implements OnModuleInit {
       em_andamento: 'Em andamento',
       concluido: 'Concluída',
     }[item.status];
-  }
-
-  private montarEtapas(programa: ProgramaEntity) {
-    const ordem: EtapaPrograma[] = [
-      'inscricoes',
-      'analise',
-      'formacao',
-      'andamento',
-      'encerramento',
-    ];
-    const atualIdx = ordem.indexOf(programa.etapaAtual);
-    const titulos: Record<EtapaPrograma, string> = {
-      inscricoes: 'Inscrições abertas',
-      analise: 'Análise de candidaturas',
-      formacao: 'Formação dos grupos',
-      andamento: 'Programa em andamento',
-      encerramento: 'Encerramento',
-    };
-    const periodos: Record<EtapaPrograma, [string | null, string | null]> = {
-      inscricoes: [programa.inscricoesInicio, programa.inscricoesFim],
-      analise: [programa.analiseInicio, programa.analiseFim],
-      formacao: [programa.formacaoInicio, programa.formacaoFim],
-      andamento: [programa.andamentoInicio, programa.andamentoFim],
-      encerramento: [programa.encerramentoEm, programa.encerramentoEm],
-    };
-
-    return ordem.map((chave, index) => {
-      const [inicio, fim] = periodos[chave];
-      return {
-        id: chave,
-        titulo: titulos[chave],
-        estado:
-          index < atualIdx
-            ? 'concluida'
-            : index === atualIdx
-              ? 'atual'
-              : 'futura',
-        periodoTexto: this.formatarPeriodo(inicio, fim),
-      };
-    });
   }
 
   private montarPontosAtencao(input: {
@@ -414,8 +377,8 @@ export class CoordenacaoService implements OnModuleInit {
           titulo: 'Prazo de inscrições próximo',
           descricao:
             dias === 0
-              ? `Inscrições encerram hoje (${this.formatarData(input.programa.inscricoesFim)}).`
-              : `Encerramento em ${dias} dia${dias === 1 ? '' : 's'} (${this.formatarData(input.programa.inscricoesFim)}).`,
+              ? `Inscrições encerram hoje (${formatarData(input.programa.inscricoesFim)}).`
+              : `Encerramento em ${dias} dia${dias === 1 ? '' : 's'} (${formatarData(input.programa.inscricoesFim)}).`,
           texto:
             dias === 0
               ? 'Prazo de inscrições encerra hoje'
@@ -440,20 +403,14 @@ export class CoordenacaoService implements OnModuleInit {
       programa.codigo === codigoVigente ||
       (programa.etapaAtual !== 'encerramento' &&
         programa.codigo === ParticipacoesService.programaAtual());
-    const statusRotulo: Record<EtapaPrograma, string> = {
-      inscricoes: 'Inscrições',
-      analise: 'Em análise',
-      formacao: 'Formação',
-      andamento: 'Em andamento',
-      encerramento: 'Encerrado',
-    };
     return {
       id: programa.id,
       codigo: programa.codigo,
       titulo: programa.titulo || `Programa ${programa.codigo}`,
       nome: programa.titulo || `Programa ${programa.codigo}`,
       etapaAtual: programa.etapaAtual,
-      statusRotulo: statusRotulo[programa.etapaAtual] ?? programa.etapaAtual,
+      statusRotulo:
+        ROTULOS_STATUS_PROGRAMA[programa.etapaAtual] ?? programa.etapaAtual,
       vigente,
       encerrado: programa.etapaAtual === 'encerramento',
       inscricoesAbertas: programa.inscricoesAbertas,
@@ -465,37 +422,6 @@ export class CoordenacaoService implements OnModuleInit {
     };
   }
 
-  private formatarPeriodo(inicio?: string | null, fim?: string | null) {
-    if (!inicio && !fim) return 'A definir';
-    if (inicio && fim && inicio === fim) {
-      return this.formatarData(inicio);
-    }
-    if (inicio && fim) {
-      return `${this.formatarData(inicio)} a ${this.formatarData(fim)}`;
-    }
-    return this.formatarData(inicio || fim || '');
-  }
-
-  private formatarData(iso: string) {
-    const [ano, mes, dia] = iso.split('-').map(Number);
-    if (!ano || !mes) return iso;
-    const meses = [
-      'jan.',
-      'fev.',
-      'mar.',
-      'abr.',
-      'mai.',
-      'jun.',
-      'jul.',
-      'ago.',
-      'set.',
-      'out.',
-      'nov.',
-      'dez.',
-    ];
-    return `${String(dia || 1).padStart(2, '0')} ${meses[mes - 1]} de ${ano}`;
-  }
-
   private diasAte(iso: string): number | null {
     const alvo = new Date(`${iso}T23:59:59`);
     if (Number.isNaN(alvo.getTime())) return null;
@@ -504,22 +430,247 @@ export class CoordenacaoService implements OnModuleInit {
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
   }
 
-  private nomeDoEmail(email: string) {
-    const local = email.split('@')[0] || email;
-    return local
-      .split(/[._-]/)
-      .filter(Boolean)
-      .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-      .join(' ');
+  /** Detalhe completo da candidatura/participação para a tela de análise. */
+  async detalharCandidatura(id: number) {
+    const item = await this.participacoesService.buscarPorId(id);
+    const historico = (
+      await this.participacoesService.listarPorUsuario(item.usuarioId)
+    )
+      .filter((r) => r.id !== item.id)
+      .map((r) => ({
+        id: r.id,
+        programa: r.programa,
+        papel: r.papel,
+        status: r.status,
+        statusRotulo: this.rotuloStatus(r),
+      }));
+    const jaApadrinhado = historico.find((r) => r.papel === 'apadrinhado');
+    const candidaturasAnteriores = historico.filter(
+      (r) => r.papel === 'candidato' || r.papel === 'padrinho',
+    ).length;
+    return {
+      ...this.enriquecerCandidatura(item),
+      respostas: item.respostas ?? {},
+      observacoes: item.observacoes ?? '',
+      criterios: CRITERIOS_PADRINHO,
+      historico,
+      jaFoiApadrinhadoEm: jaApadrinhado?.programa ?? null,
+      numeroCandidatura: candidaturasAnteriores + 1,
+    };
+  }
+
+  async aprovarCandidatura(id: number) {
+    await this.participacoesService.aprovarCandidatura(id);
+    return this.detalharCandidatura(id);
+  }
+
+  async rejeitarCandidatura(id: number) {
+    await this.participacoesService.rejeitarCandidaturaPorId(id);
+    return this.detalharCandidatura(id);
+  }
+
+  async atualizarCandidatura(
+    id: number,
+    corpo: { status?: string; observacoes?: string | null },
+  ) {
+    const status =
+      corpo.status === 'pendente' || corpo.status === 'em_analise'
+        ? corpo.status
+        : undefined;
+    if (corpo.status !== undefined && !status) {
+      throw new BadRequestException(
+        'Use aprovar/rejeitar para decidir; aqui só "pendente" ou "em_analise".',
+      );
+    }
+    await this.participacoesService.atualizarCandidatura(id, {
+      status,
+      observacoes: corpo.observacoes,
+    });
+    return this.detalharCandidatura(id);
+  }
+
+  /** Aprovar/rejeitar/colocar em análise várias candidaturas de uma vez. */
+  async acaoEmMassa(corpo: { ids?: unknown; acao?: string }) {
+    const ids = Array.isArray(corpo.ids)
+      ? [...new Set(corpo.ids.map(Number).filter(Number.isInteger))].slice(
+          0,
+          100,
+        )
+      : [];
+    if (!ids.length) {
+      throw new BadRequestException('Selecione ao menos uma candidatura.');
+    }
+    const acao = corpo.acao;
+    if (acao !== 'aprovar' && acao !== 'rejeitar' && acao !== 'em_analise') {
+      throw new BadRequestException('Ação em massa inválida.');
+    }
+    const resultados: Array<{ id: number; ok: boolean; erro?: string }> = [];
+    for (const id of ids) {
+      try {
+        if (acao === 'aprovar') {
+          await this.participacoesService.aprovarCandidatura(id);
+        } else if (acao === 'rejeitar') {
+          await this.participacoesService.rejeitarCandidaturaPorId(id);
+        } else {
+          await this.participacoesService.atualizarCandidatura(id, {
+            status: 'em_analise',
+          });
+        }
+        resultados.push({ id, ok: true });
+      } catch (erro) {
+        resultados.push({
+          id,
+          ok: false,
+          erro: erro instanceof Error ? erro.message : 'Falha ao atualizar.',
+        });
+      }
+    }
+    return {
+      acao,
+      sucesso: resultados.filter((r) => r.ok).length,
+      falhas: resultados.filter((r) => !r.ok),
+    };
+  }
+
+  /** Participantes do programa (padrinhos, apadrinhados e candidatos). */
+  async listarUsuarios(programaCodigo?: string, papel?: string) {
+    const programa = await this.resolverPrograma(programaCodigo);
+    const registros = await this.participacoesService.listarPorPrograma({
+      programa: programa.codigo,
+    });
+    const filtro = papel?.trim();
+    return registros
+      .filter((r) => !filtro || r.papel === filtro)
+      .map((r) => ({
+        ...this.enriquecerCandidatura(r),
+        situacao: ParticipacoesService.situacaoDe(r),
+      }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }
+
+  async vincular(corpo: { apadrinhadoId?: unknown; padrinhoId?: unknown }) {
+    const apadrinhadoId = Number(corpo.apadrinhadoId);
+    const padrinhoId = Number(corpo.padrinhoId);
+    if (!Number.isInteger(apadrinhadoId) || !Number.isInteger(padrinhoId)) {
+      throw new BadRequestException('Informe apadrinhado e padrinho.');
+    }
+    const { apadrinhado, padrinho } = await this.participacoesService.vincular(
+      apadrinhadoId,
+      padrinhoId,
+    );
+    return {
+      apadrinhado: this.enriquecerCandidatura(apadrinhado),
+      padrinho: this.enriquecerCandidatura(padrinho),
+    };
+  }
+
+  /** Programas com os números principais para a tela "Programas". */
+  async listarProgramas() {
+    const codigoAtual = ParticipacoesService.programaAtual();
+    const programas = await this.programasService.listar();
+    return Promise.all(
+      programas.map(async (programa) => {
+        const registros = await this.participacoesService.listarPorPrograma({
+          programa: programa.codigo,
+        });
+        const padrinhos = registros.filter((r) => r.papel === 'padrinho');
+        return {
+          ...this.serializarPrograma(programa, codigoAtual),
+          etapas: montarEtapas(programa),
+          datas: {
+            inscricoesInicio: programa.inscricoesInicio,
+            inscricoesFim: programa.inscricoesFim,
+            analiseInicio: programa.analiseInicio,
+            analiseFim: programa.analiseFim,
+            formacaoInicio: programa.formacaoInicio,
+            formacaoFim: programa.formacaoFim,
+            andamentoInicio: programa.andamentoInicio,
+            andamentoFim: programa.andamentoFim,
+            encerramentoEm: programa.encerramentoEm,
+          },
+          totais: {
+            candidaturas: registros.filter((r) => r.papel === 'candidato')
+              .length,
+            padrinhos: padrinhos.length,
+            apadrinhados: registros.filter((r) => r.papel === 'apadrinhado')
+              .length,
+            grupos: new Set(
+              padrinhos.map((r) => r.grupo?.trim()).filter(Boolean),
+            ).size,
+          },
+        };
+      }),
+    );
+  }
+
+  async atualizarPrograma(codigo: string, corpo: Record<string, unknown>) {
+    const atualizado = await this.programasService.atualizar(codigo, corpo);
+    return this.serializarPrograma(
+      atualizado,
+      ParticipacoesService.programaAtual(),
+    );
+  }
+
+  obterFormulario(tipo: string, programa?: string) {
+    return this.formulariosService.obter(
+      FormulariosService.validarTipo(tipo),
+      programa,
+    );
+  }
+
+  async salvarFormulario(
+    tipo: string,
+    corpo: { programa?: string; publicado?: boolean; perguntas?: unknown },
+  ) {
+    const formulario = await this.formulariosService.salvar(
+      FormulariosService.validarTipo(tipo),
+      corpo,
+    );
+    // O selo "Formulário publicado" do dashboard reflete o que foi salvo.
+    if (typeof corpo.publicado === 'boolean') {
+      const [padrinho, apadrinhado] = await Promise.all([
+        this.formulariosService.obter('padrinho', formulario.programa),
+        this.formulariosService.obter('apadrinhado', formulario.programa),
+      ]);
+      await this.programasService
+        .atualizar(formulario.programa, {
+          formularioPublicado: padrinho.publicado || apadrinhado.publicado,
+        })
+        .catch(() => undefined);
+    }
+    return formulario;
+  }
+
+  criarComunicado(corpo: {
+    titulo?: string;
+    descricao?: string;
+    publico?: string;
+    programa?: string;
+  }) {
+    return this.avisosService.criar(corpo);
+  }
+
+  private async resolverPrograma(codigo?: string): Promise<ProgramaEntity> {
+    const alvo = codigo?.trim();
+    if (alvo) {
+      const programa = await this.programasService.buscarPorCodigo(alvo);
+      if (!programa) {
+        throw new NotFoundException(`Programa ${alvo} não encontrado.`);
+      }
+      return programa;
+    }
+    return this.programasService.garantirProgramaAtual();
   }
 
   /**
    * Garante um conjunto mínimo de registros no ciclo atual para o painel.
-   * Não sobrescreve linhas já existentes (idempotente por usuario+programa+papel).
+   * Não sobrescreve linhas já existentes (idempotente por usuario+programa+papel);
+   * só completa as respostas de registros demo antigos que ainda não as têm.
    */
   private async semearParticipacoesDemo() {
     const programa = ParticipacoesService.programaAtual();
     const agora = new Date();
+    const dias = (n: number) => new Date(agora.getTime() - 86400000 * n);
 
     const seed: Array<Partial<ParticipacaoEntity>> = [
       {
@@ -529,6 +680,19 @@ export class CoordenacaoService implements OnModuleInit {
         status: 'pendente',
         apadrinhados: 0,
         inicioEm: agora,
+        respostas: {
+          motivacao:
+            'Quero contribuir com a adaptação dos novos alunos, compartilhando minha experiência e ajudando no que for preciso.',
+          experiencias:
+            'Monitoria de AEDS I, participação em projetos de extensão e voluntariado no Elas++.',
+          areas: ['Disciplinas e provas', 'Rotina universitária', 'Tecnologia'],
+          disponibilidade: ['Manhã', 'Tarde', 'Fins de semana'],
+          genero: 'Feminino',
+          bolsistaProuni: false,
+          deOutraCidade: true,
+          declaraPreRequisitos: true,
+          interesses: ['Tecnologia', 'Projetos'],
+        },
       },
       {
         usuarioId: 'pedro.lima@pucminas.edu.br',
@@ -536,7 +700,20 @@ export class CoordenacaoService implements OnModuleInit {
         papel: 'candidato',
         status: 'em_analise',
         apadrinhados: 0,
-        inicioEm: new Date(agora.getTime() - 86400000 * 2),
+        inicioEm: dias(2),
+        respostas: {
+          motivacao:
+            'No meu primeiro período contar com um padrinho me ajudou a criar uma rotina de estudos. Quero retribuir.',
+          experiencias:
+            'Representante de turma e monitor voluntário de Cálculo 1.',
+          areas: ['Disciplinas e provas', 'Carreira e estágio'],
+          disponibilidade: ['Noite'],
+          genero: 'Masculino',
+          bolsistaProuni: true,
+          deOutraCidade: false,
+          declaraPreRequisitos: true,
+          interesses: ['Inovação', 'Estágio'],
+        },
       },
       {
         usuarioId: 'julia.fernandes@pucminas.edu.br',
@@ -544,8 +721,17 @@ export class CoordenacaoService implements OnModuleInit {
         papel: 'candidato',
         status: 'nao_aprovado',
         apadrinhados: 0,
-        inicioEm: new Date(agora.getTime() - 86400000 * 5),
+        inicioEm: dias(5),
         terminoEm: agora,
+        respostas: {
+          motivacao: 'Gosto de ajudar colegas e conhecer gente nova.',
+          areas: ['Vida no campus'],
+          disponibilidade: ['Tarde'],
+          genero: 'Feminino',
+          bolsistaProuni: false,
+          deOutraCidade: false,
+          declaraPreRequisitos: false,
+        },
       },
       {
         usuarioId: 'thiago@pucminas.edu.br',
@@ -553,8 +739,15 @@ export class CoordenacaoService implements OnModuleInit {
         papel: 'padrinho',
         status: 'em_andamento',
         grupo: 'Grupo 08',
-        apadrinhados: 2,
-        inicioEm: new Date(agora.getTime() - 86400000 * 10),
+        apadrinhados: 1,
+        inicioEm: dias(10),
+        respostas: {
+          motivacao: 'Quero que os calouros se sintam em casa na PUC.',
+          areas: ['Tecnologia', 'Projetos', 'Vida no campus'],
+          disponibilidade: ['Noite'],
+          interesses: ['Tecnologia', 'Inovação', 'Projetos'],
+          declaraPreRequisitos: true,
+        },
       },
       {
         usuarioId: 'camila@pucminas.edu.br',
@@ -563,7 +756,17 @@ export class CoordenacaoService implements OnModuleInit {
         status: 'em_andamento',
         grupo: 'Grupo 08',
         apadrinhados: 0,
-        inicioEm: new Date(agora.getTime() - 86400000 * 8),
+        inicioEm: dias(8),
+        respostas: {
+          expectativa:
+            'Gostaria de alguém que possa me ajudar na adaptação à universidade.',
+          areas: ['Rotina universitária', 'Projetos', 'Tecnologia'],
+          disponibilidade: ['Noite'],
+          genero: 'Feminino',
+          bolsistaProuni: false,
+          deOutraCidade: true,
+          interesses: ['Tecnologia', 'Inovação'],
+        },
       },
       {
         usuarioId: 'lucas.almeida@pucminas.edu.br',
@@ -571,7 +774,15 @@ export class CoordenacaoService implements OnModuleInit {
         papel: 'apadrinhado',
         status: 'em_andamento',
         apadrinhados: 0,
-        inicioEm: new Date(agora.getTime() - 86400000 * 3),
+        inicioEm: dias(3),
+        respostas: {
+          expectativa: 'Quero dicas sobre a rotina e as primeiras provas.',
+          areas: ['Disciplinas e provas'],
+          disponibilidade: ['Tarde'],
+          genero: 'Masculino',
+          bolsistaProuni: true,
+          deOutraCidade: true,
+        },
       },
     ];
 
@@ -585,7 +796,17 @@ export class CoordenacaoService implements OnModuleInit {
       });
       if (!existe) {
         await this.participacoes.save(this.participacoes.create(item));
+      } else if (!existe.respostas && item.respostas) {
+        existe.respostas = item.respostas;
+        await this.participacoes.save(existe);
       }
     }
   }
 }
+
+/** Critérios exibidos na análise (vêm do edital do programa). */
+const CRITERIOS_PADRINHO = [
+  'Não estar no 1º período',
+  'Aprovado em AEDS 1',
+  'Aprovado em Cálculo 1',
+];

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'models/situacao_participacao.dart';
+import 'sessao_usuario.dart';
 import 'theme/colors.dart';
 import 'widgets/cabecalho_logos.dart';
 import 'widgets/campos_cadastro.dart';
@@ -11,13 +13,31 @@ class Padrinho {
     required this.sobre,
     this.interesses = const [],
     this.online = false,
+    this.email = '',
+    this.periodo,
+    this.grupo,
   });
+
+  factory Padrinho.daPessoa(PessoaVinculo pessoa) => Padrinho(
+    nome: pessoa.nome,
+    curso: pessoa.curso,
+    email: pessoa.email,
+    periodo: pessoa.periodo,
+    grupo: pessoa.grupo,
+    interesses: pessoa.interesses,
+    sobre: pessoa.interesses.isEmpty
+        ? 'Padrinho do programa Ajuda-aí.'
+        : 'Interesses: ${pessoa.interesses.join(', ')}.',
+  );
 
   final String nome;
   final String curso;
   final String sobre;
   final List<String> interesses;
   final bool online;
+  final String email;
+  final int? periodo;
+  final String? grupo;
 
   String get iniciais => nome
       .split(' ')
@@ -27,29 +47,57 @@ class Padrinho {
       .join();
 }
 
-class PadrinhoDefinidoPage extends StatelessWidget {
-  // TODO: buscar o padrinho em /me/vinculos.
-  const PadrinhoDefinidoPage({
-    super.key,
-    this.padrinho = const Padrinho(
-      nome: 'Thiago Moreira',
-      curso: 'Engenharia de Software',
-      sobre: 'Gosto de tecnologia, projetos e vida no campus.',
-      interesses: ['Tecnologia', 'Inovação', 'Projetos'],
-      online: true,
-    ),
-  });
+/// "Seu padrinho foi definido!" com o padrinho real de
+/// `GET /participacoes/situacao`. Sem padrinho, mostra o estado de espera.
+class PadrinhoDefinidoPage extends StatefulWidget {
+  const PadrinhoDefinidoPage({super.key, this.padrinho});
 
-  final Padrinho padrinho;
+  /// Força um padrinho (testes/prévia). Se null, usa o da sessão.
+  final Padrinho? padrinho;
 
-  void _emBreve(BuildContext context, String funcionalidade) {
+  @override
+  State<PadrinhoDefinidoPage> createState() => _PadrinhoDefinidoPageState();
+}
+
+class _PadrinhoDefinidoPageState extends State<PadrinhoDefinidoPage> {
+  bool _carregando = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.padrinho == null) {
+      _carregando = SessaoUsuario.atual.padrinho == null;
+      SessaoUsuario.atual.sincronizarSituacao().then((_) {
+        if (mounted) setState(() => _carregando = false);
+      });
+    }
+  }
+
+  Padrinho? get _padrinho {
+    if (widget.padrinho != null) return widget.padrinho;
+    final pessoa = SessaoUsuario.atual.padrinho;
+    return pessoa == null ? null : Padrinho.daPessoa(pessoa);
+  }
+
+  void _emBreve(String funcionalidade) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text('$funcionalidade: em breve!')));
   }
 
+  void _verPerfil(Padrinho padrinho) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      builder: (_) => _PerfilPadrinhoSheet(padrinho: padrinho),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final padrinho = _padrinho;
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -60,18 +108,208 @@ class PadrinhoDefinidoPage extends StatelessWidget {
             children: [
               const CabecalhoLogos(),
               const SizedBox(height: 20),
-              const _Destaque(),
-              const SizedBox(height: 18),
-              _CardPadrinho(padrinho: padrinho),
-              const SizedBox(height: 14),
-              _ProximosPassos(
-                onMensagem: () => _emBreve(context, 'Chat'),
-                onPerfil: () => _emBreve(context, 'Perfil do padrinho'),
-              ),
-              const SizedBox(height: 14),
-              const _VinculoAtivo(),
+              if (padrinho == null && _carregando)
+                const Padding(
+                  padding: EdgeInsets.only(top: 80),
+                  child: Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  ),
+                )
+              else if (padrinho == null)
+                const _SemPadrinho()
+              else ...[
+                const _Destaque(),
+                const SizedBox(height: 18),
+                _CardPadrinho(padrinho: padrinho),
+                const SizedBox(height: 14),
+                _ProximosPassos(
+                  onMensagem: () => _emBreve('Chat'),
+                  onPerfil: () => _verPerfil(padrinho),
+                ),
+                const SizedBox(height: 14),
+                _VinculoAtivo(
+                  grupo: padrinho.grupo ?? SessaoUsuario.atual.grupo,
+                ),
+              ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SemPadrinho extends StatelessWidget {
+  const _SemPadrinho();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        const SizedBox(height: 24),
+        Container(
+          width: 96,
+          height: 96,
+          decoration: const BoxDecoration(
+            color: AppAccents.tileLilas,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.hourglass_top_rounded,
+            size: 44,
+            color: AppColors.primary,
+          ),
+        ),
+        const SizedBox(height: 18),
+        const Text(
+          'Seu padrinho ainda não foi definido',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: AppColors.ink,
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'A coordenação está formando os grupos. Você será avisado(a) assim '
+          'que o seu padrinho for definido.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'Inter',
+            color: AppColors.muted,
+            fontSize: 13,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 22),
+        TextButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          child: const Text('Voltar'),
+        ),
+      ],
+    );
+  }
+}
+
+class _PerfilPadrinhoSheet extends StatelessWidget {
+  const _PerfilPadrinhoSheet({required this.padrinho});
+
+  final Padrinho padrinho;
+
+  @override
+  Widget build(BuildContext context) {
+    final linhas = <(IconData, String, String)>[
+      (Icons.school_outlined, 'Curso', padrinho.curso),
+      if (padrinho.periodo != null)
+        (Icons.bar_chart_rounded, 'Período', '${padrinho.periodo}º período'),
+      if (padrinho.email.isNotEmpty)
+        (Icons.mail_outline, 'E-mail institucional', padrinho.email),
+      if (padrinho.grupo != null)
+        (Icons.groups_outlined, 'Grupo', padrinho.grupo!),
+    ];
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: AppAccents.tileLilas,
+                  child: Text(
+                    padrinho.iniciais,
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        padrinho.nome,
+                        style: const TextStyle(
+                          color: AppColors.ink,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const Text(
+                        'Seu padrinho no Ajuda-aí',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          color: AppColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            for (final (icone, rotulo, valor) in linhas)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(icone, color: AppColors.primary),
+                title: Text(
+                  rotulo,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    color: AppColors.muted,
+                    fontSize: 12,
+                  ),
+                ),
+                subtitle: Text(
+                  valor,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    color: AppColors.ink,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            if (padrinho.interesses.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              const Text(
+                'Interesses',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  color: AppColors.muted,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final interesse in padrinho.interesses)
+                    Chip(
+                      label: Text(interesse),
+                      backgroundColor: AppAccents.tileLilas,
+                      side: BorderSide.none,
+                      labelStyle: const TextStyle(
+                        fontFamily: 'Inter',
+                        color: AppColors.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -399,7 +637,9 @@ class _ProximosPassos extends StatelessWidget {
 }
 
 class _VinculoAtivo extends StatelessWidget {
-  const _VinculoAtivo();
+  const _VinculoAtivo({this.grupo});
+
+  final String? grupo;
 
   @override
   Widget build(BuildContext context) {
@@ -409,24 +649,30 @@ class _VinculoAtivo extends StatelessWidget {
         color: AppAccents.successBg,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.groups_outlined, color: AppAccents.success, size: 28),
-          SizedBox(width: 12),
+          const Icon(
+            Icons.groups_outlined,
+            color: AppAccents.success,
+            size: 28,
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Seu vínculo está ativo!',
-                  style: TextStyle(
+                  grupo == null
+                      ? 'Seu vínculo está ativo!'
+                      : 'Seu vínculo está ativo! · $grupo',
+                  style: const TextStyle(
                     fontFamily: 'Inter',
                     color: AppAccents.success,
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                Text(
+                const Text(
                   'Agora você já pode conversar, participar de encontros e '
                   'acompanhar missões juntos no Ajuda-aí.',
                   style: TextStyle(

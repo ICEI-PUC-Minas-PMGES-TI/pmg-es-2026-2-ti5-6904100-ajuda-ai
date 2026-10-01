@@ -1,24 +1,41 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 import '../services/auth_api.dart';
 import '../services/coordenacao_api.dart';
 import '../theme/colors.dart';
 import 'tela_candidaturas_coord.dart';
+import 'tela_comunicado_coord.dart';
 import 'tela_dashboard_coord.dart';
+import 'tela_formularios_coord.dart';
+import 'tela_mais_coord.dart';
+import 'tela_programas_coord.dart';
+import 'tela_usuarios_coord.dart';
 
 /// Shell nativo da área da coordenação (app mobile).
 /// No computador, o painel continua sendo o front web em `/coordenacao`.
 class TelaCoordenacao extends StatefulWidget {
-  const TelaCoordenacao({super.key, this.emailDemo = 'renata@pucminas.edu.br'});
+  const TelaCoordenacao({
+    super.key,
+    this.emailDemo = 'renata@pucminas.edu.br',
+    this.client,
+    this.baseUrl,
+  });
 
   final String emailDemo;
+
+  /// Cliente HTTP injetável (testes); null usa o padrão.
+  final http.Client? client;
+
+  /// Base fixa da API (testes); null tenta os candidatos de `apiBaseUrlCandidates`.
+  final String? baseUrl;
 
   @override
   State<TelaCoordenacao> createState() => _TelaCoordenacaoState();
 }
 
 class _TelaCoordenacaoState extends State<TelaCoordenacao> {
-  final _authApi = AuthApi();
+  late final _authApi = AuthApi(client: widget.client, baseUrl: widget.baseUrl);
   SessaoAuth? _sessao;
   CoordenacaoApi? _api;
   String? _erro;
@@ -26,6 +43,8 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
   int _aba = 0;
   String? _programa;
   String? _filtroStatus;
+  int _versao = 0;
+  int _versaoLista = 0;
 
   @override
   void initState() {
@@ -50,6 +69,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         _api = CoordenacaoApi(
           accessToken: sessao.accessToken,
           baseUrl: _authApi.baseUrl,
+          client: widget.client,
         );
         _carregando = false;
       });
@@ -66,24 +86,38 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
     setState(() {
       _filtroStatus = status;
       _aba = 1;
+      _versaoLista++;
     });
   }
 
+  /// Destinos do dashboard (pontos de atenção / ações rápidas) e da aba Mais.
   void _abrirDestino(String destino, Map<String, String> query) {
+    final api = _api;
+    if (api == null) return;
     if (destino == 'candidaturas') {
       _abrirCandidaturas(status: query['status']);
       return;
     }
-    final pendencia = query['pendencia'];
-    final mensagem = switch (destino) {
-      'programas' when pendencia == 'grupos' =>
-        'Abra Programas no painel web para revisar grupos incompletos.',
-      'programas' when pendencia == 'prazo' =>
-        'Abra Programas no painel web para revisar o prazo de inscrições.',
-      'usuarios' => 'Abra Usuários no painel web para gerenciar vínculos.',
-      _ => 'Seção disponível no painel web da coordenação.',
+    if (destino == 'sem_vinculo') {
+      _abrirCandidaturas(status: 'sem_vinculo');
+      return;
+    }
+    final Widget pagina = switch (destino) {
+      'usuarios' => TelaUsuariosCoord(api: api, programa: _programa),
+      'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
+      'comunicado' => TelaComunicadoCoord(api: api),
+      _ => TelaProgramasCoord(
+        api: api,
+        pendencia: query['pendencia'],
+        onProgramaCriado: (codigo) => setState(() => _programa = codigo),
+      ),
     };
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(mensagem)));
+    Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => pagina))
+        .then((_) {
+          // Força o dashboard/lista a recarregar com os dados alterados.
+          if (mounted) setState(() => _versao++);
+        });
   }
 
   @override
@@ -126,7 +160,9 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
                 const SizedBox(height: 16),
                 FilledButton(
                   onPressed: _entrar,
-                  style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                  ),
                   child: const Text('Tentar novamente'),
                 ),
                 TextButton(
@@ -142,6 +178,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
 
     final paginas = [
       TelaDashboardCoord(
+        key: ValueKey('dashboard-$_versao'),
         api: _api!,
         programa: _programa,
         onProgramaChanged: (codigo) => setState(() => _programa = codigo),
@@ -149,9 +186,15 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         onAbrirDestino: _abrirDestino,
       ),
       TelaCandidaturasCoord(
+        key: ValueKey('candidaturas-$_versao-$_versaoLista'),
         api: _api!,
         programa: _programa,
         status: _filtroStatus,
+      ),
+      TelaMaisCoord(
+        nomeCoordenador: _sessao!.nome,
+        onAbrir: (destino) => _abrirDestino(destino, const {}),
+        onSair: () => Navigator.of(context).maybePop(),
       ),
     ];
 
@@ -176,6 +219,11 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
             icon: Icon(Icons.assignment_outlined),
             selectedIcon: Icon(Icons.assignment, color: AppColors.primary),
             label: 'Candidaturas',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.more_horiz),
+            selectedIcon: Icon(Icons.more_horiz, color: AppColors.primary),
+            label: 'Mais',
           ),
         ],
       ),

@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -49,7 +52,9 @@ Future<String> resolverApiBaseUrl({
               body: '{"email":"renata@pucminas.edu.br"}',
             )
             .timeout(timeout);
-        if (responseOk(resposta.statusCode) || resposta.statusCode == 401 || resposta.statusCode == 403) {
+        if (responseOk(resposta.statusCode) ||
+            resposta.statusCode == 401 ||
+            resposta.statusCode == 403) {
           return base;
         }
       } catch (_) {
@@ -63,3 +68,71 @@ Future<String> resolverApiBaseUrl({
 }
 
 bool responseOk(int status) => status >= 200 && status < 300;
+
+/// Erro devolvido pela API (resposta HTTP fora de 2xx).
+class ApiException implements Exception {
+  const ApiException(this.mensagem, {this.statusCode});
+
+  final String mensagem;
+  final int? statusCode;
+
+  @override
+  String toString() => mensagem;
+}
+
+/// Falha de rede: backend fora do ar, sem conexão ou tempo esgotado.
+class ApiIndisponivelException implements Exception {
+  const ApiIndisponivelException([this.detalhe]);
+
+  final Object? detalhe;
+
+  @override
+  String toString() => 'Não foi possível conectar ao servidor.';
+}
+
+/// Extrai a mensagem legível do corpo `{message, error, statusCode}`.
+String mensagemErroApi(http.Response resposta, String padrao) {
+  try {
+    final corpo = jsonDecode(resposta.body);
+    if (corpo is Map) {
+      final mensagem = corpo['message'];
+      if (mensagem is String && mensagem.trim().isNotEmpty) return mensagem;
+      if (mensagem is List && mensagem.isNotEmpty) {
+        return mensagem.map((e) => '$e').join('\n');
+      }
+    }
+  } catch (_) {
+    // corpo não é JSON
+  }
+  return '$padrao (${resposta.statusCode}).';
+}
+
+/// Executa a requisição convertendo falhas de rede em [ApiIndisponivelException]
+/// e respostas de erro em [ApiException].
+Future<http.Response> executarRequisicao(
+  Future<http.Response> Function() requisicao, {
+  required String erroPadrao,
+  Duration timeout = const Duration(seconds: 10),
+}) async {
+  final http.Response resposta;
+  try {
+    resposta = await requisicao().timeout(timeout);
+  } on TimeoutException catch (e) {
+    throw ApiIndisponivelException(e);
+  } on http.ClientException catch (e) {
+    throw ApiIndisponivelException(e);
+  }
+  if (!responseOk(resposta.statusCode)) {
+    throw ApiException(
+      mensagemErroApi(resposta, erroPadrao),
+      statusCode: resposta.statusCode,
+    );
+  }
+  return resposta;
+}
+
+/// Decodifica o corpo como JSON (aceita corpo vazio → null).
+dynamic decodificarJson(http.Response resposta) {
+  if (resposta.body.trim().isEmpty) return null;
+  return jsonDecode(utf8.decode(resposta.bodyBytes));
+}

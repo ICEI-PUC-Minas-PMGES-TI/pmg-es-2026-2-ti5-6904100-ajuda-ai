@@ -112,7 +112,7 @@ class _ParticipacaoPageState extends State<ParticipacaoPage> {
             const SnackBar(content: Text('Escolha uma opção para continuar.')),
           );
       case Participacao.apadrinhado:
-        SessaoUsuario.atual.definir(
+        SessaoUsuario.atual.iniciarCadastro(
           dadosCadastro: widget.dados,
           escolha: Participacao.apadrinhado,
         );
@@ -122,7 +122,7 @@ class _ParticipacaoPageState extends State<ParticipacaoPage> {
           ),
         );
       case Participacao.padrinho:
-        SessaoUsuario.atual.definir(
+        SessaoUsuario.atual.iniciarCadastro(
           dadosCadastro: widget.dados,
           escolha: Participacao.padrinho,
         );
@@ -149,7 +149,7 @@ class _ParticipacaoPageState extends State<ParticipacaoPage> {
       children: [
         const TituloPasso(
           passo: 2,
-          total: 2,
+          total: 3,
           titulo: 'Como você quer participar?',
           subtitulo: 'Escolha a opção que mais combina com você neste momento.',
         ),

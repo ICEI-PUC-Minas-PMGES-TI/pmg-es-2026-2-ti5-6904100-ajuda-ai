@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ajuda_ai/dados_cadastro.dart';
+import 'package:ajuda_ai/models/formulario.dart';
+import 'package:ajuda_ai/sessao_usuario.dart';
+import 'package:ajuda_ai/status_participacao.dart';
 import 'package:ajuda_ai/tela_cadastro.dart';
 import 'package:ajuda_ai/tela_cadastro_concluido.dart';
 import 'package:ajuda_ai/tela_cadastro_perfil.dart';
@@ -9,6 +12,8 @@ import 'package:ajuda_ai/tela_cadastro_revisao.dart';
 import 'package:ajuda_ai/tela_perfil.dart';
 import 'package:ajuda_ai/tela_padrinho_definido.dart';
 import 'package:ajuda_ai/tela_participacao.dart';
+
+import 'helpers/api_falsa.dart';
 
 Future<void> _tocar(WidgetTester tester, Finder alvo) async {
   await tester.scrollUntilVisible(
@@ -60,11 +65,16 @@ Future<void> _preencherPasso2(WidgetTester tester) async {
 }
 
 void main() {
+  late ApiFalsa api;
+
+  setUp(() => api = ApiFalsa().instalar());
+  tearDown(SessaoUsuario.atual.limpar);
+
   testWidgets('período começa no 1º e pode ser alterado', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: CadastroPage()));
 
     expect(find.text('1º período'), findsOneWidget);
-    expect(find.text('Passo 1 de 2'), findsOneWidget);
+    expect(find.text('Passo 1 de 3'), findsOneWidget);
 
     await _tocar(tester, find.byType(DropdownButton<int>));
     await tester.tap(find.text('2º período').last);
@@ -96,13 +106,16 @@ void main() {
 
     await _irParaFormulario(tester);
     expect(find.byType(PerfilCadastroPage), findsOneWidget);
-    expect(find.text('Passo 1 de 2'), findsOneWidget);
+    expect(find.text('Passo 2 de 3'), findsOneWidget);
 
     await _preencherPasso2(tester);
     await _tocar(tester, find.text('Continuar'));
 
     expect(find.byType(RevisaoCadastroPage), findsOneWidget);
-    expect(find.text('Passo 2 de 2'), findsOneWidget);
+    expect(find.text('Passo 3 de 3'), findsOneWidget);
+    // A sessão já guarda as respostas do passo 2.
+    expect(SessaoUsuario.atual.dados?.genero, 'Feminino');
+    expect(SessaoUsuario.atual.dados?.areasApoio, ['Projetos']);
     expect(find.text('Dicas sobre a rotina'), findsOneWidget);
     expect(find.text('Projetos'), findsOneWidget);
     expect(find.text('Noite'), findsOneWidget);
@@ -133,6 +146,30 @@ void main() {
     expect(find.byType(CadastroPage), findsNothing);
     expect(tester.takeException(), isNull);
 
+    // POST /participacoes/cadastro-apadrinhado com as respostas completas.
+    final envio = api.posts('/participacoes/cadastro-apadrinhado').single;
+    expect(envio.headers['x-user-id'], 'camila@pucminas.edu.br');
+    final corpo = api.corpo(envio);
+    expect(corpo['usuarioId'], 'camila@pucminas.edu.br');
+    expect(corpo['respostas'], {
+      'nome': 'Camila Duarte',
+      'curso': 'Engenharia de Software',
+      'periodo': 1,
+      'turno': 'Noite',
+      'interesses': <String>[],
+      'genero': 'Feminino',
+      'bolsistaProuni': false,
+      'deOutraCidade': true,
+      'disponibilidade': ['Noite'],
+      'areas': ['Projetos'],
+      'expectativa': 'Dicas sobre a rotina',
+      'extras': <String, dynamic>{},
+    });
+    expect(
+      SessaoUsuario.atual.status,
+      StatusParticipacao.apadrinhadoAguardandoMatch,
+    );
+
     await tester.tap(find.text('Ir para meu perfil'));
     await tester.pumpAndSettle();
 
@@ -140,22 +177,139 @@ void main() {
     expect(find.byType(CadastroConcluidoPage), findsNothing);
   });
 
-  testWidgets('sino da conclusão abre o padrinho definido', (tester) async {
+  testWidgets('erro do backend no envio permite tentar de novo', (
+    tester,
+  ) async {
+    api.erroEnvio = 'Inscrições encerradas para este ciclo.';
+    await tester.pumpWidget(const MaterialApp(home: CadastroPage()));
+    await _irParaFormulario(tester);
+    await _preencherPasso2(tester);
+    await _tocar(tester, find.text('Continuar'));
+
+    await _tocar(tester, find.text('Enviar cadastro'));
+
+    expect(find.byType(RevisaoCadastroPage), findsOneWidget);
+    expect(find.byType(CadastroConcluidoPage), findsNothing);
+    expect(
+      find.textContaining('Inscrições encerradas para este ciclo.'),
+      findsOneWidget,
+    );
+    expect(find.text('Enviar cadastro'), findsOneWidget);
+
+    api.erroEnvio = null;
+    await tester.tap(find.text('Tentar novamente'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CadastroConcluidoPage), findsOneWidget);
+    expect(api.posts('/participacoes/cadastro-apadrinhado'), hasLength(2));
+  });
+
+  testWidgets('perguntas adicionais do apadrinhado são validadas', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: PerfilCadastroPage(
+          dados: DadosCadastro(
+            nome: 'Camila Duarte',
+            email: 'camila@pucminas.edu.br',
+            curso: 'Engenharia de Software',
+            periodo: 1,
+            turno: 'Noite',
+          ),
+          perguntasAdicionais: [
+            PerguntaFormulario(
+              id: 'dificuldade',
+              enunciado: 'Qual sua maior dificuldade?',
+              tipo: TipoPergunta.textoCurto,
+              obrigatoria: true,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await _preencherPasso2(tester);
+    await _tocar(tester, find.text('Continuar'));
+    expect(find.byType(RevisaoCadastroPage), findsNothing);
+    expect(find.text('Responda esta pergunta para continuar.'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).last, 'Cálculo');
+    await _tocar(tester, find.text('Continuar'));
+
+    expect(find.byType(RevisaoCadastroPage), findsOneWidget);
+    expect(find.text('Qual sua maior dificuldade?'), findsOneWidget);
+    expect(find.text('Cálculo'), findsOneWidget);
+    expect(SessaoUsuario.atual.dados?.extras, {'dificuldade': 'Cálculo'});
+  });
+
+  testWidgets('sino abre notificações e leva ao padrinho definido', (
+    tester,
+  ) async {
+    api.situacao = situacaoApadrinhadoAtivo();
+    api.avisos.add({
+      'id': 1,
+      'titulo': 'Encontro de Boas-vindas',
+      'descricao': 'Participe do encontro de integração.',
+      'publico': 'todos',
+      'data': '2026-09-12',
+    });
+    SessaoUsuario.atual.definir(
+      dadosCadastro: const DadosCadastro(
+        nome: 'Camila Duarte',
+        email: 'camila@pucminas.edu.br',
+        curso: 'Engenharia de Software',
+        periodo: 1,
+        turno: 'Noite',
+      ),
+      escolha: Participacao.apadrinhado,
+    );
     await tester.pumpWidget(const MaterialApp(home: CadastroConcluidoPage()));
 
     await tester.tap(find.byTooltip('Notificações'));
     await tester.pumpAndSettle();
 
+    expect(find.byType(PadrinhoDefinidoPage), findsNothing);
+    expect(find.text('Notificações'), findsOneWidget);
+    expect(find.text('Encontro de Boas-vindas'), findsOneWidget);
+    expect(
+      api.requisicoes.any(
+        (r) =>
+            r.url.path.endsWith('/avisos') &&
+            r.url.queryParameters['publico'] == 'apadrinhados',
+      ),
+      isTrue,
+    );
+
+    await tester.tap(find.text('Seu padrinho foi definido!'));
+    await tester.pumpAndSettle();
+
     expect(find.byType(PadrinhoDefinidoPage), findsOneWidget);
-    expect(find.text('Seu padrinho foi definido!'), findsOneWidget);
     expect(find.text('Thiago Moreira'), findsOneWidget);
+
+    await _tocar(tester, find.text('Ver perfil do padrinho'));
+    expect(find.text('thiago@pucminas.edu.br'), findsOneWidget);
+    expect(find.text('Grupo 08'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sino sem padrinho definido não abre a tela do padrinho', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: CadastroConcluidoPage()));
+
+    await tester.tap(find.byTooltip('Notificações'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Notificações'), findsOneWidget);
+    expect(find.text('Seu padrinho foi definido!'), findsNothing);
+    expect(find.byType(PadrinhoDefinidoPage), findsNothing);
   });
 
   testWidgets('calouro não pode escolher ser padrinho', (tester) async {
     await tester.pumpWidget(_escolhaNoPeriodo(1));
 
-    expect(find.text('Passo 2 de 2'), findsOneWidget);
+    expect(find.text('Passo 2 de 3'), findsOneWidget);
     expect(
       find.text('Essa opção fica disponível mais para frente.'),
       findsOneWidget,

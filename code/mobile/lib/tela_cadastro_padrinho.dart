@@ -1,15 +1,36 @@
 import 'package:flutter/material.dart';
 
 import 'dados_cadastro.dart';
+import 'models/formulario.dart';
+import 'services/api_config.dart';
 import 'sessao_usuario.dart';
 import 'tela_candidatura_enviada.dart';
 import 'theme/colors.dart';
 import 'widgets/campos_cadastro.dart';
+import 'widgets/perguntas_adicionais.dart';
 
 class CadastroPadrinhoPage extends StatefulWidget {
-  const CadastroPadrinhoPage({super.key, required this.dados});
+  const CadastroPadrinhoPage({
+    super.key,
+    required this.dados,
+    this.edicao = false,
+    this.perguntasAdicionais,
+  });
 
+  /// Dados do aluno; em [edicao], já vêm preenchidos com as respostas salvas
+  /// (`DadosCadastro.comRespostas`).
   final DadosCadastro dados;
+
+  /// "Editar candidatura": reenvia (o backend atualiza as respostas) e volta
+  /// para a tela anterior com `true`.
+  final bool edicao;
+
+  /// Perguntas extras já conhecidas (testes). Se null, busca em
+  /// `GET /formularios/padrinho`.
+  final List<PerguntaFormulario>? perguntasAdicionais;
+
+  static const textoDeclaracao =
+      'Declaro que fui aprovado(a) em AEDS 1 e Cálculo 1';
 
   @override
   State<CadastroPadrinhoPage> createState() => _CadastroPadrinhoPageState();
@@ -40,13 +61,19 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
 
   late final TextEditingController _motivoController;
   late final TextEditingController _experienciasController;
-  final List<String> _areasInteresse = [];
-  final List<String> _disponibilidadesEscolhidas = [];
+  late final List<String> _areasInteresse;
+  late final List<String> _disponibilidadesEscolhidas;
   String? _genero;
   bool? _bolsistaProuni;
   bool? _deOutraCidade;
+  bool _declaraPreRequisitos = false;
   bool _validar = false;
   bool _enviando = false;
+  List<PerguntaFormulario> _perguntas = const [];
+  late final Map<String, dynamic> _extras;
+
+  final _chaveDeclaracao = GlobalKey();
+  final _chaveExtras = GlobalKey();
 
   final _chaveMotivo = GlobalKey();
   final _chaveAreas = GlobalKey();
@@ -61,8 +88,13 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
   bool get _faltaGenero => _genero == null;
   bool get _faltaProuni => _bolsistaProuni == null;
   bool get _faltaCidade => _deOutraCidade == null;
+  bool get _faltaDeclaracao => !_declaraPreRequisitos;
+  bool get _faltaExtras =>
+      PerguntasAdicionais.pendentes(_perguntas, _extras).isNotEmpty;
 
   bool get _incompleto =>
+      _faltaDeclaracao ||
+      _faltaExtras ||
       _faltaMotivo ||
       _faltaAreas ||
       _faltaDisponibilidade ||
@@ -73,11 +105,34 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
   @override
   void initState() {
     super.initState();
-    _motivoController = TextEditingController()
+    final dados = widget.dados;
+    _motivoController = TextEditingController(text: dados.expectativaPadrinho)
       ..addListener(() {
         if (_validar) setState(() {});
       });
-    _experienciasController = TextEditingController();
+    _experienciasController = TextEditingController(
+      text: dados.outrasInformacoes,
+    );
+    _areasInteresse = List.of(dados.areasApoio);
+    _disponibilidadesEscolhidas = dados.disponibilidadeLista;
+    _genero = dados.genero;
+    _bolsistaProuni = dados.bolsistaProuni;
+    _deOutraCidade = dados.deOutraCidade;
+    _declaraPreRequisitos = dados.declaraPreRequisitos ?? false;
+    _extras = Map.of(dados.extras);
+
+    final conhecidas = widget.perguntasAdicionais;
+    if (conhecidas != null) {
+      _perguntas = conhecidas;
+    } else {
+      SessaoUsuario.atual.carregarPerguntasAdicionais('padrinho').then((
+        perguntas,
+      ) {
+        if (mounted && perguntas.isNotEmpty) {
+          setState(() => _perguntas = perguntas);
+        }
+      });
+    }
   }
 
   @override
@@ -103,7 +158,9 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
 
     if (_incompleto) {
       setState(() => _validar = true);
-      final primeiroErro = _faltaMotivo
+      final primeiroErro = _faltaDeclaracao
+          ? _chaveDeclaracao
+          : _faltaMotivo
           ? _chaveMotivo
           : _faltaAreas
           ? _chaveAreas
@@ -113,17 +170,16 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
           ? _chaveGenero
           : _faltaProuni
           ? _chaveProuni
-          : _chaveCidade;
+          : _faltaCidade
+          ? _chaveCidade
+          : _chaveExtras;
       await _rolarPara(primeiroErro);
       return;
     }
 
     setState(() => _enviando = true);
     try {
-      await Future<void>.delayed(const Duration(milliseconds: 450));
-      if (!mounted) return;
-
-      await SessaoUsuario.atual.registrarCandidaturaPadrinho(
+      final enviado = await SessaoUsuario.atual.registrarCandidaturaPadrinho(
         dadosCadastro: widget.dados.comPasso2(
           expectativaPadrinho: _motivoController.text.trim(),
           outrasInformacoes: _experienciasController.text.trim(),
@@ -132,26 +188,28 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
           genero: _genero,
           bolsistaProuni: _bolsistaProuni,
           deOutraCidade: _deOutraCidade,
+          declaraPreRequisitos: _declaraPreRequisitos,
+          extras: PerguntasAdicionais.limpar(_extras),
         ),
       );
 
       if (!mounted) return;
+      if (!enviado) mostrarSalvoLocalmente(context);
+      if (widget.edicao) {
+        Navigator.of(context).pop(true);
+        return;
+      }
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const CandidaturaEnviadaPage()),
         (_) => false,
       );
-    } catch (_) {
+    } catch (erro) {
       if (!mounted) return;
       setState(() => _enviando = false);
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Não foi possível enviar sua candidatura. Tente novamente.',
-            ),
-          ),
-        );
+      final mensagem = erro is ApiException
+          ? 'Não foi possível enviar sua candidatura: ${erro.mensagem}'
+          : 'Não foi possível enviar sua candidatura. Tente novamente.';
+      mostrarErroComRetentativa(context, mensagem, _enviar);
     }
   }
 
@@ -160,8 +218,8 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
     return EstruturaCadastro(
       children: [
         const TituloPasso(
-          passo: 1,
-          total: 2,
+          passo: 2,
+          total: 3,
           titulo: 'Candidatura de padrinho',
           subtitulo:
               'Conte um pouco sobre você e por que deseja ser padrinho '
@@ -169,6 +227,18 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
         ),
         const SizedBox(height: 18),
         const AvisoCadastro(child: _PreRequisitosPadrinho()),
+        const SizedBox(height: 10),
+        KeyedSubtree(
+          key: _chaveDeclaracao,
+          child: CampoDeclaracao(
+            texto: CadastroPadrinhoPage.textoDeclaracao,
+            valor: _declaraPreRequisitos,
+            erro: _validar && _faltaDeclaracao,
+            mensagemErro:
+                'Confirme que você cumpre os pré-requisitos para ser padrinho.',
+            onChanged: (valor) => setState(() => _declaraPreRequisitos = valor),
+          ),
+        ),
         KeyedSubtree(
           key: _chaveMotivo,
           child: Column(
@@ -205,7 +275,8 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
                 rotuloSemantico: 'Áreas de interesse para apoiar',
                 erro: _validar && _faltaAreas,
                 mensagemErro: 'Selecione pelo menos uma área de interesse.',
-                onAdicionar: (area) => setState(() => _areasInteresse.add(area)),
+                onAdicionar: (area) =>
+                    setState(() => _areasInteresse.add(area)),
                 onRemover: (area) =>
                     setState(() => _areasInteresse.remove(area)),
               ),
@@ -293,21 +364,29 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
             ],
           ),
         ),
-        const SizedBox(height: 22),
-        IgnorePointer(
-          ignoring: _enviando,
-          child: Opacity(
-            opacity: _enviando ? 0.7 : 1,
-            child: BotaoCadastro(
-              texto: _enviando ? 'Enviando...' : 'Enviar candidatura',
-              onPressed: _enviar,
-            ),
+        KeyedSubtree(
+          key: _chaveExtras,
+          child: PerguntasAdicionais(
+            perguntas: _perguntas,
+            respostas: _extras,
+            validar: _validar,
+            onChanged: () {
+              if (_validar) setState(() {});
+            },
           ),
+        ),
+        const SizedBox(height: 22),
+        BotaoEnvio(
+          texto: widget.edicao ? 'Salvar alterações' : 'Enviar candidatura',
+          enviando: _enviando,
+          onPressed: _enviar,
         ),
         const SizedBox(height: 8),
         Center(
           child: TextButton(
-            onPressed: _enviando ? null : () => Navigator.of(context).maybePop(),
+            onPressed: _enviando
+                ? null
+                : () => Navigator.of(context).maybePop(),
             child: const Text(
               'Voltar',
               style: TextStyle(

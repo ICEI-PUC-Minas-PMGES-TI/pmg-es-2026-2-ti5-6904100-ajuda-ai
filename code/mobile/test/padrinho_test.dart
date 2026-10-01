@@ -1,4 +1,5 @@
 import 'package:ajuda_ai/dados_cadastro.dart';
+import 'package:ajuda_ai/models/formulario.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/status_participacao.dart';
 import 'package:ajuda_ai/tela_cadastro_padrinho.dart';
@@ -7,6 +8,8 @@ import 'package:ajuda_ai/tela_participacao.dart';
 import 'package:ajuda_ai/tela_perfil.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'helpers/api_falsa.dart';
 
 DadosCadastro _dados({int periodo = 3}) => DadosCadastro(
   nome: 'Camila Duarte',
@@ -36,7 +39,14 @@ Future<void> _escolher<T>(
   await tester.pumpAndSettle();
 }
 
-Future<void> _preencherCandidatura(WidgetTester tester) async {
+Future<void> _marcarDeclaracao(WidgetTester tester) =>
+    _tocar(tester, find.text(CadastroPadrinhoPage.textoDeclaracao));
+
+Future<void> _preencherCandidatura(
+  WidgetTester tester, {
+  bool declarar = true,
+}) async {
+  if (declarar) await _marcarDeclaracao(tester);
   await tester.enterText(
     find.byType(TextField).first,
     'Quero apoiar calouros na rotina da PUC.',
@@ -55,6 +65,9 @@ Future<void> _preencherCandidatura(WidgetTester tester) async {
 }
 
 void main() {
+  late ApiFalsa api;
+
+  setUp(() => api = ApiFalsa().instalar());
   tearDown(SessaoUsuario.atual.limpar);
 
   testWidgets('participacao abre candidatura de padrinho', (tester) async {
@@ -69,6 +82,8 @@ void main() {
     expect(find.byType(CadastroPadrinhoPage), findsOneWidget);
     expect(find.text('Candidatura de padrinho'), findsOneWidget);
     expect(find.text('Pré-requisitos para ser padrinho'), findsOneWidget);
+    expect(find.text('Passo 2 de 3'), findsOneWidget);
+    expect(find.text(CadastroPadrinhoPage.textoDeclaracao), findsOneWidget);
     expect(find.text('Enviar candidatura'), findsOneWidget);
   });
 
@@ -88,7 +103,111 @@ void main() {
       find.text('Selecione pelo menos uma disponibilidade.'),
       findsOneWidget,
     );
+    expect(
+      find.text(
+        'Confirme que você cumpre os pré-requisitos para ser padrinho.',
+      ),
+      findsOneWidget,
+    );
     expect(find.byType(CandidaturaEnviadaPage), findsNothing);
+    expect(api.posts('/candidatura-padrinho'), isEmpty);
+  });
+
+  testWidgets('declaração de AEDS 1 e Cálculo 1 é obrigatória', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(home: CadastroPadrinhoPage(dados: _dados())),
+    );
+
+    await _preencherCandidatura(tester, declarar: false);
+    await _tocar(tester, find.text('Enviar candidatura'));
+
+    expect(find.byType(CandidaturaEnviadaPage), findsNothing);
+    expect(
+      find.text(
+        'Confirme que você cumpre os pré-requisitos para ser padrinho.',
+      ),
+      findsOneWidget,
+    );
+    expect(api.posts('/candidatura-padrinho'), isEmpty);
+
+    await _marcarDeclaracao(tester);
+    await _tocar(tester, find.text('Enviar candidatura'));
+
+    expect(find.byType(CandidaturaEnviadaPage), findsOneWidget);
+    final envio = api.posts('/candidatura-padrinho').single;
+    expect(envio.headers['x-user-id'], 'camila@pucminas.edu.br');
+    final corpo = api.corpo(envio);
+    expect(corpo['usuarioId'], 'camila@pucminas.edu.br');
+    final respostas = corpo['respostas'] as Map<String, dynamic>;
+    expect(respostas['declaraPreRequisitos'], isTrue);
+    expect(respostas['motivacao'], 'Quero apoiar calouros na rotina da PUC.');
+    expect(respostas['areas'], ['Projetos']);
+    expect(respostas['disponibilidade'], ['Noite']);
+    expect(respostas['genero'], 'Feminino');
+    expect(respostas['bolsistaProuni'], isFalse);
+    expect(respostas['deOutraCidade'], isTrue);
+    expect(respostas['nome'], 'Camila Duarte');
+    expect(respostas['periodo'], 3);
+    expect(respostas['extras'], isEmpty);
+  });
+
+  testWidgets('erro do backend mantém a candidatura na tela', (tester) async {
+    api.erroEnvio = 'Inscrições encerradas.';
+    await tester.pumpWidget(
+      MaterialApp(home: CadastroPadrinhoPage(dados: _dados())),
+    );
+
+    await _preencherCandidatura(tester);
+    await _tocar(tester, find.text('Enviar candidatura'));
+
+    expect(find.byType(CandidaturaEnviadaPage), findsNothing);
+    expect(find.textContaining('Inscrições encerradas.'), findsOneWidget);
+    expect(find.text('Tentar novamente'), findsOneWidget);
+    expect(SessaoUsuario.atual.status, StatusParticipacao.nenhuma);
+  });
+
+  testWidgets('perguntas adicionais obrigatórias vão em extras', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CadastroPadrinhoPage(
+          dados: _dados(),
+          perguntasAdicionais: const [
+            PerguntaFormulario(
+              id: 'como-conheceu',
+              enunciado: 'Como você conheceu o programa?',
+              tipo: TipoPergunta.dropdown,
+              opcoes: ['Colegas', 'Professores'],
+              obrigatoria: true,
+            ),
+            PerguntaFormulario(
+              id: 'portfolio',
+              enunciado: 'Portfólio',
+              tipo: TipoPergunta.upload,
+              obrigatoria: true,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    expect(find.text('Perguntas adicionais'), findsOneWidget);
+    expect(find.text('Envio de arquivo em breve'), findsOneWidget);
+
+    await _preencherCandidatura(tester);
+    await _tocar(tester, find.text('Enviar candidatura'));
+    expect(find.text('Responda esta pergunta para continuar.'), findsOneWidget);
+    expect(api.posts('/candidatura-padrinho'), isEmpty);
+
+    await _escolher<String>(tester, 'Selecione uma opção', 'Professores');
+    await _tocar(tester, find.text('Enviar candidatura'));
+
+    expect(find.byType(CandidaturaEnviadaPage), findsOneWidget);
+    final respostas =
+        api.corpo(api.posts('/candidatura-padrinho').single)['respostas']
+            as Map<String, dynamic>;
+    expect(respostas['extras'], {'como-conheceu': 'Professores'});
   });
 
   testWidgets('envio completo abre tela de candidatura enviada', (

@@ -1,13 +1,24 @@
 import 'package:flutter/material.dart';
 
 import 'dados_cadastro.dart';
+import 'models/formulario.dart';
+import 'sessao_usuario.dart';
 import 'tela_cadastro_revisao.dart';
 import 'theme/colors.dart';
 import 'widgets/campos_cadastro.dart';
+import 'widgets/perguntas_adicionais.dart';
 
 class PerfilCadastroPage extends StatefulWidget {
-  const PerfilCadastroPage({super.key, required this.dados});
+  const PerfilCadastroPage({
+    super.key,
+    required this.dados,
+    this.perguntasAdicionais,
+  });
   final DadosCadastro dados;
+
+  /// Perguntas extras já conhecidas (testes). Se null, busca em
+  /// `GET /formularios/apadrinhado`.
+  final List<PerguntaFormulario>? perguntasAdicionais;
 
   @override
   State<PerfilCadastroPage> createState() => _PerfilCadastroPageState();
@@ -44,6 +55,8 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
   bool? _bolsistaProuni;
   bool? _deOutraCidade;
   bool _validar = false;
+  List<PerguntaFormulario> _perguntas = const [];
+  late final Map<String, dynamic> _extras;
 
   bool get _faltaExpectativa => _expectativaController.text.trim().isEmpty;
   bool get _faltaAreas => _areasApoio.isEmpty;
@@ -52,7 +65,11 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
   bool get _faltaProuni => _bolsistaProuni == null;
   bool get _faltaCidade => _deOutraCidade == null;
 
+  bool get _faltaExtras =>
+      PerguntasAdicionais.pendentes(_perguntas, _extras).isNotEmpty;
+
   bool get _incompleto =>
+      _faltaExtras ||
       _faltaExpectativa ||
       _faltaAreas ||
       _faltaDisponibilidade ||
@@ -74,6 +91,19 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
     _genero = dados.genero;
     _bolsistaProuni = dados.bolsistaProuni;
     _deOutraCidade = dados.deOutraCidade;
+    _extras = Map.of(dados.extras);
+    final conhecidas = widget.perguntasAdicionais;
+    if (conhecidas != null) {
+      _perguntas = conhecidas;
+    } else {
+      SessaoUsuario.atual.carregarPerguntasAdicionais('apadrinhado').then((
+        perguntas,
+      ) {
+        if (mounted && perguntas.isNotEmpty) {
+          setState(() => _perguntas = perguntas);
+        }
+      });
+    }
   }
 
   @override
@@ -96,18 +126,24 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
       return;
     }
 
+    final completos = widget.dados.comPasso2(
+      expectativaPadrinho: _expectativaController.text.trim(),
+      outrasInformacoes: _outrasController.text.trim(),
+      areasApoio: List.of(_areasApoio),
+      disponibilidade: _disponibilidade,
+      genero: _genero,
+      bolsistaProuni: _bolsistaProuni,
+      deOutraCidade: _deOutraCidade,
+      extras: PerguntasAdicionais.limpar(_extras),
+    );
+    // A sessão passa a guardar também as respostas do passo 2.
+    SessaoUsuario.atual.dados = completos;
+
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => RevisaoCadastroPage(
-          dados: widget.dados.comPasso2(
-            expectativaPadrinho: _expectativaController.text.trim(),
-            outrasInformacoes: _outrasController.text.trim(),
-            areasApoio: List.of(_areasApoio),
-            disponibilidade: _disponibilidade,
-            genero: _genero,
-            bolsistaProuni: _bolsistaProuni,
-            deOutraCidade: _deOutraCidade,
-          ),
+          dados: completos,
+          perguntasAdicionais: _perguntas,
         ),
       ),
     );
@@ -118,8 +154,8 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
     return EstruturaCadastro(
       children: [
         const TituloPasso(
-          passo: 1,
-          total: 2,
+          passo: 2,
+          total: 3,
           titulo: 'Conte sobre você',
           subtitulo:
               'Essas respostas ajudam a encontrar um padrinho '
@@ -207,6 +243,14 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
           mensagemErro: 'Informe se você é de outra cidade.',
           opcoes: _simNao,
           onChanged: (valor) => setState(() => _deOutraCidade = valor),
+        ),
+        PerguntasAdicionais(
+          perguntas: _perguntas,
+          respostas: _extras,
+          validar: _validar,
+          onChanged: () {
+            if (_validar) setState(() {});
+          },
         ),
         const SizedBox(height: 22),
         BotaoCadastro(texto: 'Continuar', onPressed: _continuar),

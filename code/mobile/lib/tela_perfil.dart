@@ -1,19 +1,26 @@
 import 'package:flutter/material.dart';
 
+import 'configuracoes/tela_config_suporte.dart';
+import 'configuracoes/tela_configuracoes.dart';
 import 'dados_cadastro.dart';
 import 'sessao_usuario.dart';
 import 'status_participacao.dart';
 import 'tela_cadastro_padrinho.dart';
 import 'tela_cadastro_perfil.dart';
+import 'tela_feed.dart';
 import 'tela_historico.dart';
 import 'tela_login.dart';
+import 'tela_padrinho_definido.dart';
+import 'tela_status_candidatura.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
+import 'widgets/aviso_mapa.dart';
 import 'widgets/navegacao_app.dart';
+import 'widgets/perfil_componentes.dart';
 
-const _borda = Color(0xFFE9E5F1);
-const _bordaLilas = Color(0xFFDDD2F3);
-const _fundoLilasCard = Color(0xFFF8F5FC);
+const _borda = corBordaPerfil;
+const _bordaLilas = corBordaLilasPerfil;
+const _fundoLilasCard = corFundoLilasPerfil;
 
 class _DadosPerfil {
   const _DadosPerfil({
@@ -99,6 +106,23 @@ class _ProfilePageState extends State<ProfilePage> {
     _periodoController = TextEditingController(text: _dados.periodo);
     _emailController = TextEditingController(text: _dados.email);
     _sobreController = TextEditingController(text: _dados.sobre);
+    _sincronizar();
+  }
+
+  /// Atualiza a situação real (GET /participacoes/situacao). Sem rede,
+  /// mantém o estado local.
+  Future<void> _sincronizar() async {
+    if (_sessao.dados == null) return;
+    final ok = await _sessao.sincronizarSituacao();
+    if (ok && mounted) setState(() {});
+  }
+
+  void _abrir(Widget pagina) {
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => pagina))
+        .then((_) {
+          if (mounted) setState(() {});
+        });
   }
 
   _DadosPerfil _dadosDaSessao() {
@@ -166,6 +190,14 @@ class _ProfilePageState extends State<ProfilePage> {
       );
       _editando = false;
     });
+    final atual = _sessao.dados;
+    if (atual != null) {
+      _sessao.dados = atual.copyWith(
+        nome: nome,
+        curso: curso,
+        periodo: int.tryParse(periodo.replaceAll(RegExp(r'[^0-9]'), '')),
+      );
+    }
 
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -184,6 +216,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final status = _sessao.status;
+    final participa = status.participa;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -204,6 +237,16 @@ class _ProfilePageState extends State<ProfilePage> {
                     color: AppColors.muted.withValues(alpha: 0.35),
                   ),
                   Image.asset('assets/images/puclogo.png', height: 32),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => _abrir(const ConfiguracoesPage()),
+                    tooltip: 'Configurações',
+                    icon: const Icon(
+                      Icons.settings_outlined,
+                      color: AppColors.primary,
+                      size: 26,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -220,7 +263,7 @@ class _ProfilePageState extends State<ProfilePage> {
               Text(
                 _editando
                     ? 'Altere seus dados e confirme para salvar.'
-                    : 'Suas informações e participação no programa.',
+                    : 'Seu progresso, participação e principais informações.',
                 style: const TextStyle(
                   fontFamily: 'Inter',
                   color: AppColors.muted,
@@ -233,6 +276,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 editando: _editando,
                 nomeController: _nomeController,
                 onEditar: _editando ? null : _iniciarEdicao,
+                interesses: _sessao.dados?.interesses ?? const [],
               ),
               if (_editando) ...[
                 const SizedBox(height: 20),
@@ -292,15 +336,17 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 24),
                 const _Titulo('Participação no programa'),
                 const SizedBox(height: 10),
-                _CardParticipacao(
-                  status: status,
-                  enviadaEm: _sessao.candidaturaEnviadaEm,
+                CardSituacaoPerfil(
+                  sessao: _sessao,
                   formatarData: _formatarData,
+                  detalhesAbertos: _detalhesCandidaturaAbertos,
                   onVerCandidatura: () => setState(
                     () => _detalhesCandidaturaAbertos =
                         !_detalhesCandidaturaAbertos,
                   ),
-                  detalhesAbertos: _detalhesCandidaturaAbertos,
+                  onAcompanharStatus: () =>
+                      _abrir(const StatusCandidaturaPage()),
+                  onAbrirPadrinho: () => _abrir(const PadrinhoDefinidoPage()),
                   onCandidatarPadrinho: () => _candidatarPadrinho(context),
                   onCandidatarApadrinhado: () =>
                       _candidatarApadrinhado(context),
@@ -309,6 +355,15 @@ class _ProfilePageState extends State<ProfilePage> {
                     _detalhesCandidaturaAbertos) ...[
                   const SizedBox(height: 12),
                   _DetalhesCandidatura(dados: _sessao.dados),
+                ],
+                if (participa) ...[
+                  const SizedBox(height: 22),
+                  SecaoJornada(
+                    sessao: _sessao,
+                    formatarData: _formatarData,
+                    onVerHistorico: () =>
+                        _abrir(const HistoricoParticipacaoPage()),
+                  ),
                 ],
                 const SizedBox(height: 24),
                 Row(
@@ -351,16 +406,16 @@ class _ProfilePageState extends State<ProfilePage> {
                     ('E-mail institucional', _dados.email),
                   ],
                 ),
-                const SizedBox(height: 20),
-                const _Titulo('Programa'),
-                const SizedBox(height: 8),
-                _LinkHistorico(
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const HistoricoParticipacaoPage(),
-                    ),
-                  ),
-                ),
+                const SizedBox(height: 24),
+                const _Titulo('Acessos rápidos'),
+                const SizedBox(height: 10),
+                AcessosRapidos(itens: _acessosRapidos(status)),
+                if (status == StatusParticipacao.apadrinhadoAguardandoMatch ||
+                    status == StatusParticipacao.padrinhoEmAnalise ||
+                    status == StatusParticipacao.explorar) ...[
+                  const SizedBox(height: 14),
+                  CardEnquantoIsso(onTap: () => mostrarAvisoMapa(context)),
+                ],
                 const SizedBox(height: 28),
                 SizedBox(
                   width: double.infinity,
@@ -392,6 +447,47 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  List<ItemAcessoRapido> _acessosRapidos(StatusParticipacao status) => [
+    if (status == StatusParticipacao.apadrinhadoAtivo)
+      ItemAcessoRapido(
+        Icons.person_search_outlined,
+        'Meu padrinho',
+        () => _abrir(const PadrinhoDefinidoPage()),
+      ),
+    if (status == StatusParticipacao.padrinhoEmAnalise ||
+        status == StatusParticipacao.padrinhoRejeitado)
+      ItemAcessoRapido(
+        Icons.fact_check_outlined,
+        'Status da candidatura',
+        () => _abrir(const StatusCandidaturaPage()),
+      ),
+    ItemAcessoRapido(
+      Icons.chat_bubble_outline,
+      'Feed do campus',
+      () => _abrir(const FeedPage()),
+    ),
+    ItemAcessoRapido(
+      Icons.map_outlined,
+      'Explorar mapa',
+      () => mostrarAvisoMapa(context),
+    ),
+    ItemAcessoRapido(
+      Icons.bar_chart_rounded,
+      'Histórico de participação',
+      () => _abrir(const HistoricoParticipacaoPage()),
+    ),
+    ItemAcessoRapido(
+      Icons.settings_outlined,
+      'Configurações da conta',
+      () => _abrir(const ConfiguracoesPage()),
+    ),
+    ItemAcessoRapido(
+      Icons.help_outline,
+      'Ajuda e suporte',
+      () => _abrir(const SuporteConfigPage()),
+    ),
+  ];
+
   void _candidatarPadrinho(BuildContext context) {
     final dados = _sessao.dados;
     if (dados == null) return;
@@ -403,9 +499,9 @@ class _ProfilePageState extends State<ProfilePage> {
   void _candidatarApadrinhado(BuildContext context) {
     final dados = _sessao.dados;
     if (dados == null) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => PerfilCadastroPage(dados: dados)),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => PerfilCadastroPage(dados: dados)));
   }
 
   void _sair(BuildContext context) {
@@ -448,75 +544,20 @@ class _Titulo extends StatelessWidget {
   }
 }
 
-class _LinkHistorico extends StatelessWidget {
-  const _LinkHistorico({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: _fundoLilasCard,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _bordaLilas),
-          ),
-          child: const Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Histórico de participação',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        color: AppColors.ink,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Veja suas participações anteriores no Ajuda Aí.',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        color: AppColors.muted,
-                        fontSize: 12,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right, color: AppColors.muted),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _Identidade extends StatelessWidget {
   const _Identidade({
     required this.dados,
     required this.editando,
     required this.nomeController,
     required this.onEditar,
+    this.interesses = const [],
   });
 
   final _DadosPerfil dados;
   final bool editando;
   final TextEditingController nomeController;
   final VoidCallback? onEditar;
+  final List<String> interesses;
 
   @override
   Widget build(BuildContext context) {
@@ -530,7 +571,10 @@ class _Identidade extends StatelessWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: const Color(0xFFEDE6FA),
-            border: Border.all(color: AppColors.primary.withValues(alpha: 0.35), width: 1.5),
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.35),
+              width: 1.5,
+            ),
           ),
           child: Text(
             dados.iniciais,
@@ -599,369 +643,14 @@ class _Identidade extends StatelessWidget {
                         child: const Text('Editar perfil'),
                       ),
                     ],
-                  ],
-                ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CardParticipacao extends StatelessWidget {
-  const _CardParticipacao({
-    required this.status,
-    required this.enviadaEm,
-    required this.formatarData,
-    required this.onVerCandidatura,
-    required this.detalhesAbertos,
-    required this.onCandidatarPadrinho,
-    required this.onCandidatarApadrinhado,
-  });
-
-  final StatusParticipacao status;
-  final DateTime? enviadaEm;
-  final String Function(DateTime) formatarData;
-  final VoidCallback onVerCandidatura;
-  final bool detalhesAbertos;
-  final VoidCallback onCandidatarPadrinho;
-  final VoidCallback onCandidatarApadrinhado;
-
-  @override
-  Widget build(BuildContext context) {
-    return switch (status) {
-      StatusParticipacao.padrinhoEmAnalise => _StatusCard(
-        titulo: 'Candidatura de padrinho',
-        selo: 'Em análise',
-        descricao:
-            'Sua candidatura foi enviada e está sendo analisada pela '
-            'coordenação.',
-        corSelo: AppColors.primary,
-        fundoSelo: AppColors.lavender,
-        meta: enviadaEm == null
-            ? null
-            : 'Enviada em: ${formatarData(enviadaEm!)}',
-        acao: TextButton(
-          onPressed: onVerCandidatura,
-          style: TextButton.styleFrom(
-            foregroundColor: AppColors.primary,
-            padding: EdgeInsets.zero,
-            minimumSize: Size.zero,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          child: Text(
-            detalhesAbertos
-                ? 'Ocultar candidatura'
-                : 'Ver candidatura',
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ),
-      StatusParticipacao.padrinhoAtivo => const _StatusCard(
-        titulo: 'Padrinho ativo',
-        selo: 'Ativo',
-        descricao: 'Você participa atualmente do programa de apadrinhamento.',
-        corSelo: AppAccents.success,
-        fundoSelo: AppAccents.successBg,
-        meta: 'Acompanhe seus apadrinhados e encontros pelo aplicativo.',
-      ),
-      StatusParticipacao.padrinhoRejeitado => _StatusCard(
-        titulo: 'Candidatura não aprovada',
-        selo: 'Não aprovada',
-        descricao:
-            'Sua candidatura não foi aprovada neste ciclo. Você poderá '
-            'tentar novamente em uma próxima abertura.',
-        corSelo: const Color(0xFFB45309),
-        fundoSelo: const Color(0xFFFFF7ED),
-        acao: TextButton(
-          onPressed: onCandidatarPadrinho,
-          style: TextButton.styleFrom(
-            foregroundColor: AppColors.primary,
-            padding: EdgeInsets.zero,
-            minimumSize: Size.zero,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          child: const Text(
-            'Ver opções',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ),
-      StatusParticipacao.apadrinhadoAtivo => const _StatusCard(
-        titulo: 'Apadrinhado ativo',
-        selo: 'Ativo',
-        descricao:
-            'Você já está vinculado ao programa e pode conversar com '
-            'seu padrinho.',
-        corSelo: AppAccents.success,
-        fundoSelo: AppAccents.successBg,
-      ),
-      StatusParticipacao.apadrinhadoAguardandoMatch => _StatusCard(
-        titulo: 'Cadastro enviado',
-        selo: 'Aguardando match',
-        descricao:
-            'Suas informações foram enviadas. A coordenação está '
-            'buscando um padrinho compatível.',
-        corSelo: AppColors.primary,
-        fundoSelo: AppColors.lavender,
-        meta: enviadaEm == null
-            ? null
-            : 'Enviado em: ${formatarData(enviadaEm!)}',
-      ),
-      StatusParticipacao.explorar || StatusParticipacao.nenhuma =>
-        _OpcoesExplorar(
-          podePadrinho: SessaoUsuario.atual.podeCandidatarPadrinho,
-          podeApadrinhado: SessaoUsuario.atual.podeCandidatarApadrinhado,
-          onPadrinho: onCandidatarPadrinho,
-          onApadrinhado: onCandidatarApadrinhado,
-        ),
-    };
-  }
-}
-
-class _StatusCard extends StatelessWidget {
-  const _StatusCard({
-    required this.titulo,
-    required this.selo,
-    required this.descricao,
-    required this.corSelo,
-    required this.fundoSelo,
-    this.meta,
-    this.acao,
-  });
-
-  final String titulo;
-  final String selo;
-  final String descricao;
-  final Color corSelo;
-  final Color fundoSelo;
-  final String? meta;
-  final Widget? acao;
-
-  @override
-  Widget build(BuildContext context) {
-    final fundo = corSelo == AppAccents.success
-        ? AppAccents.successBg.withValues(alpha: 0.55)
-        : _fundoLilasCard;
-    final borda = corSelo == AppAccents.success
-        ? AppAccents.success.withValues(alpha: 0.25)
-        : _bordaLilas;
-    final faixa = corSelo == AppAccents.success
-        ? AppAccents.success
-        : AppColors.primary;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: fundo,
-          border: Border.all(color: borda),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(width: 4, color: faixa),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              titulo,
-                              style: const TextStyle(
-                                color: AppColors.ink,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: fundoSelo,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              selo,
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                color: corSelo,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        descricao,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          color: AppColors.muted,
-                          fontSize: 13,
-                          height: 1.4,
-                        ),
-                      ),
-                      if (meta != null) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          meta!,
-                          style: const TextStyle(
-                            fontFamily: 'Inter',
-                            color: AppColors.ink,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                      if (acao != null) ...[const SizedBox(height: 8), acao!],
+                    if (interesses.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      ChipsInteresses(interesses: interesses),
                     ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _OpcoesExplorar extends StatelessWidget {
-  const _OpcoesExplorar({
-    required this.podePadrinho,
-    required this.podeApadrinhado,
-    required this.onPadrinho,
-    required this.onApadrinhado,
-  });
-
-  final bool podePadrinho;
-  final bool podeApadrinhado;
-  final VoidCallback onPadrinho;
-  final VoidCallback onApadrinhado;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!podePadrinho && !podeApadrinhado) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _borda),
-        ),
-        child: const Text(
-          'No momento não há inscrição aberta para o seu perfil acadêmico.',
-          style: TextStyle(
-            fontFamily: 'Inter',
-            color: AppColors.muted,
-            fontSize: 13,
-            height: 1.4,
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        if (podeApadrinhado)
-          _OpcaoSimples(
-            titulo: 'Quero ser apadrinhado',
-            descricao:
-                'As inscrições estão abertas. Receba orientação de um '
-                'aluno mais experiente.',
-            onTap: onApadrinhado,
-          ),
-        if (podeApadrinhado && podePadrinho) const SizedBox(height: 8),
-        if (podePadrinho)
-          _OpcaoSimples(
-            titulo: 'Quero ser padrinho',
-            descricao:
-                'Você já passou do 1º período e pode apoiar novos alunos.',
-            onTap: onPadrinho,
-          ),
-      ],
-    );
-  }
-}
-
-class _OpcaoSimples extends StatelessWidget {
-  const _OpcaoSimples({
-    required this.titulo,
-    required this.descricao,
-    required this.onTap,
-  });
-
-  final String titulo;
-  final String descricao;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _borda),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      titulo,
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        color: AppColors.ink,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      descricao,
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        color: AppColors.muted,
-                        fontSize: 12,
-                        height: 1.35,
-                      ),
-                    ),
                   ],
                 ),
-              ),
-              const Icon(Icons.chevron_right, color: AppColors.muted),
-            ],
-          ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -1124,7 +813,8 @@ class _CampoTexto extends StatelessWidget {
     return TextField(
       controller: controller,
       maxLines: maxLines,
-      style: textStyle ??
+      style:
+          textStyle ??
           const TextStyle(
             fontFamily: 'Inter',
             color: AppColors.ink,

@@ -59,7 +59,8 @@ void main() {
     expect(find.text('Quero ser apadrinhado'), findsOneWidget);
     expect(find.text('Quero ser padrinho'), findsNothing);
     expect(find.text('Editar perfil'), findsOneWidget);
-    expect(find.byTooltip('Configurações'), findsNothing);
+    // A engrenagem de Configurações fica no topo do perfil para todos.
+    expect(find.byTooltip('Configurações'), findsOneWidget);
     expect(find.text('Apadrinhado ativo'), findsNothing);
   });
 

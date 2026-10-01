@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'tela_padrinho_definido.dart';
 import 'tela_perfil.dart';
 import 'theme/colors.dart';
 import 'widgets/campos_cadastro.dart';
+import 'widgets/painel_notificacoes.dart';
 
 class CadastroConcluidoPage extends StatelessWidget {
   const CadastroConcluidoPage({super.key});
@@ -38,14 +38,8 @@ class CadastroConcluidoPage extends StatelessWidget {
                               child: Column(
                                 children: [
                                   _Topo(
-                                    // TODO: abrir pela notificação real do match.
-                                    onNotificacoes: () => Navigator.of(context)
-                                        .push(
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                const PadrinhoDefinidoPage(),
-                                          ),
-                                        ),
+                                    onNotificacoes: () =>
+                                        mostrarNotificacoes(context),
                                   ),
                                   const Spacer(),
                                   Image.asset(

@@ -77,7 +77,7 @@
   font-weight: 800;
 }
 .coord-brand span { color: var(--muted); font-size: 0.8rem; }
-.coord-nav { display: grid; gap: 4px; flex: 1; }
+.coord-nav { display: grid; gap: 4px; flex: 1; align-content: start; }
 .coord-nav-link {
   display: flex;
   align-items: center;
@@ -154,18 +154,6 @@
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.coord-placeholder {
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 28px;
-}
-.coord-placeholder h1 {
-  margin: 0 0 8px;
-  font-family: Poppins, Inter, sans-serif;
-  font-weight: 800;
-  color: var(--ink);
-}
 .text-link {
   color: var(--purple);
   font-weight: 600;

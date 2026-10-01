@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'sessao_usuario.dart';
 import 'tela_login.dart';
 import 'theme/colors.dart';
 
@@ -22,6 +23,20 @@ class AjudaAiApp extends StatelessWidget {
         ).copyWith(primary: AppColors.primary, surface: Colors.white),
         scaffoldBackgroundColor: AppColors.background,
         fontFamily: 'Poppins',
+      ),
+      // "Aparência e acessibilidade": escala extra de texto no app inteiro.
+      builder: (context, child) => ValueListenableBuilder<double>(
+        valueListenable: SessaoUsuario.atual.escalaTexto,
+        builder: (context, escala, _) {
+          if (escala == 1.0) return child!;
+          final dados = MediaQuery.of(context);
+          return MediaQuery(
+            data: dados.copyWith(
+              textScaler: TextScaler.linear(dados.textScaler.scale(1) * escala),
+            ),
+            child: child!,
+          );
+        },
       ),
       home: const LoginPage(),
     );

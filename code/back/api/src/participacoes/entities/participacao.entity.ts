@@ -16,6 +16,34 @@ export type StatusParticipacaoRegistro =
   | 'concluido'
   | 'nao_aprovado';
 
+/**
+ * Dados enviados pelo aluno no cadastro. Todos opcionais porque registros
+ * antigos (e a semente demo) podem não ter respostas.
+ */
+export interface RespostasCadastro {
+  nome?: string;
+  curso?: string;
+  periodo?: number;
+  turno?: string;
+  interesses?: string[];
+  genero?: string;
+  bolsistaProuni?: boolean;
+  deOutraCidade?: boolean;
+  disponibilidade?: string[];
+  areas?: string[];
+  /** Padrinho: por que quer ser padrinho. */
+  motivacao?: string;
+  /** Padrinho: experiências relevantes. */
+  experiencias?: string;
+  /** Padrinho: declara ter cumprido os pré-requisitos. */
+  declaraPreRequisitos?: boolean;
+  /** Apadrinhado: o que espera do padrinho. */
+  expectativa?: string;
+  outrasInformacoes?: string;
+  /** Respostas às perguntas extras do formulário publicado (id → valor). */
+  extras?: Record<string, string | string[]>;
+}
+
 @Entity({ name: 'participacoes' })
 @Unique('uq_participacao_usuario_programa_papel', [
   'usuarioId',
@@ -51,7 +79,15 @@ export class ParticipacaoEntity {
   inicioEm!: Date;
 
   @Column({ name: 'termino_em', type: 'timestamptz', nullable: true })
-  terminoEm!: Date;
+  terminoEm!: Date | null;
+
+  /** Respostas do formulário de cadastro/candidatura (perfil + perguntas). */
+  @Column({ type: 'jsonb', nullable: true })
+  respostas!: RespostasCadastro | null;
+
+  /** Anotações privadas da coordenação sobre a candidatura. */
+  @Column({ type: 'text', nullable: true })
+  observacoes!: string | null;
 
   @CreateDateColumn({ name: 'criado_em', type: 'timestamptz' })
   criadoEm!: Date;
