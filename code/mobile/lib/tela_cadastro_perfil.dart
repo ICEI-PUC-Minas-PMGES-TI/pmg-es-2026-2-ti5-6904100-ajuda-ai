@@ -133,6 +133,7 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
           dica: 'Ex.: dicas sobre a rotina, ajuda com disciplinas...',
           limite: 500,
           erro: _validar && _faltaExpectativa,
+          mensagemErro: 'Conte o que você espera do seu padrinho.',
         ),
         const RotuloCampo('Outras informações (opcional)'),
         CampoTextoLongo(
@@ -145,7 +146,9 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
           selecionados: _areasApoio,
           opcoes: _areas,
           dica: 'Selecione uma ou mais áreas',
+          rotuloSemantico: 'Áreas em que gostaria de receber apoio',
           erro: _validar && _faltaAreas,
+          mensagemErro: 'Selecione pelo menos uma área de apoio.',
           onAdicionar: (area) => setState(() => _areasApoio.add(area)),
           onRemover: (area) => setState(() => _areasApoio.remove(area)),
         ),
@@ -154,55 +157,54 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
           icone: Icons.schedule,
           valor: _disponibilidade,
           dica: 'Selecione sua disponibilidade',
+          rotuloSemantico: 'Disponibilidade de horários',
           erro: _validar && _faltaDisponibilidade,
+          mensagemErro: 'Selecione sua disponibilidade de horários.',
           opcoes: {for (final item in _disponibilidades) item: item},
           onChanged: (valor) => setState(() => _disponibilidade = valor),
         ),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const RotuloCampo('Gênero'),
-                  CampoSelecao<String>(
-                    icone: Icons.person_outline,
-                    valor: _genero,
-                    dica: 'Selecione',
-                    erro: _validar && _faltaGenero,
-                    opcoes: {for (final item in _generos) item: item},
-                    onChanged: (valor) => setState(() => _genero = valor),
-                  ),
-                ],
+        LinhaCamposResponsiva(
+          esquerda: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const RotuloCampo('Gênero'),
+              CampoSelecao<String>(
+                icone: Icons.person_outline,
+                valor: _genero,
+                dica: 'Selecione',
+                rotuloSemantico: 'Gênero',
+                erro: _validar && _faltaGenero,
+                mensagemErro: 'Selecione uma opção de gênero.',
+                opcoes: {for (final item in _generos) item: item},
+                onChanged: (valor) => setState(() => _genero = valor),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const RotuloCampo('É bolsista ProUni?'),
-                  CampoSelecao<bool>(
-                    icone: Icons.school_outlined,
-                    valor: _bolsistaProuni,
-                    dica: 'Selecione',
-                    erro: _validar && _faltaProuni,
-                    opcoes: _simNao,
-                    onChanged: (valor) =>
-                        setState(() => _bolsistaProuni = valor),
-                  ),
-                ],
+            ],
+          ),
+          direita: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const RotuloCampo('É bolsista ProUni?'),
+              CampoSelecao<bool>(
+                icone: Icons.school_outlined,
+                valor: _bolsistaProuni,
+                dica: 'Selecione',
+                rotuloSemantico: 'É bolsista ProUni?',
+                erro: _validar && _faltaProuni,
+                mensagemErro: 'Informe se você é bolsista ProUni.',
+                opcoes: _simNao,
+                onChanged: (valor) => setState(() => _bolsistaProuni = valor),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         const RotuloCampo('É de outra cidade?'),
         CampoSelecao<bool>(
           icone: Icons.location_on_outlined,
           valor: _deOutraCidade,
           dica: 'Selecione uma opção',
+          rotuloSemantico: 'É de outra cidade?',
           erro: _validar && _faltaCidade,
+          mensagemErro: 'Informe se você é de outra cidade.',
           opcoes: _simNao,
           onChanged: (valor) => setState(() => _deOutraCidade = valor),
         ),

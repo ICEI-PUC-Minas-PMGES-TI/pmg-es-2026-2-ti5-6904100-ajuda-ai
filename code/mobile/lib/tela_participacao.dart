@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'dados_cadastro.dart';
+import 'sessao_usuario.dart';
+import 'tela_cadastro_padrinho.dart';
 import 'tela_cadastro_perfil.dart';
-import 'tela_home.dart';
+import 'tela_mapa.dart';
 import 'theme/colors.dart';
 import 'widgets/campos_cadastro.dart';
 
@@ -110,22 +112,32 @@ class _ParticipacaoPageState extends State<ParticipacaoPage> {
             const SnackBar(content: Text('Escolha uma opção para continuar.')),
           );
       case Participacao.apadrinhado:
+        SessaoUsuario.atual.definir(
+          dadosCadastro: widget.dados,
+          escolha: Participacao.apadrinhado,
+        );
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => PerfilCadastroPage(dados: widget.dados),
           ),
         );
       case Participacao.padrinho:
-        // TODO: abrir a jornada do padrinho.
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            const SnackBar(content: Text('Candidatura a padrinho: em breve!')),
-          );
+        SessaoUsuario.atual.definir(
+          dadosCadastro: widget.dados,
+          escolha: Participacao.padrinho,
+        );
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => CadastroPadrinhoPage(dados: widget.dados),
+          ),
+        );
       case Participacao.explorar:
-        // TODO: abrir o mapa (MB01) quando existir.
+        SessaoUsuario.atual.definir(
+          dadosCadastro: widget.dados,
+          escolha: Participacao.explorar,
+        );
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const HomePage()),
+          MaterialPageRoute(builder: (_) => const MapaPage()),
           (_) => false,
         );
     }

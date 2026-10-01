@@ -256,6 +256,73 @@ class CampoTexto extends StatelessWidget {
   }
 }
 
+class MensagemErroCampo extends StatelessWidget {
+  const MensagemErroCampo(this.texto, {super.key});
+
+  final String texto;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, size: 14, color: EstiloCampo.corErro),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              texto,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                color: EstiloCampo.corErro,
+                fontSize: 12,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LinhaCamposResponsiva extends StatelessWidget {
+  const LinhaCamposResponsiva({
+    super.key,
+    required this.esquerda,
+    required this.direita,
+    this.larguraMinimaColuna = 360,
+  });
+
+  final Widget esquerda;
+  final Widget direita;
+  final double larguraMinimaColuna;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final ladoALado = constraints.maxWidth >= larguraMinimaColuna;
+        if (!ladoALado) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [esquerda, direita],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: esquerda),
+            const SizedBox(width: 10),
+            Expanded(child: direita),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class CampoTextoLongo extends StatelessWidget {
   const CampoTextoLongo({
     super.key,
@@ -263,37 +330,46 @@ class CampoTextoLongo extends StatelessWidget {
     required this.dica,
     required this.limite,
     this.erro = false,
+    this.mensagemErro,
   });
 
   final TextEditingController controller;
   final String dica;
   final int limite;
   final bool erro;
+  final String? mensagemErro;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-      decoration: EstiloCampo.decoracao(erro: erro),
-      child: TextField(
-        controller: controller,
-        minLines: 2,
-        maxLines: 4,
-        maxLength: limite,
-        style: EstiloCampo.valor,
-        decoration: InputDecoration(
-          hintText: dica,
-          hintStyle: EstiloCampo.dica,
-          border: InputBorder.none,
-          isDense: true,
-          contentPadding: EdgeInsets.zero,
-          counterStyle: const TextStyle(
-            fontFamily: 'Inter',
-            color: AppColors.muted,
-            fontSize: 11,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+          decoration: EstiloCampo.decoracao(erro: erro),
+          child: TextField(
+            controller: controller,
+            minLines: 2,
+            maxLines: 4,
+            maxLength: limite,
+            style: EstiloCampo.valor,
+            decoration: InputDecoration(
+              hintText: dica,
+              hintStyle: EstiloCampo.dica,
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.zero,
+              counterStyle: const TextStyle(
+                fontFamily: 'Inter',
+                color: AppColors.muted,
+                fontSize: 11,
+              ),
+            ),
           ),
         ),
-      ),
+        if (erro && mensagemErro != null) MensagemErroCampo(mensagemErro!),
+      ],
     );
   }
 }
@@ -307,6 +383,8 @@ class CampoSelecao<T> extends StatelessWidget {
     required this.onChanged,
     this.dica,
     this.erro = false,
+    this.mensagemErro,
+    this.rotuloSemantico,
   });
 
   final IconData icone;
@@ -315,51 +393,63 @@ class CampoSelecao<T> extends StatelessWidget {
   final ValueChanged<T> onChanged;
   final String? dica;
   final bool erro;
+  final String? mensagemErro;
+  final String? rotuloSemantico;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.only(left: 14, right: 8),
-      decoration: EstiloCampo.decoracao(erro: erro),
-      child: Row(
-        children: [
-          Icon(icone, size: 20, color: AppColors.primary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<T>(
-                value: valor,
-                hint: dica == null
-                    ? null
-                    : Text(
-                        dica!,
-                        overflow: TextOverflow.ellipsis,
-                        style: EstiloCampo.dica,
-                      ),
-                isExpanded: true,
-                icon: const Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  color: AppColors.ink,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                dropdownColor: Colors.white,
-                style: EstiloCampo.valor,
-                items: [
-                  for (final MapEntry(:key, :value) in opcoes.entries)
-                    DropdownMenuItem(
-                      value: key,
-                      child: Text(value, overflow: TextOverflow.ellipsis),
+    final tela = MediaQuery.sizeOf(context);
+    final menuMaxHeight = (tela.height * 0.4).clamp(160.0, 280.0);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.only(left: 14, right: 8),
+          decoration: EstiloCampo.decoracao(erro: erro),
+          child: Row(
+            children: [
+              Icon(icone, size: 20, color: AppColors.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<T>(
+                    value: valor,
+                    hint: dica == null
+                        ? null
+                        : Text(
+                            dica!,
+                            overflow: TextOverflow.ellipsis,
+                            style: EstiloCampo.dica,
+                          ),
+                    isExpanded: true,
+                    borderRadius: BorderRadius.circular(12),
+                    dropdownColor: Colors.white,
+                    menuMaxHeight: menuMaxHeight,
+                    style: EstiloCampo.valor,
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: AppColors.ink,
                     ),
-                ],
-                onChanged: (novo) {
-                  if (novo != null) onChanged(novo);
-                },
+                    items: [
+                      for (final MapEntry(:key, :value) in opcoes.entries)
+                        DropdownMenuItem(
+                          value: key,
+                          child: Text(value, overflow: TextOverflow.ellipsis),
+                        ),
+                    ],
+                    onChanged: (novo) {
+                      if (novo != null) onChanged(novo);
+                    },
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
+        ),
+        if (erro && mensagemErro != null) MensagemErroCampo(mensagemErro!),
+      ],
     );
   }
 }
@@ -373,6 +463,10 @@ class CampoMultiSelecao extends StatelessWidget {
     required this.onAdicionar,
     required this.onRemover,
     this.erro = false,
+    this.mensagemErro,
+    this.icone = Icons.sell_outlined,
+    this.maxChipsVisiveis = 3,
+    this.rotuloSemantico,
   });
 
   final List<String> selecionados;
@@ -381,64 +475,121 @@ class CampoMultiSelecao extends StatelessWidget {
   final ValueChanged<String> onAdicionar;
   final ValueChanged<String> onRemover;
   final bool erro;
+  final String? mensagemErro;
+  final IconData icone;
+  final int maxChipsVisiveis;
+  final String? rotuloSemantico;
 
   @override
   Widget build(BuildContext context) {
     final disponiveis = opcoes
         .where((opcao) => !selecionados.contains(opcao))
         .toList();
+    final chipsVisiveis = selecionados.take(maxChipsVisiveis).toList();
+    final extras = selecionados.length - chipsVisiveis.length;
+    final tela = MediaQuery.sizeOf(context);
+    final menuMaxHeight = (tela.height * 0.4).clamp(160.0, 280.0);
 
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(12, selecionados.isEmpty ? 4 : 12, 8, 4),
-      decoration: EstiloCampo.decoracao(erro: erro),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (selecionados.isNotEmpty)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final item in selecionados)
-                  _Chip(texto: item, onRemover: () => onRemover(item)),
-              ],
-            ),
-          PopupMenuButton<String>(
-            enabled: disponiveis.isNotEmpty,
-            onSelected: onAdicionar,
-            color: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            itemBuilder: (_) => [
-              for (final item in disponiveis)
-                PopupMenuItem(
-                  value: item,
-                  child: Text(item, style: EstiloCampo.valor),
-                ),
-            ],
-            child: SizedBox(
-              height: 40,
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.sell_outlined,
-                    size: 18,
-                    color: AppColors.muted,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(dica, style: EstiloCampo.dica)),
-                  const Icon(
-                    Icons.keyboard_arrow_down_rounded,
-                    color: AppColors.ink,
-                  ),
-                ],
-              ),
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: EdgeInsets.fromLTRB(
+            12,
+            selecionados.isEmpty ? 4 : 12,
+            8,
+            4,
           ),
-        ],
-      ),
+          decoration: EstiloCampo.decoracao(erro: erro),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (selecionados.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final item in chipsVisiveis)
+                        _Chip(
+                          texto: item,
+                          onRemover: () => onRemover(item),
+                        ),
+                      if (extras > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppAccents.tileLilas,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            '+$extras',
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              color: AppColors.primary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              PopupMenuButton<String>(
+                enabled: disponiveis.isNotEmpty,
+                tooltip: rotuloSemantico ?? dica,
+                offset: const Offset(0, 8),
+                constraints: BoxConstraints(
+                  maxWidth: tela.width - 40,
+                  maxHeight: menuMaxHeight,
+                ),
+                onSelected: onAdicionar,
+                color: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                itemBuilder: (_) => [
+                  for (final item in disponiveis)
+                    PopupMenuItem(
+                      value: item,
+                      child: Text(item, style: EstiloCampo.valor),
+                    ),
+                ],
+                child: SizedBox(
+                  height: 44,
+                  child: Row(
+                    children: [
+                      Icon(icone, size: 18, color: AppColors.muted),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          selecionados.isEmpty
+                              ? dica
+                              : '${selecionados.length} selecionado(s)',
+                          style: selecionados.isEmpty
+                              ? EstiloCampo.dica
+                              : EstiloCampo.valor,
+                        ),
+                      ),
+                      const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: AppColors.ink,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (erro && mensagemErro != null) MensagemErroCampo(mensagemErro!),
+      ],
     );
   }
 }

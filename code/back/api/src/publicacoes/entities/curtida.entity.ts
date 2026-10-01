@@ -7,6 +7,7 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { PublicacaoEntity } from './publicacao.entity.js';
 
 @Entity({ name: 'curtidas' })
@@ -28,5 +29,5 @@ export class CurtidaEntity {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'publicacao_id' })
-  publicacao: PublicacaoEntity;
+  publicacao: Relation<PublicacaoEntity>;
 }

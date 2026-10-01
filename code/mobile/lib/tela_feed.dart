@@ -1,19 +1,17 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 
-import 'tela_home.dart';
-import 'tela_perfil.dart';
+import 'services/api_config.dart';
+import 'sessao_usuario.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
+import 'widgets/navegacao_app.dart';
 
 const double _feedGutter = 20;
-const String _apiBaseUrl = kIsWeb
-    ? 'http://localhost:3000'
-    : 'http://10.0.2.2:3000';
+const String _apiBaseUrl = apiBaseUrl;
 // O login atual do protótipo usa o perfil Camila. Quando o login real entrar,
 // este identificador deve vir do usuário autenticado.
 const String _usuarioAtualId = '1';
@@ -1270,28 +1268,9 @@ class _BarraFeed extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppBottomNavigation(
       selected: AppDestination.feed,
-      onSelected: (destination) {
-        switch (destination) {
-          case AppDestination.inicio:
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const HomePage()),
-            );
-            break;
-          case AppDestination.feed:
-            break;
-          case AppDestination.mapa:
-            _mensagem(context, 'Mapa');
-            break;
-          case AppDestination.missoes:
-            _mensagem(context, 'Missões');
-            break;
-          case AppDestination.perfil:
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const ProfilePage()),
-            );
-            break;
-        }
-      },
+      destinations: SessaoUsuario.atual.destinos,
+      onSelected: (destination) =>
+          navegarDestino(context, destination, atual: AppDestination.feed),
     );
   }
 }

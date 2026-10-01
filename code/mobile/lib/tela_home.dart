@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'tela_feed.dart';
-import 'tela_perfil.dart';
+import 'sessao_usuario.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
+import 'widgets/navegacao_app.dart';
 
 const double _gutter = 20;
 
@@ -664,7 +664,8 @@ class _CardPadrinho extends StatelessWidget {
                   foregroundColor: AppColors.primary,
                   backgroundColor: Colors.white,
                   side: const BorderSide(color: AppAccents.cardBorder),
-                  minimumSize: const Size.fromHeight(44),
+                  minimumSize: const Size(0, 44),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 14,
                     vertical: 12,
@@ -937,28 +938,9 @@ class _BarraInferior extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppBottomNavigation(
       selected: AppDestination.inicio,
-      onSelected: (destination) {
-        switch (destination) {
-          case AppDestination.feed:
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const FeedPage()),
-            );
-            break;
-          case AppDestination.inicio:
-            break;
-          case AppDestination.mapa:
-            _emBreve(context, 'Mapa');
-            break;
-          case AppDestination.missoes:
-            _emBreve(context, 'Missões');
-            break;
-          case AppDestination.perfil:
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const ProfilePage()),
-            );
-            break;
-        }
-      },
+      destinations: SessaoUsuario.atual.destinos,
+      onSelected: (destination) =>
+          navegarDestino(context, destination, atual: AppDestination.inicio),
     );
   }
 }

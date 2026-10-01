@@ -5,8 +5,9 @@ import {
   OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import { ComentarioEntity } from './comentario.entity.js';
-import { CurtidaEntity } from './curtida.entity.js';
+import type { Relation } from 'typeorm';
+import type { ComentarioEntity } from './comentario.entity.js';
+import type { CurtidaEntity } from './curtida.entity.js';
 
 @Entity({ name: 'publicacoes' })
 export class PublicacaoEntity {
@@ -37,9 +38,12 @@ export class PublicacaoEntity {
   @CreateDateColumn({ name: 'criado_em', type: 'timestamptz' })
   criadoEm: Date;
 
-  @OneToMany(() => CurtidaEntity, (curtida) => curtida.publicacao)
-  curtidas: CurtidaEntity[];
+  @OneToMany('CurtidaEntity', (curtida: CurtidaEntity) => curtida.publicacao)
+  curtidas: Relation<CurtidaEntity>[];
 
-  @OneToMany(() => ComentarioEntity, (comentario) => comentario.publicacao)
-  comentarios: ComentarioEntity[];
+  @OneToMany(
+    'ComentarioEntity',
+    (comentario: ComentarioEntity) => comentario.publicacao,
+  )
+  comentarios: Relation<ComentarioEntity>[];
 }

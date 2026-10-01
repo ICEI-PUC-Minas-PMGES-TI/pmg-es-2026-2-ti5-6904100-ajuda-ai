@@ -1,199 +1,152 @@
 import 'package:flutter/material.dart';
 
+import 'models/ciclo_participacao.dart';
+import 'sessao_usuario.dart';
+import 'services/participacoes_api.dart';
 import 'theme/colors.dart';
 import 'widgets/cabecalho_logos.dart';
 
-enum PapelCiclo {
-  apadrinhado('Apadrinhado'),
-  candidato('Candidato a padrinho'),
-  padrinho('Padrinho');
+export 'models/ciclo_participacao.dart';
 
-  const PapelCiclo(this.rotulo);
-  final String rotulo;
-}
-
-enum StatusCiclo {
-  concluido('Concluído', AppColors.primary, AppAccents.success),
-  naoAprovado('Não aprovado', _vermelho, _vermelho),
-  emAndamento('Em andamento', AppAccents.success, AppAccents.success);
-
-  const StatusCiclo(this.rotulo, this.corPonto, this.corSelo);
-  final String rotulo;
-  final Color corPonto;
-  final Color corSelo;
-}
-
-const _vermelho = Color(0xFFDC2626);
-
-class CicloParticipacao {
-  const CicloParticipacao({
-    required this.semestre,
-    required this.papel,
-    required this.status,
-    required this.titulo,
-    required this.descricao,
-    this.detalhes = const [],
-    this.apadrinhados = 0,
+class HistoricoParticipacaoPage extends StatefulWidget {
+  const HistoricoParticipacaoPage({
+    super.key,
+    this.ciclos,
+    this.api,
   });
 
-  final String semestre;
-  final PapelCiclo papel;
-  final StatusCiclo status;
-  final String titulo;
-  final String descricao;
-  final List<(String, String)> detalhes;
-  final int apadrinhados;
+  /// Quando informado, usa estes ciclos (útil em testes) sem chamar a API.
+  final List<CicloParticipacao>? ciclos;
+  final ParticipacoesApi? api;
+
+  @override
+  State<HistoricoParticipacaoPage> createState() =>
+      _HistoricoParticipacaoPageState();
 }
 
-// TODO: buscar o histórico no backend.
-const _ciclosExemplo = [
-  CicloParticipacao(
-    semestre: '2025/1',
-    papel: PapelCiclo.apadrinhado,
-    status: StatusCiclo.concluido,
-    titulo: 'Apadrinhado',
-    descricao: 'Você participou e concluiu sua jornada.',
-    detalhes: [('Padrinho', 'Thiago Moreira'), ('Encontros', '5')],
-  ),
-  CicloParticipacao(
-    semestre: '2025/2',
-    papel: PapelCiclo.candidato,
-    status: StatusCiclo.naoAprovado,
-    titulo: 'Candidatura não aprovada',
-    descricao: 'Neste ciclo sua candidatura não foi aprovada.',
-    detalhes: [('Acesso', 'Mapa + Feed'), ('Vínculo', 'Sem vínculo')],
-  ),
-  CicloParticipacao(
-    semestre: '2026/1',
-    papel: PapelCiclo.padrinho,
-    status: StatusCiclo.concluido,
-    titulo: 'Padrinho',
-    descricao: 'Você atuou como padrinho e concluiu o semestre.',
-    detalhes: [('Apadrinhados', '3'), ('Encontros', '8')],
-    apadrinhados: 3,
-  ),
-  CicloParticipacao(
-    semestre: '2026/2',
-    papel: PapelCiclo.padrinho,
-    status: StatusCiclo.emAndamento,
-    titulo: 'Padrinho ativo',
-    descricao: 'Você está atuando como padrinho neste semestre.',
-    detalhes: [('Apadrinhados', '2'), ('Encontros', '6')],
-    apadrinhados: 2,
-  ),
-];
+class _HistoricoParticipacaoPageState extends State<HistoricoParticipacaoPage> {
+  late final ParticipacoesApi _api;
+  List<CicloParticipacao> _ciclos = const [];
+  bool _carregando = true;
+  String? _erro;
 
-class HistoricoParticipacaoPage extends StatelessWidget {
-  const HistoricoParticipacaoPage({super.key, this.ciclos = _ciclosExemplo});
-  final List<CicloParticipacao> ciclos;
+  @override
+  void initState() {
+    super.initState();
+    _api = widget.api ?? SessaoUsuario.atual.participacoesApi;
+    if (widget.ciclos != null) {
+      _ciclos = _ordenar(widget.ciclos!);
+      _carregando = false;
+    } else {
+      _carregar();
+    }
+  }
 
-  int get _totalApadrinhados =>
-      ciclos.fold(0, (total, ciclo) => total + ciclo.apadrinhados);
+  List<CicloParticipacao> _ordenar(List<CicloParticipacao> ciclos) {
+    final copia = [...ciclos];
+    copia.sort((a, b) => b.semestre.compareTo(a.semestre));
+    return copia;
+  }
 
-  int get _semestresComoPadrinho => ciclos
-      .where(
-        (ciclo) =>
-            ciclo.papel == PapelCiclo.padrinho &&
-            ciclo.status != StatusCiclo.naoAprovado,
-      )
-      .length;
+  Future<void> _carregar() async {
+    setState(() {
+      _carregando = true;
+      _erro = null;
+    });
+
+    final usuarioId = SessaoUsuario.atual.usuarioIdHistorico;
+    try {
+      final remotos = await _api.listar(usuarioId);
+      if (!mounted) return;
+      setState(() {
+        _ciclos = _ordenar(remotos);
+        _carregando = false;
+      });
+      SessaoUsuario.atual.atualizarHistorico(_ciclos);
+    } catch (_) {
+      if (!mounted) return;
+      final cache = SessaoUsuario.atual.historicoParticipacoes;
+      setState(() {
+        _ciclos = _ordenar(cache);
+        _carregando = false;
+        _erro = cache.isEmpty
+            ? 'Não foi possível carregar o histórico agora.'
+            : null;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final primeiro = ciclos.isEmpty ? null : ciclos.first.papel;
-    final atual = ciclos.isEmpty ? null : ciclos.last.papel;
-
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              CabecalhoLogos(
-                acao: IconButton(
-                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Filtros: em breve!')),
+        child: RefreshIndicator(
+          color: AppColors.primary,
+          onRefresh: widget.ciclos != null ? () async {} : _carregar,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const CabecalhoLogos(),
+                const SizedBox(height: 16),
+                const Text(
+                  'Histórico de participação',
+                  style: TextStyle(
+                    color: AppColors.ink,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.4,
                   ),
-                  icon: const Icon(Icons.tune),
-                  color: AppColors.primary,
-                  tooltip: 'Filtrar',
                 ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Histórico de participação',
-                style: TextStyle(
-                  color: AppColors.ink,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.4,
-                ),
-              ),
-              const Text(
-                'Veja sua evolução no programa e seus papéis em cada ciclo.',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  color: AppColors.muted,
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 16),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final resumos = [
-                    _Resumo(
-                      valor: '$_totalApadrinhados',
-                      rotulo: 'Apadrinhados no total',
-                      icone: Icons.groups_outlined,
-                    ),
-                    _Resumo(
-                      valor: '$_semestresComoPadrinho',
-                      rotulo: 'Semestres como padrinho',
-                      icone: Icons.emoji_events_outlined,
-                    ),
-                    _Resumo(
-                      valor: 'Transição',
-                      rotulo: primeiro == null || primeiro == atual
-                          ? (atual?.rotulo ?? '—')
-                          : '${primeiro.rotulo} → ${atual!.rotulo}',
-                      icone: Icons.trending_up,
-                    ),
-                  ];
-                  if (constraints.maxWidth < 520) {
-                    return Column(
-                      children: [
-                        for (var i = 0; i < resumos.length; i++) ...[
-                          if (i > 0) const SizedBox(height: 8),
-                          resumos[i],
-                        ],
-                      ],
-                    );
-                  }
-                  return Row(
-                    children: [
-                      for (var i = 0; i < resumos.length; i++) ...[
-                        if (i > 0) const SizedBox(width: 8),
-                        Expanded(child: resumos[i]),
-                      ],
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 18),
-              _LinhaDoTempo(ciclos: ciclos),
-              const SizedBox(height: 18),
-              for (final (i, ciclo) in ciclos.indexed)
-                _CardCiclo(ciclo: ciclo, ultimo: i == ciclos.length - 1),
-              if (_totalApadrinhados > 0) ...[
                 const SizedBox(height: 4),
-                _Impacto(
-                  apadrinhados: _totalApadrinhados,
-                  semestres: _semestresComoPadrinho,
+                const Text(
+                  'Veja sua trajetória no programa Ajuda Aí.',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    color: AppColors.muted,
+                    fontSize: 13,
+                  ),
                 ),
+                const SizedBox(height: 20),
+                if (_carregando)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: Center(
+                      child: CircularProgressIndicator(color: AppColors.primary),
+                    ),
+                  )
+                else if (_erro != null && _ciclos.isEmpty)
+                  _EstadoVazio(mensagem: _erro!, acao: _carregar)
+                else if (_ciclos.isEmpty)
+                  const _EstadoVazio(
+                    mensagem:
+                        'Você ainda não possui participações registradas '
+                        'no programa.',
+                  )
+                else ...[
+                  for (final (i, ciclo) in _ciclos.indexed)
+                    _CardCiclo(
+                      ciclo: ciclo,
+                      ultimo: i == _ciclos.length - 1,
+                    ),
+                  if (_ciclos.length == 1) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Essa é sua primeira participação no programa.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        color: AppColors.muted.withValues(alpha: 0.95),
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -201,117 +154,55 @@ class HistoricoParticipacaoPage extends StatelessWidget {
   }
 }
 
-class _Resumo extends StatelessWidget {
-  const _Resumo({
-    required this.valor,
-    required this.rotulo,
-    required this.icone,
-  });
+class _EstadoVazio extends StatelessWidget {
+  const _EstadoVazio({required this.mensagem, this.acao});
 
-  final String valor;
-  final String rotulo;
-  final IconData icone;
+  final String mensagem;
+  final Future<void> Function()? acao;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minHeight: 84),
-      padding: const EdgeInsets.all(10),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppAccents.cardBg,
+        color: AppColors.lavender.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppAccents.cardBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  valor,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppColors.ink,
-                    fontSize: valor.length > 3 ? 13 : 22,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              Icon(icone, size: 18, color: AppColors.primary),
-            ],
-          ),
-          const SizedBox(height: 4),
           Text(
-            rotulo,
+            mensagem,
             style: const TextStyle(
               fontFamily: 'Inter',
               color: AppColors.muted,
-              fontSize: 11,
-              height: 1.3,
+              fontSize: 13,
+              height: 1.4,
             ),
           ),
+          if (acao != null) ...[
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () => acao!(),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                padding: EdgeInsets.zero,
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text(
+                'Tentar novamente',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
-    );
-  }
-}
-
-class _LinhaDoTempo extends StatelessWidget {
-  const _LinhaDoTempo({required this.ciclos});
-
-  final List<CicloParticipacao> ciclos;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final (i, ciclo) in ciclos.indexed)
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  ciclo.semestre,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    color: AppColors.ink,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  ciclo.titulo,
-                  maxLines: 2,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    color: AppColors.muted,
-                    fontSize: 12,
-                    height: 1.25,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 6,
-                      backgroundColor: ciclo.status.corPonto,
-                    ),
-                    if (i < ciclos.length - 1)
-                      Expanded(
-                        child: Container(
-                          height: 2,
-                          color: AppAccents.cardBorder,
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-      ],
     );
   }
 }
@@ -324,40 +215,43 @@ class _CardCiclo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cor = ciclo.status.corSelo;
-
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
-            width: 22,
+            width: 18,
             child: Column(
               children: [
-                const SizedBox(height: 18),
-                CircleAvatar(radius: 6, backgroundColor: ciclo.status.corPonto),
+                const SizedBox(height: 20),
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: ciclo.status.corPonto,
+                    shape: BoxShape.circle,
+                  ),
+                ),
                 if (!ultimo)
                   Expanded(
-                    child: Container(width: 2, color: AppAccents.cardBorder),
+                    child: Container(
+                      width: 2,
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      color: AppAccents.cardBorder,
+                    ),
                   ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 10),
           Expanded(
             child: Container(
               margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: ciclo.status == StatusCiclo.naoAprovado
-                    ? _vermelho.withValues(alpha: 0.05)
-                    : AppAccents.cardBg,
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: ciclo.status == StatusCiclo.naoAprovado
-                      ? _vermelho.withValues(alpha: 0.2)
-                      : AppAccents.cardBorder,
-                ),
+                border: Border.all(color: AppAccents.cardBorder),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -370,53 +264,62 @@ class _CardCiclo extends StatelessWidget {
                           style: const TextStyle(
                             fontFamily: 'Inter',
                             color: AppColors.muted,
-                            fontSize: 11,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 8,
-                          vertical: 2,
+                          vertical: 3,
                         ),
                         decoration: BoxDecoration(
-                          color: cor.withValues(alpha: 0.1),
+                          color: ciclo.status.fundoSelo,
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
                           ciclo.status.rotulo,
                           style: TextStyle(
                             fontFamily: 'Inter',
-                            color: cor,
+                            color: ciclo.status.corSelo,
                             fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
                     ],
                   ),
+                  const SizedBox(height: 6),
                   Text(
                     ciclo.titulo,
                     style: const TextStyle(
                       color: AppColors.ink,
-                      fontSize: 17,
+                      fontSize: 16,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
+                  const SizedBox(height: 4),
                   Text(
                     ciclo.descricao,
                     style: const TextStyle(
                       fontFamily: 'Inter',
                       color: AppColors.muted,
                       fontSize: 12,
+                      height: 1.35,
                     ),
                   ),
                   if (ciclo.detalhes.isNotEmpty) ...[
-                    const Divider(height: 18, color: AppAccents.cardBorder),
-                    Row(
+                    const SizedBox(height: 10),
+                    const Divider(height: 1, color: AppAccents.cardBorder),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 8,
                       children: [
                         for (final (rotulo, valor) in ciclo.detalhes)
-                          Expanded(
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(minWidth: 90),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -425,7 +328,7 @@ class _CardCiclo extends StatelessWidget {
                                   style: const TextStyle(
                                     fontFamily: 'Inter',
                                     color: AppColors.muted,
-                                    fontSize: 10,
+                                    fontSize: 11,
                                   ),
                                 ),
                                 Text(
@@ -433,7 +336,7 @@ class _CardCiclo extends StatelessWidget {
                                   style: const TextStyle(
                                     fontFamily: 'Inter',
                                     color: AppColors.ink,
-                                    fontSize: 12,
+                                    fontSize: 13,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -445,64 +348,6 @@ class _CardCiclo extends StatelessWidget {
                   ],
                 ],
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Impacto extends StatelessWidget {
-  const _Impacto({required this.apadrinhados, required this.semestres});
-
-  final int apadrinhados;
-  final int semestres;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.lavender,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.emoji_events_outlined,
-            color: AppColors.primary,
-            size: 26,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'IMPACTO TOTAL',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    color: AppColors.primary,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                Text(
-                  'Você já apoiou $apadrinhados '
-                  '${apadrinhados == 1 ? 'apadrinhado' : 'apadrinhados'} em '
-                  '$semestres ${semestres == 1 ? 'semestre' : 'semestres'} '
-                  'como padrinho.',
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    color: AppColors.ink,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
             ),
           ),
         ],
