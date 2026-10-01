@@ -59,6 +59,7 @@ enum StatusCiclo {
       'em_andamento' => StatusCiclo.emAndamento,
       'concluido' => StatusCiclo.concluido,
       'nao_aprovado' => StatusCiclo.naoAprovado,
+      'pendente' || 'em_analise' => StatusCiclo.emAnalise,
       _ => StatusCiclo.emAnalise,
     };
   }

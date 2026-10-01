@@ -31,7 +31,7 @@ describe('ParticipacoesService', () => {
 
     expect(primeira.id).toBe(segunda.id);
     expect(primeira.papel).toBe('candidato');
-    expect(primeira.status).toBe('em_analise');
+    expect(primeira.status).toBe('pendente');
     expect(registros).toHaveLength(1);
   });
 

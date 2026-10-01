@@ -1,8 +1,9 @@
 # Ajuda-aí Web
 
-Frontend em React e JavaScript, criado com Vite. O fluxo de cadastro inclui perfil,
-informações complementares, revisão e confirmação. Em telas largas, segue o layout
-desktop de duas colunas; em telas menores, adapta os formulários para uma coluna.
+Frontend em React e Vite. Inclui:
+
+- fluxo de cadastro do estudante (`/`);
+- login e **Dashboard da coordenação** (`/login`, `/coordenacao`).
 
 ## Executar localmente
 
@@ -12,11 +13,12 @@ npm install
 npm run dev
 ```
 
-O Vite exibirá o endereço local no terminal. Para gerar os arquivos de produção:
+A API Nest precisa estar em `http://localhost:3000` (ou defina `VITE_API_URL`).
 
-```powershell
-npm run build
-```
+### Acesso à coordenação
 
-As imagens e fontes são reutilizadas de `code/mobile/assets`. O envio do cadastro
-ainda não persiste no backend, pois a API de inscrição está pendente.
+1. Garanta `AUTH_DEMO_ENABLED=true` no `.env` da API.
+2. Abra `/login`.
+3. Entre com `renata@pucminas.edu.br`.
+
+As imagens e fontes vêm de `code/mobile/assets`.

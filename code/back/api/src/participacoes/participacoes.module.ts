@@ -8,6 +8,6 @@ import { ParticipacoesService } from './participacoes.service.js';
   imports: [TypeOrmModule.forFeature([ParticipacaoEntity])],
   controllers: [ParticipacoesController],
   providers: [ParticipacoesService],
-  exports: [ParticipacoesService],
+  exports: [ParticipacoesService, TypeOrmModule],
 })
 export class ParticipacoesModule {}

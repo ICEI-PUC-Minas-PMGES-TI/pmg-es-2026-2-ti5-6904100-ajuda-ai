@@ -4,7 +4,7 @@ import { Perfil, Usuario, USUARIOS, VINCULOS } from '../dados/dados.js';
 @Injectable()
 export class UsuariosService {
   buscarPorPerfil(perfil: Perfil = 'apadrinhado'): Usuario {
-    const usuario = USUARIOS[perfil];
+    const usuario = Object.values(USUARIOS).find((item) => item.perfil === perfil);
 
     if (!usuario) {
       throw new NotFoundException('Usuário não encontrado.');

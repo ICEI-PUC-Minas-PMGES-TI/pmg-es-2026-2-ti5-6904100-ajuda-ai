@@ -3,7 +3,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module.js';
 import { AvisosModule } from './avisos/avisos.module.js';
+import { CoordenacaoModule } from './coordenacao/coordenacao.module.js';
 import { ParticipacoesModule } from './participacoes/participacoes.module.js';
+import { ProgramasModule } from './programas/programas.module.js';
 import { UsuariosModule } from './usuarios/usuarios.module.js';
 import { PublicacoesModule } from './publicacoes/publicacoes.module.js';
 
@@ -32,6 +34,8 @@ import { PublicacoesModule } from './publicacoes/publicacoes.module.js';
     AvisosModule,
     PublicacoesModule,
     ParticipacoesModule,
+    ProgramasModule,
+    CoordenacaoModule,
   ],
 })
 export class AppModule {}

@@ -10,6 +10,7 @@ import {
 
 export type PapelParticipacao = 'padrinho' | 'apadrinhado' | 'candidato';
 export type StatusParticipacaoRegistro =
+  | 'pendente'
   | 'em_analise'
   | 'em_andamento'
   | 'concluido'

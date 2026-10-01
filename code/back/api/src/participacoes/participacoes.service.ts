@@ -76,11 +76,42 @@ export class ParticipacoesService {
       usuarioId,
       programa,
       papel: 'candidato',
-      status: 'em_analise',
+      status: 'pendente',
       apadrinhados: 0,
       inicioEm: new Date(),
     });
     return this.participacoes.save(registro);
+  }
+
+  async listarPorPrograma(filtros: {
+    programa: string;
+    papel?: PapelParticipacao;
+    status?: StatusParticipacaoRegistro;
+  }): Promise<ParticipacaoEntity[]> {
+    const programa = filtros.programa.trim();
+    if (!programa) {
+      throw new BadRequestException('programa é obrigatório.');
+    }
+    return this.participacoes.find({
+      where: {
+        programa,
+        ...(filtros.papel ? { papel: filtros.papel } : {}),
+        ...(filtros.status ? { status: filtros.status } : {}),
+      },
+      order: { criadoEm: 'DESC' },
+    });
+  }
+
+  async marcarEmAnalise(id: number): Promise<ParticipacaoEntity | null> {
+    const registro = await this.participacoes.findOne({ where: { id } });
+    if (!registro || registro.papel !== 'candidato') {
+      return null;
+    }
+    if (registro.status === 'pendente') {
+      registro.status = 'em_analise';
+      return this.participacoes.save(registro);
+    }
+    return registro;
   }
 
   /**

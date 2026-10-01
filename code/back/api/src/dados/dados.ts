@@ -10,6 +10,7 @@ export interface Usuario {
   xp: number;
   meta: number;
   nivel: number;
+  fotoUrl?: string | null;
 }
 
 export interface Aviso {
@@ -19,7 +20,7 @@ export interface Aviso {
   data: string;
 }
 
-export const USUARIOS: Record<Perfil, Usuario> = {
+export const USUARIOS: Record<string, Usuario> = {
   apadrinhado: {
     id: 1,
     nome: 'Camila Duarte',
@@ -53,7 +54,62 @@ export const USUARIOS: Record<Perfil, Usuario> = {
     meta: 0,
     nivel: 0,
   },
+  candidato1: {
+    id: 4,
+    nome: 'Ana Beatriz Costa',
+    email: 'ana.beatriz@pucminas.edu.br',
+    perfil: 'padrinho',
+    curso: 'Ciência da Computação',
+    periodo: 5,
+    xp: 900,
+    meta: 2000,
+    nivel: 3,
+  },
+  candidato2: {
+    id: 5,
+    nome: 'Pedro Henrique Lima',
+    email: 'pedro.lima@pucminas.edu.br',
+    perfil: 'padrinho',
+    curso: 'Sistemas de Informação',
+    periodo: 4,
+    xp: 700,
+    meta: 2000,
+    nivel: 2,
+  },
+  candidato3: {
+    id: 6,
+    nome: 'Julia Fernandes',
+    email: 'julia.fernandes@pucminas.edu.br',
+    perfil: 'padrinho',
+    curso: 'Engenharia de Computação',
+    periodo: 6,
+    xp: 1100,
+    meta: 2000,
+    nivel: 3,
+  },
+  apadrinhado2: {
+    id: 7,
+    nome: 'Lucas Almeida',
+    email: 'lucas.almeida@pucminas.edu.br',
+    perfil: 'apadrinhado',
+    curso: 'Engenharia de Software',
+    periodo: 1,
+    xp: 200,
+    meta: 2000,
+    nivel: 1,
+  },
 };
+
+export function buscarUsuarioPorEmail(email: string): Usuario | undefined {
+  const chave = email.trim().toLowerCase();
+  return Object.values(USUARIOS).find(
+    (item) => item.email.toLowerCase() === chave,
+  );
+}
+
+export function buscarUsuarioPorId(id: number): Usuario | undefined {
+  return Object.values(USUARIOS).find((item) => item.id === id);
+}
 
 export const AVISOS: Aviso[] = [
   {
