@@ -374,13 +374,13 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
             crossAxisCount: 2,
             mainAxisSpacing: 10,
             crossAxisSpacing: 10,
-            mainAxisExtent: 112,
+            childAspectRatio: 1.55,
           ),
           delegate: SliverChildListDelegate([
             _Kpi(
               titulo: 'Candidaturas pendentes',
               valor: '${pendentes['valor'] ?? 0}',
-              contexto: '${pendentes['detalhe'] ?? 'de ${pendentes['total'] ?? 0} inscritas'}',
+              contexto: '${pendentes['detalhe'] ?? '${pendentes['valor'] ?? 0} de ${pendentes['total'] ?? 0}'}',
               icon: Icons.assignment_outlined,
               cor: AppColors.primary,
               onTap: () => widget.onVerCandidaturas(status: 'aguardando'),
@@ -388,7 +388,7 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
             _Kpi(
               titulo: 'Padrinhos aprovados',
               valor: '${padrinhos['valor'] ?? 0}',
-              contexto: '${padrinhos['detalhe'] ?? 'de ${padrinhos['total'] ?? 0} candidaturas'}',
+              contexto: '${padrinhos['detalhe'] ?? '${padrinhos['valor'] ?? 0} de ${padrinhos['total'] ?? 0}'}',
               icon: Icons.check_circle_outline,
               cor: AppAccents.success,
               onTap: () => widget.onVerCandidaturas(status: 'aprovadas'),
@@ -396,7 +396,7 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
             _Kpi(
               titulo: 'Apadrinhados ativos',
               valor: '${apadrinhados['valor'] ?? 0}',
-              contexto: '${apadrinhados['detalhe'] ?? 'de ${apadrinhados['total'] ?? 0} vagas'}',
+              contexto: '${apadrinhados['detalhe'] ?? '${apadrinhados['valor'] ?? 0} de ${apadrinhados['total'] ?? 0} vagas'}',
               icon: Icons.person_outline,
               cor: AppAccents.iconeAzul,
               onTap: () => widget.onAbrirDestino?.call('usuarios', const {}),
@@ -404,7 +404,7 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
             _Kpi(
               titulo: 'Grupos formados',
               valor: '${grupos['valor'] ?? 0}',
-              contexto: '${grupos['detalhe'] ?? 'de ${grupos['total'] ?? 0} previstos'}',
+              contexto: '${grupos['detalhe'] ?? '${grupos['valor'] ?? 0} de ${grupos['total'] ?? 0} previstos'}',
               icon: Icons.groups_outlined,
               cor: AppAccents.iconeLaranja,
               onTap: () => widget.onAbrirDestino?.call('programas', {'pendencia': 'grupos'}),
@@ -834,55 +834,63 @@ class _Kpi extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(14),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+          padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: AppAccents.cardBorder),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Row(
                 children: [
                   Container(
-                    width: 28,
-                    height: 28,
+                    width: 26,
+                    height: 26,
                     decoration: BoxDecoration(
                       color: cor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(icon, size: 16, color: cor),
+                    child: Icon(icon, size: 15, color: cor),
                   ),
-                  const Spacer(),
-                  Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade400),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      titulo,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF5C5678),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        height: 1.15,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, size: 15, color: Colors.grey.shade400),
                 ],
               ),
-              const SizedBox(height: 6),
-              Text(
-                titulo,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFF5C5678),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              const SizedBox(height: 4),
               Text(
                 valor,
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontWeight: FontWeight.w800,
                   fontSize: 22,
-                  height: 1.05,
+                  height: 1.0,
                   color: cor,
                 ),
               ),
               Text(
                 contexto,
-                maxLines: 2,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Color(0xFF5C5678), fontSize: 10, height: 1.2),
+                style: const TextStyle(
+                  color: Color(0xFF5C5678),
+                  fontSize: 10,
+                  height: 1.2,
+                ),
               ),
             ],
           ),

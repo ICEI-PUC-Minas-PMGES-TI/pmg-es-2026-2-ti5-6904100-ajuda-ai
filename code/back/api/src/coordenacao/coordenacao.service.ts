@@ -125,7 +125,7 @@ export class CoordenacaoService implements OnModuleInit {
           rotulo: 'de candidaturas a padrinho',
           detalhe:
             aguardandoDecisao === 0
-              ? 'Nenhuma aguardando decisão'
+              ? `0 de ${candidaturasInscritas} inscritas`
               : `${pendentes} nova${pendentes === 1 ? '' : 's'} · ${emAnalise} em análise`,
           pendentes,
           emAnalise,
@@ -136,7 +136,7 @@ export class CoordenacaoService implements OnModuleInit {
           rotulo: 'de candidaturas a padrinho',
           detalhe:
             aprovadas === 0
-              ? 'Nenhum padrinho aprovado neste ciclo'
+              ? `0 de ${candidaturasInscritas || 0} candidaturas`
               : `${padrinhosComVinculo} com vínculo ativo`,
           comVinculo: padrinhosComVinculo,
         },
@@ -153,10 +153,7 @@ export class CoordenacaoService implements OnModuleInit {
           valor: gruposFormados,
           total: programa.gruposPrevistos,
           rotulo: 'previstos',
-          detalhe:
-            gruposIncompletos > 0
-              ? `${gruposIncompletos} ainda incompleto${gruposIncompletos === 1 ? '' : 's'}`
-              : 'Formação completa',
+          detalhe: `${gruposFormados} de ${programa.gruposPrevistos} previstos`,
         },
       },
       candidaturasVisaoGeral: {
