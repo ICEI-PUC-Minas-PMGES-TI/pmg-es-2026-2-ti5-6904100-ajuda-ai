@@ -65,6 +65,23 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
     });
   }
 
+  void _abrirDestino(String destino, Map<String, String> query) {
+    if (destino == 'candidaturas') {
+      _abrirCandidaturas(status: query['status']);
+      return;
+    }
+    final pendencia = query['pendencia'];
+    final mensagem = switch (destino) {
+      'programas' when pendencia == 'grupos' =>
+        'Abra Programas no painel web para revisar grupos incompletos.',
+      'programas' when pendencia == 'prazo' =>
+        'Abra Programas no painel web para revisar o prazo de inscrições.',
+      'usuarios' => 'Abra Usuários no painel web para gerenciar vínculos.',
+      _ => 'Seção disponível no painel web da coordenação.',
+    };
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(mensagem)));
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_carregando) {
@@ -125,6 +142,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         programa: _programa,
         onProgramaChanged: (codigo) => setState(() => _programa = codigo),
         onVerCandidaturas: _abrirCandidaturas,
+        onAbrirDestino: _abrirDestino,
       ),
       TelaCandidaturasCoord(
         api: _api!,

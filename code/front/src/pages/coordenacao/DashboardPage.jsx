@@ -27,6 +27,7 @@ export default function DashboardPage() {
   const programaParam = params.get('programa') || '';
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState('');
+  const [erroAtencao, setErroAtencao] = useState('');
   const [carregando, setCarregando] = useState(true);
   const [seletorAberto, setSeletorAberto] = useState(false);
   const [detalhe, setDetalhe] = useState(null);
@@ -34,10 +35,12 @@ export default function DashboardPage() {
   const seletorId = useId();
   const seletorBtnRef = useRef(null);
   const seletorListaRef = useRef(null);
+  const seletorWrapRef = useRef(null);
 
   const carregar = useCallback(async (codigo) => {
     setCarregando(true);
     setErro('');
+    setErroAtencao('');
     try {
       const resposta = await api.dashboard(codigo || undefined);
       setDados(resposta);
@@ -46,6 +49,7 @@ export default function DashboardPage() {
       }
     } catch (error) {
       setErro(error.message || 'Não foi possível carregar o dashboard.');
+      setErroAtencao(error.message || 'Não foi possível carregar os pontos de atenção.');
       setDados(null);
     } finally {
       setCarregando(false);
@@ -64,18 +68,31 @@ export default function DashboardPage() {
         seletorBtnRef.current?.focus();
       }
     }
+    function onClickFora(event) {
+      if (!seletorWrapRef.current?.contains(event.target)) {
+        setSeletorAberto(false);
+      }
+    }
     document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onClickFora);
     seletorListaRef.current?.querySelector('[role="option"]')?.focus();
-    return () => document.removeEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onClickFora);
+    };
   }, [seletorAberto]);
 
   function ir(destino, extras = {}) {
     const codigo = dados?.programa?.codigo || programaParam;
-    const query = new URLSearchParams({ ...(codigo ? { programa: codigo } : {}), ...extras });
+    const query = new URLSearchParams({
+      ...(codigo ? { programa: codigo } : {}),
+      ...extras,
+    });
     navigate(`/coordenacao/${destino}?${query.toString()}`);
   }
 
   async function abrirNovoCiclo() {
+    if (dados?.acoes && dados.acoes.podeAbrirNovoCiclo === false) return;
     try {
       const criado = await api.criarPrograma();
       setParams({ programa: criado.codigo });
@@ -117,24 +134,35 @@ export default function DashboardPage() {
     );
   }
 
-  const { indicadores, candidaturasVisaoGeral: chart, etapas, candidaturasRecentes, pontosAtencao, resumo, programas } = dados;
+  const {
+    indicadores,
+    candidaturasVisaoGeral: chart,
+    etapas,
+    candidaturasRecentes,
+    pontosAtencao,
+    resumo,
+    programas,
+    acoes,
+  } = dados;
   const maxBar = Math.max(chart.pendentes, chart.emAnalise, chart.aprovadas, chart.rejeitadas, 1);
   const barras = [
-    { key: 'pendentes', label: 'Pendentes', valor: chart.pendentes, tom: 'purple' },
+    { key: 'pendentes', label: 'Novas', valor: chart.pendentes, tom: 'purple' },
     { key: 'em_analise', label: 'Em análise', valor: chart.emAnalise, tom: 'lilac' },
     { key: 'aprovadas', label: 'Aprovadas', valor: chart.aprovadas, tom: 'green' },
     { key: 'rejeitadas', label: 'Rejeitadas', valor: chart.rejeitadas, tom: 'pink' },
   ];
+  const aguardando = indicadores.candidaturasPendentes;
+  const somenteLeitura = Boolean(acoes?.somenteLeitura || resumo?.encerrado);
 
   return (
     <div className="dash">
       <header className="dash-header">
         <div>
           <h1>Dashboard da coordenação</h1>
-          <p>Acompanhe o programa atual, candidaturas e principais indicadores do semestre.</p>
+          <p>Acompanhe o programa, candidaturas a padrinho e indicadores do semestre.</p>
         </div>
         <div className="dash-header-tools">
-          <div className="program-select">
+          <div className="program-select" ref={seletorWrapRef}>
             <button
               ref={seletorBtnRef}
               type="button"
@@ -145,8 +173,11 @@ export default function DashboardPage() {
               onClick={() => setSeletorAberto((v) => !v)}
             >
               <Icon name="calendar" size={17} />
-              <span>Programa {dados.programa.codigo}</span>
-              <Icon name="chevron" size={16} className="rotate-90" />
+              <span className="program-select-label">
+                <strong>{dados.programa.nome || `Programa ${dados.programa.codigo}`}</strong>
+                <small>{dados.programa.statusRotulo}{dados.programa.vigente ? ' · vigente' : ''}</small>
+              </span>
+              <Icon name="chevron" size={16} className={`select-chevron${seletorAberto ? ' open' : ''}`} />
             </button>
             {seletorAberto && (
               <ul
@@ -169,7 +200,11 @@ export default function DashboardPage() {
                         seletorBtnRef.current?.focus();
                       }}
                     >
-                      Programa {p.codigo}
+                      <span className="program-option-main">
+                        <strong>{p.nome || `Programa ${p.codigo}`}</strong>
+                        <span>{p.statusRotulo}{p.vigente ? ' · vigente' : p.encerrado ? ' · encerrado' : ''}</span>
+                      </span>
+                      {p.codigo === dados.programa.codigo && <Icon name="check" size={16} />}
                     </button>
                   </li>
                 ))}
@@ -193,16 +228,17 @@ export default function DashboardPage() {
       <section className="dash-kpis" aria-label="Indicadores">
         <KpiCard
           titulo="Candidaturas pendentes"
-          valor={indicadores.candidaturasPendentes.valor}
-          contexto={`${indicadores.candidaturasPendentes.valor} de ${indicadores.candidaturasPendentes.total} inscritas`}
+          valor={aguardando.valor}
+          contexto={aguardando.detalhe || `${aguardando.valor} de ${aguardando.total} inscritas`}
+          hint="Soma de novas + em análise (aguardando decisão)"
           icon="clipboard"
           tom="purple"
-          onClick={() => ir('candidaturas', { status: 'pendente' })}
+          onClick={() => ir('candidaturas', { status: 'aguardando' })}
         />
         <KpiCard
           titulo="Padrinhos aprovados"
           valor={indicadores.padrinhosAprovados.valor}
-          contexto={`${indicadores.padrinhosAprovados.valor} de ${indicadores.padrinhosAprovados.total} candidaturas`}
+          contexto={indicadores.padrinhosAprovados.detalhe || `${indicadores.padrinhosAprovados.valor} de ${indicadores.padrinhosAprovados.total}`}
           icon="checkCircle"
           tom="green"
           onClick={() => ir('candidaturas', { status: 'aprovadas' })}
@@ -210,7 +246,7 @@ export default function DashboardPage() {
         <KpiCard
           titulo="Apadrinhados ativos"
           valor={indicadores.apadrinhadosAtivos.valor}
-          contexto={`${indicadores.apadrinhadosAtivos.valor} de ${indicadores.apadrinhadosAtivos.total} vagas`}
+          contexto={indicadores.apadrinhadosAtivos.detalhe || `${indicadores.apadrinhadosAtivos.valor} de ${indicadores.apadrinhadosAtivos.total} vagas`}
           icon="person"
           tom="purple"
           onClick={() => ir('usuarios')}
@@ -218,7 +254,7 @@ export default function DashboardPage() {
         <KpiCard
           titulo="Grupos formados"
           valor={indicadores.gruposFormados.valor}
-          contexto={`${indicadores.gruposFormados.valor} de ${indicadores.gruposFormados.total} previstos`}
+          contexto={indicadores.gruposFormados.detalhe || `${indicadores.gruposFormados.valor} de ${indicadores.gruposFormados.total} previstos`}
           icon="groups"
           tom="blue"
           onClick={() => ir('programas')}
@@ -228,13 +264,23 @@ export default function DashboardPage() {
       <section className="dash-mid">
         <article className="dash-card chart-card">
           <div className="dash-card-head">
-            <h2>Visão geral das candidaturas</h2>
-            <Link className="text-link" to={`/coordenacao/candidaturas?programa=${encodeURIComponent(dados.programa.codigo)}`}>
+            <div>
+              <h2>{chart.titulo || 'Visão geral das candidaturas'}</h2>
+              <p className="chart-caption">
+                {chart.descricao || 'Candidaturas a padrinho por status'}
+                {typeof chart.total === 'number' ? ` · total ${chart.total}` : ''}
+              </p>
+            </div>
+            <Link
+              className="text-link"
+              to={`/coordenacao/candidaturas?programa=${encodeURIComponent(dados.programa.codigo)}`}
+            >
               Ver todas
             </Link>
           </div>
           <p className="sr-only">
             Candidaturas a padrinho: {barras.map((b) => `${b.label} ${b.valor}`).join(', ')}.
+            O card de pendentes soma novas ({chart.pendentes}) e em análise ({chart.emAnalise}).
           </p>
           <div className="bar-chart" role="img" aria-label="Gráfico de candidaturas a padrinho">
             {barras.map((barra) => (
@@ -243,7 +289,9 @@ export default function DashboardPage() {
                 <div className="bar-track">
                   <div
                     className={`bar-fill ${barra.tom}`}
-                    style={{ height: `${Math.max(8, (barra.valor / maxBar) * 100)}%` }}
+                    style={{
+                      height: barra.valor === 0 ? '0%' : `${Math.max(12, (barra.valor / maxBar) * 100)}%`,
+                    }}
                   />
                 </div>
                 <span className="bar-label">{barra.label}</span>
@@ -252,8 +300,14 @@ export default function DashboardPage() {
           </div>
           <ul className="chart-legend">
             {barras.map((b) => (
-              <li key={b.key}><span className={`dot ${b.tom}`} />{b.label}: {b.valor}</li>
+              <li key={b.key}>
+                <span className={`dot ${b.tom}`} />
+                {b.label}: {b.valor}
+              </li>
             ))}
+            <li className="legend-note">
+              Pendentes no card = novas + em análise ({chart.pendentes + chart.emAnalise})
+            </li>
           </ul>
         </article>
 
@@ -283,18 +337,37 @@ export default function DashboardPage() {
           <h2>Ações rápidas</h2>
           <div className="quick-actions">
             <button type="button" onClick={() => ir('candidaturas')}>
-              <Icon name="eye" size={20} /><span>Ver candidaturas</span>
+              <Icon name="eye" size={20} />
+              <span>Ver candidaturas</span>
             </button>
-            <button type="button" onClick={() => ir('formularios')}>
-              <Icon name="form" size={20} /><span>Gerenciar formulários</span>
+            <button
+              type="button"
+              disabled={acoes?.podeGerenciarFormularios === false}
+              onClick={() => ir('formularios')}
+            >
+              <Icon name="form" size={20} />
+              <span>Gerenciar formulários</span>
             </button>
-            <button type="button" onClick={() => ir('configuracoes')}>
-              <Icon name="megaphone" size={20} /><span>Criar comunicado</span>
+            <button
+              type="button"
+              disabled={acoes?.podeCriarComunicado === false}
+              onClick={() => ir('configuracoes')}
+            >
+              <Icon name="megaphone" size={20} />
+              <span>Criar comunicado</span>
             </button>
-            <button type="button" onClick={abrirNovoCiclo}>
-              <Icon name="plus" size={20} /><span>Abrir novo ciclo</span>
+            <button
+              type="button"
+              disabled={acoes?.podeAbrirNovoCiclo === false}
+              onClick={abrirNovoCiclo}
+            >
+              <Icon name="plus" size={20} />
+              <span>Abrir novo ciclo</span>
             </button>
           </div>
+          {somenteLeitura && (
+            <p className="actions-note">Ciclo encerrado — algumas ações ficam indisponíveis.</p>
+          )}
         </article>
 
         <article className="dash-card">
@@ -320,19 +393,42 @@ export default function DashboardPage() {
           )}
         </article>
 
-        <article className="dash-card">
-          <h2>Próximos pontos de atenção</h2>
-          {pontosAtencao.length === 0 ? (
-            <p className="empty-copy">Nenhum ponto de atenção no momento.</p>
+        <article className="dash-card attention-card">
+          <h2>Pontos de atenção</h2>
+          {erroAtencao ? (
+            <div className="attention-empty error" role="alert">
+              <Icon name="alert" size={22} />
+              <div>
+                <strong>Não foi possível carregar os alertas</strong>
+                <p>{erroAtencao}</p>
+              </div>
+              <button type="button" className="ghost-button" onClick={() => carregar(programaParam)}>
+                Tentar novamente
+              </button>
+            </div>
+          ) : pontosAtencao.length === 0 ? (
+            <div className="attention-empty ok">
+              <Icon name="checkCircle" size={22} />
+              <div>
+                <strong>Nenhuma pendência no momento</strong>
+                <p>Os indicadores do programa {dados.programa.codigo} estão em dia.</p>
+              </div>
+            </div>
           ) : (
             <ul className="attention-list">
               {pontosAtencao.map((item) => (
                 <li key={item.id}>
-                  <button type="button" onClick={() => ir(item.destino)}>
+                  <button
+                    type="button"
+                    onClick={() => ir(item.destino, item.query || {})}
+                  >
                     <span className={`attention-icon ${item.severidade}`} aria-hidden="true">
-                      <Icon name="alert" size={16} />
+                      <Icon name={item.icon || 'alert'} size={16} />
                     </span>
-                    <span>{item.texto}</span>
+                    <span className="attention-copy">
+                      <strong>{item.titulo || item.texto}</strong>
+                      <span>{item.descricao || item.texto}</span>
+                    </span>
                     <Icon name="chevron" size={16} />
                   </button>
                 </li>
@@ -350,7 +446,8 @@ export default function DashboardPage() {
           {resumo.matchingEmBreve && <span className="flag amber">Matching em breve</span>}
           {resumo.inscricoesAbertas && <span className="flag purple">Inscrições abertas</span>}
           {resumo.programaEmAndamento && <span className="flag green">Programa em andamento</span>}
-          {!resumo.mentoriaAtiva && !resumo.formularioPublicado && !resumo.matchingEmBreve && !resumo.inscricoesAbertas && (
+          {resumo.encerrado && <span className="flag muted">Ciclo encerrado</span>}
+          {!resumo.mentoriaAtiva && !resumo.formularioPublicado && !resumo.matchingEmBreve && !resumo.inscricoesAbertas && !resumo.encerrado && (
             <span className="flag muted">Sem status ativo</span>
           )}
         </div>
@@ -371,10 +468,14 @@ export default function DashboardPage() {
             <p>Status: {detalhe.statusRotulo}</p>
             <p>Programa: {detalhe.programa}</p>
             <div className="modal-actions">
-              <button type="button" className="primary-button" onClick={() => {
-                setDetalhe(null);
-                ir('candidaturas');
-              }}>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => {
+                  setDetalhe(null);
+                  ir('candidaturas');
+                }}
+              >
                 Ver na lista
               </button>
               <button type="button" className="ghost-button" onClick={() => setDetalhe(null)}>Fechar</button>
@@ -386,16 +487,16 @@ export default function DashboardPage() {
   );
 }
 
-function KpiCard({ titulo, valor, contexto, icon, tom, onClick }) {
+function KpiCard({ titulo, valor, contexto, hint, icon, tom, onClick }) {
   return (
-    <button type="button" className={`kpi-card ${tom}`} onClick={onClick}>
-      <span className="kpi-icon" aria-hidden="true"><Icon name={icon} size={18} /></span>
+    <button type="button" className={`kpi-card compact ${tom}`} onClick={onClick} title={hint}>
+      <span className="kpi-icon" aria-hidden="true"><Icon name={icon} size={17} /></span>
       <span className="kpi-copy">
         <span className="kpi-title">{titulo}</span>
         <strong>{valor}</strong>
         <span className="kpi-context">{contexto}</span>
       </span>
-      <Icon name="chevron" size={16} className="kpi-chevron" />
+      <Icon name="chevron" size={15} className="kpi-chevron" />
     </button>
   );
 }

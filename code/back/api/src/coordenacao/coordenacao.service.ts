@@ -21,6 +21,7 @@ export class CoordenacaoService implements OnModuleInit {
 
   async onModuleInit() {
     await this.programasService.garantirProgramaAtual();
+    await this.programasService.garantirProgramaHistoricoDemo();
     await this.semearParticipacoesDemo();
   }
 
@@ -36,10 +37,16 @@ export class CoordenacaoService implements OnModuleInit {
       };
     }
 
+    const codigoAtual = ParticipacoesService.programaAtual();
+    const solicitado = programaCodigo?.trim();
     const codigo =
-      programaCodigo?.trim() ||
-      ParticipacoesService.programaAtual() ||
+      (solicitado && programas.some((p) => p.codigo === solicitado)
+        ? solicitado
+        : null) ||
+      programas.find((p) => p.codigo === codigoAtual)?.codigo ||
+      programas.find((p) => p.etapaAtual !== 'encerramento')?.codigo ||
       programas[0].codigo;
+
     const programa = await this.programasService.buscarPorCodigo(codigo);
     if (!programa) {
       throw new NotFoundException(`Programa ${codigo} não encontrado.`);
@@ -55,8 +62,11 @@ export class CoordenacaoService implements OnModuleInit {
       (r) => r.papel === 'apadrinhado' && r.status === 'em_andamento',
     );
 
-    const pendentes = candidatos.filter((r) => r.status === 'pendente').length;
-    const emAnalise = candidatos.filter((r) => r.status === 'em_analise').length;
+    const pendentesLista = candidatos.filter((r) => r.status === 'pendente');
+    const emAnaliseLista = candidatos.filter((r) => r.status === 'em_analise');
+    const pendentes = pendentesLista.length;
+    const emAnalise = emAnaliseLista.length;
+    const aguardandoDecisao = pendentes + emAnalise;
     const rejeitadas = candidatos.filter(
       (r) => r.status === 'nao_aprovado',
     ).length;
@@ -85,56 +95,89 @@ export class CoordenacaoService implements OnModuleInit {
       .slice(0, 6)
       .map((item) => this.enriquecerCandidatura(item));
 
-    const semVinculo = apadrinhados.filter(
+    const semVinculoLista = apadrinhados.filter(
       (r) => !r.grupo || !r.grupo.trim(),
-    ).length;
+    );
+    const gruposIncompletos = Math.max(
+      0,
+      (programa.gruposPrevistos || 0) - gruposFormados,
+    );
     const pontosAtencao = this.montarPontosAtencao({
-      pendentes: pendentes + emAnalise,
-      semVinculo,
-      gruposIncompletos: Math.max(
-        0,
-        (programa.gruposPrevistos || 0) - gruposFormados,
-      ),
+      aguardando: [...pendentesLista, ...emAnaliseLista],
+      pendentes,
+      emAnalise,
+      semVinculo: semVinculoLista.length,
+      gruposIncompletos,
       programa,
     });
 
+    const encerrado = programa.etapaAtual === 'encerramento';
+
     return {
-      programa: this.serializarPrograma(programa),
-      programas: programas.map((p) => this.serializarPrograma(p)),
+      programa: this.serializarPrograma(programa, codigoAtual),
+      programas: programas.map((p) => this.serializarPrograma(p, codigoAtual)),
       atualizadoEm: new Date().toISOString(),
       vazio: false,
       indicadores: {
         candidaturasPendentes: {
-          valor: pendentes + emAnalise,
+          valor: aguardandoDecisao,
           total: candidaturasInscritas,
-          rotulo: 'de inscritas',
+          rotulo: 'de candidaturas a padrinho',
+          detalhe:
+            aguardandoDecisao === 0
+              ? 'Nenhuma aguardando decisão'
+              : `${pendentes} nova${pendentes === 1 ? '' : 's'} · ${emAnalise} em análise`,
+          pendentes,
+          emAnalise,
         },
         padrinhosAprovados: {
           valor: aprovadas,
           total: candidaturasInscritas || aprovadas,
-          rotulo: 'de candidaturas',
+          rotulo: 'de candidaturas a padrinho',
+          detalhe:
+            aprovadas === 0
+              ? 'Nenhum padrinho aprovado neste ciclo'
+              : `${padrinhosComVinculo} com vínculo ativo`,
           comVinculo: padrinhosComVinculo,
         },
         apadrinhadosAtivos: {
           valor: apadrinhados.length,
           total: programa.vagasApadrinhados,
           rotulo: 'de vagas',
+          detalhe:
+            semVinculoLista.length > 0
+              ? `${semVinculoLista.length} sem vínculo confirmado`
+              : 'Todos com vínculo definido',
         },
         gruposFormados: {
           valor: gruposFormados,
           total: programa.gruposPrevistos,
           rotulo: 'previstos',
+          detalhe:
+            gruposIncompletos > 0
+              ? `${gruposIncompletos} ainda incompleto${gruposIncompletos === 1 ? '' : 's'}`
+              : 'Formação completa',
         },
       },
       candidaturasVisaoGeral: {
+        titulo: 'Candidaturas a padrinho',
+        descricao:
+          'Contagem por status da candidatura a padrinho (apadrinhados não entram aqui).',
         pendentes,
         emAnalise,
         aprovadas,
         rejeitadas,
+        total: candidaturasInscritas,
       },
       etapas: this.montarEtapas(programa),
       candidaturasRecentes: recentes,
       pontosAtencao,
+      acoes: {
+        podeAbrirNovoCiclo: true,
+        podeGerenciarFormularios: !encerrado,
+        podeCriarComunicado: !encerrado,
+        somenteLeitura: encerrado,
+      },
       resumo: {
         mentoriaAtiva:
           programa.etapaAtual === 'andamento' ||
@@ -145,26 +188,50 @@ export class CoordenacaoService implements OnModuleInit {
           programa.matchingPendente && programa.etapaAtual !== 'encerramento',
         inscricoesAbertas: programa.inscricoesAbertas,
         programaEmAndamento: programa.etapaAtual === 'andamento',
+        encerrado,
       },
     };
   }
 
   async listarCandidaturas(programa: string, status?: string) {
-    const registros = await this.participacoesService.listarPorPrograma({
-      programa,
-      papel: 'candidato',
-      ...(status
-        ? { status: status as StatusParticipacaoRegistro }
-        : {}),
-    });
-    // Inclui também padrinhos aprovados do ciclo quando status=aprovadas
-    if (status === 'aprovadas') {
+    const filtro = status?.trim();
+
+    if (filtro === 'aprovadas') {
       const aprovados = await this.participacoesService.listarPorPrograma({
         programa,
         papel: 'padrinho',
       });
       return aprovados.map((item) => this.enriquecerCandidatura(item));
     }
+
+    if (filtro === 'sem_vinculo') {
+      const apadrinhados = await this.participacoesService.listarPorPrograma({
+        programa,
+        papel: 'apadrinhado',
+        status: 'em_andamento',
+      });
+      return apadrinhados
+        .filter((r) => !r.grupo || !r.grupo.trim())
+        .map((item) => this.enriquecerCandidatura(item));
+    }
+
+    if (filtro === 'aguardando') {
+      const registros = await this.participacoesService.listarPorPrograma({
+        programa,
+        papel: 'candidato',
+      });
+      return registros
+        .filter((r) => r.status === 'pendente' || r.status === 'em_analise')
+        .map((item) => this.enriquecerCandidatura(item));
+    }
+
+    const registros = await this.participacoesService.listarPorPrograma({
+      programa,
+      papel: 'candidato',
+      ...(filtro
+        ? { status: filtro as StatusParticipacaoRegistro }
+        : {}),
+    });
     return registros.map((item) => this.enriquecerCandidatura(item));
   }
 
@@ -258,70 +325,146 @@ export class CoordenacaoService implements OnModuleInit {
   }
 
   private montarPontosAtencao(input: {
+    aguardando: ParticipacaoEntity[];
     pendentes: number;
+    emAnalise: number;
     semVinculo: number;
     gruposIncompletos: number;
     programa: ProgramaEntity;
   }) {
-    const itens: Array<{
+    type Alerta = {
       id: string;
+      titulo: string;
+      descricao: string;
       texto: string;
+      icon: string;
       destino: string;
-      severidade: 'alta' | 'media';
-    }> = [];
+      query: Record<string, string>;
+      severidade: 'alta' | 'media' | 'baixa';
+      urgencia: number;
+    };
+    const itens: Alerta[] = [];
+    const totalAguardando = input.pendentes + input.emAnalise;
 
-    if (input.pendentes > 0) {
+    if (totalAguardando > 0) {
+      const maisAntiga = input.aguardando
+        .map((r) => new Date(r.criadoEm).getTime())
+        .filter((t) => !Number.isNaN(t))
+        .sort((a, b) => a - b)[0];
+      const diasEspera =
+        maisAntiga != null
+          ? Math.max(
+              0,
+              Math.floor((Date.now() - maisAntiga) / (1000 * 60 * 60 * 24)),
+            )
+          : null;
+      const esperaTexto =
+        diasEspera == null
+          ? 'Revise as candidaturas a padrinho.'
+          : diasEspera === 0
+            ? 'Há candidaturas recebidas hoje.'
+            : `A mais antiga aguarda há ${diasEspera} dia${diasEspera === 1 ? '' : 's'}.`;
       itens.push({
         id: 'revisao',
-        texto: `${input.pendentes} candidatura${input.pendentes === 1 ? '' : 's'} aguardando revisão`,
+        titulo: 'Candidaturas aguardando análise',
+        descricao: `${totalAguardando} aguardando decisão (${input.pendentes} nova${input.pendentes === 1 ? '' : 's'} · ${input.emAnalise} em análise). ${esperaTexto}`,
+        texto: `${totalAguardando} candidatura${totalAguardando === 1 ? '' : 's'} aguardando análise`,
+        icon: 'clipboard',
         destino: 'candidaturas',
+        query: { status: 'aguardando' },
         severidade: 'alta',
+        urgencia: 100 + totalAguardando,
       });
     }
+
     if (input.semVinculo > 0) {
       itens.push({
         id: 'vinculo',
-        texto: `${input.semVinculo} participante${input.semVinculo === 1 ? '' : 's'} sem vínculo definido`,
-        destino: 'usuarios',
+        titulo: 'Apadrinhados sem vínculo confirmado',
+        descricao: `${input.semVinculo} apadrinhado${input.semVinculo === 1 ? '' : 's'} aguardando definição de padrinho/grupo.`,
+        texto: `${input.semVinculo} apadrinhado${input.semVinculo === 1 ? '' : 's'} sem vínculo`,
+        icon: 'users',
+        destino: 'candidaturas',
+        query: { status: 'sem_vinculo' },
         severidade: 'alta',
+        urgencia: 90 + input.semVinculo,
       });
     }
-    if (input.gruposIncompletos > 0 && input.programa.etapaAtual !== 'inscricoes') {
+
+    if (
+      input.gruposIncompletos > 0 &&
+      input.programa.etapaAtual !== 'inscricoes' &&
+      input.programa.etapaAtual !== 'encerramento'
+    ) {
       itens.push({
         id: 'grupos',
-        texto: `${input.gruposIncompletos} grupo${input.gruposIncompletos === 1 ? '' : 's'} ainda sem formação completa`,
+        titulo: 'Grupos com formação incompleta',
+        descricao: `${input.gruposIncompletos} de ${input.programa.gruposPrevistos} grupos previstos ainda sem formação completa.`,
+        texto: `${input.gruposIncompletos} grupo${input.gruposIncompletos === 1 ? '' : 's'} incompleto${input.gruposIncompletos === 1 ? '' : 's'}`,
+        icon: 'groups',
         destino: 'programas',
+        query: { pendencia: 'grupos' },
         severidade: 'media',
+        urgencia: 70 + input.gruposIncompletos,
       });
     }
+
     if (input.programa.inscricoesAbertas && input.programa.inscricoesFim) {
       const dias = this.diasAte(input.programa.inscricoesFim);
       if (dias !== null && dias >= 0 && dias <= 7) {
         itens.push({
           id: 'prazo',
+          titulo: 'Prazo de inscrições próximo',
+          descricao:
+            dias === 0
+              ? `Inscrições encerram hoje (${this.formatarData(input.programa.inscricoesFim)}).`
+              : `Encerramento em ${dias} dia${dias === 1 ? '' : 's'} (${this.formatarData(input.programa.inscricoesFim)}).`,
           texto:
             dias === 0
               ? 'Prazo de inscrições encerra hoje'
               : `Prazo de inscrições encerra em ${dias} dia${dias === 1 ? '' : 's'}`,
+          icon: 'clock',
           destino: 'programas',
-          severidade: 'media',
+          query: { pendencia: 'prazo' },
+          severidade: dias <= 2 ? 'alta' : 'media',
+          urgencia: 80 + (7 - dias),
         });
       }
     }
-    return itens;
+
+    return itens.sort((a, b) => b.urgencia - a.urgencia).slice(0, 4);
   }
 
-  private serializarPrograma(programa: ProgramaEntity) {
+  private serializarPrograma(
+    programa: ProgramaEntity,
+    codigoVigente?: string,
+  ) {
+    const vigente =
+      programa.codigo === codigoVigente ||
+      (programa.etapaAtual !== 'encerramento' &&
+        programa.codigo === ParticipacoesService.programaAtual());
+    const statusRotulo: Record<EtapaPrograma, string> = {
+      inscricoes: 'Inscrições',
+      analise: 'Em análise',
+      formacao: 'Formação',
+      andamento: 'Em andamento',
+      encerramento: 'Encerrado',
+    };
     return {
       id: programa.id,
       codigo: programa.codigo,
-      titulo: programa.titulo,
+      titulo: programa.titulo || `Programa ${programa.codigo}`,
+      nome: programa.titulo || `Programa ${programa.codigo}`,
       etapaAtual: programa.etapaAtual,
+      statusRotulo: statusRotulo[programa.etapaAtual] ?? programa.etapaAtual,
+      vigente,
+      encerrado: programa.etapaAtual === 'encerramento',
       inscricoesAbertas: programa.inscricoesAbertas,
       formularioPublicado: programa.formularioPublicado,
       matchingPendente: programa.matchingPendente,
       vagasApadrinhados: programa.vagasApadrinhados,
       gruposPrevistos: programa.gruposPrevistos,
+      inscricoesFim: programa.inscricoesFim,
     };
   }
 

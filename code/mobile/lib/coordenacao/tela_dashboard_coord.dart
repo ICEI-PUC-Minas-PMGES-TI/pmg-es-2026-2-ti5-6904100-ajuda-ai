@@ -10,12 +10,14 @@ class TelaDashboardCoord extends StatefulWidget {
     required this.programa,
     required this.onProgramaChanged,
     required this.onVerCandidaturas,
+    this.onAbrirDestino,
   });
 
   final CoordenacaoApi api;
   final String? programa;
   final ValueChanged<String> onProgramaChanged;
   final void Function({String? status}) onVerCandidaturas;
+  final void Function(String destino, Map<String, String> query)? onAbrirDestino;
 
   @override
   State<TelaDashboardCoord> createState() => _TelaDashboardCoordState();
@@ -66,6 +68,8 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
   }
 
   Future<void> _abrirNovoCiclo() async {
+    final acoes = _dados?['acoes'] as Map?;
+    if (acoes?['podeAbrirNovoCiclo'] == false) return;
     try {
       final criado = await widget.api.criarPrograma();
       final codigo = criado['codigo'] as String?;
@@ -77,6 +81,102 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
         SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
       );
     }
+  }
+
+  Future<void> _abrirSeletorPrograma(List<Map<String, dynamic>> programas) async {
+    final selecionado = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        final maxH = MediaQuery.sizeOf(context).height * 0.55;
+        final atual = (_dados?['programa'] as Map?)?['codigo'];
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxH),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
+                  child: Text(
+                    'Selecionar programa',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                    itemCount: programas.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 4),
+                    itemBuilder: (context, index) {
+                      final p = programas[index];
+                      final codigo = '${p['codigo'] ?? ''}';
+                      final ativo = codigo == atual;
+                      final status = '${p['statusRotulo'] ?? p['etapaAtual'] ?? ''}';
+                      final vigente = p['vigente'] == true;
+                      final encerrado = p['encerrado'] == true;
+                      return Material(
+                        color: ativo ? const Color(0xFFEBE4FF) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        child: ListTile(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          title: Text(
+                            '${p['nome'] ?? p['titulo'] ?? 'Programa $codigo'}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: ativo ? AppColors.primary : AppColors.ink,
+                            ),
+                          ),
+                          subtitle: Text(
+                            [
+                              status,
+                              if (vigente) 'vigente',
+                              if (encerrado) 'encerrado',
+                            ].join(' · '),
+                            style: const TextStyle(color: Color(0xFF5C5678), fontSize: 12),
+                          ),
+                          trailing: ativo
+                              ? const Icon(Icons.check, color: AppColors.primary)
+                              : const Icon(Icons.chevron_right, color: AppColors.muted),
+                          onTap: () => Navigator.pop(context, codigo),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (selecionado != null && selecionado.isNotEmpty) {
+      widget.onProgramaChanged(selecionado);
+    }
+  }
+
+  void _abrirAtencao(Map<String, dynamic> item) {
+    final destino = '${item['destino'] ?? 'candidaturas'}';
+    final query = Map<String, String>.from(
+      (item['query'] as Map?)?.map((k, v) => MapEntry('$k', '$v')) ?? {},
+    );
+    if (destino == 'candidaturas') {
+      widget.onVerCandidaturas(status: query['status']);
+      return;
+    }
+    widget.onAbrirDestino?.call(destino, query);
   }
 
   @override
@@ -95,12 +195,9 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                 child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
               )
             else if (_erro != null && _dados == null)
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: _estadoErro(),
-              )
+              SliverFillRemaining(hasScrollBody: false, child: _estadoErro())
             else if (_dados?['vazio'] == true || _dados?['programa'] == null)
-              sliverFill(_estadoVazio())
+              SliverFillRemaining(hasScrollBody: false, child: _estadoVazio())
             else
               ..._conteudo(),
           ],
@@ -109,15 +206,21 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
     );
   }
 
-  Widget sliverFill(Widget child) => SliverFillRemaining(
-        hasScrollBody: false,
-        child: child,
-      );
-
   Widget _cabecalho() {
-    final programa = (_dados?['programa'] as Map?)?['codigo'] as String?;
+    final programa = _dados?['programa'] as Map?;
+    final programas = (_dados?['programas'] as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final nome = programa == null
+        ? 'Programa'
+        : '${programa['nome'] ?? programa['titulo'] ?? 'Programa ${programa['codigo']}'}';
+    final status = programa == null
+        ? ''
+        : '${programa['statusRotulo'] ?? ''}${programa['vigente'] == true ? ' · vigente' : ''}';
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      padding: const EdgeInsets.fromLTRB(12, 12, 16, 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -139,29 +242,64 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                   ),
                 ),
               ),
-              if (programa != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEBE4FF),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    'Programa $programa',
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
+            ],
+          ),
+          if (programa != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 0, 0),
+              child: Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: programas.isEmpty ? null : () => _abrirSeletorPrograma(programas),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppAccents.cardBorder),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.calendar_month_outlined, size: 18, color: AppColors.primary),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                nome,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                  color: AppColors.ink,
+                                ),
+                              ),
+                              if (status.isNotEmpty)
+                                Text(
+                                  status,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF5C5678),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.expand_more, color: AppColors.primary),
+                      ],
                     ),
                   ),
                 ),
-            ],
-          ),
+              ),
+            ),
           const Padding(
-            padding: EdgeInsets.only(left: 12, top: 4),
+            padding: EdgeInsets.fromLTRB(8, 8, 8, 0),
             child: Text(
-              'Acompanhe candidaturas e indicadores do semestre.',
-              style: TextStyle(color: AppColors.muted, fontSize: 13),
+              'Acompanhe candidaturas a padrinho e indicadores do semestre.',
+              style: TextStyle(color: Color(0xFF5C5678), fontSize: 13),
             ),
           ),
         ],
@@ -220,6 +358,8 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
+    final acoes = Map<String, dynamic>.from(_dados!['acoes'] as Map? ?? {});
+    final resumo = Map<String, dynamic>.from(_dados!['resumo'] as Map? ?? {});
 
     final pendentes = ind['candidaturasPendentes'] as Map? ?? {};
     final padrinhos = ind['padrinhosAprovados'] as Map? ?? {};
@@ -228,52 +368,75 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
 
     return [
       SliverPadding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-        sliver: SliverGrid.count(
-          crossAxisCount: 2,
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 1.35,
-          children: [
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+        sliver: SliverGrid(
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            mainAxisExtent: 112,
+          ),
+          delegate: SliverChildListDelegate([
             _Kpi(
-              titulo: 'Pendentes',
+              titulo: 'Candidaturas pendentes',
               valor: '${pendentes['valor'] ?? 0}',
-              contexto: 'de ${pendentes['total'] ?? 0} inscritas',
+              contexto: '${pendentes['detalhe'] ?? 'de ${pendentes['total'] ?? 0} inscritas'}',
+              icon: Icons.assignment_outlined,
               cor: AppColors.primary,
-              onTap: () => widget.onVerCandidaturas(status: 'pendente'),
+              onTap: () => widget.onVerCandidaturas(status: 'aguardando'),
             ),
             _Kpi(
-              titulo: 'Padrinhos',
+              titulo: 'Padrinhos aprovados',
               valor: '${padrinhos['valor'] ?? 0}',
-              contexto: 'de ${padrinhos['total'] ?? 0} candidaturas',
+              contexto: '${padrinhos['detalhe'] ?? 'de ${padrinhos['total'] ?? 0} candidaturas'}',
+              icon: Icons.check_circle_outline,
               cor: AppAccents.success,
               onTap: () => widget.onVerCandidaturas(status: 'aprovadas'),
             ),
             _Kpi(
-              titulo: 'Apadrinhados',
+              titulo: 'Apadrinhados ativos',
               valor: '${apadrinhados['valor'] ?? 0}',
-              contexto: 'de ${apadrinhados['total'] ?? 0} vagas',
+              contexto: '${apadrinhados['detalhe'] ?? 'de ${apadrinhados['total'] ?? 0} vagas'}',
+              icon: Icons.person_outline,
               cor: AppAccents.iconeAzul,
+              onTap: () => widget.onAbrirDestino?.call('usuarios', const {}),
             ),
             _Kpi(
-              titulo: 'Grupos',
+              titulo: 'Grupos formados',
               valor: '${grupos['valor'] ?? 0}',
-              contexto: 'de ${grupos['total'] ?? 0} previstos',
+              contexto: '${grupos['detalhe'] ?? 'de ${grupos['total'] ?? 0} previstos'}',
+              icon: Icons.groups_outlined,
               cor: AppAccents.iconeLaranja,
+              onTap: () => widget.onAbrirDestino?.call('programas', {'pendencia': 'grupos'}),
             ),
-          ],
+          ]),
         ),
       ),
       SliverToBoxAdapter(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: _card(
-            title: 'Visão geral',
+            title: '${chart['titulo'] ?? 'Visão geral das candidaturas'}',
+            subtitle:
+                '${chart['descricao'] ?? 'Candidaturas a padrinho por status'}'
+                '${chart['total'] != null ? ' · total ${chart['total']}' : ''}',
             trailing: TextButton(
               onPressed: () => widget.onVerCandidaturas(),
               child: const Text('Ver todas'),
             ),
-            child: _Barras(chart: chart),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Barras(chart: chart),
+                const SizedBox(height: 8),
+                Text(
+                  'Pendentes no card = novas + em análise '
+                  '(${(chart['pendentes'] as num?)?.toInt() ?? 0} + '
+                  '${(chart['emAnalise'] as num?)?.toInt() ?? 0}).',
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF5C5678)),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -282,12 +445,35 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: _card(
             title: 'Ações rápidas',
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            child: Column(
               children: [
-                _acao('Candidaturas', Icons.visibility_outlined, () => widget.onVerCandidaturas()),
-                _acao('Novo ciclo', Icons.add, _abrirNovoCiclo),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _AcaoRapida(
+                        label: 'Candidaturas',
+                        icon: Icons.visibility_outlined,
+                        onTap: () => widget.onVerCandidaturas(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _AcaoRapida(
+                        label: 'Novo ciclo',
+                        icon: Icons.add,
+                        enabled: acoes['podeAbrirNovoCiclo'] != false,
+                        onTap: _abrirNovoCiclo,
+                      ),
+                    ),
+                  ],
+                ),
+                if (resumo['encerrado'] == true) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Ciclo encerrado — algumas ações ficam indisponíveis.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF5C5678)),
+                  ),
+                ],
               ],
             ),
           ),
@@ -300,30 +486,32 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
             title: 'Candidaturas recentes',
             child: recentes.isEmpty
                 ? const Text(
-                    'Nenhuma candidatura neste ciclo.',
-                    style: TextStyle(color: AppColors.muted),
+                    'Nenhuma candidatura a padrinho neste ciclo.',
+                    style: TextStyle(color: Color(0xFF5C5678)),
                   )
                 : Column(
                     children: recentes
                         .map(
                           (item) => ListTile(
                             contentPadding: EdgeInsets.zero,
+                            dense: true,
                             leading: CircleAvatar(
+                              radius: 18,
                               backgroundColor: const Color(0xFFEBE4FF),
                               foregroundColor: AppColors.primary,
                               child: Text(
                                 '${item['iniciais'] ?? '?'}',
-                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
                               ),
                             ),
                             title: Text(
                               '${item['nome'] ?? ''}',
-                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                             ),
                             subtitle: Text(
                               '${item['curso'] ?? ''}'
                               '${item['periodo'] != null ? ' · ${item['periodo']}º período' : ''}',
-                              style: const TextStyle(fontSize: 12),
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF5C5678)),
                             ),
                             trailing: _statusPill('${item['statusRotulo'] ?? item['status'] ?? ''}'),
                           ),
@@ -359,41 +547,116 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                         fontSize: 13,
                       ),
                     ),
-                    subtitle: Text('${e['periodoTexto'] ?? ''}', style: const TextStyle(fontSize: 12)),
+                    subtitle: Text(
+                      '${e['periodoTexto'] ?? ''}',
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF5C5678)),
+                    ),
                   );
                 }).toList(),
               ),
             ),
           ),
         ),
-      if (atencao.isNotEmpty)
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            child: _card(
-              title: 'Pontos de atenção',
-              child: Column(
-                children: atencao
-                    .map(
-                      (p) => ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        leading: const Icon(Icons.warning_amber_rounded, color: AppAccents.iconeLaranja),
-                        title: Text('${p['titulo'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                        subtitle: Text('${p['descricao'] ?? ''}', style: const TextStyle(fontSize: 12)),
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+          child: _card(
+            title: 'Pontos de atenção',
+            child: _erro != null && atencao.isEmpty
+                ? Column(
+                    children: [
+                      Text(_erro!, style: const TextStyle(color: Color(0xFFB42318))),
+                      TextButton(onPressed: _carregar, child: const Text('Tentar novamente')),
+                    ],
+                  )
+                : atencao.isEmpty
+                    ? const _AtencaoVazia()
+                    : Column(
+                        children: atencao
+                            .map(
+                              (p) => Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(10),
+                                  onTap: () => _abrirAtencao(p),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          width: 34,
+                                          height: 34,
+                                          decoration: BoxDecoration(
+                                            color: p['severidade'] == 'alta'
+                                                ? const Color(0xFFFFE8E8)
+                                                : const Color(0xFFFFF4E5),
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: Icon(
+                                            _iconeAtencao('${p['icon'] ?? 'alert'}'),
+                                            size: 18,
+                                            color: p['severidade'] == 'alta'
+                                                ? const Color(0xFFB42318)
+                                                : AppAccents.iconeLaranja,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                '${p['titulo'] ?? p['texto'] ?? ''}',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                  fontSize: 13,
+                                                  color: AppColors.ink,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                '${p['descricao'] ?? p['texto'] ?? ''}',
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Color(0xFF5C5678),
+                                                  height: 1.35,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const Icon(Icons.chevron_right, color: AppColors.muted, size: 18),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
                       ),
-                    )
-                    .toList(),
-              ),
-            ),
           ),
-        )
-      else
-        const SliverToBoxAdapter(child: SizedBox(height: 24)),
+        ),
+      ),
     ];
   }
 
-  Widget _card({required String title, required Widget child, Widget? trailing}) {
+  IconData _iconeAtencao(String nome) {
+    return switch (nome) {
+      'clipboard' => Icons.assignment_outlined,
+      'users' => Icons.people_outline,
+      'groups' => Icons.groups_outlined,
+      'clock' => Icons.schedule,
+      _ => Icons.warning_amber_rounded,
+    };
+  }
+
+  Widget _card({
+    required String title,
+    required Widget child,
+    Widget? trailing,
+    String? subtitle,
+  }) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
@@ -408,14 +671,26 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontFamily: 'Poppins',
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                    color: AppColors.ink,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF5C5678)),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               ?trailing,
@@ -425,16 +700,6 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
           child,
         ],
       ),
-    );
-  }
-
-  Widget _acao(String label, IconData icon, VoidCallback onTap) {
-    return ActionChip(
-      avatar: Icon(icon, size: 18, color: AppColors.primary),
-      label: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-      onPressed: onTap,
-      backgroundColor: AppColors.lavender,
-      side: BorderSide.none,
     );
   }
 
@@ -457,11 +722,98 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
   }
 }
 
+class _AtencaoVazia extends StatelessWidget {
+  const _AtencaoVazia();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppAccents.successBg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.check_circle, color: AppAccents.success),
+          SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Nenhuma pendência no momento',
+                  style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.ink),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Os indicadores deste programa estão em dia.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF5C5678)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AcaoRapida extends StatelessWidget {
+  const _AcaoRapida({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    this.enabled = true,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.lavender,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(12),
+        child: Opacity(
+          opacity: enabled ? 1 : 0.45,
+          child: SizedBox(
+            height: 64,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  Icon(icon, color: AppColors.primary, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _Kpi extends StatelessWidget {
   const _Kpi({
     required this.titulo,
     required this.valor,
     required this.contexto,
+    required this.icon,
     required this.cor,
     this.onTap,
   });
@@ -469,6 +821,7 @@ class _Kpi extends StatelessWidget {
   final String titulo;
   final String valor;
   final String contexto;
+  final IconData icon;
   final Color cor;
   final VoidCallback? onTap;
 
@@ -476,31 +829,61 @@ class _Kpi extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(14),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         child: Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(color: AppAccents.cardBorder),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(titulo, style: const TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w600)),
-              const Spacer(),
+              Row(
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: cor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(icon, size: 16, color: cor),
+                  ),
+                  const Spacer(),
+                  Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade400),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                titulo,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF5C5678),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               Text(
                 valor,
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontWeight: FontWeight.w800,
-                  fontSize: 28,
+                  fontSize: 22,
+                  height: 1.05,
                   color: cor,
                 ),
               ),
-              Text(contexto, style: const TextStyle(color: AppColors.muted, fontSize: 11)),
+              Text(
+                contexto,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Color(0xFF5C5678), fontSize: 10, height: 1.2),
+              ),
             ],
           ),
         ),
@@ -517,16 +900,16 @@ class _Barras extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final itens = [
-      ('Pendentes', (chart['pendentes'] as num?)?.toInt() ?? 0, AppColors.primary),
+      ('Novas', (chart['pendentes'] as num?)?.toInt() ?? 0, AppColors.primary),
       ('Análise', (chart['emAnalise'] as num?)?.toInt() ?? 0, const Color(0xFF9B7ED9)),
       ('Aprovadas', (chart['aprovadas'] as num?)?.toInt() ?? 0, AppAccents.success),
       ('Rejeitadas', (chart['rejeitadas'] as num?)?.toInt() ?? 0, const Color(0xFFE11D48)),
     ];
     final max = itens.map((e) => e.$2).fold<int>(1, (a, b) => a > b ? a : b);
+    const chartHeight = 100.0;
 
-    const chartHeight = 96.0;
     return SizedBox(
-      height: 140,
+      height: 148,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -537,14 +920,17 @@ class _Barras extends StatelessWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Text('${item.$2}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                    Text(
+                      '${item.$2}',
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                    ),
                     const SizedBox(height: 4),
                     SizedBox(
                       height: chartHeight,
                       child: Align(
                         alignment: Alignment.bottomCenter,
                         child: Container(
-                          height: chartHeight * (item.$2 / max).clamp(0.08, 1.0),
+                          height: item.$2 == 0 ? 0 : chartHeight * (item.$2 / max).clamp(0.12, 1.0),
                           width: double.infinity,
                           decoration: BoxDecoration(
                             color: item.$3,
@@ -557,7 +943,11 @@ class _Barras extends StatelessWidget {
                     Text(
                       item.$1,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 10, color: AppColors.muted),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF5C5678),
+                      ),
                     ),
                   ],
                 ),

@@ -113,9 +113,9 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Candidaturas',
-                  style: TextStyle(
+                Text(
+                  filtro == 'sem_vinculo' ? 'Apadrinhados sem vínculo' : 'Candidaturas',
+                  style: const TextStyle(
                     fontFamily: 'Poppins',
                     fontWeight: FontWeight.w800,
                     fontSize: 22,
@@ -126,9 +126,17 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
                 Text(
                   [
                     if (widget.programa != null) 'Programa ${widget.programa}',
-                    if (filtro != null && filtro.isNotEmpty) 'filtro: $filtro',
+                    if (filtro == 'aguardando') 'aguardando decisão',
+                    if (filtro == 'aprovadas') 'aprovadas',
+                    if (filtro == 'sem_vinculo') 'sem vínculo',
+                    if (filtro != null &&
+                        filtro.isNotEmpty &&
+                        filtro != 'aguardando' &&
+                        filtro != 'aprovadas' &&
+                        filtro != 'sem_vinculo')
+                      'filtro: $filtro',
                   ].join(' · ').ifEmpty('Candidaturas a padrinho'),
-                  style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                  style: const TextStyle(color: Color(0xFF5C5678), fontSize: 13),
                 ),
               ],
             ),

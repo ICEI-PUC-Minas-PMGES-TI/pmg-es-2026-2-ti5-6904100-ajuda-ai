@@ -56,6 +56,37 @@ export class ProgramasService implements OnModuleInit {
     return this.programas.save(criado);
   }
 
+  /**
+   * Demo: garante um ciclo anterior encerrado para o seletor do painel.
+   * Não inventa semestres na UI — só persiste se ainda não existir no banco.
+   */
+  async garantirProgramaHistoricoDemo(): Promise<void> {
+    const codigo = '2026/1';
+    const existente = await this.buscarPorCodigo(codigo);
+    if (existente) return;
+    await this.programas.save(
+      this.programas.create({
+        codigo,
+        titulo: `Programa ${codigo}`,
+        etapaAtual: 'encerramento' satisfies EtapaPrograma,
+        inscricoesAbertas: false,
+        formularioPublicado: true,
+        matchingPendente: false,
+        vagasApadrinhados: 80,
+        gruposPrevistos: 25,
+        inscricoesInicio: '2026-02-01',
+        inscricoesFim: '2026-02-28',
+        analiseInicio: '2026-03-01',
+        analiseFim: '2026-03-30',
+        formacaoInicio: '2026-04-01',
+        formacaoFim: '2026-04-20',
+        andamentoInicio: '2026-04-21',
+        andamentoFim: '2026-06-15',
+        encerramentoEm: '2026-06-20',
+      }),
+    );
+  }
+
   async criarNovoCiclo(codigo?: string): Promise<ProgramaEntity> {
     const alvo = codigo?.trim() || this.proximoCodigo();
     const existente = await this.buscarPorCodigo(alvo);

@@ -19,6 +19,15 @@ export default function CandidaturasPage() {
   const [carregando, setCarregando] = useState(true);
   const [selecionada, setSelecionada] = useState(null);
 
+  const filtroRotulo = {
+    aguardando: 'aguardando decisão (novas + em análise)',
+    pendente: 'novas',
+    em_analise: 'em análise',
+    aprovadas: 'aprovadas',
+    nao_aprovado: 'rejeitadas',
+    sem_vinculo: 'apadrinhados sem vínculo',
+  }[status] || (status ? status : '');
+
   useEffect(() => {
     let ativo = true;
     (async () => {
@@ -40,11 +49,11 @@ export default function CandidaturasPage() {
     <section className="cand-page">
       <header className="dash-header compact">
         <div>
-          <h1>Candidaturas</h1>
+          <h1>{status === 'sem_vinculo' ? 'Apadrinhados sem vínculo' : 'Candidaturas'}</h1>
           <p>
-            Candidaturas a padrinho
+            {status === 'sem_vinculo' ? 'Apadrinhados aguardando padrinho/grupo' : 'Candidaturas a padrinho'}
             {programa ? ` · Programa ${programa}` : ''}
-            {status ? ` · filtro: ${status}` : ''}.
+            {filtroRotulo ? ` · ${filtroRotulo}` : ''}.
           </p>
         </div>
         <Link className="text-link" to={programa ? `/coordenacao?programa=${encodeURIComponent(programa)}` : '/coordenacao'}>
