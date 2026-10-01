@@ -46,7 +46,11 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       if (!mounted) return;
       setState(() {
         _sessao = sessao;
-        _api = CoordenacaoApi(accessToken: sessao.accessToken);
+        // Reutiliza a mesma base que respondeu no login (10.0.2.2 ou fallback).
+        _api = CoordenacaoApi(
+          accessToken: sessao.accessToken,
+          baseUrl: _authApi.baseUrl,
+        );
         _carregando = false;
       });
     } catch (e) {
