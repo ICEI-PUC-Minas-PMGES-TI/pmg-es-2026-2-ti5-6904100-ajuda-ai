@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 
-import 'tela_feed.dart';
+import 'sessao_usuario.dart';
+import 'tela_resgatar.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
+import 'widgets/navegacao_app.dart';
 
 const double _gutter = 20;
+
+// Valores de exemplo até a home ler o XP real da API.
+const int _xpAtual = 1430;
+const int _metaNivel = 2000;
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -202,8 +208,75 @@ class _Saudacao extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
+        const _BotaoResgatar(),
+        const SizedBox(width: 12),
         const _AvatarNivel(iniciais: 'C', nivel: 4),
       ],
+    );
+  }
+}
+
+class _BotaoResgatar extends StatelessWidget {
+  const _BotaoResgatar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Material(
+        color: const Color(0xFF5B2DB0),
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const ResgatarPage(saldoXp: _xpAtual),
+            ),
+          ),
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            width: 78,
+            height: 78,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+            ),
+            child: const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(
+                      Icons.card_giftcard_rounded,
+                      size: 32,
+                      color: Colors.white,
+                    ),
+                    Positioned(
+                      top: -8,
+                      right: -10,
+                      child: Icon(
+                        Icons.auto_awesome,
+                        size: 14,
+                        color: AppAccents.star,
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'Resgatar',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -348,14 +421,6 @@ class _Cartao extends StatelessWidget {
 class _CardPontos extends StatelessWidget {
   const _CardPontos();
 
-  static const int _xp = 1430;
-  static const int _meta = 2000;
-
-  static String _milhar(int valor) => valor.toString().replaceAllMapped(
-    RegExp(r'(\d)(?=(\d{3})+$)'),
-    (encontrado) => '${encontrado[1]}.',
-  );
-
   @override
   Widget build(BuildContext context) {
     return _Cartao(
@@ -389,7 +454,7 @@ class _CardPontos extends StatelessWidget {
               const Icon(Icons.star_rounded, size: 34, color: AppAccents.star),
               const SizedBox(width: 10),
               Text(
-                _milhar(_xp),
+                formatarXp(_xpAtual),
                 style: const TextStyle(
                   color: AppColors.ink,
                   fontSize: 32,
@@ -417,7 +482,7 @@ class _CardPontos extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: const LinearProgressIndicator(
-              value: _xp / _meta,
+              value: _xpAtual / _metaNivel,
               minHeight: 10,
               backgroundColor: AppColors.lavender,
               valueColor: AlwaysStoppedAnimation(AppColors.primary),
@@ -427,7 +492,7 @@ class _CardPontos extends StatelessWidget {
           Align(
             alignment: Alignment.centerRight,
             child: Text(
-              '${_milhar(_xp)} / ${_milhar(_meta)} XP',
+              '${formatarXp(_xpAtual)} / ${formatarXp(_metaNivel)} XP',
               style: const TextStyle(
                 fontFamily: 'Inter',
                 color: AppColors.muted,
@@ -602,6 +667,32 @@ class _EtiquetaXp extends StatelessWidget {
   }
 }
 
+class _AvatarPadrinho extends StatelessWidget {
+  const _AvatarPadrinho();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 60,
+      height: 60,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.lavender,
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+      ),
+      child: const Text(
+        'TM',
+        style: TextStyle(
+          color: AppColors.primary,
+          fontSize: 20,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
 class _CardPadrinho extends StatelessWidget {
   const _CardPadrinho();
 
@@ -620,30 +711,35 @@ class _CardPadrinho extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Container(
-                width: 60,
-                height: 60,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.lavender,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.18),
-                  ),
-                ),
-                child: const Text(
-                  'TM',
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final botao = OutlinedButton.icon(
+                onPressed: () => _emBreve(context, 'Conversas'),
+                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                label: const Text(
+                  'Conversar',
                   style: TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  backgroundColor: Colors.white,
+                  side: const BorderSide(color: AppAccents.cardBorder),
+                  minimumSize: const Size(0, 44),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              );
+              const identidade = Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -684,32 +780,34 @@ class _CardPadrinho extends StatelessWidget {
                     ),
                   ],
                 ),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => _emBreve(context, 'Conversas'),
-                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
-                label: const Text(
-                  'Conversar',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  backgroundColor: Colors.white,
-                  side: const BorderSide(color: AppAccents.cardBorder),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-              ),
-            ],
+              );
+              const avatar = _AvatarPadrinho();
+              if (constraints.maxWidth < 340) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Row(
+                      children: [
+                        avatar,
+                        SizedBox(width: 12),
+                        identidade,
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    botao,
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  avatar,
+                  const SizedBox(width: 12),
+                  identidade,
+                  const SizedBox(width: 8),
+                  botao,
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -904,26 +1002,9 @@ class _BarraInferior extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppBottomNavigation(
       selected: AppDestination.inicio,
-      onSelected: (destination) {
-        switch (destination) {
-          case AppDestination.feed:
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const FeedPage()),
-            );
-            break;
-          case AppDestination.inicio:
-            break;
-          case AppDestination.mapa:
-            _emBreve(context, 'Mapa');
-            break;
-          case AppDestination.missoes:
-            _emBreve(context, 'Missões');
-            break;
-          case AppDestination.perfil:
-            _emBreve(context, 'Perfil');
-            break;
-        }
-      },
+      destinations: SessaoUsuario.atual.destinos,
+      onSelected: (destination) =>
+          navegarDestino(context, destination, atual: AppDestination.inicio),
     );
   }
 }

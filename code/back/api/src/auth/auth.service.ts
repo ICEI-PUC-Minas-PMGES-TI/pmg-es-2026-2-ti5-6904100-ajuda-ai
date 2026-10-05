@@ -40,6 +40,28 @@ export class AuthService {
       );
     }
 
+    return this.emitirSessao(usuario);
+  }
+
+  /**
+   * Login de desenvolvimento para o painel web (sem Microsoft).
+   * Ativo apenas quando AUTH_DEMO_ENABLED=true.
+   */
+  async autenticarDemo(emailInformado: string): Promise<LoginResponse> {
+    if (process.env.AUTH_DEMO_ENABLED !== 'true') {
+      throw new UnauthorizedException('Login demo desabilitado.');
+    }
+    const email = emailInformado.trim().toLowerCase();
+    const usuario = Object.values(USUARIOS).find(
+      (item) => item.email.toLowerCase() === email,
+    );
+    if (!usuario) {
+      throw new UnauthorizedException('Usuário não cadastrado no Ajuda-aí.');
+    }
+    return this.emitirSessao(usuario);
+  }
+
+  private async emitirSessao(usuario: Usuario): Promise<LoginResponse> {
     const accessToken = await this.jwtService.signAsync({
       sub: String(usuario.id),
       email: usuario.email,

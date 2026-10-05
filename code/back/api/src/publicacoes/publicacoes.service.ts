@@ -3,6 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { USUARIOS } from '../dados/dados.js';
+import { ComentarioEntity } from './entities/comentario.entity.js';
+import { CurtidaEntity } from './entities/curtida.entity.js';
+import { PublicacaoEntity } from './entities/publicacao.entity.js';
 
 export interface Publicacao {
   id: number;
@@ -24,7 +30,6 @@ interface CriarPublicacaoDto {
   autor?: string;
   iniciais?: string;
   descricaoAutor?: string;
-  tempo?: string;
   categoria?: string;
   texto?: string;
   imagens?: string[];
@@ -32,80 +37,189 @@ interface CriarPublicacaoDto {
 
 @Injectable()
 export class PublicacoesService {
-  private proximoId = 1;
-  private readonly publicacoes: Publicacao[] = [];
+  constructor(
+    @InjectRepository(PublicacaoEntity)
+    private readonly publicacoesRepository: Repository<PublicacaoEntity>,
+    @InjectRepository(ComentarioEntity)
+    private readonly comentariosRepository: Repository<ComentarioEntity>,
+    @InjectRepository(CurtidaEntity)
+    private readonly curtidasRepository: Repository<CurtidaEntity>,
+  ) {}
 
-  listar(): Publicacao[] {
-    return this.publicacoes;
+  async listar(usuarioId: string): Promise<Publicacao[]> {
+    const publicacoes = await this.publicacoesRepository.find({
+      relations: { curtidas: true, comentarios: true },
+      order: { criadoEm: 'DESC', id: 'DESC' },
+    });
+    return publicacoes.map((item) => this.apresentar(item, usuarioId));
   }
 
-  criar(corpo: CriarPublicacaoDto): Publicacao {
+  async criar(
+    corpo: CriarPublicacaoDto,
+    usuarioId: string,
+  ): Promise<Publicacao> {
     const texto = corpo.texto?.trim();
+    const imagens = corpo.imagens ?? [];
     if (!texto) {
       throw new BadRequestException('O texto da publicação é obrigatório.');
     }
-    if ((corpo.imagens?.length ?? 0) > 10) {
-      throw new BadRequestException('Uma publicação pode ter no máximo 10 fotos.');
+    if (
+      !Array.isArray(imagens) ||
+      imagens.some((imagem) => typeof imagem !== 'string')
+    ) {
+      throw new BadRequestException('A lista de imagens é inválida.');
+    }
+    if (imagens.length > 10) {
+      throw new BadRequestException(
+        'Uma publicação pode ter no máximo 10 fotos.',
+      );
     }
 
-    const publicacao: Publicacao = {
-      id: this.proximoId++,
-      autor: corpo.autor ?? 'Camila Andrade',
-      iniciais: corpo.iniciais ?? 'CA',
-      descricaoAutor: corpo.descricaoAutor ?? 'Engenharia de Software',
-      tempo: corpo.tempo ?? 'agora',
-      categoria: corpo.categoria ?? 'Dicas acadêmicas',
+    const usuario = Object.values(USUARIOS).find(
+      (item) => String(item.id) === usuarioId,
+    );
+    const autor = usuario?.nome ?? corpo.autor?.trim() ?? 'Usuário';
+    const registro = this.publicacoesRepository.create({
+      autor,
+      iniciais: this.obterIniciais(autor) || corpo.iniciais?.trim() || 'US',
+      descricaoAutor:
+        usuario?.curso ??
+        corpo.descricaoAutor?.trim() ??
+        'Comunidade acadêmica',
+      categoria: corpo.categoria?.trim() || 'Dicas acadêmicas',
       texto,
-      imagens: corpo.imagens ?? [],
-      curtidas: 0,
-      curtidoPeloUsuario: false,
-      comentarios: 0,
-      comentariosTexto: [],
-      isOwn: true,
-    };
-
-    this.publicacoes.unshift(publicacao);
-    return publicacao;
+      imagens,
+      ownerId: usuarioId,
+    });
+    const salva = await this.publicacoesRepository.save(registro);
+    salva.curtidas = [];
+    salva.comentarios = [];
+    return this.apresentar(salva, usuarioId);
   }
 
-  remover(id: number): { removido: boolean } {
-    const indice = this.publicacoes.findIndex((publicacao) => publicacao.id === id);
-    if (indice < 0) {
-      throw new NotFoundException('Publicação não encontrada.');
+  async remover(id: number, usuarioId: string): Promise<{ removido: boolean }> {
+    const publicacao = await this.encontrar(id);
+    if (publicacao.ownerId !== usuarioId) {
+      throw new BadRequestException(
+        'Você só pode apagar suas próprias publicações.',
+      );
     }
 
-    this.publicacoes.splice(indice, 1);
+    await this.publicacoesRepository.remove(publicacao);
     return { removido: true };
   }
 
-  comentar(id: number, texto: string): Publicacao {
-    const publicacao = this.publicacoes.find((item) => item.id === id);
+  async comentar(
+    id: number,
+    texto: string,
+    usuarioId: string,
+  ): Promise<Publicacao> {
+    const publicacao = await this.encontrar(id);
     const comentario = texto.trim();
-    if (!publicacao) {
-      throw new NotFoundException('Publicação não encontrada.');
-    }
     if (!comentario) {
       throw new BadRequestException('O comentário é obrigatório.');
     }
 
-    publicacao.comentariosTexto.push(comentario);
-    publicacao.comentarios = publicacao.comentariosTexto.length;
-    return publicacao;
+    const salvo = await this.comentariosRepository.save(
+      this.comentariosRepository.create({
+        publicacaoId: publicacao.id,
+        autorId: usuarioId,
+        texto: comentario,
+      }),
+    );
+    publicacao.comentarios.push(salvo);
+    return this.apresentar(publicacao, usuarioId);
   }
 
-  curtir(id: number, delta: number): Publicacao {
-    const publicacao = this.publicacoes.find((item) => item.id === id);
+  async curtir(
+    id: number,
+    delta: number,
+    usuarioId: string,
+  ): Promise<Publicacao> {
+    const publicacao = await this.encontrar(id);
+    if (delta !== 1 && delta !== -1) {
+      throw new BadRequestException(
+        'A ação precisa ser curtir (1) ou descurtir (-1).',
+      );
+    }
+
+    const curtidaExistente = publicacao.curtidas.find(
+      (curtida) => curtida.usuarioId === usuarioId,
+    );
+    if (delta === 1 && !curtidaExistente) {
+      const salva = await this.curtidasRepository.save(
+        this.curtidasRepository.create({
+          publicacaoId: publicacao.id,
+          usuarioId,
+        }),
+      );
+      publicacao.curtidas.push(salva);
+    } else if (delta === -1 && curtidaExistente) {
+      await this.curtidasRepository.remove(curtidaExistente);
+      publicacao.curtidas = publicacao.curtidas.filter(
+        (curtida) => curtida.id !== curtidaExistente.id,
+      );
+    }
+    return this.apresentar(publicacao, usuarioId);
+  }
+
+  private async encontrar(id: number): Promise<PublicacaoEntity> {
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new BadRequestException('Identificador de publicação inválido.');
+    }
+    const publicacao = await this.publicacoesRepository.findOne({
+      where: { id },
+      relations: { curtidas: true, comentarios: true },
+    });
     if (!publicacao) {
       throw new NotFoundException('Publicação não encontrada.');
     }
-
-    if (delta >= 0 && !publicacao.curtidoPeloUsuario) {
-      publicacao.curtidas += 1;
-      publicacao.curtidoPeloUsuario = true;
-    } else if (delta < 0 && publicacao.curtidoPeloUsuario) {
-      publicacao.curtidas = Math.max(0, publicacao.curtidas - 1);
-      publicacao.curtidoPeloUsuario = false;
-    }
     return publicacao;
+  }
+
+  private apresentar(item: PublicacaoEntity, usuarioId: string): Publicacao {
+    const curtidas = item.curtidas ?? [];
+    const comentarios = [...(item.comentarios ?? [])].sort(
+      (a, b) => a.criadoEm.getTime() - b.criadoEm.getTime(),
+    );
+    return {
+      id: item.id,
+      autor: item.autor,
+      iniciais: item.iniciais,
+      descricaoAutor: item.descricaoAutor,
+      tempo: this.tempoDecorrido(item.criadoEm),
+      categoria: item.categoria,
+      texto: item.texto,
+      imagens: item.imagens,
+      curtidas: curtidas.length,
+      curtidoPeloUsuario: curtidas.some(
+        (curtida) => curtida.usuarioId === usuarioId,
+      ),
+      comentarios: comentarios.length,
+      comentariosTexto: comentarios.map((comentario) => comentario.texto),
+      isOwn: item.ownerId === usuarioId,
+    };
+  }
+
+  private obterIniciais(nome: string): string {
+    return nome
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((parte) => parte[0]?.toUpperCase())
+      .join('');
+  }
+
+  private tempoDecorrido(data: Date): string {
+    const minutos = Math.max(
+      0,
+      Math.floor((Date.now() - data.getTime()) / 60_000),
+    );
+    if (minutos < 1) return 'agora';
+    if (minutos < 60) return `há ${minutos} min`;
+    const horas = Math.floor(minutos / 60);
+    if (horas < 24) return `há ${horas} h`;
+    const dias = Math.floor(horas / 24);
+    return dias === 1 ? 'ontem' : `há ${dias} dias`;
   }
 }

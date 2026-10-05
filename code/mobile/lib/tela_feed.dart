@@ -1,21 +1,28 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 
-import 'tela_home.dart';
+import 'services/api_config.dart';
+import 'sessao_usuario.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
+import 'widgets/navegacao_app.dart';
 
 const double _feedGutter = 20;
-const String _apiBaseUrl = kIsWeb
-    ? 'http://localhost:3000'
-    : 'http://10.0.2.2:3000';
+const String _apiBaseUrl = apiBaseUrl;
+// O login atual do protótipo usa o perfil Camila. Quando o login real entrar,
+// este identificador deve vir do usuário autenticado.
+const String _usuarioAtualId = '1';
+const String _usuarioAtualNome = 'Camila Duarte';
+const String _usuarioAtualIniciais = 'CD';
+const String _usuarioAtualCurso = 'Engenharia de Software';
 
 class FeedPage extends StatefulWidget {
-  const FeedPage({super.key});
+  const FeedPage({super.key, this.client});
+
+  final http.Client? client;
 
   @override
   State<FeedPage> createState() => _FeedPageState();
@@ -23,35 +30,70 @@ class FeedPage extends StatefulWidget {
 
 class _FeedPageState extends State<FeedPage> {
   int _filtroSelecionado = 0;
-  final List<_Publicacao> _publicacoes = List.of(_publicacoesIniciais);
+  final List<_Publicacao> _publicacoes = [];
+  bool _carregandoPublicacoes = true;
+  bool _falhaAoCarregar = false;
+  late final http.Client _client;
+  late final bool _deveFecharClient;
 
   @override
   void initState() {
     super.initState();
+    _deveFecharClient = widget.client == null;
+    _client = widget.client ?? http.Client();
     _carregarPublicacoes();
   }
 
+  @override
+  void dispose() {
+    if (_deveFecharClient) _client.close();
+    super.dispose();
+  }
+
   Future<void> _carregarPublicacoes() async {
+    if (mounted) {
+      setState(() {
+        _carregandoPublicacoes = true;
+        _falhaAoCarregar = false;
+      });
+    }
     try {
-      final resposta = await http.get(Uri.parse('$_apiBaseUrl/publicacoes'));
-      if (resposta.statusCode != 200 || !mounted) return;
+      final resposta = await _client.get(
+        Uri.parse('$_apiBaseUrl/publicacoes'),
+        headers: {'x-user-id': _usuarioAtualId},
+      );
+      if (resposta.statusCode != 200) throw Exception('Falha ao carregar feed');
       final dados = jsonDecode(resposta.body) as List<dynamic>;
       final publicacoes = dados
           .whereType<Map<String, dynamic>>()
           .map(_Publicacao.fromJson)
           .toList();
       if (!mounted) return;
-      setState(() => _publicacoes.insertAll(0, publicacoes));
+      setState(() {
+        _publicacoes
+          ..clear()
+          ..addAll(publicacoes);
+        _carregandoPublicacoes = false;
+        _falhaAoCarregar = false;
+      });
     } catch (_) {
-      // O Feed continua navegável mesmo quando a API ainda não foi iniciada.
+      if (!mounted) return;
+      setState(() {
+        _publicacoes.clear();
+        _carregandoPublicacoes = false;
+        _falhaAoCarregar = true;
+      });
     }
   }
 
   Future<_Publicacao?> _salvarNoBackend(_Publicacao publicacao) async {
     try {
-      final resposta = await http.post(
+      final resposta = await _client.post(
         Uri.parse('$_apiBaseUrl/publicacoes'),
-        headers: const {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': _usuarioAtualId,
+        },
         body: jsonEncode(publicacao.toJson()),
       );
       if (resposta.statusCode < 200 || resposta.statusCode >= 300) return null;
@@ -67,8 +109,9 @@ class _FeedPageState extends State<FeedPage> {
     final id = publicacao.id;
     if (id == null) return true;
     try {
-      final resposta = await http.delete(
+      final resposta = await _client.delete(
         Uri.parse('$_apiBaseUrl/publicacoes/$id'),
+        headers: {'x-user-id': _usuarioAtualId},
       );
       return resposta.statusCode >= 200 && resposta.statusCode < 300;
     } catch (_) {
@@ -76,38 +119,58 @@ class _FeedPageState extends State<FeedPage> {
     }
   }
 
-  Future<void> _salvarComentarioNoBackend(
+  Future<_Publicacao?> _salvarComentarioNoBackend(
     _Publicacao publicacao,
     String comentario,
   ) async {
     final id = publicacao.id;
-    if (id == null) return;
+    if (id == null) return null;
     try {
-      await http.post(
+      final resposta = await _client.post(
         Uri.parse('$_apiBaseUrl/publicacoes/$id/comentarios'),
-        headers: const {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': _usuarioAtualId,
+        },
         body: jsonEncode({'texto': comentario}),
       );
+      if (resposta.statusCode < 200 || resposta.statusCode >= 300) return null;
+      return _Publicacao.fromJson(
+        jsonDecode(resposta.body) as Map<String, dynamic>,
+      );
     } catch (_) {
-      // O comentário continua visível localmente se a API cair.
+      return null;
     }
   }
 
-  Future<void> _salvarCurtidaNoBackend(
+  Future<_Publicacao?> _salvarCurtidaNoBackend(
     _Publicacao publicacao,
     int delta,
   ) async {
     final id = publicacao.id;
-    if (id == null) return;
+    if (id == null) return null;
     try {
-      await http.post(
+      final resposta = await _client.post(
         Uri.parse('$_apiBaseUrl/publicacoes/$id/curtidas'),
-        headers: const {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': _usuarioAtualId,
+        },
         body: jsonEncode({'delta': delta}),
       );
+      if (resposta.statusCode < 200 || resposta.statusCode >= 300) return null;
+      return _Publicacao.fromJson(
+        jsonDecode(resposta.body) as Map<String, dynamic>,
+      );
     } catch (_) {
-      // A alteração permanece local se a API cair.
+      return null;
     }
+  }
+
+  void _atualizarPublicacao(_Publicacao atualizada) {
+    final indice = _publicacoes.indexWhere((item) => item.id == atualizada.id);
+    if (indice < 0 || !mounted) return;
+    setState(() => _publicacoes[indice] = atualizada);
   }
 
   Future<void> _abrirCriacao() async {
@@ -124,56 +187,41 @@ class _FeedPageState extends State<FeedPage> {
     final publicacaoSalva = await _salvarNoBackend(publicacao);
     if (!mounted) return;
 
-    setState(() {
-      _publicacoes.insert(0, publicacaoSalva ?? publicacao);
-      _filtroSelecionado = 0;
-    });
     if (publicacaoSalva == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'API indisponível: publicação salva apenas nesta sessão.',
+            'Não foi possível publicar. Verifique se a API está ativa e tente novamente.',
           ),
         ),
       );
       return;
     }
+    setState(() {
+      _publicacoes.insert(0, publicacaoSalva);
+      _filtroSelecionado = 0;
+    });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Publicação compartilhada no feed!')),
     );
   }
 
   void _abrirComentarios(_Publicacao publicacao) {
-    final indice = _publicacoes.indexOf(publicacao);
-    if (indice < 0) return;
-    final comentariosIniciais = publicacao.comentariosTexto.isNotEmpty
-        ? publicacao.comentariosTexto
-        : publicacao.comentarios == 0
-        ? const <String>[]
-        : const [
-            'Essa dica salvou meu semestre! 💜',
-            'Vou compartilhar com a minha turma.',
-          ];
-
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _ComentariosSheet(
-        comentarios: comentariosIniciais,
-        onChanged: (comentarios) {
-          if (!mounted || indice >= _publicacoes.length) return;
-          final comentarioAnterior = _publicacoes[indice].comentariosTexto;
-          setState(() {
-            _publicacoes[indice] = _publicacoes[indice].copyWith(
-              comentarios: comentarios.length,
-              comentariosTexto: comentarios,
-            );
-          });
-          if (comentarios.length > comentarioAnterior.length) {
-            _salvarComentarioNoBackend(publicacao, comentarios.last);
-          }
+        comentarios: publicacao.comentariosTexto,
+        onSubmit: (texto) async {
+          final atualizada = await _salvarComentarioNoBackend(
+            publicacao,
+            texto,
+          );
+          if (atualizada == null) return false;
+          _atualizarPublicacao(atualizada);
+          return true;
         },
       ),
     );
@@ -264,7 +312,17 @@ class _FeedPageState extends State<FeedPage> {
               ],
             ),
           ),
-          if (publicacoesVisiveis.isEmpty)
+          if (_carregandoPublicacoes)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_falhaAoCarregar)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _FeedErro(onRetry: _carregarPublicacoes),
+            )
+          else if (publicacoesVisiveis.isEmpty)
             const SliverFillRemaining(hasScrollBody: false, child: _FeedVazio())
           else
             SliverPadding(
@@ -278,25 +336,31 @@ class _FeedPageState extends State<FeedPage> {
                 itemCount: publicacoesVisiveis.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 14),
                 itemBuilder: (_, indice) => _PublicacaoCard(
-                  key: ValueKey(publicacoesVisiveis[indice]),
+                  key: ValueKey(publicacoesVisiveis[indice].id),
                   publicacao: publicacoesVisiveis[indice],
                   onComment: () =>
                       _abrirComentarios(publicacoesVisiveis[indice]),
-                  onLike: (delta) {
+                  onLike: (delta) async {
                     final indiceReal = _publicacoes.indexOf(
                       publicacoesVisiveis[indice],
                     );
-                    if (indiceReal < 0) return;
+                    if (indiceReal < 0) return false;
                     final atual = _publicacoes[indiceReal];
-                    setState(() {
-                      _publicacoes[indiceReal] = atual.copyWith(
-                        curtidas: (atual.curtidas + delta)
-                            .clamp(0, 1 << 30)
-                            .toInt(),
-                        curtidoPeloUsuario: delta > 0,
-                      );
-                    });
-                    _salvarCurtidaNoBackend(atual, delta);
+                    final atualizada = await _salvarCurtidaNoBackend(
+                      atual,
+                      delta,
+                    );
+                    if (atualizada == null) {
+                      if (context.mounted) {
+                        _mensagem(
+                          context,
+                          'Não foi possível registrar a curtida. Tente novamente.',
+                        );
+                      }
+                      return false;
+                    }
+                    _atualizarPublicacao(atualizada);
+                    return true;
                   },
                   onDelete: () {
                     _apagarPublicacao(publicacoesVisiveis[indice]);
@@ -669,7 +733,7 @@ class _PublicacaoCard extends StatefulWidget {
 
   final _Publicacao publicacao;
   final VoidCallback onComment;
-  final ValueChanged<int> onLike;
+  final Future<bool> Function(int) onLike;
   final VoidCallback onDelete;
 
   @override
@@ -681,6 +745,7 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
   int _pagina = 0;
   late int _curtidas;
   bool _curtido = false;
+  bool _alterandoCurtida = false;
   bool _salvo = false;
 
   @override
@@ -906,13 +971,23 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                       ? Icons.favorite_rounded
                       : Icons.favorite_border_rounded,
                   cor: _curtido ? const Color(0xFFE94072) : AppColors.ink,
-                  onTap: () {
+                  onTap: () async {
+                    if (_alterandoCurtida) return;
                     final delta = _curtido ? -1 : 1;
                     setState(() {
+                      _alterandoCurtida = true;
                       _curtido = !_curtido;
                       _curtidas += delta;
                     });
-                    widget.onLike(delta);
+                    final salvo = await widget.onLike(delta);
+                    if (!mounted) return;
+                    setState(() {
+                      _alterandoCurtida = false;
+                      if (!salvo) {
+                        _curtido = !_curtido;
+                        _curtidas -= delta;
+                      }
+                    });
                   },
                 ),
                 _AcaoPost(
@@ -1115,7 +1190,7 @@ class _AcaoPost extends StatelessWidget {
 
   final String tooltip;
   final IconData icone;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final Color cor;
 
   @override
@@ -1193,26 +1268,9 @@ class _BarraFeed extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppBottomNavigation(
       selected: AppDestination.feed,
-      onSelected: (destination) {
-        switch (destination) {
-          case AppDestination.inicio:
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const HomePage()),
-            );
-            break;
-          case AppDestination.feed:
-            break;
-          case AppDestination.mapa:
-            _mensagem(context, 'Mapa');
-            break;
-          case AppDestination.missoes:
-            _mensagem(context, 'Missões');
-            break;
-          case AppDestination.perfil:
-            _mensagem(context, 'Perfil');
-            break;
-        }
-      },
+      destinations: SessaoUsuario.atual.destinos,
+      onSelected: (destination) =>
+          navegarDestino(context, destination, atual: AppDestination.feed),
     );
   }
 }
@@ -1277,9 +1335,9 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
 
     Navigator.of(context).pop(
       _Publicacao(
-        autor: 'Camila Andrade',
-        iniciais: 'CA',
-        descricaoAutor: 'Engenharia de Software',
+        autor: _usuarioAtualNome,
+        iniciais: _usuarioAtualIniciais,
+        descricaoAutor: _usuarioAtualCurso,
         tempo: 'agora',
         categoria: _categoria,
         texto: texto,
@@ -1342,14 +1400,17 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  const _Avatar(iniciais: 'CA', cor: AppColors.primary),
+                  const _Avatar(
+                    iniciais: _usuarioAtualIniciais,
+                    cor: AppColors.primary,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Camila Andrade',
+                          _usuarioAtualNome,
                           style: TextStyle(
                             color: AppColors.ink,
                             fontSize: 14,
@@ -1554,10 +1615,10 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
 }
 
 class _ComentariosSheet extends StatefulWidget {
-  const _ComentariosSheet({required this.comentarios, required this.onChanged});
+  const _ComentariosSheet({required this.comentarios, required this.onSubmit});
 
   final List<String> comentarios;
-  final ValueChanged<List<String>> onChanged;
+  final Future<bool> Function(String) onSubmit;
 
   @override
   State<_ComentariosSheet> createState() => _ComentariosSheetState();
@@ -1566,6 +1627,7 @@ class _ComentariosSheet extends StatefulWidget {
 class _ComentariosSheetState extends State<_ComentariosSheet> {
   final _controller = TextEditingController();
   late final List<String> _comentarios;
+  bool _enviando = false;
 
   @override
   void initState() {
@@ -1579,14 +1641,28 @@ class _ComentariosSheetState extends State<_ComentariosSheet> {
     super.dispose();
   }
 
-  void _enviar() {
+  Future<void> _enviar() async {
     final texto = _controller.text.trim();
-    if (texto.isEmpty) return;
+    if (texto.isEmpty || _enviando) return;
+    setState(() => _enviando = true);
+    final salvo = await widget.onSubmit(texto);
+    if (!mounted) return;
     setState(() {
-      _comentarios.add(texto);
-      _controller.clear();
+      _enviando = false;
+      if (salvo) {
+        _comentarios.add(texto);
+        _controller.clear();
+      }
     });
-    widget.onChanged(List.unmodifiable(_comentarios));
+    if (!salvo) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Não foi possível salvar o comentário. Tente novamente.',
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -1671,7 +1747,7 @@ class _ComentariosSheetState extends State<_ComentariosSheet> {
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
-                    onPressed: _enviar,
+                    onPressed: _enviando ? null : _enviar,
                     style: IconButton.styleFrom(
                       backgroundColor: AppColors.primary,
                     ),
@@ -1737,6 +1813,40 @@ class _FeedVazio extends StatelessWidget {
   }
 }
 
+class _FeedErro extends StatelessWidget {
+  const _FeedErro({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.cloud_off_outlined,
+            color: AppColors.muted,
+            size: 38,
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Não foi possível carregar o feed',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          FilledButton(
+            onPressed: onRetry,
+            child: const Text('Tentar novamente'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 void _mensagem(BuildContext context, String texto) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(texto)));
 }
@@ -1787,10 +1897,9 @@ class _Publicacao {
 
     return _Publicacao(
       id: (json['id'] as num?)?.toInt(),
-      autor: json['autor'] as String? ?? 'Camila Andrade',
-      iniciais: json['iniciais'] as String? ?? 'CA',
-      descricaoAutor:
-          json['descricaoAutor'] as String? ?? 'Engenharia de Software',
+      autor: json['autor'] as String? ?? _usuarioAtualNome,
+      iniciais: json['iniciais'] as String? ?? _usuarioAtualIniciais,
+      descricaoAutor: json['descricaoAutor'] as String? ?? _usuarioAtualCurso,
       tempo: json['tempo'] as String? ?? 'agora',
       categoria: json['categoria'] as String? ?? 'Dicas acadêmicas',
       texto: json['texto'] as String? ?? '',
@@ -1827,7 +1936,7 @@ class _Publicacao {
     descricaoAutor: descricaoAutor,
     tempo: tempo,
     categoria: categoria,
-    texto: this.texto,
+    texto: texto,
     imagens: imagens,
     curtidas: curtidas ?? this.curtidas,
     curtidoPeloUsuario: curtidoPeloUsuario ?? this.curtidoPeloUsuario,
@@ -1838,55 +1947,3 @@ class _Publicacao {
     comentariosTexto: comentariosTexto ?? this.comentariosTexto,
   );
 }
-
-const _publicacoesIniciais = <_Publicacao>[
-  _Publicacao(
-    autor: 'Núcleo de Apoio ao Aluno',
-    iniciais: 'NA',
-    descricaoAutor: 'PUC Minas',
-    tempo: 'há 25 min',
-    categoria: 'Dicas acadêmicas',
-    texto:
-        'Semana de provas chegando? Separe o conteúdo por prioridade, '
-        'faça blocos curtos de estudo e use os intervalos para revisar. '
-        '#DicaAcadêmica',
-    imagens: [
-      'assets/images/pucjardim.png',
-      'assets/images/imghero.png',
-      'assets/images/pucjardim.png',
-    ],
-    curtidas: 128,
-    comentarios: 14,
-    corAvatar: AppColors.primary,
-    verificado: true,
-  ),
-  _Publicacao(
-    autor: 'Marina Souza',
-    iniciais: 'MS',
-    descricaoAutor: 'Psicologia • 4º período',
-    tempo: 'há 2 h',
-    categoria: 'Campus',
-    texto:
-        'A área de convivência ficou linda hoje! Um ótimo lugar para '
-        'encontrar a turma entre as aulas. 💜',
-    imagens: ['assets/images/pucjardim.png'],
-    curtidas: 84,
-    comentarios: 9,
-    corAvatar: Color(0xFFE94072),
-  ),
-  _Publicacao(
-    autor: 'Central de Carreiras',
-    iniciais: 'CC',
-    descricaoAutor: 'PUC Minas',
-    tempo: 'ontem',
-    categoria: 'Oportunidades',
-    texto:
-        'Novas vagas de estágio disponíveis no portal de carreiras. '
-        'Atualize seu currículo e confira as oportunidades abertas!',
-    imagens: [],
-    curtidas: 56,
-    comentarios: 6,
-    corAvatar: Color(0xFF2563EB),
-    verificado: true,
-  ),
-];

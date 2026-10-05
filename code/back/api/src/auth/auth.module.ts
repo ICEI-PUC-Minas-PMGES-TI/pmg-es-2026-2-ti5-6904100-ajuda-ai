@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 import { MicrosoftTokenVerifier } from './microsoft-token.verifier.js';
 import { AuthService } from './auth.service.js';
+import { RolesGuard } from './roles.guard.js';
 
 function obterSegredoJwt(configuracao: ConfigService): string {
   const segredo = configuracao.get<string>('JWT_SECRET');
@@ -30,7 +31,7 @@ function obterSegredoJwt(configuracao: ConfigService): string {
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard, MicrosoftTokenVerifier],
-  exports: [JwtModule, AuthService, JwtAuthGuard],
+  providers: [AuthService, JwtAuthGuard, RolesGuard, MicrosoftTokenVerifier],
+  exports: [JwtModule, AuthService, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}

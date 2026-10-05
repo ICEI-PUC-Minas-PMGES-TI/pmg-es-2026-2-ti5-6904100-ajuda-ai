@@ -10,18 +10,22 @@ class AppBottomNavigation extends StatelessWidget {
     super.key,
     required this.selected,
     required this.onSelected,
+    this.destinations,
   });
 
   final AppDestination selected;
   final ValueChanged<AppDestination> onSelected;
+  final List<AppDestination>? destinations;
 
   @override
   Widget build(BuildContext context) {
+    final itens = destinations ?? AppDestination.values;
     return LayoutBuilder(
       builder: (context, constraints) {
         // The reference has a 320 px wide screen and a 36 px home button.
         final scale = (constraints.maxWidth / 320).clamp(1.0, 1.25).toDouble();
         final bottomInset = MediaQuery.paddingOf(context).bottom;
+        final temInicio = itens.contains(AppDestination.inicio);
 
         return Container(
           decoration: BoxDecoration(
@@ -49,8 +53,10 @@ class AppBottomNavigation extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  for (final destination in AppDestination.values)
-                    Expanded(child: _item(destination, scale)),
+                  for (final destination in itens)
+                    Expanded(
+                      child: _item(destination, scale, destacarInicio: temInicio),
+                    ),
                 ],
               ),
             ),
@@ -60,8 +66,12 @@ class AppBottomNavigation extends StatelessWidget {
     );
   }
 
-  Widget _item(AppDestination destination, double scale) {
-    final isHome = destination == AppDestination.inicio;
+  Widget _item(
+    AppDestination destination,
+    double scale, {
+    required bool destacarInicio,
+  }) {
+    final isHome = destacarInicio && destination == AppDestination.inicio;
     final isSelected = destination == selected;
     // The map and raised home button retain their branded purple appearance.
     final color = isSelected || isHome || destination == AppDestination.mapa

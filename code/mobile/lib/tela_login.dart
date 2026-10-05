@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'tela_home.dart';
+import 'coordenacao/tela_coordenacao.dart';
+import 'tela_cadastro.dart';
 import 'theme/colors.dart';
 import 'widgets/campus_photo.dart';
 import 'widgets/login_success_transition.dart';
@@ -30,7 +31,7 @@ class _LoginPageState extends State<LoginPage> {
             child: _LoginContent(
               bottomInset: bottomInset,
               onMicrosoftPressed: () {
-                // TODO: iniciar a transição após autenticação real da Microsoft.
+                // TODO: iniciar a transição após autenticação da Microsoft.
                 if (_showTransition) return;
                 _showTransition = true;
                 Navigator.of(context).pushReplacement(
@@ -38,12 +39,30 @@ class _LoginPageState extends State<LoginPage> {
                     pageBuilder: (context, animation, secondaryAnimation) =>
                         LoginSuccessTransition(
                           background: loginScreen,
-                          destination: const HomePage(),
+                          destination: const CadastroPage(),
                         ),
                     transitionDuration: Duration.zero,
                   ),
                 );
               },
+            ),
+          ),
+          // Fora do fluxo vertical para não comprimir a ilustração.
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topRight,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2, right: 6),
+                child: _LinkCoordenacao(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const TelaCoordenacao(),
+                      ),
+                    );
+                  },
+                ),
+              ),
             ),
           ),
         ],
@@ -77,6 +96,31 @@ class _BackgroundShapes extends StatelessWidget {
       shape: BoxShape.circle,
     ),
   );
+}
+
+class _LinkCoordenacao extends StatelessWidget {
+  const _LinkCoordenacao({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      onPressed: onPressed,
+      icon: const Icon(Icons.admin_panel_settings_outlined, size: 16),
+      label: const Text('Área da coordenação'),
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.primary,
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        textStyle: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
 }
 
 class _LoginContent extends StatelessWidget {

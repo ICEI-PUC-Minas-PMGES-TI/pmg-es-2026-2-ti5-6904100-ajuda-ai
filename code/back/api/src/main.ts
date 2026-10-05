@@ -10,7 +10,9 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
   );
-  await app.listen(process.env.PORT ?? 3000);
+  const porta = Number(process.env.PORT ?? 3000);
+  // 0.0.0.0: acessível pelo emulador (10.0.2.2), LAN e localhost.
+  await app.listen(porta, '0.0.0.0');
 }
 
 await bootstrap();

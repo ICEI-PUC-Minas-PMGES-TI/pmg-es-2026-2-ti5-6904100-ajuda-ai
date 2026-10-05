@@ -1,14 +1,17 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { AppModule } from '../src/app.module.js';
+import { AuthModule } from '../src/auth/auth.module.js';
 import { MicrosoftTokenVerifier } from '../src/auth/microsoft-token.verifier.js';
+import { UsuariosModule } from '../src/usuarios/usuarios.module.js';
 
 describe('Autenticação (e2e)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
-    const modulo = await Test.createTestingModule({ imports: [AppModule] })
+    const modulo = await Test.createTestingModule({
+      imports: [AuthModule, UsuariosModule],
+    })
       .overrideProvider(MicrosoftTokenVerifier)
       .useValue({
         verificar: vi.fn().mockResolvedValue({
