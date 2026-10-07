@@ -36,11 +36,15 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
       inject: [ConfigService],
       useFactory: (configuracao: ConfigService) => ({
         type: 'postgres',
-        host: configuracao.get<string>('DB_HOST', 'localhost'),
-        port: Number(configuracao.get<string>('DB_PORT', '5433')),
-        username: configuracao.get<string>('DB_USERNAME', 'ajudaai'),
-        password: configuracao.get<string>('DB_PASSWORD', 'ajudaai'),
-        database: configuracao.get<string>('DB_DATABASE', 'ajudaai'),
+        host: configuracao.get<string>(
+          'DB_HOST',
+          'db.zjvamkonqpvdybthgmlq.supabase.co',
+        ),
+        port: Number(configuracao.get<string>('DB_PORT', '5432')),
+        username: configuracao.get<string>('DB_USERNAME', 'postgres'),
+        password: configuracao.getOrThrow<string>('DB_PASSWORD'),
+        database: configuracao.get<string>('DB_DATABASE', 'postgres'),
+        ssl: configuracao.get<string>('DB_SSL', 'true') === 'true',
         schema: configuracao.get<string>('DB_SCHEMA', 'feed'),
         autoLoadEntities: true,
         synchronize:
