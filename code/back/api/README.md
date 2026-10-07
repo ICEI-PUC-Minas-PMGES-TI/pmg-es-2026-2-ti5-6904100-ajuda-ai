@@ -27,18 +27,17 @@ npm install
 
 ## Execução
 
-Inicie o PostgreSQL definido no Docker Compose da stack:
+Copie `code/back/api/.env.example` para `code/back/api/.env` e preencha
+`MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `JWT_SECRET` e `DB_PASSWORD`. Use em
+`DB_PASSWORD` a senha do banco configurada no projeto Supabase; não a versione. A API
+usa a conexão direta do Supabase por padrão, com TLS (`DB_SSL=true`) e o banco
+`postgres` no host configurado em `DB_HOST`. Em produção, a API não inicia sem
+`JWT_SECRET` nem `DB_PASSWORD`.
 
-```bash
-cd code
-docker compose up -d postgres
-```
-
-Copie `.env.example` para `.env` e preencha `MICROSOFT_TENANT_ID`,
-`MICROSOFT_CLIENT_ID` e `JWT_SECRET`. O `MICROSOFT_CLIENT_ID` deve ser o mesmo usado
-pelo aplicativo móvel para solicitar o ID token. Em produção, a API não inicia sem
-`JWT_SECRET`. As variáveis `DB_*` já usam os valores padrão do PostgreSQL criado
-pelo Docker Compose.
+O PostgreSQL do Docker Compose continua disponível apenas como alternativa local.
+Para usá-lo, inicie `docker compose up -d postgres` a partir de `code` e configure
+`DB_HOST=localhost`, `DB_PORT=5433`, `DB_USERNAME=ajudaai`,
+`DB_PASSWORD=ajudaai`, `DB_DATABASE=ajudaai` e `DB_SSL=false` no `.env` da API.
 
 ```bash
 npm run start:dev

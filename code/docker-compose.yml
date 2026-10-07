@@ -3,13 +3,13 @@ services:
     image: postgres:16-alpine
     container_name: ajuda-ai-postgres
     environment:
-      POSTGRES_USER: ${DB_USERNAME:-ajudaai}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-ajudaai}
-      POSTGRES_DB: ${DB_DATABASE:-ajudaai}
+      POSTGRES_USER: ${POSTGRES_USER:-ajudaai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ajudaai}
+      POSTGRES_DB: ${POSTGRES_DATABASE:-ajudaai}
     ports:
-      - '${DB_PORT:-5433}:5432'
+      - '${POSTGRES_PORT:-5433}:5432'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME:-ajudaai} -d ${DB_DATABASE:-ajudaai}']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-ajudaai} -d ${POSTGRES_DATABASE:-ajudaai}']
       interval: 5s
       timeout: 5s
       retries: 5
