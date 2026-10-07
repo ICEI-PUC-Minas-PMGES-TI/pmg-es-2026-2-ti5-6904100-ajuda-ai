@@ -34,6 +34,14 @@ usa a conexão direta do Supabase por padrão, com TLS (`DB_SSL=true`) e o banco
 `postgres` no host configurado em `DB_HOST`. Em produção, a API não inicia sem
 `JWT_SECRET` nem `DB_PASSWORD`.
 
+Se o Node.js não confiar na cadeia do certificado TLS apresentada pelo Supabase,
+baixe o certificado CA oficial do projeto e informe seu caminho local em
+`DB_SSL_CA_FILE` no `.env` da API. A validação do certificado permanece habilitada;
+não desative `DB_SSL` para contornar erros de certificado.
+Para desenvolvimento local, `DB_SSL_REJECT_UNAUTHORIZED=false` permite TLS sem
+validar o certificado do servidor; use essa opção somente em ambiente local. A API
+recusa essa configuração quando `NODE_ENV=production`.
+
 O PostgreSQL do Docker Compose continua disponível apenas como alternativa local.
 Para usá-lo, inicie `docker compose up -d postgres` a partir de `code` e configure
 `DB_HOST=localhost`, `DB_PORT=5433`, `DB_USERNAME=ajudaai`,

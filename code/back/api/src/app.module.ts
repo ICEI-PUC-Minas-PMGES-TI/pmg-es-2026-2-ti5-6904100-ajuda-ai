@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource, type DataSourceOptions } from 'typeorm';
+import { readFileSync } from 'node:fs';
 import { AuthModule } from './auth/auth.module.js';
 import { AvisosModule } from './avisos/avisos.module.js';
 import { CoordenacaoModule } from './coordenacao/coordenacao.module.js';
@@ -10,6 +11,25 @@ import { ParticipacoesModule } from './participacoes/participacoes.module.js';
 import { ProgramasModule } from './programas/programas.module.js';
 import { UsuariosModule } from './usuarios/usuarios.module.js';
 import { PublicacoesModule } from './publicacoes/publicacoes.module.js';
+
+function obterSsl(configuracao: ConfigService) {
+  if (configuracao.get<string>('DB_SSL', 'true') !== 'true') return false;
+  const rejectUnauthorized =
+    configuracao.get<string>('DB_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
+  if (
+    !rejectUnauthorized &&
+    configuracao.get<string>('NODE_ENV') === 'production'
+  ) {
+    throw new Error(
+      'DB_SSL_REJECT_UNAUTHORIZED=false não é permitido em produção.',
+    );
+  }
+  const arquivoCa = configuracao.get<string>('DB_SSL_CA_FILE')?.trim();
+  return {
+    rejectUnauthorized,
+    ...(arquivoCa ? { ca: readFileSync(arquivoCa, 'utf8') } : {}),
+  };
+}
 
 async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
   const schema = 'schema' in opcoes ? opcoes.schema : undefined;
@@ -44,7 +64,7 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
         username: configuracao.get<string>('DB_USERNAME', 'postgres'),
         password: configuracao.getOrThrow<string>('DB_PASSWORD'),
         database: configuracao.get<string>('DB_DATABASE', 'postgres'),
-        ssl: configuracao.get<string>('DB_SSL', 'true') === 'true',
+        ssl: obterSsl(configuracao),
         schema: configuracao.get<string>('DB_SCHEMA', 'feed'),
         autoLoadEntities: true,
         synchronize:
