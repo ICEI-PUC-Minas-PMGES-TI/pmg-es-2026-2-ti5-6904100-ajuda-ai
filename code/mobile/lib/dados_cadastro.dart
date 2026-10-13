@@ -6,6 +6,7 @@ class DadosCadastro {
     required this.periodo,
     required this.turno,
     this.interesses = const [],
+    this.sobre,
     this.expectativaPadrinho,
     this.outrasInformacoes,
     this.areasApoio = const [],
@@ -23,6 +24,9 @@ class DadosCadastro {
   final int periodo;
   final String turno;
   final List<String> interesses;
+
+  /// Texto opcional exibido no perfil, preenchido pelo próprio aluno.
+  final String? sobre;
 
   /// Apadrinhado: o que espera do padrinho. Padrinho: motivação.
   final String? expectativaPadrinho;
@@ -67,6 +71,7 @@ class DadosCadastro {
       periodo: periodo,
       turno: turno,
       interesses: interesses,
+      sobre: sobre,
       expectativaPadrinho: expectativaPadrinho,
       outrasInformacoes: outrasInformacoes,
       areasApoio: areasApoio,
@@ -86,6 +91,8 @@ class DadosCadastro {
     int? periodo,
     String? turno,
     List<String>? interesses,
+    String? sobre,
+    bool limparSobre = false,
   }) {
     return DadosCadastro(
       nome: nome ?? this.nome,
@@ -94,6 +101,7 @@ class DadosCadastro {
       periodo: periodo ?? this.periodo,
       turno: turno ?? this.turno,
       interesses: interesses ?? this.interesses,
+      sobre: limparSobre ? null : sobre ?? this.sobre,
       expectativaPadrinho: expectativaPadrinho,
       outrasInformacoes: outrasInformacoes,
       areasApoio: areasApoio,
@@ -164,6 +172,7 @@ class DadosCadastro {
       interesses: respostas['interesses'] is List
           ? lista(respostas['interesses'])
           : interesses,
+      sobre: _texto(respostas['sobre'] as String?) ?? sobre,
       expectativaPadrinho:
           (padrinho ? respostas['motivacao'] : respostas['expectativa'])
               as String?,

@@ -59,16 +59,24 @@ async function request(path, { method = 'GET', body, token, aluno, anonimo = fal
   }
 
   let response;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 12000);
   try {
     response = await fetch(`${API_BASE}${path}`, {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
     });
-  } catch {
-    const error = new Error('Não foi possível conectar ao servidor. Verifique sua conexão.');
+  } catch (causa) {
+    const mensagem = causa?.name === 'AbortError'
+      ? 'O servidor demorou para responder. Verifique se o backend está em execução.'
+      : 'Não foi possível conectar ao servidor. Verifique se o backend está em execução.';
+    const error = new Error(mensagem);
     error.status = 0;
     throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
 
   if (!response.ok) {

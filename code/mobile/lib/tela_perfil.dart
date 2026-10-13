@@ -75,14 +75,14 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  static const _semSobre = 'Nada informado.';
+
   static const _fallback = _DadosPerfil(
     nome: 'Ana Clara',
     curso: 'Engenharia Química',
     periodo: '1º período',
     email: 'ana.clara@pucminas.edu.br',
-    sobre:
-        'Gosto de tecnologia, inovação e projetos no campus. '
-        'Estou no primeiro período e quero conhecer a rotina da PUC.',
+    sobre: _semSobre,
   );
 
   late _DadosPerfil _dados;
@@ -105,7 +105,9 @@ class _ProfilePageState extends State<ProfilePage> {
     _cursoController = TextEditingController(text: _dados.curso);
     _periodoController = TextEditingController(text: _dados.periodo);
     _emailController = TextEditingController(text: _dados.email);
-    _sobreController = TextEditingController(text: _dados.sobre);
+    _sobreController = TextEditingController(
+      text: _dados.sobre == _semSobre ? '' : _dados.sobre,
+    );
     _sincronizar();
   }
 
@@ -128,16 +130,13 @@ class _ProfilePageState extends State<ProfilePage> {
   _DadosPerfil _dadosDaSessao() {
     final sessao = _sessao.dados;
     if (sessao == null) return _fallback;
+    final sobre = sessao.sobre?.trim();
     return _DadosPerfil(
       nome: sessao.nome,
       curso: sessao.curso,
       periodo: '${sessao.periodo}º período',
       email: sessao.email,
-      sobre: sessao.expectativaPadrinho?.trim().isNotEmpty == true
-          ? sessao.expectativaPadrinho!.trim()
-          : sessao.outrasInformacoes?.trim().isNotEmpty == true
-          ? sessao.outrasInformacoes!.trim()
-          : 'Ainda não há uma descrição no perfil.',
+      sobre: sobre == null || sobre.isEmpty ? _semSobre : sobre,
     );
   }
 
@@ -156,7 +155,7 @@ class _ProfilePageState extends State<ProfilePage> {
     _cursoController.text = _dados.curso;
     _periodoController.text = _dados.periodo;
     _emailController.text = _dados.email;
-    _sobreController.text = _dados.sobre;
+    _sobreController.text = _dados.sobre == _semSobre ? '' : _dados.sobre;
     setState(() => _editando = true);
   }
 
@@ -168,6 +167,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final periodo = _periodoController.text.trim();
     final email = _emailController.text.trim();
     final sobre = _sobreController.text.trim();
+    final sobreExibicao = sobre.isEmpty ? _semSobre : sobre;
 
     if (nome.isEmpty || curso.isEmpty || periodo.isEmpty || email.isEmpty) {
       ScaffoldMessenger.of(context)
@@ -186,7 +186,7 @@ class _ProfilePageState extends State<ProfilePage> {
         curso: curso,
         periodo: periodo,
         email: email,
-        sobre: sobre,
+        sobre: sobreExibicao,
       );
       _editando = false;
     });
@@ -196,6 +196,8 @@ class _ProfilePageState extends State<ProfilePage> {
         nome: nome,
         curso: curso,
         periodo: int.tryParse(periodo.replaceAll(RegExp(r'[^0-9]'), '')),
+        sobre: sobre.isEmpty ? null : sobre,
+        limparSobre: sobre.isEmpty,
       );
     }
 

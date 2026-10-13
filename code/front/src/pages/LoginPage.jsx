@@ -3,14 +3,17 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 
 export default function LoginPage() {
-  const { loginDemo, autenticado, ehCoordenador, carregando } = useAuth();
+  const { loginDemo, logout, autenticado, ehCoordenador, carregando } = useAuth();
   const [erro, setErro] = useState('');
   const [tentou, setTentou] = useState(false);
 
   useEffect(() => {
-    if (autenticado || tentou) return undefined;
+    if ((autenticado && ehCoordenador) || tentou) return undefined;
     let cancelado = false;
     setTentou(true);
+    // A área do aluno e a da coordenação usam sessões distintas. Se havia uma
+    // sessão de aluno salva, ela não pode impedir o acesso ao painel.
+    if (autenticado) logout();
     loginDemo('renata@pucminas.edu.br')
       .then((usuario) => {
         if (cancelado) return;
@@ -24,7 +27,7 @@ export default function LoginPage() {
     return () => {
       cancelado = true;
     };
-  }, [autenticado, tentou, loginDemo]);
+  }, [autenticado, ehCoordenador, tentou, loginDemo, logout]);
 
   if (autenticado && ehCoordenador) {
     return <Navigate to="/coordenacao" replace />;
