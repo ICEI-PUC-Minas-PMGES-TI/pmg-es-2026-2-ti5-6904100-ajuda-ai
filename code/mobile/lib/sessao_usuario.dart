@@ -10,16 +10,17 @@ import 'status_participacao.dart';
 import 'tela_participacao.dart';
 import 'widgets/app_bottom_navigation.dart';
 
-/// Estado de sessão do protótipo — preenchido após o cadastro/escolha.
+/// Estado de sessão do aluno — preenchido após o cadastro/escolha.
 ///
-/// Não há login real: a identidade do aluno é o e-mail institucional do
-/// cadastro, usado como `usuarioId` nas rotas `/participacoes`.
+/// Ainda não há login Microsoft: o envio do cadastro (`POST /cadastro`) e o
+/// login demo devolvem o token do aluno, que passa a identificar todas as
+/// chamadas (sem `x-user-id`). As regras (período × modalidade, aprovação)
+/// ficam no backend; o app só reflete o que a API responde.
 ///
-/// Envio sem backend: se a API não responder ([ApiIndisponivelException]),
-/// o cadastro/candidatura fica salvo só nesta sessão (estado local) e o fluxo
-/// segue — mesmo comportamento que o app já tinha para o padrinho. Quando a
-/// API responde com erro ([ApiException]), nada muda localmente e a tela
-/// mostra o erro para o aluno tentar de novo.
+/// O envio só conta quando a API confirma: sem conexão
+/// ([ApiIndisponivelException]) ou com erro ([ApiException]) nada muda
+/// localmente e a tela mostra o erro para o aluno tentar de novo — o cadastro
+/// precisa existir no backend para ir à análise da coordenação.
 class SessaoUsuario {
   SessaoUsuario._();
 
@@ -69,6 +70,15 @@ class SessaoUsuario {
 
   bool get ehApadrinhadoAtivo => status == StatusParticipacao.apadrinhadoAtivo;
 
+  /// Token do aluno (null enquanto não há cadastro/login).
+  String? get accessToken => _api.accessToken;
+
+  /// Cadastro global (pendente/aprovado/rejeitado) vindo do backend.
+  CadastroSituacao? get cadastro => situacao?.cadastro;
+
+  /// Motivo informado pela coordenação ao rejeitar o cadastro, se houver.
+  String? get motivoRejeicao => cadastro?.motivoRejeicao;
+
   int get periodo => dados?.periodo ?? 1;
 
   PessoaVinculo? get padrinho => situacao?.padrinho;
@@ -103,7 +113,9 @@ class SessaoUsuario {
       periodo == 1 &&
       inscricoesApadrinhamentoAbertas &&
       status != StatusParticipacao.apadrinhadoAtivo &&
-      status != StatusParticipacao.apadrinhadoAguardandoMatch;
+      status != StatusParticipacao.apadrinhadoAguardandoMatch &&
+      status != StatusParticipacao.apadrinhadoPendente &&
+      status != StatusParticipacao.apadrinhadoRejeitado;
 
   void definir({
     required DadosCadastro dadosCadastro,
@@ -151,63 +163,80 @@ class SessaoUsuario {
     atualizarHistorico([ciclo, ...filtrado]);
   }
 
-  /// Envia (ou reenvia, em "Editar candidatura") a candidatura de padrinho.
-  ///
-  /// Retorna `true` se o backend recebeu e `false` se ficou só no estado
-  /// local por falta de conexão. Lança [ApiException] se o backend recusar.
-  Future<bool> registrarCandidaturaPadrinho({
+  /// Envia (ou reenvia, em "Editar candidatura") o cadastro como padrinho
+  /// via `POST /cadastro`. O cadastro fica PENDENTE até a coordenação decidir.
+  /// Lança [ApiException] se o backend recusar (ex.: 1º período) e
+  /// [ApiIndisponivelException] sem conexão — em ambos, nada muda localmente.
+  Future<void> registrarCandidaturaPadrinho({
     required DadosCadastro dadosCadastro,
     DateTime? enviadaEm,
   }) async {
     final jaEnviada =
         status == StatusParticipacao.padrinhoEmAnalise &&
         candidaturaEnviadaEm != null;
-    void aplicarLocal() => definir(
+    final ciclo = await _enviarCadastro(
+      dadosCadastro,
+      tipo: 'padrinho',
+      respostas: dadosCadastro.respostasPadrinho(),
+    );
+    definir(
       dadosCadastro: dadosCadastro,
       escolha: Participacao.padrinho,
       statusParticipacao: StatusParticipacao.padrinhoEmAnalise,
       enviadaEm: enviadaEm ?? (jaEnviada ? null : DateTime.now()),
     );
-
-    try {
-      final ciclo = await _api.registrarCandidaturaPadrinho(
-        usuarioId: _idDe(dadosCadastro),
-        respostas: dadosCadastro.respostasPadrinho(),
-      );
-      aplicarLocal();
-      _registrarNoHistorico(ciclo);
-      return true;
-    } on ApiIndisponivelException {
-      // Mantém o estado local do perfil mesmo se a API estiver indisponível.
-      aplicarLocal();
-      return false;
-    }
+    _registrarNoHistorico(ciclo);
   }
 
   /// Envia o cadastro do apadrinhado (Revise suas informações → Enviar).
-  ///
-  /// Mesmo contrato de [registrarCandidaturaPadrinho].
-  Future<bool> cadastrarApadrinhado({
+  /// Fica aguardando a aprovação da coordenação. Mesmo contrato de
+  /// [registrarCandidaturaPadrinho].
+  Future<void> cadastrarApadrinhado({
     required DadosCadastro dadosCadastro,
   }) async {
-    void aplicarLocal() => definir(
+    final ciclo = await _enviarCadastro(
+      dadosCadastro,
+      tipo: 'apadrinhado',
+      respostas: dadosCadastro.respostasApadrinhado(),
+    );
+    definir(
       dadosCadastro: dadosCadastro,
       escolha: Participacao.apadrinhado,
-      statusParticipacao: StatusParticipacao.apadrinhadoAguardandoMatch,
+      statusParticipacao: ciclo.status == StatusCiclo.emAndamento
+          ? StatusParticipacao.apadrinhadoAguardandoMatch
+          : StatusParticipacao.apadrinhadoPendente,
       enviadaEm: DateTime.now(),
     );
+    _registrarNoHistorico(ciclo);
+  }
 
+  /// `POST /cadastro` (mesmo endpoint e regras do web). Guarda o token.
+  Future<CicloParticipacao> _enviarCadastro(
+    DadosCadastro dadosCadastro, {
+    required String tipo,
+    required Map<String, dynamic> respostas,
+  }) async {
+    final resultado = await _api.cadastrar(
+      nome: dadosCadastro.nome,
+      email: _idDe(dadosCadastro),
+      curso: dadosCadastro.curso,
+      periodo: dadosCadastro.periodo,
+      turno: dadosCadastro.turno,
+      interesses: dadosCadastro.interesses,
+      tipoParticipacao: tipo,
+      respostas: respostas,
+    );
+    return resultado.participacao;
+  }
+
+  /// Garante o token do aluno já cadastrado (login demo por e-mail, no lugar
+  /// do Microsoft). Sem cadastro, segue sem token.
+  Future<void> _garantirToken() async {
+    if (_api.accessToken != null || dados == null) return;
     try {
-      final ciclo = await _api.cadastrarApadrinhado(
-        usuarioId: _idDe(dadosCadastro),
-        respostas: dadosCadastro.respostasApadrinhado(),
-      );
-      aplicarLocal();
-      _registrarNoHistorico(ciclo);
-      return true;
-    } on ApiIndisponivelException {
-      aplicarLocal();
-      return false;
+      await _api.entrar(usuarioIdHistorico);
+    } catch (_) {
+      // sem rede: a sincronização abaixo também vai falhar e é tratada lá
     }
   }
 
@@ -218,6 +247,7 @@ class SessaoUsuario {
   /// um envio feito offline nesta sessão, o estado local é preservado.
   Future<bool> sincronizarSituacao() async {
     if (dados == null) return false;
+    await _garantirToken();
     try {
       final resposta = await _api.situacao(usuarioIdHistorico);
       situacao = resposta;
@@ -228,6 +258,8 @@ class SessaoUsuario {
           StatusParticipacao.padrinhoEmAnalise ||
           StatusParticipacao.padrinhoAtivo ||
           StatusParticipacao.padrinhoRejeitado => Participacao.padrinho,
+          StatusParticipacao.apadrinhadoPendente ||
+          StatusParticipacao.apadrinhadoRejeitado ||
           StatusParticipacao.apadrinhadoAguardandoMatch ||
           StatusParticipacao.apadrinhadoAtivo => Participacao.apadrinhado,
           _ => participacao,
@@ -254,6 +286,14 @@ class SessaoUsuario {
     } catch (_) {
       return const [];
     }
+  }
+
+  /// Requisitos para padrinho do ciclo atual, definidos pela coordenação
+  /// (mesmo endpoint do web). Lança erro se não carregar — sem eles o app
+  /// não deixa enviar, para não fingir uma lista.
+  Future<List<RequisitoPadrinho>> carregarRequisitosPadrinho() async {
+    final formulario = await _api.formulario('padrinho');
+    return formulario.requisitos;
   }
 
   /// Confirma ingresso efetivo (aprovação / match) — idempotente no backend.

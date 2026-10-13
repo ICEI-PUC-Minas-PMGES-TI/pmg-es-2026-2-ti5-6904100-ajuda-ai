@@ -14,7 +14,25 @@ class ApiFalsa {
     this.formularios = const {},
     List<Map<String, dynamic>>? avisos,
     this.erroEnvio,
-  }) : avisos = avisos ?? [];
+    this.cadastrado = false,
+    List<Map<String, dynamic>>? requisitosPadrinho,
+  }) : avisos = avisos ?? [],
+       requisitosPadrinho = requisitosPadrinho ?? requisitosDeTeste();
+
+  /// Requisitos do ciclo que `GET /formularios/padrinho` devolve (como o
+  /// backend: configurados pela coordenação; aqui, dados de teste).
+  List<Map<String, dynamic>> requisitosPadrinho;
+
+  static List<Map<String, dynamic>> requisitosDeTeste() => [
+    {'id': 'calculo-i', 'descricao': 'Cálculo I', 'obrigatorio': true},
+    {'id': 'aed-i', 'descricao': 'AED I', 'obrigatorio': true},
+  ];
+
+  /// Token devolvido por `POST /cadastro` e `POST /auth/login-demo`.
+  static const token = 'token-do-aluno';
+
+  /// Se o e-mail já tem cadastro (login demo responde 201; senão 401).
+  bool cadastrado;
 
   /// Corpo de `GET /participacoes/situacao` (null → 404, mantém estado local).
   Map<String, dynamic>? situacao;
@@ -23,7 +41,8 @@ class ApiFalsa {
   final Map<String, Map<String, dynamic>> formularios;
   final List<Map<String, dynamic>> avisos;
 
-  /// Se definido, os POSTs de cadastro respondem 400 com esta mensagem.
+  /// Se definido, os POSTs de cadastro respondem 400 com esta mensagem
+  /// (ex.: a regra de período × modalidade do backend).
   String? erroEnvio;
 
   final List<http.Request> requisicoes = [];
@@ -44,6 +63,72 @@ class ApiFalsa {
   late final MockClient client = MockClient((requisicao) async {
     requisicoes.add(requisicao);
     final caminho = requisicao.url.path;
+    if (requisicao.method == 'POST' && caminho.endsWith('/auth/login-demo')) {
+      if (!cadastrado) {
+        return _json({'message': 'Usuário não cadastrado no Ajuda-aí.'}, 401);
+      }
+      final email = (jsonDecode(requisicao.body) as Map)['email'];
+      return _json({
+        'accessToken': token,
+        'usuario': {'email': email, 'perfil': 'apadrinhado'},
+      }, 201);
+    }
+    if (requisicao.method == 'POST' && caminho.endsWith('/cadastro')) {
+      if (erroEnvio != null) {
+        return _json({
+          'message': erroEnvio,
+          'error': 'Bad Request',
+          'statusCode': 400,
+        }, 400);
+      }
+      final enviado = jsonDecode(requisicao.body) as Map<String, dynamic>;
+      final padrinho = enviado['tipoParticipacao'] == 'padrinho';
+      // Mesma regra do backend: requisito obrigatório não cumprido → 400.
+      if (padrinho) {
+        final respostas = (enviado['respostas'] as Map?) ?? const {};
+        final cumpridos = {
+          for (final r in (respostas['requisitos'] as List? ?? const []))
+            if (r is Map && r['cumpre'] == true) r['id'],
+        };
+        final faltando = requisitosPadrinho
+            .where((r) => r['obrigatorio'] == true)
+            .where((r) => !cumpridos.contains(r['id']))
+            .map((r) => r['descricao'])
+            .toList();
+        if (faltando.isNotEmpty) {
+          return _json({
+            'message':
+                'Para se candidatar a padrinho no ciclo 2026/2 é preciso '
+                'cumprir: ${faltando.join('; ')}.',
+            'statusCode': 400,
+          }, 400);
+        }
+      }
+      cadastrado = true;
+      return _json({
+        'accessToken': token,
+        'tokenType': 'Bearer',
+        'expiresIn': 3600,
+        'usuario': {
+          'email': enviado['email'],
+          'perfil': enviado['tipoParticipacao'],
+          'tipoParticipacao': enviado['tipoParticipacao'],
+          'statusCadastro': 'pendente',
+        },
+        'participacao': {
+          'id': 99,
+          'usuarioId': enviado['email'],
+          'programa': '2026/2',
+          'papel': padrinho ? 'candidato' : 'apadrinhado',
+          'status': 'pendente',
+          'grupo': null,
+          'apadrinhados': 0,
+          'criadoEm': '2026-09-22T14:32:00.000Z',
+          'atualizadoEm': '2026-09-22T14:32:00.000Z',
+          'respostas': enviado['respostas'],
+        },
+      }, 201);
+    }
     if (requisicao.method == 'POST' &&
         (caminho.endsWith('/candidatura-padrinho') ||
             caminho.endsWith('/cadastro-apadrinhado'))) {
@@ -77,10 +162,11 @@ class ApiFalsa {
     if (caminho.endsWith('/participacoes')) return _json(const []);
     if (caminho.contains('/formularios/')) {
       final tipo = caminho.split('/').last;
-      return _json(
-        formularios[tipo] ??
-            {'tipo': tipo, 'publicado': false, 'perguntas': const []},
-      );
+      return _json({
+        ...(formularios[tipo] ??
+            {'tipo': tipo, 'publicado': false, 'perguntas': const []}),
+        if (tipo == 'padrinho') 'requisitos': requisitosPadrinho,
+      });
     }
     if (caminho.endsWith('/avisos')) return _json(avisos);
     return _json({'message': 'rota não simulada'}, 404);

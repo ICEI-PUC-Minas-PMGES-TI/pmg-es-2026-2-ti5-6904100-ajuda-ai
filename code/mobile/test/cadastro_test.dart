@@ -142,15 +142,24 @@ void main() {
     await _tocar(tester, find.text('Enviar cadastro'));
 
     expect(find.byType(CadastroConcluidoPage), findsOneWidget);
-    expect(find.text('Cadastro concluído!'), findsOneWidget);
+    expect(find.text('Cadastro enviado!'), findsOneWidget);
+    expect(
+      find.text('Agora ele aguarda a aprovação da coordenação.'),
+      findsOneWidget,
+    );
     expect(find.byType(CadastroPage), findsNothing);
     expect(tester.takeException(), isNull);
 
-    // POST /participacoes/cadastro-apadrinhado com as respostas completas.
-    final envio = api.posts('/participacoes/cadastro-apadrinhado').single;
-    expect(envio.headers['x-user-id'], 'camila@pucminas.edu.br');
+    // POST /cadastro (mesmo endpoint do web) com dados + respostas.
+    expect(api.posts('/participacoes/cadastro-apadrinhado'), isEmpty);
+    final envio = api.posts('/cadastro').single;
+    expect(envio.headers.containsKey('x-user-id'), isFalse);
     final corpo = api.corpo(envio);
-    expect(corpo['usuarioId'], 'camila@pucminas.edu.br');
+    expect(corpo, containsPair('email', 'camila@pucminas.edu.br'));
+    expect(corpo, containsPair('nome', 'Camila Duarte'));
+    expect(corpo, containsPair('curso', 'Engenharia de Software'));
+    expect(corpo, containsPair('periodo', 1));
+    expect(corpo, containsPair('tipoParticipacao', 'apadrinhado'));
     expect(corpo['respostas'], {
       'nome': 'Camila Duarte',
       'curso': 'Engenharia de Software',
@@ -165,10 +174,9 @@ void main() {
       'expectativa': 'Dicas sobre a rotina',
       'extras': <String, dynamic>{},
     });
-    expect(
-      SessaoUsuario.atual.status,
-      StatusParticipacao.apadrinhadoAguardandoMatch,
-    );
+    // Cadastro novo nasce PENDENTE e o app guarda o token da sessão.
+    expect(SessaoUsuario.atual.status, StatusParticipacao.apadrinhadoPendente);
+    expect(SessaoUsuario.atual.accessToken, ApiFalsa.token);
 
     await tester.tap(find.text('Ir para meu perfil'));
     await tester.pumpAndSettle();
@@ -201,7 +209,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(CadastroConcluidoPage), findsOneWidget);
-    expect(api.posts('/participacoes/cadastro-apadrinhado'), hasLength(2));
+    expect(api.posts('/cadastro'), hasLength(2));
   });
 
   testWidgets('perguntas adicionais do apadrinhado são validadas', (

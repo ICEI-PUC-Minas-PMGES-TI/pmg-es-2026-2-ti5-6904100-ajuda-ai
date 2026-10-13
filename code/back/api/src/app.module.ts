@@ -1,9 +1,11 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource, type DataSourceOptions } from 'typeorm';
 import { AuthModule } from './auth/auth.module.js';
+import { decidirSynchronize } from './config/seguranca.js';
 import { AvisosModule } from './avisos/avisos.module.js';
+import { CadastroModule } from './cadastro/cadastro.module.js';
 import { CoordenacaoModule } from './coordenacao/coordenacao.module.js';
 import { FormulariosModule } from './formularios/formularios.module.js';
 import { ParticipacoesModule } from './participacoes/participacoes.module.js';
@@ -36,9 +38,13 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
       inject: [ConfigService],
       useFactory: (configuracao: ConfigService) => ({
         type: 'postgres',
-        host: configuracao.get<string>(
-          'DB_HOST',
-          'db.zjvamkonqpvdybthgmlq.supabase.co',
+        // Sem default: um DB_HOST ausente não pode cair num banco qualquer.
+        host: configuracao.getOrThrow<string>('DB_HOST'),
+        // Padrão desligado; ligado só em banco local (ver config/seguranca.ts).
+        synchronize: decidirSynchronize(
+          configuracao.getOrThrow<string>('DB_HOST'),
+          configuracao.get<string>('DB_SYNCHRONIZE'),
+          configuracao.get<string>('NODE_ENV'),
         ),
         port: Number(configuracao.get<string>('DB_PORT', '5432')),
         username: configuracao.get<string>('DB_USERNAME', 'postgres'),
@@ -47,20 +53,26 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
         ssl: configuracao.get<string>('DB_SSL', 'true') === 'true',
         schema: configuracao.get<string>('DB_SCHEMA', 'feed'),
         autoLoadEntities: true,
-        synchronize:
-          configuracao.get<string>('DB_SYNCHRONIZE', 'true') === 'true',
         retryAttempts: 5,
         retryDelay: 2000,
       }),
       // Em um banco novo o schema ainda não existe e o synchronize falha.
       dataSourceFactory: async (opcoes?: DataSourceOptions) => {
         if (!opcoes) throw new Error('Configuração do banco ausente.');
-        await garantirSchema(opcoes);
+        // Deixa inequívoco qual banco está em uso (sem credenciais).
+        if (opcoes.type === 'postgres') {
+          new Logger('Banco').log(
+            `${opcoes.host}:${opcoes.port}/${opcoes.database} schema=${opcoes.schema} ssl=${opcoes.ssl ? 'ativo' : 'desativado'} synchronize=${opcoes.synchronize}`,
+          );
+        }
+        // Criar o schema é escrita: só junto com synchronize (banco local).
+        if (opcoes.synchronize) await garantirSchema(opcoes);
         return new DataSource(opcoes).initialize();
       },
     }),
     AuthModule,
     UsuariosModule,
+    CadastroModule,
     AvisosModule,
     PublicacoesModule,
     ParticipacoesModule,

@@ -3,6 +3,9 @@ import { JwtService } from '@nestjs/jwt';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthService } from '../src/auth/auth.service.js';
 import type { MicrosoftTokenVerifier } from '../src/auth/microsoft-token.verifier.js';
+import { UsuarioEntity } from '../src/usuarios/entities/usuario.entity.js';
+import { UsuariosService } from '../src/usuarios/usuarios.service.js';
+import { repositorioEmMemoria } from './helpers/repositorio-memoria.js';
 
 describe('AuthService', () => {
   const verificar = vi.fn();
@@ -12,13 +15,16 @@ describe('AuthService', () => {
   } as unknown as MicrosoftTokenVerifier;
   let service: AuthService;
 
-  beforeEach(() => {
-    service = new AuthService(jwtService, microsoftTokenVerifier);
+  beforeEach(async () => {
+    const usuarios = new UsuariosService(repositorioEmMemoria<UsuarioEntity>());
+    await usuarios.onModuleInit(); // semeia os alunos demo
+    service = new AuthService(jwtService, microsoftTokenVerifier, usuarios);
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     delete process.env.AUTH_ALLOWED_DOMAIN;
+    delete process.env.AUTH_DEMO_ENABLED;
   });
 
   it('emite um JWT para uma conta institucional cadastrada', async () => {
@@ -33,9 +39,11 @@ describe('AuthService', () => {
 
     expect(resposta.tokenType).toBe('Bearer');
     expect(resposta.expiresIn).toBe(3600);
-    expect(resposta.usuario.email).toBe('camila@pucminas.edu.br');
+    expect(resposta.usuario).toMatchObject({
+      email: 'camila@pucminas.edu.br',
+      statusCadastro: 'aprovado',
+    });
     expect(payload).toMatchObject({
-      sub: '1',
       email: 'camila@pucminas.edu.br',
       perfil: 'apadrinhado',
     });
@@ -61,5 +69,31 @@ describe('AuthService', () => {
     await expect(
       service.autenticarComMicrosoft('id-token-valido'),
     ).rejects.toThrow('não cadastrado');
+  });
+
+  it('login demo do coordenador mockado', async () => {
+    process.env.AUTH_DEMO_ENABLED = 'true';
+    const resposta = await service.autenticarDemo('renata@pucminas.edu.br');
+    const payload = await jwtService.verifyAsync(resposta.accessToken);
+
+    expect(payload).toMatchObject({ perfil: 'coordenador' });
+  });
+
+  it('login demo de aluno pendente também funciona (para acompanhar)', async () => {
+    process.env.AUTH_DEMO_ENABLED = 'true';
+    const resposta = await service.autenticarDemo(
+      'ana.beatriz@pucminas.edu.br',
+    );
+
+    expect(resposta.usuario).toMatchObject({
+      perfil: 'padrinho',
+      statusCadastro: 'pendente',
+    });
+  });
+
+  it('login demo desabilitado', async () => {
+    await expect(
+      service.autenticarDemo('renata@pucminas.edu.br'),
+    ).rejects.toThrow('desabilitado');
   });
 });

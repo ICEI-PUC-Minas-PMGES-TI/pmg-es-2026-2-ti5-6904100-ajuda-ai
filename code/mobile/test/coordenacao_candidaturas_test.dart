@@ -144,10 +144,24 @@ class _ApiCoordFalsa {
                 'genero': 'Masculino',
                 'bolsistaProuni': false,
                 'deOutraCidade': true,
-                'declaraPreRequisitos': true,
               },
         'observacoes': '',
-        'criterios': ['Não estar no 1º período'],
+        'requisitosRespondidos': true,
+        'requisitos': [
+          {
+            'id': 'calculo-i',
+            'descricao': 'Cálculo I',
+            'obrigatorio': true,
+            'cumpre': true,
+          },
+          {
+            'id': 'aed-i',
+            'descricao': 'AED I',
+            'obrigatorio': true,
+            'cumpre': false,
+          },
+        ],
+        'criterios': ['A partir do 2º período', 'Cálculo I', 'AED I'],
         'historico': const [],
         'jaFoiApadrinhadoEm': null,
         'numeroCandidatura': 1,
@@ -304,10 +318,8 @@ void main() {
     expect(find.text('Monitoria de AEDS I.'), findsOneWidget);
     expect(find.text('Manhã, Tarde'), findsOneWidget);
     expect(find.text('Masculino'), findsOneWidget);
-    expect(
-      find.text('Declara que foi aprovado em AEDS I e Cálculo I.'),
-      findsOneWidget,
-    );
+    expect(find.text('Cálculo I — declarou que cumpre'), findsOneWidget);
+    expect(find.text('AED I — declarou que NÃO cumpre'), findsOneWidget);
     expect(find.text('Rejeitar candidatura'), findsOneWidget);
     expect(find.text('Aprovar candidatura'), findsOneWidget);
     expect(find.text('Solicitar revisão'), findsOneWidget);

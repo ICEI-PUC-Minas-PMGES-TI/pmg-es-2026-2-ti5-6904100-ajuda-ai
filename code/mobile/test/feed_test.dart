@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:ajuda_ai/services/participacoes_api.dart';
+import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/tela_feed.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -98,6 +100,25 @@ void main() {
     expect(find.text('Comentário salvo de verdade.'), findsOneWidget);
     expect(backend.comentarios, 1);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('com token do aluno o feed não envia x-user-id', (tester) async {
+    configurarTela(tester);
+    SessaoUsuario.atual.configurarApi(ParticipacoesApi()..accessToken = 'tk');
+    addTearDown(SessaoUsuario.atual.limpar);
+    final pedidos = <http.Request>[];
+    final client = MockClient((request) async {
+      pedidos.add(request);
+      return http.Response('[]', 200);
+    });
+    addTearDown(client.close);
+
+    await tester.pumpWidget(app(client));
+    await tester.pumpAndSettle();
+
+    expect(pedidos, isNotEmpty);
+    expect(pedidos.first.headers['authorization'], 'Bearer tk');
+    expect(pedidos.first.headers.containsKey('x-user-id'), isFalse);
   });
 }
 

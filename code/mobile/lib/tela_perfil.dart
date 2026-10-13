@@ -411,6 +411,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 10),
                 AcessosRapidos(itens: _acessosRapidos(status)),
                 if (status == StatusParticipacao.apadrinhadoAguardandoMatch ||
+                    status == StatusParticipacao.apadrinhadoPendente ||
                     status == StatusParticipacao.padrinhoEmAnalise ||
                     status == StatusParticipacao.explorar) ...[
                   const SizedBox(height: 14),

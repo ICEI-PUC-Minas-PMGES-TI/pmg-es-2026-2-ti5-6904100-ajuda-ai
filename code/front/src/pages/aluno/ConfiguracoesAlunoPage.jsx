@@ -29,7 +29,7 @@ const ROTULOS_SITUACAO = {
 
 const FAQ = [
   { p: 'Como funciona o match com o padrinho?', r: 'A coordenação compara as respostas do cadastro (curso, interesses, disponibilidade e áreas de apoio) e confirma o vínculo durante a formação dos grupos.' },
-  { p: 'Quem pode ser padrinho?', r: 'Alunos a partir do 2º período aprovados em AEDS 1 e Cálculo 1. A candidatura passa pela análise da coordenação.' },
+  { p: 'Quem pode ser padrinho?', r: 'Alunos a partir do 2º período que cumpram os requisitos definidos pela coordenação para o semestre (exibidos no formulário de candidatura). A candidatura passa pela análise da coordenação.' },
   { p: 'Posso editar minha candidatura?', r: 'Sim, enquanto ela estiver enviada ou em análise. Use “Editar candidatura” na tela Status da candidatura.' },
   { p: 'Onde fica o mapa do campus?', r: 'O mapa e as PUC Stops ficam no app Mapa da PUC, que está em desenvolvimento.' },
 ];

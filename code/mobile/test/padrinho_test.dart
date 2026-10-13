@@ -39,8 +39,15 @@ Future<void> _escolher<T>(
   await tester.pumpAndSettle();
 }
 
-Future<void> _marcarDeclaracao(WidgetTester tester) =>
-    _tocar(tester, find.text(CadastroPadrinhoPage.textoDeclaracao));
+const _calculo = RequisitoPadrinho(id: 'calculo-i', descricao: 'Cálculo I');
+const _aed = RequisitoPadrinho(id: 'aed-i', descricao: 'AED I');
+
+/// Declara todos os requisitos vindos do backend (fake).
+Future<void> _marcarDeclaracao(WidgetTester tester) async {
+  for (final r in [_calculo, _aed]) {
+    await _tocar(tester, find.text(CadastroPadrinhoPage.textoDeclaracao(r)));
+  }
+}
 
 Future<void> _preencherCandidatura(
   WidgetTester tester, {
@@ -81,9 +88,24 @@ void main() {
 
     expect(find.byType(CadastroPadrinhoPage), findsOneWidget);
     expect(find.text('Candidatura de padrinho'), findsOneWidget);
-    expect(find.text('Pré-requisitos para ser padrinho'), findsOneWidget);
+    expect(
+      find.text('Pré-requisitos para ser padrinho neste semestre'),
+      findsOneWidget,
+    );
     expect(find.text('Passo 2 de 3'), findsOneWidget);
-    expect(find.text(CadastroPadrinhoPage.textoDeclaracao), findsOneWidget);
+    // requisitos carregados do backend (GET /formularios/padrinho)
+    expect(
+      api.requisicoes.any((r) => r.url.path == '/formularios/padrinho'),
+      isTrue,
+    );
+    expect(
+      find.text(CadastroPadrinhoPage.textoDeclaracao(_calculo)),
+      findsOneWidget,
+    );
+    expect(
+      find.text(CadastroPadrinhoPage.textoDeclaracao(_aed)),
+      findsOneWidget,
+    );
     expect(find.text('Enviar candidatura'), findsOneWidget);
   });
 
@@ -104,16 +126,16 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.text(
-        'Confirme que você cumpre os pré-requisitos para ser padrinho.',
-      ),
-      findsOneWidget,
+      find.text('Requisito obrigatório para se candidatar neste ciclo.'),
+      findsNWidgets(2),
     );
     expect(find.byType(CandidaturaEnviadaPage), findsNothing);
-    expect(api.posts('/candidatura-padrinho'), isEmpty);
+    expect(api.posts('/cadastro'), isEmpty);
   });
 
-  testWidgets('declaração de AEDS 1 e Cálculo 1 é obrigatória', (tester) async {
+  testWidgets('requisitos obrigatórios do ciclo precisam ser declarados', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(home: CadastroPadrinhoPage(dados: _dados())),
     );
@@ -123,23 +145,26 @@ void main() {
 
     expect(find.byType(CandidaturaEnviadaPage), findsNothing);
     expect(
-      find.text(
-        'Confirme que você cumpre os pré-requisitos para ser padrinho.',
-      ),
-      findsOneWidget,
+      find.text('Requisito obrigatório para se candidatar neste ciclo.'),
+      findsNWidgets(2),
     );
-    expect(api.posts('/candidatura-padrinho'), isEmpty);
+    expect(api.posts('/cadastro'), isEmpty);
 
     await _marcarDeclaracao(tester);
     await _tocar(tester, find.text('Enviar candidatura'));
 
     expect(find.byType(CandidaturaEnviadaPage), findsOneWidget);
-    final envio = api.posts('/candidatura-padrinho').single;
-    expect(envio.headers['x-user-id'], 'camila@pucminas.edu.br');
+    final envio = api.posts('/cadastro').single;
+    expect(envio.headers.containsKey('x-user-id'), isFalse);
     final corpo = api.corpo(envio);
-    expect(corpo['usuarioId'], 'camila@pucminas.edu.br');
+    expect(corpo['email'], 'camila@pucminas.edu.br');
+    expect(corpo['tipoParticipacao'], 'padrinho');
     final respostas = corpo['respostas'] as Map<String, dynamic>;
-    expect(respostas['declaraPreRequisitos'], isTrue);
+    expect(respostas['requisitos'], [
+      {'id': 'calculo-i', 'cumpre': true},
+      {'id': 'aed-i', 'cumpre': true},
+    ]);
+    expect(respostas.containsKey('declaraPreRequisitos'), isFalse);
     expect(respostas['motivacao'], 'Quero apoiar calouros na rotina da PUC.');
     expect(respostas['areas'], ['Projetos']);
     expect(respostas['disponibilidade'], ['Noite']);
@@ -198,14 +223,14 @@ void main() {
     await _preencherCandidatura(tester);
     await _tocar(tester, find.text('Enviar candidatura'));
     expect(find.text('Responda esta pergunta para continuar.'), findsOneWidget);
-    expect(api.posts('/candidatura-padrinho'), isEmpty);
+    expect(api.posts('/cadastro'), isEmpty);
 
     await _escolher<String>(tester, 'Selecione uma opção', 'Professores');
     await _tocar(tester, find.text('Enviar candidatura'));
 
     expect(find.byType(CandidaturaEnviadaPage), findsOneWidget);
     final respostas =
-        api.corpo(api.posts('/candidatura-padrinho').single)['respostas']
+        api.corpo(api.posts('/cadastro').single)['respostas']
             as Map<String, dynamic>;
     expect(respostas['extras'], {'como-conheceu': 'Professores'});
   });
@@ -243,6 +268,81 @@ void main() {
     expect(find.text('Em análise'), findsOneWidget);
     expect(find.text('Padrinho ativo'), findsNothing);
     expect(find.text('Apadrinhado ativo'), findsNothing);
+  });
+
+  testWidgets('lista de requisitos é a do backend (nada fixo no app)', (
+    tester,
+  ) async {
+    api.requisitosPadrinho = [
+      {'id': 'fsi', 'descricao': 'Fundamentos de SI', 'obrigatorio': true},
+      {'id': 'bd', 'descricao': 'Banco de Dados', 'obrigatorio': false},
+    ];
+    await tester.pumpWidget(
+      MaterialApp(home: CadastroPadrinhoPage(dados: _dados())),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Fundamentos de SI'), findsOneWidget);
+    expect(find.text('Banco de Dados (desejável)'), findsOneWidget);
+    expect(find.textContaining('Cálculo'), findsNothing);
+    expect(find.textContaining('AED'), findsNothing);
+
+    // só o obrigatório é exigido; o desejável segue como "não cumpre"
+    await _tocar(tester, find.text('Declaro que cumpro: Fundamentos de SI'));
+    await _preencherCandidatura(tester, declarar: false);
+    await _tocar(tester, find.text('Enviar candidatura'));
+
+    expect(find.byType(CandidaturaEnviadaPage), findsOneWidget);
+    final respostas =
+        api.corpo(api.posts('/cadastro').single)['respostas']
+            as Map<String, dynamic>;
+    expect(respostas['requisitos'], [
+      {'id': 'fsi', 'cumpre': true},
+      {'id': 'bd', 'cumpre': false},
+    ]);
+  });
+
+  testWidgets('ciclo sem requisitos de disciplina', (tester) async {
+    api.requisitosPadrinho = [];
+    await tester.pumpWidget(
+      MaterialApp(home: CadastroPadrinhoPage(dados: _dados())),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Este ciclo não exige disciplinas específicas.'),
+      findsOneWidget,
+    );
+    await _preencherCandidatura(tester, declarar: false);
+    await _tocar(tester, find.text('Enviar candidatura'));
+    expect(find.byType(CandidaturaEnviadaPage), findsOneWidget);
+  });
+
+  testWidgets('erro de elegibilidade do backend aparece e nada é enviado', (
+    tester,
+  ) async {
+    // tela recebeu uma lista antiga; o backend exige outro requisito
+    api.requisitosPadrinho = [
+      ...ApiFalsa.requisitosDeTeste(),
+      {'id': 'bd', 'descricao': 'Banco de Dados', 'obrigatorio': true},
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CadastroPadrinhoPage(
+          dados: _dados(),
+          requisitos: const [_calculo, _aed],
+        ),
+      ),
+    );
+    await _preencherCandidatura(tester);
+    await _tocar(tester, find.text('Enviar candidatura'));
+
+    expect(find.byType(CandidaturaEnviadaPage), findsNothing);
+    expect(
+      find.textContaining('é preciso cumprir: Banco de Dados'),
+      findsOneWidget,
+    );
+    expect(SessaoUsuario.atual.status, StatusParticipacao.nenhuma);
   });
 
   testWidgets('layout estreito empilha genero e prouni', (tester) async {

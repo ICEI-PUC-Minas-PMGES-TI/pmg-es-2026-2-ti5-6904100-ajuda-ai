@@ -15,6 +15,16 @@ const String _apiBaseUrl = apiBaseUrl;
 // O login atual do protótipo usa o perfil Camila. Quando o login real entrar,
 // este identificador deve vir do usuário autenticado.
 const String _usuarioAtualId = '1';
+
+/// Identidade nas rotas do feed: com o token do aluno, só `Authorization`
+/// (o backend ignora `x-user-id`); sem token, o modo antigo por `x-user-id`.
+Map<String, String> _identidade() {
+  final token = SessaoUsuario.atual.accessToken;
+  return token != null
+      ? {'authorization': 'Bearer $token'}
+      : {'x-user-id': _usuarioAtualId};
+}
+
 const String _usuarioAtualNome = 'Camila Duarte';
 const String _usuarioAtualIniciais = 'CD';
 const String _usuarioAtualCurso = 'Engenharia de Software';
@@ -60,7 +70,7 @@ class _FeedPageState extends State<FeedPage> {
     try {
       final resposta = await _client.get(
         Uri.parse('$_apiBaseUrl/publicacoes'),
-        headers: {'x-user-id': _usuarioAtualId},
+        headers: _identidade(),
       );
       if (resposta.statusCode != 200) throw Exception('Falha ao carregar feed');
       final dados = jsonDecode(resposta.body) as List<dynamic>;
@@ -90,10 +100,7 @@ class _FeedPageState extends State<FeedPage> {
     try {
       final resposta = await _client.post(
         Uri.parse('$_apiBaseUrl/publicacoes'),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': _usuarioAtualId,
-        },
+        headers: {'Content-Type': 'application/json', ..._identidade()},
         body: jsonEncode(publicacao.toJson()),
       );
       if (resposta.statusCode < 200 || resposta.statusCode >= 300) return null;
@@ -111,7 +118,7 @@ class _FeedPageState extends State<FeedPage> {
     try {
       final resposta = await _client.delete(
         Uri.parse('$_apiBaseUrl/publicacoes/$id'),
-        headers: {'x-user-id': _usuarioAtualId},
+        headers: _identidade(),
       );
       return resposta.statusCode >= 200 && resposta.statusCode < 300;
     } catch (_) {
@@ -128,10 +135,7 @@ class _FeedPageState extends State<FeedPage> {
     try {
       final resposta = await _client.post(
         Uri.parse('$_apiBaseUrl/publicacoes/$id/comentarios'),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': _usuarioAtualId,
-        },
+        headers: {'Content-Type': 'application/json', ..._identidade()},
         body: jsonEncode({'texto': comentario}),
       );
       if (resposta.statusCode < 200 || resposta.statusCode >= 300) return null;
@@ -152,10 +156,7 @@ class _FeedPageState extends State<FeedPage> {
     try {
       final resposta = await _client.post(
         Uri.parse('$_apiBaseUrl/publicacoes/$id/curtidas'),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': _usuarioAtualId,
-        },
+        headers: {'Content-Type': 'application/json', ..._identidade()},
         body: jsonEncode({'delta': delta}),
       );
       if (resposta.statusCode < 200 || resposta.statusCode >= 300) return null;

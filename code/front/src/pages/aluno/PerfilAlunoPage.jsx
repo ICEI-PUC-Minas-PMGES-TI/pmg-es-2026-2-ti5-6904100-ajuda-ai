@@ -142,6 +142,29 @@ function SituacaoCard({ dados, perfil }) {
     );
   }
 
+  if (situacao === 'apadrinhado_pendente' || situacao === 'apadrinhado_rejeitado') {
+    const rejeitado = situacao === 'apadrinhado_rejeitado';
+    return (
+      <section className={`status-card ${rejeitado ? 'pink' : 'purple'}`} aria-label="Situação no programa">
+        <div className="status-card-head">
+          <span className="status-card-icon" aria-hidden="true"><Icon name={rejeitado ? 'info' : 'clipboard'} size={30} /></span>
+          <div>
+            <h2>{rejeitado ? 'Cadastro não aprovado' : 'Cadastro em análise'}</h2>
+            <p>{rejeitado
+              ? `A coordenação não aprovou seu cadastro.${dados.cadastro?.motivoRejeicao ? ` Motivo: ${dados.cadastro.motivoRejeicao}` : ''}`
+              : 'Recebemos seu cadastro de apadrinhado. Ele aguarda a aprovação da coordenação.'}</p>
+          </div>
+          <Link to="/aluno/candidatura" className="icon-link" aria-label="Ver status do cadastro"><Icon name="chevron" size={20} /></Link>
+        </div>
+        <div className="status-meta">
+          {programaMeta}
+          <Meta icon="clock" titulo={rejeitado ? 'Não aprovado' : 'Aguardando aprovação'} sub="Status" />
+          <Meta icon="school" titulo={rotuloPeriodo(perfil.periodo)} sub="Seu semestre" />
+        </div>
+      </section>
+    );
+  }
+
   if (situacao === 'apadrinhado_aguardando') {
     return (
       <section className="status-card blue" aria-label="Situação no programa">

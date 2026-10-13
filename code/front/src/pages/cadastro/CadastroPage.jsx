@@ -26,6 +26,8 @@ const ROTULOS_SITUACAO = {
   candidatura_em_analise: 'candidatura a padrinho em análise',
   candidatura_rejeitada: 'candidatura a padrinho não aprovada',
   padrinho_ativo: 'padrinho ativo',
+  apadrinhado_pendente: 'cadastro de apadrinhado aguardando aprovação',
+  apadrinhado_rejeitado: 'cadastro de apadrinhado não aprovado',
   apadrinhado_aguardando: 'apadrinhado aguardando padrinho',
   apadrinhado_ativo: 'apadrinhado com padrinho definido',
   concluido: 'participação concluída',
@@ -188,8 +190,9 @@ export default function CadastroPage() {
   }
 
   async function submitRegistration() {
+    const perfil = perfilParaSessao(profile);
     const respostas = {
-      ...perfilParaSessao(profile),
+      ...perfil,
       genero: profile.gender,
       bolsistaProuni: paraBool(profile.prouni),
       deOutraCidade: paraBool(profile.otherCity),
@@ -202,7 +205,8 @@ export default function CadastroPage() {
     setEnviando(true);
     setErroEnvio('');
     try {
-      await api.cadastrarApadrinhado(email, respostas);
+      // Cria a solicitação de cadastro (PENDENTE) e a sessão do aluno.
+      await api.cadastrar({ ...perfil, email, tipoParticipacao: 'apadrinhado', respostas });
       salvarSessao('apadrinhado', respostas);
       setStep('sucesso');
     } catch (error) {
@@ -214,7 +218,7 @@ export default function CadastroPage() {
 
   function candidaturaEnviada(_registro, respostas) {
     salvarSessao('padrinho', respostas);
-    mostrarToast('Candidatura enviada! Acompanhe o andamento por aqui.', 'sucesso');
+    mostrarToast('Cadastro enviado! Ele aguarda a aprovação da coordenação.', 'sucesso');
     navigate('/aluno/candidatura');
   }
 

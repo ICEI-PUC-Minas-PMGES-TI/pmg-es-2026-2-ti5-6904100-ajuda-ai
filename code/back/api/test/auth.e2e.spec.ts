@@ -1,17 +1,28 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
 import { AuthModule } from '../src/auth/auth.module.js';
 import { MicrosoftTokenVerifier } from '../src/auth/microsoft-token.verifier.js';
-import { UsuariosModule } from '../src/usuarios/usuarios.module.js';
+import { CadastroModule } from '../src/cadastro/cadastro.module.js';
+import { ParticipacaoEntity } from '../src/participacoes/entities/participacao.entity.js';
+import { ProgramaEntity } from '../src/programas/entities/programa.entity.js';
+import { UsuarioEntity } from '../src/usuarios/entities/usuario.entity.js';
+import { repositorioEmMemoria } from './helpers/repositorio-memoria.js';
 
 describe('Autenticação (e2e)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
     const modulo = await Test.createTestingModule({
-      imports: [AuthModule, UsuariosModule],
+      imports: [AuthModule, CadastroModule],
     })
+      .overrideProvider(getRepositoryToken(UsuarioEntity))
+      .useValue(repositorioEmMemoria<UsuarioEntity>())
+      .overrideProvider(getRepositoryToken(ParticipacaoEntity))
+      .useValue(repositorioEmMemoria<ParticipacaoEntity>())
+      .overrideProvider(getRepositoryToken(ProgramaEntity))
+      .useValue(repositorioEmMemoria<ProgramaEntity>())
       .overrideProvider(MicrosoftTokenVerifier)
       .useValue({
         verificar: vi.fn().mockResolvedValue({
@@ -47,9 +58,9 @@ describe('Autenticação (e2e)', () => {
       .expect(200);
 
     expect(perfil.body).toMatchObject({
-      id: 1,
       email: 'camila@pucminas.edu.br',
       perfil: 'apadrinhado',
+      statusCadastro: 'aprovado',
     });
   });
 

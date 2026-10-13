@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ParticipacoesService } from '../participacoes/participacoes.service.js';
+import { ProgramasService } from '../programas/programas.service.js';
 import {
   FormularioEntity,
   PerguntaFormulario,
@@ -69,6 +70,7 @@ export class FormulariosService {
   constructor(
     @InjectRepository(FormularioEntity)
     private readonly formularios: Repository<FormularioEntity>,
+    private readonly programasService: ProgramasService,
   ) {}
 
   static validarTipo(tipo: string): TipoFormulario {
@@ -96,13 +98,22 @@ export class FormulariosService {
     };
   }
 
-  /** Visão do aluno: só devolve perguntas quando o formulário foi publicado. */
+  /**
+   * Visão do aluno: só devolve perguntas quando o formulário foi publicado.
+   * Para padrinho, inclui SEMPRE os requisitos do ciclo (web e mobile leem
+   * daqui), mesmo sem perguntas extras publicadas.
+   */
   async obterPublicado(tipo: TipoFormulario, programa?: string) {
     const formulario = await this.obter(tipo, programa);
-    if (!formulario.publicado) {
-      return { ...formulario, perguntas: [] };
-    }
-    return formulario;
+    const requisitos =
+      tipo === 'padrinho'
+        ? await this.programasService.requisitosPadrinho(formulario.programa)
+        : [];
+    return {
+      ...formulario,
+      perguntas: formulario.publicado ? formulario.perguntas : [],
+      ...(tipo === 'padrinho' ? { requisitos } : {}),
+    };
   }
 
   async salvar(
@@ -116,7 +127,8 @@ export class FormulariosService {
       where: { programa, tipo },
     });
     const registro =
-      existente ?? this.formularios.create({ programa, tipo, publicado: false });
+      existente ??
+      this.formularios.create({ programa, tipo, publicado: false });
     registro.perguntas = perguntas;
     if (typeof corpo.publicado === 'boolean') {
       registro.publicado = corpo.publicado;

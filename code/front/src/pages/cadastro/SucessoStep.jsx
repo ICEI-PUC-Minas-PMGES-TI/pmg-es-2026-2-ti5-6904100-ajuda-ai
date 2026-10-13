@@ -7,15 +7,15 @@ export default function SucessoStep({ name, onProfile }) {
       <section className="success-card" aria-labelledby="success-title">
         <div className="success-hero">
           <div className="success-copy">
-            <span className="success-eyebrow"><Icon name="check" size={15} /> INSCRIÇÃO ENVIADA</span>
-            <h1 id="success-title">Cadastro concluído!</h1>
-            <h2>Agora é só aguardar o seu match.</h2>
-            <p>{name.split(' ')[0]}, suas informações foram enviadas com sucesso. A coordenação do programa vai usar seus dados para encontrar um padrinho compatível com você.</p>
+            <span className="success-eyebrow"><Icon name="check" size={15} /> CADASTRO ENVIADO</span>
+            <h1 id="success-title">Cadastro enviado!</h1>
+            <h2>Agora ele aguarda a aprovação da coordenação.</h2>
+            <p>{name.split(' ')[0]}, suas informações foram enviadas com sucesso. Depois que a coordenação aprovar seu cadastro, ela vai usar seus dados para encontrar um padrinho compatível com você.</p>
           </div>
           <img src="/images/perfilcheck.png" alt="" />
         </div>
         <div className="success-info-grid">
-          <InfoCard icon="clock" tone="blue" title="O que acontece agora?" text="Em breve você será notificado(a) assim que um padrinho for definido." />
+          <InfoCard icon="clock" tone="blue" title="O que acontece agora?" text="A coordenação analisa seu cadastro. Após a aprovação, você entra na formação dos grupos." />
           <InfoCard icon="person" tone="purple" title="Acompanhe pelo perfil" text="Você poderá consultar o andamento do seu cadastro na área de perfil." />
           <InfoCard icon="spark" tone="orange" title="Fique de olho nas notificações!" text="Avisaremos por aqui quando seu padrinho estiver disponível." />
         </div>

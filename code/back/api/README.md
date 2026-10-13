@@ -27,17 +27,34 @@ npm install
 
 ## Execução
 
-Copie `code/back/api/.env.example` para `code/back/api/.env` e preencha
-`MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `JWT_SECRET` e `DB_PASSWORD`. Use em
-`DB_PASSWORD` a senha do banco configurada no projeto Supabase; não a versione. A API
-usa a conexão direta do Supabase por padrão, com TLS (`DB_SSL=true`) e o banco
-`postgres` no host configurado em `DB_HOST`. Em produção, a API não inicia sem
-`JWT_SECRET` nem `DB_PASSWORD`.
+**O único `.env` lido pela API é `code/back/api/.env`** (o `code/.env` serve só
+ao Docker Compose). Copie `code/back/api/.env.example` para `code/back/api/.env`
+e preencha os valores; o `.env` está no `.gitignore` e nunca deve ser versionado.
 
-O PostgreSQL do Docker Compose continua disponível apenas como alternativa local.
-Para usá-lo, inicie `docker compose up -d postgres` a partir de `code` e configure
-`DB_HOST=localhost`, `DB_PORT=5433`, `DB_USERNAME=ajudaai`,
-`DB_PASSWORD=ajudaai`, `DB_DATABASE=ajudaai` e `DB_SSL=false` no `.env` da API.
+Banco local (Docker Compose): inicie `docker compose up -d postgres` a partir de
+`code` e use `DB_HOST=localhost`, `DB_PORT=5433`, `DB_USERNAME=ajudaai`,
+`DB_PASSWORD=ajudaai`, `DB_DATABASE=ajudaai`, `DB_SSL=false` e, se quiser que o
+schema seja criado/ajustado automaticamente, `DB_SYNCHRONIZE=true`.
+
+Banco remoto/compartilhado (ex.: Supabase): preencha `DB_HOST`, `DB_PORT`,
+`DB_USERNAME`, `DB_PASSWORD` e `DB_DATABASE` com a connection string do projeto,
+`DB_SSL=true` e **`DB_SYNCHRONIZE=false`** — a API se recusa a iniciar com
+`synchronize` ligado fora de um banco local. Antes de subir a API contra um banco
+novo, rode a verificação somente leitura:
+
+```bash
+npm run build
+npm run db:verificar
+```
+
+Ela testa DNS, porta, login, SSL e tabelas, e lista (sem executar) o SQL que o
+`synchronize` aplicaria. Antes de produção: migrations e `DB_SYNCHRONIZE=false`.
+
+Ao iniciar, a API registra qual banco está usando (`[Banco] host:porta/banco ...`,
+sem credenciais). `JWT_SECRET` com o valor de exemplo gera um aviso em
+desenvolvimento e impede a inicialização em produção (exige ≥ 32 caracteres). O
+login demo (`AUTH_DEMO_ENABLED=true`) é só para desenvolvimento e fica bloqueado
+com `NODE_ENV=production`.
 
 ```bash
 npm run start:dev

@@ -10,11 +10,16 @@ import {
 
 export type PapelParticipacao = 'padrinho' | 'apadrinhado' | 'candidato';
 export type StatusParticipacaoRegistro =
-  | 'pendente'
-  | 'em_analise'
-  | 'em_andamento'
-  | 'concluido'
-  | 'nao_aprovado';
+  'pendente' | 'em_analise' | 'em_andamento' | 'concluido' | 'nao_aprovado';
+
+/** Resposta do candidato a um requisito do ciclo (foto do momento do envio). */
+export interface RequisitoRespondido {
+  id: string;
+  descricao: string;
+  obrigatorio: boolean;
+  /** Declaração do próprio aluno (não há verificação no histórico da PUC). */
+  cumpre: boolean;
+}
 
 /**
  * Dados enviados pelo aluno no cadastro. Todos opcionais porque registros
@@ -35,8 +40,13 @@ export interface RespostasCadastro {
   motivacao?: string;
   /** Padrinho: experiências relevantes. */
   experiencias?: string;
-  /** Padrinho: declara ter cumprido os pré-requisitos. */
+  /**
+   * LEGADO: declaração única de pré-requisitos dos registros antigos.
+   * Os envios novos usam `requisitos` (configurados por ciclo).
+   */
   declaraPreRequisitos?: boolean;
+  /** Padrinho: requisitos do ciclo e a declaração do candidato para cada um. */
+  requisitos?: RequisitoRespondido[];
   /** Apadrinhado: o que espera do padrinho. */
   expectativa?: string;
   outrasInformacoes?: string;

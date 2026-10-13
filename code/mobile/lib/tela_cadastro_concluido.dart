@@ -58,8 +58,9 @@ class CadastroConcluidoPage extends StatelessWidget {
                                     corIcone: AppColors.primary,
                                     titulo: 'O que acontece agora?',
                                     descricao:
-                                        'Em breve você será notificado(a) assim que '
-                                        'um padrinho for definido.',
+                                        'A coordenação analisa seu cadastro. Após '
+                                        'a aprovação, você entra na formação dos '
+                                        'grupos.',
                                   ),
                                   const _Etapa(
                                     icone: Icons.person_outline,
@@ -142,7 +143,7 @@ class _Mensagem extends StatelessWidget {
     return const Column(
       children: [
         Text(
-          'Cadastro concluído!',
+          'Cadastro enviado!',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: AppColors.ink,
@@ -153,7 +154,7 @@ class _Mensagem extends StatelessWidget {
         ),
         SizedBox(height: 4),
         Text(
-          'Agora é só aguardar o seu match.',
+          'Agora ele aguarda a aprovação da coordenação.',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontFamily: 'Inter',
@@ -164,9 +165,9 @@ class _Mensagem extends StatelessWidget {
         ),
         SizedBox(height: 14),
         Text(
-          'Suas informações foram enviadas com sucesso. A coordenação do '
-          'programa vai usar seus dados para encontrar um padrinho '
-          'compatível com você.',
+          'Suas informações foram enviadas com sucesso. Depois que a '
+          'coordenação aprovar seu cadastro, ela vai usar seus dados para '
+          'encontrar um padrinho compatível com você.',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontFamily: 'Inter',

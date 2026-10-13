@@ -128,6 +128,47 @@ class CoordenacaoApi {
     ),
   );
 
+  /// Solicitações de cadastro (`status` = pendente | aprovado | rejeitado;
+  /// null = todos). Mesmos endpoints do web.
+  Future<List<Map<String, dynamic>>> cadastros({String? status}) async =>
+      _lista(
+        await _enviar(
+          'GET',
+          '/coordenacao/cadastros',
+          query: {'status': status},
+          erro: 'Falha ao carregar os cadastros',
+        ),
+      );
+
+  Future<Map<String, dynamic>> cadastro(int id) async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/cadastros/$id',
+      erro: 'Falha ao carregar o cadastro',
+    ),
+  );
+
+  Future<Map<String, dynamic>> aprovarCadastro(int id) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/cadastros/$id/aprovar',
+      erro: 'Falha ao aprovar o cadastro',
+    ),
+  );
+
+  /// `motivo` vazio = sem motivo (o aluno vê o motivo quando houver).
+  Future<Map<String, dynamic>> rejeitarCadastro(
+    int id, {
+    String? motivo,
+  }) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/cadastros/$id/rejeitar',
+      corpo: {if (motivo != null && motivo.isNotEmpty) 'motivo': motivo},
+      erro: 'Falha ao rejeitar o cadastro',
+    ),
+  );
+
   /// Ações em massa: `acao` = aprovar | rejeitar | em_analise.
   /// Retorna `{acao, sucesso, falhas:[{id, ok, erro}]}`.
   Future<Map<String, dynamic>> acoesEmMassa({

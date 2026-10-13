@@ -50,6 +50,7 @@ void main() {
         turno: 'Noite',
         areasApoio: ['Projetos'],
         disponibilidade: 'Noite',
+        requisitosCumpridos: {'calculo-i': true, 'aed-i': true},
         genero: 'Feminino',
         bolsistaProuni: false,
         deOutraCidade: true,

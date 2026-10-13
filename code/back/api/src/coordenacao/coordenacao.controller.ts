@@ -8,18 +8,25 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
+import { CadastroService } from '../cadastro/cadastro.service.js';
+import { RejeitarCadastroDto } from '../cadastro/dto/rejeitar-cadastro.dto.js';
 import { CoordenacaoService } from './coordenacao.service.js';
 
 @Controller('coordenacao')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('coordenador')
 export class CoordenacaoController {
-  constructor(private readonly coordenacaoService: CoordenacaoService) {}
+  constructor(
+    private readonly coordenacaoService: CoordenacaoService,
+    private readonly cadastroService: CadastroService,
+  ) {}
 
   @Get('dashboard')
   dashboard(@Query('programa') programa?: string) {
@@ -45,8 +52,11 @@ export class CoordenacaoController {
   }
 
   @Post('candidaturas/acoes')
-  acaoEmMassa(@Body() corpo: { ids?: unknown; acao?: string }) {
-    return this.coordenacaoService.acaoEmMassa(corpo);
+  acaoEmMassa(
+    @Req() requisicao: AuthenticatedRequest,
+    @Body() corpo: { ids?: unknown; acao?: string },
+  ) {
+    return this.coordenacaoService.acaoEmMassa(corpo, requisicao.user.email);
   }
 
   @Get('candidaturas/:id')
@@ -63,13 +73,59 @@ export class CoordenacaoController {
   }
 
   @Post('candidaturas/:id/aprovar')
-  aprovar(@Param('id', ParseIntPipe) id: number) {
-    return this.coordenacaoService.aprovarCandidatura(id);
+  aprovar(
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.coordenacaoService.aprovarCandidatura(
+      id,
+      requisicao.user.email,
+    );
   }
 
   @Post('candidaturas/:id/rejeitar')
-  rejeitar(@Param('id', ParseIntPipe) id: number) {
-    return this.coordenacaoService.rejeitarCandidatura(id);
+  rejeitar(
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.coordenacaoService.rejeitarCandidatura(
+      id,
+      requisicao.user.email,
+    );
+  }
+
+  /* ===== Solicitações de cadastro (padrinhos e apadrinhados) ===== */
+
+  /** `status=pendente|aprovado|rejeitado`; sem status, todos. */
+  @Get('cadastros')
+  cadastros(@Query('status') status?: string) {
+    return this.cadastroService.listar(status);
+  }
+
+  @Get('cadastros/:id')
+  cadastro(@Param('id', ParseIntPipe) id: number) {
+    return this.cadastroService.detalhar(id);
+  }
+
+  @Post('cadastros/:id/aprovar')
+  aprovarCadastro(
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.cadastroService.aprovar(id, requisicao.user.email);
+  }
+
+  @Post('cadastros/:id/rejeitar')
+  rejeitarCadastro(
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() corpo: RejeitarCadastroDto,
+  ) {
+    return this.cadastroService.rejeitar(
+      id,
+      corpo.motivo,
+      requisicao.user.email,
+    );
   }
 
   @Get('usuarios')

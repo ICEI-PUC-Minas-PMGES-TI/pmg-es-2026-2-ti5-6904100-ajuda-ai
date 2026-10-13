@@ -286,6 +286,44 @@ class _CardPrograma extends StatelessWidget {
               color: corTextoSecundarioCoord,
             ),
           ),
+          const SizedBox(height: 10),
+          Text(
+            'Requisitos para padrinho — ${programa['codigo']}',
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              color: AppColors.ink,
+            ),
+          ),
+          const SizedBox(height: 4),
+          if ((programa['requisitosPadrinho'] as List? ?? const []).isEmpty)
+            const Text(
+              'Nenhuma disciplina exigida (basta estar a partir do 2º período).',
+              style: TextStyle(fontSize: 12, color: corTextoSecundarioCoord),
+            )
+          else
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final r
+                    in (programa['requisitosPadrinho'] as List)
+                        .whereType<Map>())
+                  Chip(
+                    label: Text(
+                      '${r['descricao']}'
+                      '${r['obrigatorio'] == false ? ' (desejável)' : ''}',
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: AppColors.lavender,
+                    side: BorderSide.none,
+                  ),
+              ],
+            ),
+          const Text(
+            'A edição dos requisitos é feita no painel web (Programas).',
+            style: TextStyle(fontSize: 11, color: corTextoSecundarioCoord),
+          ),
           const SizedBox(height: 12),
           Row(
             children: [

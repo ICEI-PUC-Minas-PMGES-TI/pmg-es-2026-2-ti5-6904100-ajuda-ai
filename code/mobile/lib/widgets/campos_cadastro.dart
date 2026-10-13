@@ -821,17 +821,3 @@ void mostrarErroComRetentativa(
       ),
     );
 }
-
-/// Aviso de que o envio ficou salvo apenas neste aparelho (sem conexão).
-void mostrarSalvoLocalmente(BuildContext context) {
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Sem conexão com o servidor: suas respostas ficaram salvas neste '
-          'aparelho.',
-        ),
-      ),
-    );
-}

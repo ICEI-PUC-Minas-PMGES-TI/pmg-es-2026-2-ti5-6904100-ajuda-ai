@@ -146,6 +146,90 @@ class CabecalhoCoord extends StatelessWidget {
   }
 }
 
+/// Requisitos do ciclo com a declaração do candidato (foto do envio).
+/// Registros antigos, sem a foto, mostram a declaração única (legado).
+class RequisitosDeclaradosCoord extends StatelessWidget {
+  const RequisitosDeclaradosCoord({
+    super.key,
+    required this.requisitos,
+    required this.respondidos,
+    required this.legado,
+    this.periodo,
+  });
+
+  final List<dynamic>? requisitos;
+  final bool respondidos;
+  final bool legado;
+  final int? periodo;
+
+  @override
+  Widget build(BuildContext context) {
+    final lista = (requisitos ?? const []).whereType<Map>().toList();
+    Widget linha(IconData icone, Color cor, String texto) => Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icone, size: 16, color: cor),
+          const SizedBox(width: 6),
+          Expanded(child: Text(texto, style: const TextStyle(fontSize: 13))),
+        ],
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        linha(
+          (periodo ?? 0) > 1 ? Icons.check : Icons.warning_amber,
+          (periodo ?? 0) > 1 ? AppAccents.success : corErroCoord,
+          '${periodo == null ? 'Período não informado' : 'Está no $periodoº período'} (mínimo: 2º)',
+        ),
+        for (final r in lista)
+          linha(
+            !respondidos
+                ? Icons.info_outline
+                : r['cumpre'] == true
+                ? Icons.check
+                : Icons.close,
+            !respondidos
+                ? AppColors.primary
+                : r['cumpre'] == true
+                ? AppAccents.success
+                : corErroCoord,
+            '${r['descricao']}${r['obrigatorio'] == false ? ' (desejável)' : ''}'
+            '${!respondidos
+                ? ''
+                : r['cumpre'] == true
+                ? ' — declarou que cumpre'
+                : ' — declarou que NÃO cumpre'}',
+          ),
+        if (!respondidos)
+          Text(
+            legado
+                ? 'Candidatura anterior aos requisitos por ciclo: declarou '
+                      'cumprir os pré-requisitos da época.'
+                : 'Candidatura anterior aos requisitos por ciclo: não '
+                      'declarou os pré-requisitos.',
+            style: const TextStyle(
+              fontSize: 12,
+              color: corTextoSecundarioCoord,
+            ),
+          ),
+        if (respondidos && lista.isEmpty)
+          const Text(
+            'O ciclo não exigia disciplinas.',
+            style: TextStyle(fontSize: 12, color: corTextoSecundarioCoord),
+          ),
+        const Text(
+          'Declaração do próprio aluno; não há verificação automática do '
+          'histórico acadêmico.',
+          style: TextStyle(fontSize: 11, color: corTextoSecundarioCoord),
+        ),
+      ],
+    );
+  }
+}
+
 /// Selo colorido do status de uma participação.
 class SeloStatusCoord extends StatelessWidget {
   const SeloStatusCoord({super.key, required this.item});

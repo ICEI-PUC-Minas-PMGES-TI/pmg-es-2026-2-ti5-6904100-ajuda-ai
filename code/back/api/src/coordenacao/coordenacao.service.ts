@@ -21,6 +21,8 @@ import { perfilDoRegistro } from '../participacoes/perfil.js';
 import { ProgramasService } from '../programas/programas.service.js';
 import { AvisosService } from '../avisos/avisos.service.js';
 import { FormulariosService } from '../formularios/formularios.service.js';
+import { CadastroService } from '../cadastro/cadastro.service.js';
+import { UsuariosService } from '../usuarios/usuarios.service.js';
 
 @Injectable()
 export class CoordenacaoService implements OnModuleInit {
@@ -29,6 +31,8 @@ export class CoordenacaoService implements OnModuleInit {
     private readonly participacoesService: ParticipacoesService,
     private readonly formulariosService: FormulariosService,
     private readonly avisosService: AvisosService,
+    private readonly cadastroService: CadastroService,
+    private readonly usuariosService: UsuariosService,
     @InjectRepository(ParticipacaoEntity)
     private readonly participacoes: Repository<ParticipacaoEntity>,
   ) {}
@@ -36,7 +40,26 @@ export class CoordenacaoService implements OnModuleInit {
   async onModuleInit() {
     await this.programasService.garantirProgramaAtual();
     await this.programasService.garantirProgramaHistoricoDemo();
+    await this.semearRequisitosDemo();
     await this.semearParticipacoesDemo();
+  }
+
+  /**
+   * Base demo: requisitos iniciais do ciclo atual, gravados como DADO do
+   * ciclo (a coordenação edita em Programas). Só preenche se o ciclo nunca
+   * foi configurado (null); [] ou qualquer lista salva é respeitada.
+   */
+  private async semearRequisitosDemo() {
+    const programa = await this.programasService.garantirProgramaAtual();
+    if (
+      programa.requisitosPadrinho !== null &&
+      programa.requisitosPadrinho !== undefined
+    ) {
+      return;
+    }
+    await this.programasService.atualizar(programa.codigo, {
+      requisitosPadrinho: REQUISITOS_INICIAIS_DEMO,
+    });
   }
 
   async obterDashboard(programaCodigo?: string) {
@@ -75,6 +98,9 @@ export class CoordenacaoService implements OnModuleInit {
     const apadrinhados = registros.filter(
       (r) => r.papel === 'apadrinhado' && r.status === 'em_andamento',
     );
+    const cadastrosApadrinhadoPendentes = registros.filter(
+      (r) => r.papel === 'apadrinhado' && r.status === 'pendente',
+    ).length;
 
     const pendentesLista = candidatos.filter((r) => r.status === 'pendente');
     const emAnaliseLista = candidatos.filter((r) => r.status === 'em_analise');
@@ -121,6 +147,7 @@ export class CoordenacaoService implements OnModuleInit {
       pendentes,
       emAnalise,
       semVinculo: semVinculoLista.length,
+      cadastrosApadrinhadoPendentes,
       gruposIncompletos,
       programa,
     });
@@ -239,9 +266,7 @@ export class CoordenacaoService implements OnModuleInit {
     const registros = await this.participacoesService.listarPorPrograma({
       programa,
       papel: 'candidato',
-      ...(filtro
-        ? { status: filtro as StatusParticipacaoRegistro }
-        : {}),
+      ...(filtro ? { status: filtro as StatusParticipacaoRegistro } : {}),
     });
     return registros.map((item) => this.enriquecerCandidatura(item));
   }
@@ -275,6 +300,15 @@ export class CoordenacaoService implements OnModuleInit {
 
   private rotuloStatus(item: ParticipacaoEntity): string {
     if (item.papel === 'padrinho') return 'Aprovada';
+    if (item.papel === 'apadrinhado') {
+      return {
+        pendente: 'Aguardando aprovação',
+        em_analise: 'Em análise',
+        nao_aprovado: 'Rejeitado',
+        em_andamento: 'Aprovado',
+        concluido: 'Concluído',
+      }[item.status];
+    }
     return {
       pendente: 'Nova',
       em_analise: 'Em análise',
@@ -289,6 +323,7 @@ export class CoordenacaoService implements OnModuleInit {
     pendentes: number;
     emAnalise: number;
     semVinculo: number;
+    cadastrosApadrinhadoPendentes: number;
     gruposIncompletos: number;
     programa: ProgramaEntity;
   }) {
@@ -334,6 +369,21 @@ export class CoordenacaoService implements OnModuleInit {
         query: { status: 'aguardando' },
         severidade: 'alta',
         urgencia: 100 + totalAguardando,
+      });
+    }
+
+    if (input.cadastrosApadrinhadoPendentes > 0) {
+      const n = input.cadastrosApadrinhadoPendentes;
+      itens.push({
+        id: 'cadastros',
+        titulo: 'Cadastros de apadrinhados aguardando aprovação',
+        descricao: `${n} cadastro${n === 1 ? '' : 's'} de apadrinhado aguardando aprovação da coordenação.`,
+        texto: `${n} cadastro${n === 1 ? '' : 's'} de apadrinhado pendente${n === 1 ? '' : 's'}`,
+        icon: 'clipboard',
+        destino: 'cadastros',
+        query: { status: 'pendente' },
+        severidade: 'alta',
+        urgencia: 95 + n,
       });
     }
 
@@ -395,10 +445,7 @@ export class CoordenacaoService implements OnModuleInit {
     return itens.sort((a, b) => b.urgencia - a.urgencia).slice(0, 4);
   }
 
-  private serializarPrograma(
-    programa: ProgramaEntity,
-    codigoVigente?: string,
-  ) {
+  private serializarPrograma(programa: ProgramaEntity, codigoVigente?: string) {
     const vigente =
       programa.codigo === codigoVigente ||
       (programa.etapaAtual !== 'encerramento' &&
@@ -419,6 +466,7 @@ export class CoordenacaoService implements OnModuleInit {
       vagasApadrinhados: programa.vagasApadrinhados,
       gruposPrevistos: programa.gruposPrevistos,
       inscricoesFim: programa.inscricoesFim,
+      requisitosPadrinho: programa.requisitosPadrinho ?? [],
     };
   }
 
@@ -448,24 +496,49 @@ export class CoordenacaoService implements OnModuleInit {
     const candidaturasAnteriores = historico.filter(
       (r) => r.papel === 'candidato' || r.papel === 'padrinho',
     ).length;
+    // Requisitos: a foto respondida pelo candidato (histórico preservado);
+    // registros antigos sem foto mostram os do ciclo DA candidatura.
+    const respondidos = item.respostas?.requisitos;
+    const requisitos =
+      respondidos ??
+      (await this.programasService.requisitosPadrinho(item.programa)).map(
+        (r) => ({ ...r, cumpre: null }),
+      );
     return {
       ...this.enriquecerCandidatura(item),
       respostas: item.respostas ?? {},
       observacoes: item.observacoes ?? '',
-      criterios: CRITERIOS_PADRINHO,
+      requisitos,
+      requisitosRespondidos: Boolean(respondidos),
+      criterios: [
+        'A partir do 2º período',
+        ...requisitos.map((r) => r.descricao),
+      ],
       historico,
       jaFoiApadrinhadoEm: jaApadrinhado?.programa ?? null,
       numeroCandidatura: candidaturasAnteriores + 1,
     };
   }
 
-  async aprovarCandidatura(id: number) {
-    await this.participacoesService.aprovarCandidatura(id);
+  /** Aprovar a candidatura também aprova o cadastro pendente que veio com ela. */
+  async aprovarCandidatura(id: number, coordenador?: string) {
+    const registro = await this.participacoesService.aprovarCandidatura(id);
+    await this.cadastroService.refletirDecisaoDaCandidatura(
+      registro,
+      'aprovado',
+      coordenador,
+    );
     return this.detalharCandidatura(id);
   }
 
-  async rejeitarCandidatura(id: number) {
-    await this.participacoesService.rejeitarCandidaturaPorId(id);
+  async rejeitarCandidatura(id: number, coordenador?: string) {
+    const registro =
+      await this.participacoesService.rejeitarCandidaturaPorId(id);
+    await this.cadastroService.refletirDecisaoDaCandidatura(
+      registro,
+      'rejeitado',
+      coordenador,
+    );
     return this.detalharCandidatura(id);
   }
 
@@ -490,7 +563,10 @@ export class CoordenacaoService implements OnModuleInit {
   }
 
   /** Aprovar/rejeitar/colocar em análise várias candidaturas de uma vez. */
-  async acaoEmMassa(corpo: { ids?: unknown; acao?: string }) {
+  async acaoEmMassa(
+    corpo: { ids?: unknown; acao?: string },
+    coordenador?: string,
+  ) {
     const ids = Array.isArray(corpo.ids)
       ? [...new Set(corpo.ids.map(Number).filter(Number.isInteger))].slice(
           0,
@@ -508,9 +584,9 @@ export class CoordenacaoService implements OnModuleInit {
     for (const id of ids) {
       try {
         if (acao === 'aprovar') {
-          await this.participacoesService.aprovarCandidatura(id);
+          await this.aprovarCandidatura(id, coordenador);
         } else if (acao === 'rejeitar') {
-          await this.participacoesService.rejeitarCandidaturaPorId(id);
+          await this.rejeitarCandidatura(id, coordenador);
         } else {
           await this.participacoesService.atualizarCandidatura(id, {
             status: 'em_analise',
@@ -539,12 +615,18 @@ export class CoordenacaoService implements OnModuleInit {
       programa: programa.codigo,
     });
     const filtro = papel?.trim();
+    const usuarios = await this.usuariosService.mapaPorEmail();
     return registros
       .filter((r) => !filtro || r.papel === filtro)
-      .map((r) => ({
-        ...this.enriquecerCandidatura(r),
-        situacao: ParticipacoesService.situacaoDe(r),
-      }))
+      .map((r) => {
+        const usuario = usuarios.get(r.usuarioId);
+        return {
+          ...this.enriquecerCandidatura(r),
+          situacao: ParticipacoesService.situacaoDe(r),
+          usuarioCadastroId: usuario?.id ?? null,
+          statusCadastro: usuario?.statusCadastro ?? null,
+        };
+      })
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   }
 
@@ -804,9 +886,15 @@ export class CoordenacaoService implements OnModuleInit {
   }
 }
 
-/** Critérios exibidos na análise (vêm do edital do programa). */
-const CRITERIOS_PADRINHO = [
-  'Não estar no 1º período',
-  'Aprovado em AEDS 1',
-  'Aprovado em Cálculo 1',
+/**
+ * Dado de demonstração (não é regra): requisitos gravados no ciclo atual na
+ * primeira execução, para o ambiente demo refletir o edital vigente. A
+ * coordenação altera em Programas → Requisitos para padrinho.
+ */
+const REQUISITOS_INICIAIS_DEMO = [
+  { descricao: 'Aprovação em Cálculo I', obrigatorio: true },
+  {
+    descricao: 'Aprovação em Algoritmos e Estruturas de Dados I',
+    obrigatorio: true,
+  },
 ];

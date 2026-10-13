@@ -3,7 +3,7 @@ import { api } from '../../api/client';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import { textoResposta } from '../../components/PerguntasAdicionais';
-import { Avatar, badgeClass, dataCurta, DefinirPadrinho } from './comum';
+import { Avatar, badgeClass, dataCurta, DefinirPadrinho, RequisitosDeclarados } from './comum';
 
 function simNao(valor) {
   if (valor === true) return 'Sim';
@@ -141,19 +141,8 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
         <div className="detail-main">
           {!ehApadrinhado && (
             <>
-              <Bloco icon="info" titulo="Critérios deste semestre" extra={<span className="detail-note">Programa {detalhe.programa}</span>}>
-                <ul className="check-list">{detalhe.criterios.map((c) => <li key={c}><Icon name="check" size={14} /> {c}</li>)}</ul>
-              </Bloco>
-              <Bloco icon="checkCircle" titulo="Autoavaliação do candidato">
-                {r.declaraPreRequisitos ? (
-                  <ul className="check-list">
-                    <li><Icon name="check" size={14} /> Declarou aprovação em AEDS 1.</li>
-                    <li><Icon name="check" size={14} /> Declarou aprovação em Cálculo 1.</li>
-                    <li><Icon name="check" size={14} /> {detalhe.periodo && detalhe.periodo > 1 ? `Está no ${detalhe.periodo}º período.` : 'Período informado no perfil.'}</li>
-                  </ul>
-                ) : (
-                  <p className="detail-warn"><Icon name="alert" size={15} /> O candidato não declarou os pré-requisitos.</p>
-                )}
+              <Bloco icon="checkCircle" titulo="Requisitos do ciclo e declaração do candidato" extra={<span className="detail-note">Programa {detalhe.programa}</span>}>
+                <RequisitosDeclarados requisitos={detalhe.requisitos} respondidos={detalhe.requisitosRespondidos} legado={r.declaraPreRequisitos} periodo={detalhe.periodo} />
               </Bloco>
               <Bloco icon="file" titulo="Motivação"><p className="detail-text">{r.motivacao || 'Não informada.'}</p></Bloco>
               <Bloco icon="star" titulo="Experiências relevantes"><p className="detail-text">{r.experiencias || 'Não informadas.'}</p></Bloco>

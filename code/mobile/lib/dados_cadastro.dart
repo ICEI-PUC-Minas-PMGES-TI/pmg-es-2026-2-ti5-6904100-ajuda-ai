@@ -13,7 +13,7 @@ class DadosCadastro {
     this.genero,
     this.bolsistaProuni,
     this.deOutraCidade,
-    this.declaraPreRequisitos,
+    this.requisitosCumpridos = const {},
     this.extras = const {},
   });
 
@@ -37,8 +37,9 @@ class DadosCadastro {
   final bool? bolsistaProuni;
   final bool? deOutraCidade;
 
-  /// Padrinho: declarou aprovação em AEDS 1 e Cálculo 1.
-  final bool? declaraPreRequisitos;
+  /// Padrinho: id do requisito do ciclo → declarou que cumpre. Os
+  /// requisitos vêm da coordenação (backend); nada é fixo no app.
+  final Map<String, bool> requisitosCumpridos;
 
   /// Respostas às perguntas adicionais do formulário publicado.
   final Map<String, dynamic> extras;
@@ -57,7 +58,7 @@ class DadosCadastro {
     required String? genero,
     required bool? bolsistaProuni,
     required bool? deOutraCidade,
-    bool? declaraPreRequisitos,
+    Map<String, bool>? requisitosCumpridos,
     Map<String, dynamic>? extras,
   }) {
     return DadosCadastro(
@@ -74,7 +75,7 @@ class DadosCadastro {
       genero: genero,
       bolsistaProuni: bolsistaProuni,
       deOutraCidade: deOutraCidade,
-      declaraPreRequisitos: declaraPreRequisitos ?? this.declaraPreRequisitos,
+      requisitosCumpridos: requisitosCumpridos ?? this.requisitosCumpridos,
       extras: extras ?? this.extras,
     );
   }
@@ -101,7 +102,7 @@ class DadosCadastro {
       genero: genero,
       bolsistaProuni: bolsistaProuni,
       deOutraCidade: deOutraCidade,
-      declaraPreRequisitos: declaraPreRequisitos,
+      requisitosCumpridos: requisitosCumpridos,
       extras: extras,
     );
   }
@@ -119,7 +120,7 @@ class DadosCadastro {
     'interesses': interesses,
   };
 
-  /// Corpo `respostas` de `POST /participacoes/cadastro-apadrinhado`.
+  /// Corpo `respostas` do cadastro como apadrinhado (`POST /cadastro`).
   Map<String, dynamic> respostasApadrinhado() => {
     ..._perfil(),
     'genero': ?genero,
@@ -132,7 +133,7 @@ class DadosCadastro {
     'extras': extras,
   };
 
-  /// Corpo `respostas` de `POST /participacoes/candidatura-padrinho`.
+  /// Corpo `respostas` do cadastro como padrinho (`POST /cadastro`).
   Map<String, dynamic> respostasPadrinho() => {
     ..._perfil(),
     'motivacao': ?_texto(expectativaPadrinho),
@@ -142,7 +143,10 @@ class DadosCadastro {
     'genero': ?genero,
     'bolsistaProuni': ?bolsistaProuni,
     'deOutraCidade': ?deOutraCidade,
-    'declaraPreRequisitos': declaraPreRequisitos ?? false,
+    'requisitos': [
+      for (final item in requisitosCumpridos.entries)
+        {'id': item.key, 'cumpre': item.value},
+    ],
     'extras': extras,
   };
 
@@ -177,7 +181,11 @@ class DadosCadastro {
       genero: respostas['genero'] as String?,
       bolsistaProuni: respostas['bolsistaProuni'] as bool?,
       deOutraCidade: respostas['deOutraCidade'] as bool?,
-      declaraPreRequisitos: respostas['declaraPreRequisitos'] as bool?,
+      requisitosCumpridos: {
+        for (final item in (respostas['requisitos'] as List? ?? const []))
+          if (item is Map && item['id'] != null)
+            '${item['id']}': item['cumpre'] == true,
+      },
       extras: extrasSalvos is Map
           ? Map<String, dynamic>.from(extrasSalvos)
           : const {},

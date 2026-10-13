@@ -118,8 +118,11 @@ class _StatusCandidaturaPageState extends State<StatusCandidaturaPage> {
       switch (situacao) {
         'candidatura_rejeitada' => (
           'Resultado',
-          'Sua candidatura não foi aprovada neste ciclo. Você poderá tentar '
-              'novamente nas próximas inscrições.',
+          _sessao.motivoRejeicao == null
+              ? 'Sua candidatura não foi aprovada neste ciclo. Você poderá '
+                    'tentar novamente nas próximas inscrições.'
+              : 'Sua candidatura não foi aprovada. Motivo: '
+                    '${_sessao.motivoRejeicao}',
           _EstadoEtapa.negativa,
         ),
         'padrinho_ativo' => (

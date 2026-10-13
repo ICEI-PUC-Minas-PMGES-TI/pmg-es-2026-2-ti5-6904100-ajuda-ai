@@ -7,7 +7,11 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ParticipacoesService } from '../participacoes/participacoes.service.js';
-import { EtapaPrograma, ProgramaEntity } from './entities/programa.entity.js';
+import {
+  EtapaPrograma,
+  ProgramaEntity,
+  RequisitoPadrinho,
+} from './entities/programa.entity.js';
 import { ORDEM_ETAPAS } from './etapas.js';
 
 @Injectable()
@@ -93,12 +97,71 @@ export class ProgramasService implements OnModuleInit {
     );
   }
 
+  /** Requisitos para padrinho do ciclo ([] se não configurados). */
+  async requisitosPadrinho(codigo?: string): Promise<RequisitoPadrinho[]> {
+    const programa = await this.buscarPorCodigo(
+      codigo?.trim() || ParticipacoesService.programaAtual(),
+    );
+    return programa?.requisitosPadrinho ?? [];
+  }
+
+  /** Valida e normaliza a lista de requisitos enviada pela coordenação. */
+  static validarRequisitos(entrada: unknown): RequisitoPadrinho[] {
+    if (!Array.isArray(entrada)) {
+      throw new BadRequestException('Envie a lista de requisitos.');
+    }
+    if (entrada.length > 20) {
+      throw new BadRequestException('O ciclo aceita até 20 requisitos.');
+    }
+    const ids = new Set<string>();
+    const descricoes = new Set<string>();
+    return entrada.map((bruto, index) => {
+      const item = (bruto ?? {}) as Record<string, unknown>;
+      const descricao =
+        typeof item.descricao === 'string'
+          ? item.descricao.trim().slice(0, 120)
+          : '';
+      if (!descricao) {
+        throw new BadRequestException(
+          `O requisito ${index + 1} precisa de uma descrição.`,
+        );
+      }
+      const chave = descricao.toLowerCase();
+      if (descricoes.has(chave)) {
+        throw new BadRequestException(`Requisito repetido: ${descricao}.`);
+      }
+      descricoes.add(chave);
+      let id =
+        typeof item.id === 'string' && item.id.trim()
+          ? item.id.trim().slice(0, 60)
+          : ProgramasService.slug(descricao) || `requisito-${index + 1}`;
+      while (ids.has(id)) id = `${id}-${index + 1}`;
+      ids.add(id);
+      return { id, descricao, obrigatorio: item.obrigatorio !== false };
+    });
+  }
+
+  private static slug(texto: string): string {
+    return texto
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 50);
+  }
+
   async criarNovoCiclo(codigo?: string): Promise<ProgramaEntity> {
     const alvo = codigo?.trim() || this.proximoCodigo();
     const existente = await this.buscarPorCodigo(alvo);
     if (existente) {
       return existente;
     }
+    // Novo ciclo começa com uma CÓPIA dos requisitos do ciclo mais recente
+    // (editável depois); mudar um ciclo nunca altera o outro.
+    const anterior = (await this.listar())
+      .sort((a, b) => b.codigo.localeCompare(a.codigo))
+      .find((p) => p.requisitosPadrinho);
     const [ano, semestre] = alvo.split('/').map(Number);
     const base = semestre === 1 ? `${ano}-02` : `${ano}-08`;
     const fimSemestre = semestre === 1 ? `${ano}-06` : `${ano}-12`;
@@ -121,6 +184,9 @@ export class ProgramasService implements OnModuleInit {
         andamentoInicio: `${ano}-${semestre === 1 ? '04' : '10'}-21`,
         andamentoFim: `${fimSemestre}-15`,
         encerramentoEm: `${fimSemestre}-20`,
+        requisitosPadrinho: anterior?.requisitosPadrinho
+          ? anterior.requisitosPadrinho.map((r) => ({ ...r }))
+          : null,
       }),
     );
   }
@@ -135,6 +201,17 @@ export class ProgramasService implements OnModuleInit {
       throw new NotFoundException(`Programa ${codigo} não encontrado.`);
     }
 
+    if (corpo.requisitosPadrinho !== undefined) {
+      // Ciclo encerrado é histórico: seus requisitos não mudam mais.
+      if (programa.etapaAtual === 'encerramento') {
+        throw new BadRequestException(
+          'Ciclo encerrado: os requisitos para padrinho não podem ser alterados.',
+        );
+      }
+      programa.requisitosPadrinho = ProgramasService.validarRequisitos(
+        corpo.requisitosPadrinho,
+      );
+    }
     if (corpo.etapaAtual !== undefined) {
       if (!ORDEM_ETAPAS.includes(corpo.etapaAtual as EtapaPrograma)) {
         throw new BadRequestException('Etapa do programa inválida.');
@@ -171,7 +248,9 @@ export class ProgramasService implements OnModuleInit {
       const valor = corpo[chave];
       if (valor === undefined) continue;
       if (typeof valor !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
-        throw new BadRequestException(`Data inválida em ${chave} (use AAAA-MM-DD).`);
+        throw new BadRequestException(
+          `Data inválida em ${chave} (use AAAA-MM-DD).`,
+        );
       }
       programa[chave] = valor;
     }

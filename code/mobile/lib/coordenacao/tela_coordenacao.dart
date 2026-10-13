@@ -7,6 +7,7 @@ import '../theme/colors.dart';
 import 'tela_candidaturas_coord.dart';
 import 'tela_comunicado_coord.dart';
 import 'tela_dashboard_coord.dart';
+import 'tela_cadastros_coord.dart';
 import 'tela_formularios_coord.dart';
 import 'tela_mais_coord.dart';
 import 'tela_programas_coord.dart';
@@ -103,6 +104,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       return;
     }
     final Widget pagina = switch (destino) {
+      'cadastros' => TelaCadastrosCoord(api: api, status: query['status']),
       'usuarios' => TelaUsuariosCoord(api: api, programa: _programa),
       'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
       'comunicado' => TelaComunicadoCoord(api: api),
