@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { seedDemoHabilitado } from '../config/seguranca.js';
 import { USUARIOS } from '../dados/dados.js';
 import {
   StatusCadastro,
@@ -48,7 +49,7 @@ export class UsuariosService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    await this.semearAlunosDemo();
+    if (seedDemoHabilitado()) await this.semearAlunosDemo();
   }
 
   static normalizarEmail(email: string): string {

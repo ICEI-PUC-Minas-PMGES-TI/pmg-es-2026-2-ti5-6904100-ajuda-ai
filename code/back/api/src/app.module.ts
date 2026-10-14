@@ -3,7 +3,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource, type DataSourceOptions } from 'typeorm';
 import { AuthModule } from './auth/auth.module.js';
-import { decidirSynchronize } from './config/seguranca.js';
+import {
+  decidirSynchronize,
+  opcoesSsl,
+  validarSeedDemo,
+} from './config/seguranca.js';
 import { AvisosModule } from './avisos/avisos.module.js';
 import { CadastroModule } from './cadastro/cadastro.module.js';
 import { CoordenacaoModule } from './coordenacao/coordenacao.module.js';
@@ -36,33 +40,45 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (configuracao: ConfigService) => ({
-        type: 'postgres',
-        // Sem default: um DB_HOST ausente não pode cair num banco qualquer.
-        host: configuracao.getOrThrow<string>('DB_HOST'),
-        // Padrão desligado; ligado só em banco local (ver config/seguranca.ts).
-        synchronize: decidirSynchronize(
+      useFactory: (configuracao: ConfigService) => {
+        // Dados demo nunca em banco remoto (falha antes de conectar).
+        validarSeedDemo(
           configuracao.getOrThrow<string>('DB_HOST'),
-          configuracao.get<string>('DB_SYNCHRONIZE'),
+          configuracao.get<string>('SEED_DEMO_DATA'),
           configuracao.get<string>('NODE_ENV'),
-        ),
-        port: Number(configuracao.get<string>('DB_PORT', '5432')),
-        username: configuracao.get<string>('DB_USERNAME', 'postgres'),
-        password: configuracao.getOrThrow<string>('DB_PASSWORD'),
-        database: configuracao.get<string>('DB_DATABASE', 'postgres'),
-        ssl: configuracao.get<string>('DB_SSL', 'true') === 'true',
-        schema: configuracao.get<string>('DB_SCHEMA', 'feed'),
-        autoLoadEntities: true,
-        retryAttempts: 5,
-        retryDelay: 2000,
-      }),
+        );
+        return {
+          type: 'postgres' as const,
+          // Sem default: um DB_HOST ausente não pode cair num banco qualquer.
+          host: configuracao.getOrThrow<string>('DB_HOST'),
+          // Padrão desligado; ligado só em banco local (ver config/seguranca.ts).
+          synchronize: decidirSynchronize(
+            configuracao.getOrThrow<string>('DB_HOST'),
+            configuracao.get<string>('DB_SYNCHRONIZE'),
+            configuracao.get<string>('NODE_ENV'),
+          ),
+          port: Number(configuracao.get<string>('DB_PORT', '5432')),
+          username: configuracao.get<string>('DB_USERNAME', 'postgres'),
+          password: configuracao.getOrThrow<string>('DB_PASSWORD'),
+          database: configuracao.get<string>('DB_DATABASE', 'postgres'),
+          // TLS validado; DB_SSL_CA aponta a CA do provedor (ex.: Supabase).
+          ssl: opcoesSsl(
+            configuracao.get<string>('DB_SSL'),
+            configuracao.get<string>('DB_SSL_CA'),
+          ),
+          schema: configuracao.get<string>('DB_SCHEMA', 'feed'),
+          autoLoadEntities: true,
+          retryAttempts: 5,
+          retryDelay: 2000,
+        };
+      },
       // Em um banco novo o schema ainda não existe e o synchronize falha.
       dataSourceFactory: async (opcoes?: DataSourceOptions) => {
         if (!opcoes) throw new Error('Configuração do banco ausente.');
         // Deixa inequívoco qual banco está em uso (sem credenciais).
         if (opcoes.type === 'postgres') {
           new Logger('Banco').log(
-            `${opcoes.host}:${opcoes.port}/${opcoes.database} schema=${opcoes.schema} ssl=${opcoes.ssl ? 'ativo' : 'desativado'} synchronize=${opcoes.synchronize}`,
+            `${opcoes.host}:${opcoes.port}/${opcoes.database} schema=${opcoes.schema} ssl=${opcoes.ssl ? (typeof opcoes.ssl === 'object' ? 'ativo (CA própria)' : 'ativo') : 'desativado'} synchronize=${opcoes.synchronize} seedDemo=${process.env.SEED_DEMO_DATA === 'true'}`,
           );
         }
         // Criar o schema é escrita: só junto com synchronize (banco local).

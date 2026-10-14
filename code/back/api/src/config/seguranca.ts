@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 /**
  * Regras de configuração que protegem banco e tokens. Ficam isoladas para
  * serem testadas sem subir a aplicação.
@@ -78,4 +81,61 @@ export function avaliarSegredoJwt(
     };
   }
   return { segredo: valor };
+}
+
+/**
+ * Opções de TLS do Postgres, usadas pela API e pelo `npm run db:verificar`.
+ * - DB_SSL=false → sem TLS (banco local);
+ * - DB_SSL=true (padrão) → TLS com validação do certificado;
+ * - DB_SSL_CA=caminho → valida o servidor contra essa CA (ex.: a CA raiz
+ *   do Supabase), mantendo `rejectUnauthorized` ligado. Caminho relativo à
+ *   pasta da API.
+ * A validação nunca é desligada.
+ */
+export function opcoesSsl(
+  dbSsl: string | undefined,
+  dbSslCa: string | undefined,
+  pastaBase: string = process.cwd(),
+): false | true | { ca: string; rejectUnauthorized: true } {
+  if ((dbSsl ?? 'true').trim().toLowerCase() !== 'true') return false;
+  const caminho = dbSslCa?.trim();
+  if (!caminho) return true;
+  const arquivo = resolve(pastaBase, caminho);
+  let ca: string;
+  try {
+    ca = readFileSync(arquivo, 'utf8');
+  } catch {
+    throw new Error(`DB_SSL_CA: certificado não encontrado em ${arquivo}.`);
+  }
+  if (!ca.includes('BEGIN CERTIFICATE')) {
+    throw new Error(`DB_SSL_CA: ${arquivo} não é um certificado PEM.`);
+  }
+  return { ca, rejectUnauthorized: true };
+}
+
+/**
+ * Dados de demonstração (alunos, ciclos, participações, avisos) só são
+ * gravados com SEED_DEMO_DATA=true. Padrão: desligado.
+ */
+export function seedDemoHabilitado(): boolean {
+  return process.env.SEED_DEMO_DATA?.trim().toLowerCase() === 'true';
+}
+
+/**
+ * SEED_DEMO_DATA=true só em banco local e fora de produção: num banco
+ * remoto/compartilhado a API se recusa a iniciar em vez de inserir dados
+ * fictícios.
+ */
+export function validarSeedDemo(
+  host: string,
+  valor: string | undefined,
+  nodeEnv: string | undefined,
+): void {
+  if (valor?.trim().toLowerCase() !== 'true') return;
+  if (nodeEnv === 'production' || !ehBancoLocal(host)) {
+    throw new Error(
+      `SEED_DEMO_DATA=true só é permitido em banco local fora de produção (DB_HOST atual: ${host}). ` +
+        'Em banco remoto/compartilhado use SEED_DEMO_DATA=false.',
+    );
+  }
 }

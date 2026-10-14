@@ -22,6 +22,7 @@ import { ProgramasService } from '../programas/programas.service.js';
 import { AvisosService } from '../avisos/avisos.service.js';
 import { FormulariosService } from '../formularios/formularios.service.js';
 import { CadastroService } from '../cadastro/cadastro.service.js';
+import { seedDemoHabilitado } from '../config/seguranca.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
 
 @Injectable()
@@ -37,7 +38,9 @@ export class CoordenacaoService implements OnModuleInit {
     private readonly participacoes: Repository<ParticipacaoEntity>,
   ) {}
 
+  /** Base demo (ciclos, requisitos, participações): só com SEED_DEMO_DATA=true. */
   async onModuleInit() {
+    if (!seedDemoHabilitado()) return;
     await this.programasService.garantirProgramaAtual();
     await this.programasService.garantirProgramaHistoricoDemo();
     await this.semearRequisitosDemo();

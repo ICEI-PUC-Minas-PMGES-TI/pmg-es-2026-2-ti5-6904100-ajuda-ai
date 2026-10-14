@@ -1,7 +1,7 @@
 // Verificação SOMENTE LEITURA do banco configurado para a API.
 // Não grava nada, não cria schema e não roda synchronize; não imprime segredos.
 //
-// Uso (em code/back/api, depois de `npm run build`):
+// Uso (em code/back/api; o script compila antes para usar o mesmo código):
 //   npm run db:verificar              → usa o .env da API
 //   npm run db:verificar -- ../../.env → testa outro arquivo
 //
@@ -14,6 +14,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { DataSource } from 'typeorm';
+// Mesma função de TLS que a API usa (compilada em dist/).
+import { ehBancoLocal, opcoesSsl } from '../dist/config/seguranca.js';
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const arquivo = path.resolve(process.argv[2] ?? path.join(raiz, '.env'));
@@ -32,7 +34,8 @@ const host = env.DB_HOST;
 const port = Number(env.DB_PORT ?? 5432);
 const database = env.DB_DATABASE ?? 'postgres';
 const schema = env.DB_SCHEMA ?? 'feed';
-const ssl = (env.DB_SSL ?? 'true') === 'true';
+// Exatamente a configuração SSL da aplicação (CA relativa à pasta da API).
+const ssl = opcoesSsl(env.DB_SSL, env.DB_SSL_CA, raiz);
 const conexao = {
   host,
   port,
@@ -44,17 +47,17 @@ const conexao = {
 console.log(`arquivo: ${arquivo}`);
 console.log(
   `alvo: ${host ?? '(DB_HOST ausente)'}:${port}/${database} usuario=${conexao.user} schema=${schema} ` +
-    `ssl=${ssl ? 'ativo' : 'desativado'}${env.DB_SSL ? '' : ' (DB_SSL ausente → padrão true)'} ` +
+    `ssl=${ssl ? (typeof ssl === 'object' ? `ativo, validando com a CA ${env.DB_SSL_CA}` : 'ativo, CAs do sistema') : 'desativado'}${env.DB_SSL ? '' : ' (DB_SSL ausente → padrão true)'} ` +
+    `seedDemo=${env.SEED_DEMO_DATA ?? '(ausente → padrão false)'} ` +
     `synchronize=${env.DB_SYNCHRONIZE ?? '(ausente → padrão false)'} senha=${env.DB_PASSWORD ? '********' : '(AUSENTE)'}`,
 );
 if (!host) process.exit(1);
-const local = [
-  'localhost',
-  '127.0.0.1',
-  '::1',
-  'host.docker.internal',
-  'postgres',
-].includes(host.toLowerCase());
+const local = ehBancoLocal(host);
+if (env.SEED_DEMO_DATA === 'true' && !local) {
+  console.log(
+    'AVISO: SEED_DEMO_DATA=true com banco remoto — a API se recusa a iniciar assim. Use SEED_DEMO_DATA=false.',
+  );
+}
 if (env.DB_SYNCHRONIZE === 'true' && !local) {
   console.log(
     'AVISO: DB_SYNCHRONIZE=true com banco remoto — a API se recusa a iniciar assim. Use DB_SYNCHRONIZE=false.',

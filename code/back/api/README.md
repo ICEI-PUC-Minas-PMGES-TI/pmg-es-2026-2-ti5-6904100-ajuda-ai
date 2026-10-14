@@ -33,12 +33,15 @@ e preencha os valores; o `.env` está no `.gitignore` e nunca deve ser versionad
 
 Banco local (Docker Compose): inicie `docker compose up -d postgres` a partir de
 `code` e use `DB_HOST=localhost`, `DB_PORT=5433`, `DB_USERNAME=ajudaai`,
-`DB_PASSWORD=ajudaai`, `DB_DATABASE=ajudaai`, `DB_SSL=false` e, se quiser que o
-schema seja criado/ajustado automaticamente, `DB_SYNCHRONIZE=true`.
+`DB_PASSWORD=ajudaai`, `DB_DATABASE=ajudaai`, `DB_SSL=false`, `SEED_DEMO_DATA=true` (alunos, ciclos e participações de
+demonstração) e, se quiser que o schema seja criado/ajustado automaticamente,
+`DB_SYNCHRONIZE=true`.
 
 Banco remoto/compartilhado (ex.: Supabase): preencha `DB_HOST`, `DB_PORT`,
 `DB_USERNAME`, `DB_PASSWORD` e `DB_DATABASE` com a connection string do projeto,
-`DB_SSL=true` e **`DB_SYNCHRONIZE=false`** — a API se recusa a iniciar com
+`DB_SSL=true`, `DB_SSL_CA=certs/supabase-ca.crt` (CA baixada em Database
+Settings → SSL Configuration; o TLS é sempre validado), **`DB_SYNCHRONIZE=false`**
+e **`SEED_DEMO_DATA=false`** (com banco remoto a API recusa iniciar com seed ligado) — a API se recusa a iniciar com
 `synchronize` ligado fora de um banco local. Antes de subir a API contra um banco
 novo, rode a verificação somente leitura:
 

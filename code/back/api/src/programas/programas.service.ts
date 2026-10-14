@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { seedDemoHabilitado } from '../config/seguranca.js';
 import { ParticipacoesService } from '../participacoes/participacoes.service.js';
 import {
   EtapaPrograma,
@@ -22,7 +23,7 @@ export class ProgramasService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    await this.garantirProgramaAtual();
+    if (seedDemoHabilitado()) await this.garantirProgramaAtual();
   }
 
   async listar(): Promise<ProgramaEntity[]> {
@@ -38,6 +39,13 @@ export class ProgramasService implements OnModuleInit {
     const existente = await this.buscarPorCodigo(codigo);
     if (existente) {
       return existente;
+    }
+    // Criar um ciclo com calendário padrão é dado de demonstração: fora do
+    // modo demo a coordenação precisa abrir o ciclo (Programas).
+    if (!seedDemoHabilitado()) {
+      throw new NotFoundException(
+        `Ciclo ${codigo} não cadastrado. A coordenação precisa abrir o ciclo em Programas.`,
+      );
     }
 
     const [ano, semestre] = codigo.split('/').map(Number);
