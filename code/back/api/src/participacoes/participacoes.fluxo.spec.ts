@@ -1,6 +1,21 @@
 import type { Repository } from 'typeorm';
 import { ParticipacaoEntity } from './entities/participacao.entity.js';
+import { repositorioEmMemoria } from '../../test/helpers/repositorio-memoria.js';
+import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ParticipacoesService } from './participacoes.service.js';
+
+/** Ciclos cadastrados usados nestes testes (participação exige ciclo existente). */
+const ciclos = () =>
+  repositorioEmMemoria(
+    [
+      ...new Set([
+        '2025/2',
+        '2026/1',
+        '2026/2',
+        ParticipacoesService.programaAtual(),
+      ]),
+    ].map((codigo, i) => ({ id: i + 1, codigo }) as ProgramaEntity),
+  );
 
 /** Fluxo completo: cadastro → análise → aprovação/rejeição → vínculo. */
 describe('ParticipacoesService (fluxo da coordenação)', () => {
@@ -11,7 +26,7 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
   beforeEach(() => {
     registros = [];
     proximoId = 1;
-    service = new ParticipacoesService(criarRepo());
+    service = new ParticipacoesService(criarRepo(), ciclos());
   });
 
   it('cadastra apadrinhado pendente de aprovação e limpa respostas', async () => {
@@ -88,6 +103,29 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
     await expect(service.vincular(pendente.id, padrinho.id)).rejects.toThrow(
       /ainda não foi aprovado/,
     );
+  });
+
+  it('não cria participação em ciclo inexistente (padrinho, apadrinhado, ingresso)', async () => {
+    await expect(
+      service.cadastrarApadrinhado({
+        usuarioId: 'a@pucminas.edu.br',
+        programa: '2099/1',
+      }),
+    ).rejects.toThrow(/Ciclo 2099\/1 não cadastrado/);
+    await expect(
+      service.registrarCandidaturaPadrinho({
+        usuarioId: 'p@pucminas.edu.br',
+        programa: '2099/1',
+      }),
+    ).rejects.toThrow(/não cadastrado/);
+    await expect(
+      service.confirmarIngresso({
+        usuarioId: 'x@pucminas.edu.br',
+        papel: 'padrinho',
+        programa: '2099/1',
+      }),
+    ).rejects.toThrow(/não cadastrado/);
+    expect(registros).toHaveLength(0);
   });
 
   it('reenviar candidatura pendente atualiza as respostas sem duplicar', async () => {

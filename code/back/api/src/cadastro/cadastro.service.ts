@@ -97,7 +97,9 @@ export class CadastroService {
     const codigo = programa?.trim() || ParticipacoesService.programaAtual();
     const ciclo = await this.programasService.buscarPorCodigo(codigo);
     if (!ciclo) {
-      throw new BadRequestException(`Ciclo ${codigo} não encontrado.`);
+      throw new BadRequestException(
+        `Ciclo ${codigo} não cadastrado. A coordenação precisa abrir o ciclo em Programas.`,
+      );
     }
     const declarados = new Map<string, boolean>();
     for (const item of Array.isArray(respostas.requisitos)
@@ -239,6 +241,11 @@ export class CadastroService {
     const d = CadastroService.validar(dados);
     let usuario = await this.usuariosService.buscarPorEmail(d.email);
     if (usuario) this.verificarPodeEnviar(usuario, d.tipoParticipacao);
+    // O ciclo precisa existir ANTES de gravar o usuário (padrinho e
+    // apadrinhado): sem isso ficaria um cadastro pendente sem participação.
+    await this.participacoesService.exigirCiclo(
+      d.programa ?? ParticipacoesService.programaAtual(),
+    );
 
     // Requisitos do ciclo valem só para padrinho; o apadrinhado não os responde.
     const {

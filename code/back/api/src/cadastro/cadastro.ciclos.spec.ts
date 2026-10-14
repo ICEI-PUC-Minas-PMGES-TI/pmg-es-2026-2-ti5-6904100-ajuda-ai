@@ -28,10 +28,12 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     participacoes = [];
     const usuariosService = new UsuariosService(repositorioEmMemoria(usuarios));
     const repoParticipacoes = repositorioEmMemoria(participacoes);
-    participacoesService = new ParticipacoesService(repoParticipacoes);
-    programasService = new ProgramasService(
-      repositorioEmMemoria<ProgramaEntity>(),
+    const repoProgramas = repositorioEmMemoria<ProgramaEntity>();
+    participacoesService = new ParticipacoesService(
+      repoParticipacoes,
+      repoProgramas,
     );
+    programasService = new ProgramasService(repoProgramas);
     cadastro = new CadastroService(
       usuariosService,
       participacoesService,
@@ -48,7 +50,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       usuariosService,
       repoParticipacoes,
     );
-    for (const codigo of ['2026/2', '2027/1', '2027/2']) {
+    for (const codigo of ['2025/2', '2026/2', '2027/1', '2027/2']) {
       await programasService.criarNovoCiclo(codigo);
     }
     await programasService.atualizar('2026/2', {
@@ -199,6 +201,57 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       requisitosPadrinho: [{ descricao: 'Física I' }],
     });
     expect(await programasService.requisitosPadrinho('2027/2')).toEqual([]);
+  });
+
+  /* ---------- ciclo inexistente / criação explícita de ciclo ---------- */
+
+  it('cadastro (apadrinhado ou padrinho) em ciclo inexistente → 400 e nenhum usuário gravado', async () => {
+    await expect(
+      cadastro.registrar({
+        email: 'calouro@pucminas.edu.br',
+        nome: 'Calouro',
+        curso: 'SI',
+        periodo: 1,
+        tipoParticipacao: 'apadrinhado',
+        programa: '2099/1',
+      }),
+    ).rejects.toThrow(/Ciclo 2099\/1 não cadastrado/);
+    await expect(cadastro.registrar(padrinho('2099/1'))).rejects.toThrow(
+      /Ciclo 2099\/1 não cadastrado/,
+    );
+    expect(usuarios).toHaveLength(0);
+    expect(participacoes).toHaveLength(0);
+  });
+
+  it('coordenação cria explicitamente qualquer semestre (ex.: 2028/2) sem depender da data', async () => {
+    const criado = await programasService.criarNovoCiclo('2028/2');
+    expect(criado).toMatchObject({
+      codigo: '2028/2',
+      etapaAtual: 'inscricoes',
+    });
+    const { participacao } = await cadastro.registrar({
+      email: 'calouro@pucminas.edu.br',
+      nome: 'Calouro',
+      curso: 'SI',
+      periodo: 1,
+      tipoParticipacao: 'apadrinhado',
+      programa: '2028/2',
+    });
+    expect(participacao.programa).toBe('2028/2');
+  });
+
+  it('código de ciclo inválido → 400; ciclo já existente → 409 (sem duplicar)', async () => {
+    for (const codigo of ['2027', '2027/3', '27/1', '1999/1', 'abc']) {
+      await expect(programasService.criarNovoCiclo(codigo)).rejects.toThrow(
+        /Código do ciclo inválido/,
+      );
+    }
+    await expect(programasService.criarNovoCiclo('2027/1')).rejects.toThrow(
+      /já existe/,
+    );
+    expect(
+      (await programasService.listar()).filter((p) => p.codigo === '2027/1'),
+    ).toHaveLength(1);
   });
 
   /* ---------- sincronização cadastro × participação ---------- */

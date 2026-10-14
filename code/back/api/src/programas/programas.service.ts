@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   OnModuleInit,
@@ -159,11 +160,32 @@ export class ProgramasService implements OnModuleInit {
       .slice(0, 50);
   }
 
+  /** `AAAA/1` ou `AAAA/2` (ex.: 2027/1). */
+  static validarCodigoCiclo(codigo: string): string {
+    const valor = codigo.trim();
+    const partes = /^(\d{4})\/([12])$/.exec(valor);
+    const ano = Number(partes?.[1]);
+    if (!partes || ano < 2000 || ano > 2100) {
+      throw new BadRequestException(
+        'Código do ciclo inválido: use AAAA/1 ou AAAA/2 (ex.: 2027/1).',
+      );
+    }
+    return valor;
+  }
+
+  /**
+   * Abre um ciclo explicitamente (coordenação). Com `codigo`, cria aquele
+   * semestre — inclusive o vigente pela data, ex. 2027/1 — sem depender da
+   * data atual; sem `codigo`, sugere o semestre seguinte ao vigente. Recusa
+   * (409) se o ciclo já existir, em vez de fingir que criou.
+   */
   async criarNovoCiclo(codigo?: string): Promise<ProgramaEntity> {
-    const alvo = codigo?.trim() || this.proximoCodigo();
+    const alvo = codigo?.trim()
+      ? ProgramasService.validarCodigoCiclo(codigo)
+      : this.proximoCodigo();
     const existente = await this.buscarPorCodigo(alvo);
     if (existente) {
-      return existente;
+      throw new ConflictException(`O ciclo ${alvo} já existe.`);
     }
     // Novo ciclo começa com uma CÓPIA dos requisitos do ciclo mais recente
     // (editável depois); mudar um ciclo nunca altera o outro.

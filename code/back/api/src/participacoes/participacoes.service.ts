@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import {
   PapelParticipacao,
   ParticipacaoEntity,
@@ -60,7 +61,22 @@ export class ParticipacoesService {
   constructor(
     @InjectRepository(ParticipacaoEntity)
     private readonly participacoes: Repository<ParticipacaoEntity>,
+    @InjectRepository(ProgramaEntity)
+    private readonly programas: Repository<ProgramaEntity>,
   ) {}
+
+  /**
+   * Uma participação só pode apontar para um ciclo cadastrado em `programas`.
+   * Nunca cria ciclo: quem abre o ciclo é a coordenação (Programas).
+   */
+  async exigirCiclo(codigo: string): Promise<void> {
+    const existe = await this.programas.findOne({ where: { codigo } });
+    if (!existe) {
+      throw new BadRequestException(
+        `Ciclo ${codigo} não cadastrado. A coordenação precisa abrir o ciclo em Programas.`,
+      );
+    }
+  }
 
   static programaAtual(referencia = new Date()): string {
     const ano = referencia.getFullYear();
@@ -165,6 +181,7 @@ export class ParticipacoesService {
       return existente;
     }
 
+    await this.exigirCiclo(programa);
     const registro = this.participacoes.create({
       usuarioId,
       programa,
@@ -203,6 +220,7 @@ export class ParticipacoesService {
       return existente;
     }
 
+    await this.exigirCiclo(programa);
     return this.participacoes.save(
       this.participacoes.create({
         usuarioId,
@@ -438,6 +456,7 @@ export class ParticipacoesService {
       return this.participacoes.save(candidatura);
     }
 
+    await this.exigirCiclo(programa);
     const registro = this.participacoes.create({
       usuarioId,
       programa,

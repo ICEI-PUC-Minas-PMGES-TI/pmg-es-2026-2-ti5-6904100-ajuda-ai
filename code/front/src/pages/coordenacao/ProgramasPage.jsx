@@ -38,6 +38,25 @@ const PENDENCIAS = {
   },
 };
 
+const PADRAO_CODIGO = /^\d{4}\/[12]$/;
+
+/** Semestre pela data (mesma regra do backend: jan–jun = /1, jul–dez = /2). */
+function codigoDaData(data = new Date()) {
+  return `${data.getFullYear()}/${data.getMonth() < 6 ? 1 : 2}`;
+}
+
+function semestreSeguinte(codigo) {
+  const [ano, semestre] = codigo.split('/').map(Number);
+  return semestre === 1 ? `${ano}/2` : `${ano + 1}/1`;
+}
+
+/** Sugestões para o novo ciclo: o vigente pela data e os próximos, se ainda não existem. */
+export function sugestoesDeCiclo(existentes, data = new Date()) {
+  const atual = codigoDaData(data);
+  const lista = [atual, semestreSeguinte(atual), semestreSeguinte(semestreSeguinte(atual))];
+  return lista.filter((codigo) => !existentes.includes(codigo));
+}
+
 export default function ProgramasPage() {
   const [params] = useSearchParams();
   const programaFoco = params.get('programa') || '';
@@ -49,6 +68,10 @@ export default function ProgramasPage() {
   const [confirmarCiclo, setConfirmarCiclo] = useState(false);
   const [abrindo, setAbrindo] = useState(false);
   const [erroCiclo, setErroCiclo] = useState('');
+  const [novoCodigo, setNovoCodigo] = useState('');
+  const codigosExistentes = (programas || []).map((p) => p.codigo);
+  const sugestoes = sugestoesDeCiclo(codigosExistentes);
+  const vigentePelaData = codigoDaData();
 
   const carregar = useCallback(async () => {
     setErro('');
@@ -73,11 +96,26 @@ export default function ProgramasPage() {
     });
   }, [carregar, programaFoco]);
 
+  function iniciarNovoCiclo() {
+    setErroCiclo('');
+    setNovoCodigo(sugestoes[0] || '');
+    setConfirmarCiclo(true);
+  }
+
   async function abrirCiclo() {
+    const codigo = novoCodigo.trim();
+    if (!PADRAO_CODIGO.test(codigo)) {
+      setErroCiclo('Informe o ciclo no formato AAAA/1 ou AAAA/2 (ex.: 2027/1).');
+      return;
+    }
+    if (codigosExistentes.includes(codigo)) {
+      setErroCiclo(`O ciclo ${codigo} já existe.`);
+      return;
+    }
     setAbrindo(true);
     setErroCiclo('');
     try {
-      const criado = await api.criarPrograma();
+      const criado = await api.criarPrograma(codigo);
       setConfirmarCiclo(false);
       mostrarToast(`Ciclo ${criado.codigo} aberto.`, 'sucesso');
       await carregar();
@@ -95,7 +133,7 @@ export default function ProgramasPage() {
           <h1>Programas</h1>
           <p>Ciclos do programa de apadrinhamento, etapas, vagas e calendário.</p>
         </div>
-        <button type="button" className="primary-button inline" onClick={() => { setErroCiclo(''); setConfirmarCiclo(true); }}>
+        <button type="button" className="primary-button inline" onClick={iniciarNovoCiclo}>
           <Icon name="plus" size={17} /> Abrir novo ciclo
         </button>
       </header>
@@ -185,7 +223,7 @@ export default function ProgramasPage() {
       {confirmarCiclo && (
         <Modal
           titulo="Abrir novo ciclo?"
-          descricao="Um novo programa será criado com o próximo código de semestre e as etapas padrão."
+          descricao="Escolha o semestre. O ciclo é criado com as etapas e o calendário padrão (editáveis depois) e com uma cópia dos requisitos do ciclo mais recente."
           onFechar={() => !abrindo && setConfirmarCiclo(false)}
           acoes={(
             <>
@@ -194,6 +232,26 @@ export default function ProgramasPage() {
             </>
           )}
         >
+          <label className="editor-field" htmlFor="novo-ciclo-codigo">
+            <span>Código do ciclo</span>
+            <input
+              id="novo-ciclo-codigo"
+              list="novo-ciclo-sugestoes"
+              value={novoCodigo}
+              placeholder="Ex.: 2027/1"
+              maxLength={6}
+              onChange={(e) => { setNovoCodigo(e.target.value); setErroCiclo(''); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); abrirCiclo(); } }}
+            />
+            <datalist id="novo-ciclo-sugestoes">
+              {sugestoes.map((codigo) => <option key={codigo} value={codigo} />)}
+            </datalist>
+          </label>
+          <p className="field-hint">
+            Pela data de hoje, o ciclo vigente é <strong>{vigentePelaData}</strong>
+            {codigosExistentes.includes(vigentePelaData) ? ' (já aberto).' : ' — ainda não aberto: cadastros e candidaturas ficam bloqueados até ele existir.'}
+            {' '}O ciclo não é criado automaticamente.
+          </p>
           {erroCiclo && <p className="form-error" role="alert">{erroCiclo}</p>}
         </Modal>
       )}

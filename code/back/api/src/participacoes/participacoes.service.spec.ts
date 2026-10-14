@@ -1,6 +1,21 @@
 import type { Repository } from 'typeorm';
 import { ParticipacaoEntity } from './entities/participacao.entity.js';
+import { repositorioEmMemoria } from '../../test/helpers/repositorio-memoria.js';
+import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ParticipacoesService } from './participacoes.service.js';
+
+/** Ciclos cadastrados usados nestes testes (participação exige ciclo existente). */
+const ciclos = () =>
+  repositorioEmMemoria(
+    [
+      ...new Set([
+        '2025/2',
+        '2026/1',
+        '2026/2',
+        ParticipacoesService.programaAtual(),
+      ]),
+    ].map((codigo, i) => ({ id: i + 1, codigo }) as ProgramaEntity),
+  );
 
 describe('ParticipacoesService', () => {
   let registros: ParticipacaoEntity[];
@@ -10,13 +25,13 @@ describe('ParticipacoesService', () => {
   beforeEach(() => {
     registros = [];
     proximoId = 1;
-    service = new ParticipacoesService(criarRepo());
+    service = new ParticipacoesService(criarRepo(), ciclos());
   });
 
   it('lista vazio quando o usuário não tem participações', async () => {
-    await expect(service.listarPorUsuario('camila@pucminas.edu.br')).resolves.toEqual(
-      [],
-    );
+    await expect(
+      service.listarPorUsuario('camila@pucminas.edu.br'),
+    ).resolves.toEqual([]);
   });
 
   it('registra candidatura uma única vez (idempotente)', async () => {
@@ -132,9 +147,7 @@ describe('ParticipacoesService', () => {
         let lista = registros.filter(
           (r) => r.usuarioId === opcoes?.where?.usuarioId,
         );
-        lista = [...lista].sort((a, b) =>
-          b.programa.localeCompare(a.programa),
-        );
+        lista = [...lista].sort((a, b) => b.programa.localeCompare(a.programa));
         return lista;
       },
       findOne: async (opcoes: {
