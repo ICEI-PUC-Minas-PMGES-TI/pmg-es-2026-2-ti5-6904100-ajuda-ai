@@ -74,7 +74,13 @@ Future<void> _preencherCandidatura(
 void main() {
   late ApiFalsa api;
 
-  setUp(() => api = ApiFalsa().instalar());
+  setUp(() {
+    api = ApiFalsa().instalar();
+    SessaoUsuario.atual.definirIdentidade(
+      nome: 'Camila Duarte',
+      email: 'camila@pucminas.edu.br',
+    );
+  });
   tearDown(SessaoUsuario.atual.limpar);
 
   testWidgets('participacao abre candidatura de padrinho', (tester) async {

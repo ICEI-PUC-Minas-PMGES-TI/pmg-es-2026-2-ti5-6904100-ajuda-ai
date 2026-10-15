@@ -80,7 +80,13 @@ void _telaGrande(WidgetTester tester) {
 void main() {
   late ApiFalsa api;
 
-  setUp(() => api = ApiFalsa().instalar());
+  setUp(() {
+    api = ApiFalsa().instalar();
+    SessaoUsuario.atual.definirIdentidade(
+      nome: _ana.nome,
+      email: _ana.email,
+    );
+  });
   tearDown(SessaoUsuario.atual.limpar);
 
   testWidgets('timeline da candidatura em análise', (tester) async {

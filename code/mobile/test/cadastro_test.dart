@@ -12,6 +12,7 @@ import 'package:ajuda_ai/tela_cadastro_revisao.dart';
 import 'package:ajuda_ai/tela_perfil.dart';
 import 'package:ajuda_ai/tela_padrinho_definido.dart';
 import 'package:ajuda_ai/tela_participacao.dart';
+import 'package:ajuda_ai/widgets/campos_cadastro.dart';
 
 import 'helpers/api_falsa.dart';
 
@@ -67,8 +68,48 @@ Future<void> _preencherPasso2(WidgetTester tester) async {
 void main() {
   late ApiFalsa api;
 
-  setUp(() => api = ApiFalsa().instalar());
+  setUp(() {
+    api = ApiFalsa().instalar();
+    SessaoUsuario.atual.definirIdentidade(
+      nome: 'Camila Duarte',
+      email: 'camila@pucminas.edu.br',
+    );
+  });
   tearDown(SessaoUsuario.atual.limpar);
+
+  testWidgets('não nasce como Camila sem conta autenticada', (tester) async {
+    SessaoUsuario.atual.limpar();
+    api = ApiFalsa().instalar();
+    await tester.pumpWidget(const MaterialApp(home: CadastroPage()));
+
+    expect(find.text('Camila Duarte'), findsNothing);
+    expect(find.text('camila@pucminas.edu.br'), findsNothing);
+    await _tocar(tester, find.text('Continuar'));
+    expect(
+      find.text('Entre com a conta institucional antes de completar o perfil.'),
+      findsOneWidget,
+    );
+    expect(find.byType(ParticipacaoPage), findsNothing);
+  });
+
+  testWidgets('conta autenticada preenche nome e e-mail bloqueado', (
+    tester,
+  ) async {
+    SessaoUsuario.atual.definirIdentidade(
+      nome: 'Ana Souza',
+      email: 'ana.souza@pucminas.edu.br',
+    );
+    await tester.pumpWidget(const MaterialApp(home: CadastroPage()));
+
+    expect(find.text('Ana Souza'), findsOneWidget);
+    expect(find.text('ana.souza@pucminas.edu.br'), findsOneWidget);
+    expect(find.text('Camila Duarte'), findsNothing);
+    expect(
+      tester.widget<CampoTexto>(find.byType(CampoTexto).at(1)).bloqueado,
+      isTrue,
+    );
+    expect(find.widgetWithText(TextField, 'ana.souza@pucminas.edu.br'), findsNothing);
+  });
 
   testWidgets('período começa no 1º e pode ser alterado', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: CadastroPage()));

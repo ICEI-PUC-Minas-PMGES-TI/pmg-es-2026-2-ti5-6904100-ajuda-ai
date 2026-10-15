@@ -35,6 +35,7 @@ void main() {
     expect(find.text('Mapa'), findsOneWidget);
     expect(find.text('Missões'), findsOneWidget);
     expect(find.text('Perfil'), findsOneWidget);
+    expect(find.text('Camila Duarte'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -42,6 +43,11 @@ void main() {
     tester,
   ) async {
     configurarTela(tester);
+    SessaoUsuario.atual.definirIdentidade(
+      nome: 'Ana Souza',
+      email: 'ana.souza@pucminas.edu.br',
+    );
+    addTearDown(SessaoUsuario.atual.limpar);
     final backend = _FeedBackendFake();
     final client = MockClient(backend.responder);
     addTearDown(client.close);
@@ -60,8 +66,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Minha primeira dica para a turma.'), findsOneWidget);
-    expect(find.text('Camila Duarte'), findsOneWidget);
+    expect(find.text('Ana Souza'), findsWidgets);
+    expect(find.text('Camila Duarte'), findsNothing);
     expect(backend.publicacoes, hasLength(1));
+    expect(backend.publicacoes.single['autor'], 'Ana Souza');
     expect(
       backend.publicacoes.single['texto'],
       'Minha primeira dica para a turma.',
@@ -141,8 +149,8 @@ class _FeedBackendFake {
   }
 
   Future<http.Response> responder(http.Request request) async {
-    const usuarioId = '1';
-    expect(request.headers['x-user-id'], usuarioId);
+    final usuarioId = request.headers['x-user-id'] ?? 'visitante';
+    expect(request.headers['x-user-id'], isNot('1'));
 
     if (request.method == 'GET' && request.url.path == '/publicacoes') {
       return _json(
@@ -185,9 +193,9 @@ class _FeedBackendFake {
 
   Map<String, dynamic> _novoRegistro(Map<String, dynamic> corpo) => {
     'id': _proximoId++,
-    'autor': corpo['autor'] ?? 'Camila Duarte',
-    'iniciais': corpo['iniciais'] ?? 'CD',
-    'descricaoAutor': corpo['descricaoAutor'] ?? 'Engenharia de Software',
+    'autor': corpo['autor'] ?? '',
+    'iniciais': corpo['iniciais'] ?? '',
+    'descricaoAutor': corpo['descricaoAutor'] ?? '',
     'tempo': 'agora',
     'categoria': corpo['categoria'] ?? 'Dicas acadêmicas',
     'texto': corpo['texto'],

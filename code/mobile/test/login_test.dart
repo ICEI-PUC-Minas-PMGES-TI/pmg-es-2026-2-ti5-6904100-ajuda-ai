@@ -5,32 +5,19 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ajuda_ai/main.dart';
 import 'package:ajuda_ai/tela_cadastro.dart';
-import 'package:ajuda_ai/widgets/login_success_transition.dart';
 
 void main() {
-  testWidgets('aguarda o giro antes de abrir o cadastro', (tester) async {
+  testWidgets('o botão Microsoft não abre o cadastro nem usa a Camila', (
+    tester,
+  ) async {
     await tester.pumpWidget(const AjudaAiApp());
     await tester.tap(find.text('Entrar com a Microsoft'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 600));
-    expect(find.byType(LoginSuccessTransition), findsOneWidget);
-    expect(find.text('Bem-vindo!'), findsOneWidget);
-    expect(find.byType(ImageFiltered), findsOneWidget);
-    expect(
-      tester.widget<ImageFiltered>(find.byType(ImageFiltered)).enabled,
-      isTrue,
-    );
-    expect(find.byType(CadastroPage), findsOneWidget);
-    expect(
-      tester.widget<Opacity>(find.byKey(const ValueKey('home-fade'))).opacity,
-      0,
-    );
     await tester.pumpAndSettle();
-    expect(find.byType(CadastroPage), findsOneWidget);
-    expect(
-      tester.widget<Opacity>(find.byKey(const ValueKey('home-fade'))).opacity,
-      1,
-    );
+
+    expect(find.text('Login Microsoft indisponível'), findsOneWidget);
+    expect(find.byType(CadastroPage), findsNothing);
+    expect(find.text('Camila Duarte'), findsNothing);
+    expect(find.text('camila@pucminas.edu.br'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

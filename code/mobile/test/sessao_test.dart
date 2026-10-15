@@ -28,7 +28,40 @@ Map<String, dynamic> _situacao(String situacao) => {
 };
 
 void main() {
+  setUp(() {
+    SessaoUsuario.atual.definirIdentidade(
+      nome: 'Camila Duarte',
+      email: 'camila@pucminas.edu.br',
+    );
+  });
   tearDown(SessaoUsuario.atual.limpar);
+
+  test('sem identidade o cadastro não é enviado', () async {
+    SessaoUsuario.atual.limpar();
+    final api = ApiFalsa().instalar();
+
+    await expectLater(
+      SessaoUsuario.atual.cadastrarApadrinhado(dadosCadastro: _dados),
+      throwsA(isA<ApiException>()),
+    );
+    expect(api.posts('/cadastro'), isEmpty);
+  });
+
+  test('o POST /cadastro usa o e-mail da sessão', () async {
+    SessaoUsuario.atual.definirIdentidade(
+      nome: 'Ana Souza',
+      email: 'ana.souza@pucminas.edu.br',
+    );
+    final api = ApiFalsa().instalar();
+
+    await SessaoUsuario.atual.cadastrarApadrinhado(dadosCadastro: _dados);
+
+    expect(
+      api.corpo(api.posts('/cadastro').single)['email'],
+      'ana.souza@pucminas.edu.br',
+    );
+    expect(SessaoUsuario.atual.dados?.email, 'ana.souza@pucminas.edu.br');
+  });
 
   test('situação do backend vira o status do app', () {
     expect(statusDaSituacao('nenhuma'), isNull);

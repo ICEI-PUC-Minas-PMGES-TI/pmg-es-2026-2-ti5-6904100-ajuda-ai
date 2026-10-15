@@ -12,22 +12,29 @@ import 'widgets/navegacao_app.dart';
 
 const double _feedGutter = 20;
 const String _apiBaseUrl = apiBaseUrl;
-// O login atual do protótipo usa o perfil Camila. Quando o login real entrar,
-// este identificador deve vir do usuário autenticado.
-const String _usuarioAtualId = '1';
 
-/// Identidade nas rotas do feed: com o token do aluno, só `Authorization`
-/// (o backend ignora `x-user-id`); sem token, o modo antigo por `x-user-id`.
+/// Identidade nas rotas do feed: com o token do aluno, só `Authorization`.
+/// Sem token, o e-mail da sessão. Nunca um id fixo de usuário demo.
 Map<String, String> _identidade() {
   final token = SessaoUsuario.atual.accessToken;
-  return token != null
-      ? {'authorization': 'Bearer $token'}
-      : {'x-user-id': _usuarioAtualId};
+  if (token != null) return {'authorization': 'Bearer $token'};
+  final email = SessaoUsuario.atual.identidade?.email;
+  if (email != null && email.isNotEmpty) return {'x-user-id': email};
+  return const {};
 }
 
-const String _usuarioAtualNome = 'Camila Duarte';
-const String _usuarioAtualIniciais = 'CD';
-const String _usuarioAtualCurso = 'Engenharia de Software';
+String _nomeAutorAtual() => SessaoUsuario.atual.nomeExibicao ?? '';
+
+String _iniciaisAtuais() {
+  final partes = _nomeAutorAtual()
+      .split(RegExp(r'\s+'))
+      .where((parte) => parte.isNotEmpty)
+      .take(2);
+  final letras = partes.map((parte) => parte[0].toUpperCase()).join();
+  return letras;
+}
+
+String _cursoAtual() => SessaoUsuario.atual.dados?.curso ?? '';
 
 class FeedPage extends StatefulWidget {
   const FeedPage({super.key, this.client});
@@ -1336,9 +1343,9 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
 
     Navigator.of(context).pop(
       _Publicacao(
-        autor: _usuarioAtualNome,
-        iniciais: _usuarioAtualIniciais,
-        descricaoAutor: _usuarioAtualCurso,
+        autor: _nomeAutorAtual(),
+        iniciais: _iniciaisAtuais(),
+        descricaoAutor: _cursoAtual(),
         tempo: 'agora',
         categoria: _categoria,
         texto: texto,
@@ -1401,8 +1408,8 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  const _Avatar(
-                    iniciais: _usuarioAtualIniciais,
+                  _Avatar(
+                    iniciais: _iniciaisAtuais(),
                     cor: AppColors.primary,
                   ),
                   const SizedBox(width: 10),
@@ -1410,8 +1417,8 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          _usuarioAtualNome,
+                        Text(
+                          _nomeAutorAtual(),
                           style: TextStyle(
                             color: AppColors.ink,
                             fontSize: 14,
@@ -1898,9 +1905,9 @@ class _Publicacao {
 
     return _Publicacao(
       id: (json['id'] as num?)?.toInt(),
-      autor: json['autor'] as String? ?? _usuarioAtualNome,
-      iniciais: json['iniciais'] as String? ?? _usuarioAtualIniciais,
-      descricaoAutor: json['descricaoAutor'] as String? ?? _usuarioAtualCurso,
+      autor: json['autor'] as String? ?? '',
+      iniciais: json['iniciais'] as String? ?? '',
+      descricaoAutor: json['descricaoAutor'] as String? ?? '',
       tempo: json['tempo'] as String? ?? 'agora',
       categoria: json['categoria'] as String? ?? 'Dicas acadêmicas',
       texto: json['texto'] as String? ?? '',

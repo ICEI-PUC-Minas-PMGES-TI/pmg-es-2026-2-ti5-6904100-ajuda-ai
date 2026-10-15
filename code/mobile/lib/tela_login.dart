@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'coordenacao/tela_coordenacao.dart';
-import 'tela_cadastro.dart';
 import 'theme/colors.dart';
 import 'widgets/campus_photo.dart';
-import 'widgets/login_success_transition.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -14,14 +12,11 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  bool _showTransition = false;
-
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
-    late final Widget loginScreen;
-    loginScreen = Scaffold(
+    return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         children: [
@@ -31,17 +26,24 @@ class _LoginPageState extends State<LoginPage> {
             child: _LoginContent(
               bottomInset: bottomInset,
               onMicrosoftPressed: () {
-                // TODO: iniciar a transição após autenticação da Microsoft.
-                if (_showTransition) return;
-                _showTransition = true;
-                Navigator.of(context).pushReplacement(
-                  PageRouteBuilder<void>(
-                    pageBuilder: (context, animation, secondaryAnimation) =>
-                        LoginSuccessTransition(
-                          background: loginScreen,
-                          destination: const CadastroPage(),
-                        ),
-                    transitionDuration: Duration.zero,
+                showDialog<void>(
+                  context: context,
+                  builder: (dialogContext) => AlertDialog(
+                    title: const Text('Login Microsoft indisponível'),
+                    content: const Text(
+                      'Este botão ainda não autentica com a Microsoft. '
+                      'O aplicativo não tem o cadastro público no Entra ID '
+                      '(client ID, tenant e URI de redirecionamento), então '
+                      'nenhuma conta é aberta e nenhum cadastro é enviado. '
+                      'O acesso de desenvolvimento da coordenação continua '
+                      'em “Área da coordenação”.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: const Text('Entendi'),
+                      ),
+                    ],
                   ),
                 );
               },
@@ -68,7 +70,6 @@ class _LoginPageState extends State<LoginPage> {
         ],
       ),
     );
-    return loginScreen;
   }
 }
 

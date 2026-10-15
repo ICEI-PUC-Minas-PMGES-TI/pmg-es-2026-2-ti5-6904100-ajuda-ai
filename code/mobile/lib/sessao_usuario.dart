@@ -10,12 +10,21 @@ import 'status_participacao.dart';
 import 'tela_participacao.dart';
 import 'widgets/app_bottom_navigation.dart';
 
+/// Conta institucional já autenticada. O cadastro não inventa esse par.
+class IdentidadeAutenticada {
+  const IdentidadeAutenticada({required this.nome, required this.email});
+
+  final String nome;
+  final String email;
+}
+
 /// Estado de sessão do aluno — preenchido após o cadastro/escolha.
 ///
-/// Ainda não há login Microsoft: o envio do cadastro (`POST /cadastro`) e o
-/// login demo devolvem o token do aluno, que passa a identificar todas as
-/// chamadas (sem `x-user-id`). As regras (período × modalidade, aprovação)
-/// ficam no backend; o app só reflete o que a API responde.
+/// O login Microsoft do app ainda não está ligado (falta o app público no
+/// Entra ID). Enquanto isso, [identidade] só existe quando um fluxo real
+/// a definiu. O envio do cadastro (`POST /cadastro`) usa o e-mail dessa
+/// identidade. O login demo continua só para aluno já cadastrado e para a
+/// coordenação, e devolve o token usado nas chamadas seguintes.
 ///
 /// O envio só conta quando a API confirma: sem conexão
 /// ([ApiIndisponivelException]) ou com erro ([ApiException]) nada muda
@@ -40,6 +49,7 @@ class SessaoUsuario {
   };
 
   DadosCadastro? dados;
+  IdentidadeAutenticada? identidade;
   Participacao? participacao;
   StatusParticipacao status = StatusParticipacao.nenhuma;
   DateTime? candidaturaEnviadaEm;
@@ -60,6 +70,25 @@ class SessaoUsuario {
 
   /// Permite injetar API nos testes.
   void configurarApi(ParticipacoesApi api) => _api = api;
+
+  /// Nome vindo da autenticação ou, depois, do cadastro em andamento.
+  String? get nomeExibicao {
+    final autenticado = identidade?.nome.trim();
+    if (autenticado != null && autenticado.isNotEmpty) return autenticado;
+    final informado = dados?.nome.trim();
+    if (informado != null && informado.isNotEmpty) return informado;
+    return null;
+  }
+
+  /// Define a conta que pode completar o perfil. Não aceita nome ou e-mail vazio.
+  void definirIdentidade({required String nome, required String email}) {
+    final nomeLimpo = nome.trim();
+    final emailLimpo = email.trim().toLowerCase();
+    if (nomeLimpo.isEmpty || !emailLimpo.contains('@')) {
+      throw ArgumentError('Identidade institucional inválida.');
+    }
+    identidade = IdentidadeAutenticada(nome: nomeLimpo, email: emailLimpo);
+  }
 
   bool get ehExplorar => status == StatusParticipacao.explorar;
 
@@ -171,16 +200,17 @@ class SessaoUsuario {
     required DadosCadastro dadosCadastro,
     DateTime? enviadaEm,
   }) async {
+    final daSessao = _dadosDaSessao(dadosCadastro);
     final jaEnviada =
         status == StatusParticipacao.padrinhoEmAnalise &&
         candidaturaEnviadaEm != null;
     final ciclo = await _enviarCadastro(
-      dadosCadastro,
+      daSessao,
       tipo: 'padrinho',
-      respostas: dadosCadastro.respostasPadrinho(),
+      respostas: daSessao.respostasPadrinho(),
     );
     definir(
-      dadosCadastro: dadosCadastro,
+      dadosCadastro: daSessao,
       escolha: Participacao.padrinho,
       statusParticipacao: StatusParticipacao.padrinhoEmAnalise,
       enviadaEm: enviadaEm ?? (jaEnviada ? null : DateTime.now()),
@@ -194,13 +224,14 @@ class SessaoUsuario {
   Future<void> cadastrarApadrinhado({
     required DadosCadastro dadosCadastro,
   }) async {
+    final daSessao = _dadosDaSessao(dadosCadastro);
     final ciclo = await _enviarCadastro(
-      dadosCadastro,
+      daSessao,
       tipo: 'apadrinhado',
-      respostas: dadosCadastro.respostasApadrinhado(),
+      respostas: daSessao.respostasApadrinhado(),
     );
     definir(
-      dadosCadastro: dadosCadastro,
+      dadosCadastro: daSessao,
       escolha: Participacao.apadrinhado,
       statusParticipacao: ciclo.status == StatusCiclo.emAndamento
           ? StatusParticipacao.apadrinhadoAguardandoMatch
@@ -208,6 +239,20 @@ class SessaoUsuario {
       enviadaEm: DateTime.now(),
     );
     _registrarNoHistorico(ciclo);
+  }
+
+  /// O e-mail enviado é o da identidade autenticada, nunca um padrão da tela.
+  DadosCadastro _dadosDaSessao(DadosCadastro dadosCadastro) {
+    final autenticado = identidade;
+    if (autenticado == null) {
+      throw const ApiException(
+        'Entre com a conta institucional antes de enviar o cadastro.',
+      );
+    }
+    if (dadosCadastro.email.trim().toLowerCase() == autenticado.email) {
+      return dadosCadastro;
+    }
+    return dadosCadastro.copyWith(email: autenticado.email);
   }
 
   /// `POST /cadastro` (mesmo endpoint e regras do web). Guarda o token.
@@ -322,6 +367,7 @@ class SessaoUsuario {
 
   void limpar() {
     dados = null;
+    identidade = null;
     participacao = null;
     status = StatusParticipacao.nenhuma;
     candidaturaEnviadaEm = null;
