@@ -52,14 +52,14 @@ export interface OpcoesSasUpload {
 @Injectable()
 export class AzureBlobStorageService {
   constructor(
-    private readonly servico: BlobServiceClient,
-    private readonly credencial: StorageSharedKeyCredential,
+    private readonly servico: BlobServiceClient | null,
+    private readonly credencial: StorageSharedKeyCredential | null,
     private readonly prazos: { leituraMinutos: number; uploadMinutos: number },
   ) {}
 
   /** Client do container permitido. Não cria o container no Azure. */
   obterContainer(container: ContainerArmazenamento): ContainerClient {
-    return this.servico.getContainerClient(this.exigirContainer(container));
+    return this.cliente().getContainerClient(this.exigirContainer(container));
   }
 
   async enviar(
@@ -131,7 +131,7 @@ export class AzureBlobStorageService {
         `O container "${destino}" é privado e não possui URL pública permanente. Use uma SAS de leitura.`,
       );
     }
-    return this.servico
+    return this.cliente()
       .getContainerClient(destino)
       .getBlockBlobClient(validarNomeBlob(blobName)).url;
   }
@@ -211,9 +211,9 @@ export class AzureBlobStorageService {
         expiresOn: expiraEm,
         contentType,
       },
-      this.credencial,
+      this.credencialCompartilhada(),
     ).toString();
-    const url = this.servico
+    const url = this.cliente()
       .getContainerClient(container)
       .getBlockBlobClient(nome).url;
     return {
@@ -229,7 +229,7 @@ export class AzureBlobStorageService {
     container: ContainerArmazenamento,
   ): Promise<ContainerClient> {
     const destino = this.exigirContainer(container);
-    const cliente = this.servico.getContainerClient(destino);
+    const cliente = this.cliente().getContainerClient(destino);
     let existe: boolean;
     try {
       existe = await cliente.exists();
@@ -244,6 +244,24 @@ export class AzureBlobStorageService {
       );
     }
     return cliente;
+  }
+
+  private cliente(): BlobServiceClient {
+    if (!this.servico || !this.credencial) {
+      throw new ServiceUnavailableException(
+        'Azure Blob Storage não está configurado. Defina AZURE_STORAGE_CONNECTION_STRING no .env.',
+      );
+    }
+    return this.servico;
+  }
+
+  private credencialCompartilhada(): StorageSharedKeyCredential {
+    if (!this.servico || !this.credencial) {
+      throw new ServiceUnavailableException(
+        'Azure Blob Storage não está configurado. Defina AZURE_STORAGE_CONNECTION_STRING no .env.',
+      );
+    }
+    return this.credencial;
   }
 
   private exigirContainer(valor: string): ContainerArmazenamento {

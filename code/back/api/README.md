@@ -59,9 +59,10 @@ desenvolvimento e impede a inicialização em produção (exige ≥ 32 caractere
 login demo (`AUTH_DEMO_ENABLED=true`) é só para desenvolvimento e fica bloqueado
 com `NODE_ENV=production`.
 
-Arquivos ficam no Azure Blob Storage. `AZURE_STORAGE_CONNECTION_STRING` é
-obrigatória no `.env` local (o placeholder do exemplo não sobe a API) e nunca
-deve ser commitada. Containers públicos (`map-assets`, `restaurant-menus`)
+Arquivos ficam no Azure Blob Storage. `AZURE_STORAGE_CONNECTION_STRING`
+nunca deve ser commitada. Em produção ela é obrigatória. Em desenvolvimento
+a API sobe sem ela, ou com o placeholder do exemplo, e registra um aviso;
+operações de arquivo falham até a connection string real estar no `.env`. Containers públicos (`map-assets`, `restaurant-menus`)
 usam a URL permanente do blob, sem SAS de leitura. Containers privados
 (`profiles`, `feed`, `chat`) guardam só a chave (`profiles/{id}/{uuid}.webp`)
 e recebem uma SAS curta na hora de ler ou enviar; essa SAS não deve ser salva

@@ -4,8 +4,8 @@ import { BlobServiceClient } from '@azure/storage-blob';
 import { AzureBlobStorageService } from './azure-blob-storage.service.js';
 import {
   credencialCompartilhada,
-  exigirConnectionStringAzure,
   minutosSas,
+  resolverConnectionStringAzure,
   SAS_LEITURA_MAX_MINUTOS,
   SAS_LEITURA_PADRAO_MINUTOS,
   SAS_UPLOAD_MAX_MINUTOS,
@@ -18,10 +18,10 @@ import {
       provide: AzureBlobStorageService,
       inject: [ConfigService],
       useFactory: (configuracao: ConfigService) => {
-        const connectionString = exigirConnectionStringAzure(
+        const resolvida = resolverConnectionStringAzure(
           configuracao.get<string>('AZURE_STORAGE_CONNECTION_STRING'),
+          configuracao.get<string>('NODE_ENV'),
         );
-        const credencial = credencialCompartilhada(connectionString);
         const leituraMinutos = minutosSas(
           configuracao.get<string>('AZURE_STORAGE_SAS_LEITURA_MINUTOS'),
           SAS_LEITURA_PADRAO_MINUTOS,
@@ -34,11 +34,19 @@ import {
           SAS_UPLOAD_MAX_MINUTOS,
           'AZURE_STORAGE_SAS_UPLOAD_MINUTOS',
         );
+        if ('aviso' in resolvida) {
+          new Logger('Storage').warn(resolvida.aviso);
+          return new AzureBlobStorageService(null, null, {
+            leituraMinutos,
+            uploadMinutos,
+          });
+        }
+        const credencial = credencialCompartilhada(resolvida.connectionString);
         new Logger('Storage').log(
           `Azure Blob Storage configurado (conta=${credencial.accountName}).`,
         );
         return new AzureBlobStorageService(
-          BlobServiceClient.fromConnectionString(connectionString),
+          BlobServiceClient.fromConnectionString(resolvida.connectionString),
           credencial,
           { leituraMinutos, uploadMinutos },
         );

@@ -8,8 +8,32 @@ export const SAS_LEITURA_MAX_MINUTOS = 60;
 export const SAS_UPLOAD_PADRAO_MINUTOS = 10;
 export const SAS_UPLOAD_MAX_MINUTOS = 15;
 
+const AVISO_AUSENTE =
+  'AZURE_STORAGE_CONNECTION_STRING ausente ou com valor de exemplo: a API sobe, mas operações de arquivo falham até a connection string real estar no .env. Aceitável só em desenvolvimento.';
+
 /**
- * Falha na subida se a connection string não estiver no ambiente.
+ * Em produção a connection string é obrigatória. Fora de produção, ausência
+ * ou placeholder não derrubam a API: devolvem um aviso. Valor presente e
+ * inválido falha nos dois ambientes. A mensagem não repete o valor recebido.
+ */
+export function resolverConnectionStringAzure(
+  valor: string | undefined,
+  nodeEnv: string | undefined,
+): { connectionString: string } | { aviso: string } {
+  const texto = valor?.trim() ?? '';
+  if (!texto || texto === PLACEHOLDER) {
+    if (nodeEnv === 'production') {
+      throw new Error(
+        'AZURE_STORAGE_CONNECTION_STRING é obrigatória em produção. Defina a connection string no ambiente; não a coloque no código.',
+      );
+    }
+    return { aviso: AVISO_AUSENTE };
+  }
+  return { connectionString: exigirConnectionStringAzure(texto) };
+}
+
+/**
+ * Exige uma connection string utilizável.
  * A mensagem não repete o valor recebido.
  */
 export function exigirConnectionStringAzure(valor: string | undefined): string {

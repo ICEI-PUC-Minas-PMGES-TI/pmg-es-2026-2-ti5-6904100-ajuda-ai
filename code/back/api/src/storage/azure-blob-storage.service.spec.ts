@@ -149,6 +149,22 @@ describe('AzureBlobStorageService', () => {
   });
 });
 
+describe('Azure Blob Storage sem connection string', () => {
+  const service = new AzureBlobStorageService(null, null, {
+    leituraMinutos: 15,
+    uploadMinutos: 10,
+  });
+
+  it('recusa URL e SAS sem consultar o Azure', () => {
+    expect(() =>
+      service.urlPublica(CONTAINERS.mapAssets, 'campus/mapa.glb'),
+    ).toThrow(ServiceUnavailableException);
+    expect(() =>
+      service.sasLeitura(CONTAINERS.profiles, 'usuario/foto.webp'),
+    ).toThrow(/não está configurado/);
+  });
+});
+
 describe('operações no container', () => {
   function servicoMockado(containerExiste = true) {
     const base = BlobServiceClient.fromConnectionString(CONNECTION_FAKE);

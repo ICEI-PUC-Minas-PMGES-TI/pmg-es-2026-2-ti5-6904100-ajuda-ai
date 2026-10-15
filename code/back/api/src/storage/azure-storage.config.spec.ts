@@ -1,6 +1,7 @@
 import {
   exigirConnectionStringAzure,
   minutosSas,
+  resolverConnectionStringAzure,
   SAS_LEITURA_MAX_MINUTOS,
   SAS_LEITURA_PADRAO_MINUTOS,
 } from './azure-storage.config.js';
@@ -22,6 +23,42 @@ describe('exigirConnectionStringAzure', () => {
     } catch (erro) {
       expect(String(erro)).not.toContain('SEGREDO');
       expect(String(erro)).not.toContain(segredo);
+    }
+  });
+});
+
+describe('resolverConnectionStringAzure', () => {
+  it('em desenvolvimento aceita ausência e placeholder, sem repetir o valor', () => {
+    for (const valor of [undefined, '', 'cole-a-connection-string-aqui']) {
+      const r = resolverConnectionStringAzure(valor, 'development');
+      expect(r).toEqual({
+        aviso: expect.stringMatching(/só em desenvolvimento/),
+      });
+      expect(JSON.stringify(r)).not.toContain('cole-a-connection-string');
+    }
+  });
+
+  it('em produção recusa ausência e placeholder', () => {
+    expect(() =>
+      resolverConnectionStringAzure(undefined, 'production'),
+    ).toThrow(/obrigatória em produção/);
+    expect(() =>
+      resolverConnectionStringAzure(
+        'cole-a-connection-string-aqui',
+        'production',
+      ),
+    ).toThrow(/obrigatória em produção/);
+  });
+
+  it('valor inválido falha também fora de produção, sem repetir o segredo', () => {
+    const segredo = 'valor-invalido-SEGREDO-NAO-LOGAR';
+    expect(() => resolverConnectionStringAzure(segredo, 'development')).toThrow(
+      /inválida/,
+    );
+    try {
+      resolverConnectionStringAzure(segredo, undefined);
+    } catch (erro) {
+      expect(String(erro)).not.toContain('SEGREDO');
     }
   });
 });
