@@ -26,6 +26,7 @@
     "migration:revert": "nest build && typeorm migration:revert -d dist/database/data-source.js"
   },
   "dependencies": {
+    "@azure/storage-blob": "^12.34.0",
     "@nestjs/common": "^12.0.1",
     "@nestjs/config": "^12.0.0",
     "@nestjs/core": "^12.0.1",

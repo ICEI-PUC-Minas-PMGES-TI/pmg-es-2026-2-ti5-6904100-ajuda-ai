@@ -59,6 +59,18 @@ desenvolvimento e impede a inicialização em produção (exige ≥ 32 caractere
 login demo (`AUTH_DEMO_ENABLED=true`) é só para desenvolvimento e fica bloqueado
 com `NODE_ENV=production`.
 
+Arquivos ficam no Azure Blob Storage. `AZURE_STORAGE_CONNECTION_STRING` é
+obrigatória no `.env` local (o placeholder do exemplo não sobe a API) e nunca
+deve ser commitada. Containers públicos (`map-assets`, `restaurant-menus`)
+usam a URL permanente do blob, sem SAS de leitura. Containers privados
+(`profiles`, `feed`, `chat`) guardam só a chave (`profiles/{id}/{uuid}.webp`)
+e recebem uma SAS curta na hora de ler ou enviar; essa SAS não deve ser salva
+no banco. A validade padrão é 15 minutos para leitura e 10 para upload
+(`AZURE_STORAGE_SAS_LEITURA_MINUTOS`, `AZURE_STORAGE_SAS_UPLOAD_MINUTOS`).
+A API não cria containers. Upload direto pelo navegador exige CORS na conta de
+armazenamento (origem do front, `PUT` e `OPTIONS`); o app mobile nativo não
+depende desse CORS, e esta API não altera a conta.
+
 ```bash
 npm run start:dev
 ```

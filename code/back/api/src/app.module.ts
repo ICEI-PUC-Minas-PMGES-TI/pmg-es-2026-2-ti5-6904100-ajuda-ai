@@ -16,6 +16,7 @@ import { ParticipacoesModule } from './participacoes/participacoes.module.js';
 import { ProgramasModule } from './programas/programas.module.js';
 import { UsuariosModule } from './usuarios/usuarios.module.js';
 import { PublicacoesModule } from './publicacoes/publicacoes.module.js';
+import { StorageModule } from './storage/storage.module.js';
 
 async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
   const schema = 'schema' in opcoes ? opcoes.schema : undefined;
@@ -86,6 +87,7 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
         return new DataSource(opcoes).initialize();
       },
     }),
+    StorageModule,
     AuthModule,
     UsuariosModule,
     CadastroModule,
