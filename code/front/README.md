@@ -18,8 +18,10 @@ A API Nest precisa estar em `http://localhost:3000` (ou defina `VITE_API_URL`).
 
 ### Identidade demo do aluno
 
-Ainda não há login de aluno. O e-mail padrão é `fernanda.soares@pucminas.edu.br`;
-use `?email=outro@pucminas.edu.br` (no cadastro `/` ou em `/aluno/...`) para trocar de aluno.
+Ainda não há login Microsoft no site. O e-mail padrão da área do aluno é
+`fernanda.soares@pucminas.edu.br`; use `?email=` no cadastro ou em `/aluno/...`
+para trocar. `POST /auth/login-demo` não aceita mais um e-mail qualquer: só a
+lista fixa da API (Camila, Lucas, Thiago, Ana, Pedro, Julia e Renata).
 A sessão do aluno e as preferências ficam no `localStorage` do navegador
 (“Refazer cadastro” e “Limpar dados locais” em Configurações).
 

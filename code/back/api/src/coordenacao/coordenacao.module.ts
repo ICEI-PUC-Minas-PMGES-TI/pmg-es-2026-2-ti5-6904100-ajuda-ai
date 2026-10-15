@@ -22,5 +22,6 @@ import { CoordenacaoService } from './coordenacao.service.js';
   ],
   controllers: [CoordenacaoController],
   providers: [CoordenacaoService],
+  exports: [CoordenacaoService],
 })
 export class CoordenacaoModule {}

@@ -41,6 +41,15 @@ export class CoordenacaoService implements OnModuleInit {
   /** Base demo (ciclos, requisitos, participações): só com SEED_DEMO_DATA=true. */
   async onModuleInit() {
     if (!seedDemoHabilitado()) return;
+    await this.semearBaseDemo();
+  }
+
+  /**
+   * Conjunto fixo e idempotente de programa, requisitos e participações demo.
+   * A subida da API só chama isto com SEED_DEMO_DATA=true em banco local.
+   * O comando `npm run seed:demo` chama de propósito, uma vez, no ambiente alvo.
+   */
+  async semearBaseDemo() {
     await this.programasService.garantirProgramaAtual();
     await this.programasService.garantirProgramaHistoricoDemo();
     await this.semearRequisitosDemo();

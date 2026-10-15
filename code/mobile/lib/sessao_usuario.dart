@@ -20,11 +20,10 @@ class IdentidadeAutenticada {
 
 /// Estado de sessão do aluno — preenchido após o cadastro/escolha.
 ///
-/// O login Microsoft do app ainda não está ligado (falta o app público no
-/// Entra ID). Enquanto isso, [identidade] só existe quando um fluxo real
-/// a definiu. O envio do cadastro (`POST /cadastro`) usa o e-mail dessa
-/// identidade. O login demo continua só para aluno já cadastrado e para a
-/// coordenação, e devolve o token usado nas chamadas seguintes.
+/// [identidade] só existe depois do login Microsoft ou da escolha de um
+/// usuário demo. O envio do cadastro (`POST /cadastro`) usa o e-mail dessa
+/// identidade. O login demo não passa pela Microsoft e devolve o token
+/// usado nas chamadas seguintes.
 ///
 /// O envio só conta quando a API confirma: sem conexão
 /// ([ApiIndisponivelException]) ou com erro ([ApiException]) nada muda
@@ -50,6 +49,9 @@ class SessaoUsuario {
 
   DadosCadastro? dados;
   IdentidadeAutenticada? identidade;
+
+  /// JWT curto que só autoriza o POST /cadastro. Não acessa o restante da API.
+  String? onboardingToken;
   Participacao? participacao;
   StatusParticipacao status = StatusParticipacao.nenhuma;
   DateTime? candidaturaEnviadaEm;
@@ -88,6 +90,40 @@ class SessaoUsuario {
       throw ArgumentError('Identidade institucional inválida.');
     }
     identidade = IdentidadeAutenticada(nome: nomeLimpo, email: emailLimpo);
+  }
+
+  void iniciarOnboarding({
+    required String nome,
+    required String email,
+    required String token,
+  }) {
+    definirIdentidade(nome: nome, email: email);
+    onboardingToken = token;
+    _api.accessToken = null;
+  }
+
+  void assumirSessao({
+    required String accessToken,
+    required String nome,
+    required String email,
+    String? curso,
+    int? periodo,
+    String? turno,
+    List<String>? interesses,
+  }) {
+    definirIdentidade(nome: nome, email: email);
+    onboardingToken = null;
+    _api.accessToken = accessToken;
+    if (curso != null && curso.isNotEmpty) {
+      dados = DadosCadastro(
+        nome: nome,
+        email: email,
+        curso: curso,
+        periodo: periodo ?? 1,
+        turno: turno ?? '',
+        interesses: interesses ?? const [],
+      );
+    }
   }
 
   bool get ehExplorar => status == StatusParticipacao.explorar;
@@ -261,7 +297,14 @@ class SessaoUsuario {
     required String tipo,
     required Map<String, dynamic> respostas,
   }) async {
+    final token = _api.accessToken ?? onboardingToken;
+    if (token == null) {
+      throw const ApiException(
+        'Conclua o login Microsoft antes de enviar o cadastro.',
+      );
+    }
     final resultado = await _api.cadastrar(
+      autorizacao: token,
       nome: dadosCadastro.nome,
       email: _idDe(dadosCadastro),
       curso: dadosCadastro.curso,
@@ -271,6 +314,7 @@ class SessaoUsuario {
       tipoParticipacao: tipo,
       respostas: respostas,
     );
+    onboardingToken = null;
     return resultado.participacao;
   }
 
@@ -368,6 +412,7 @@ class SessaoUsuario {
   void limpar() {
     dados = null;
     identidade = null;
+    onboardingToken = null;
     participacao = null;
     status = StatusParticipacao.nenhuma;
     candidaturaEnviadaEm = null;

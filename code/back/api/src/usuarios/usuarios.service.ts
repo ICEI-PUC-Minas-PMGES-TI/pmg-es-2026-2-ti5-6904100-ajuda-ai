@@ -98,7 +98,7 @@ export class UsuariosService implements OnModuleInit {
    * manuais tenham padrinhos/apadrinhados aprovados, pendentes e rejeitados.
    * Idempotente: não altera usuários que já existem.
    */
-  private async semearAlunosDemo() {
+  async semearAlunosDemo() {
     for (const demo of Object.values(USUARIOS)) {
       if (demo.perfil === 'coordenador') continue;
       const email = UsuariosService.normalizarEmail(demo.email);

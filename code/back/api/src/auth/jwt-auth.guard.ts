@@ -27,8 +27,14 @@ export class JwtAuthGuard implements CanActivate {
     try {
       requisicao.user =
         await this.jwtService.verifyAsync<AccessTokenPayload>(token);
+      if (requisicao.user.escopo === 'onboarding') {
+        throw new UnauthorizedException(
+          'Token de onboarding não autoriza o acesso ao sistema.',
+        );
+      }
       return true;
-    } catch {
+    } catch (erro) {
+      if (erro instanceof UnauthorizedException) throw erro;
       throw new UnauthorizedException('Token de acesso inválido ou expirado.');
     }
   }

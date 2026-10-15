@@ -74,6 +74,7 @@ void main() {
       nome: 'Camila Duarte',
       email: 'camila@pucminas.edu.br',
     );
+    SessaoUsuario.atual.onboardingToken = 'onboarding-teste';
   });
   tearDown(SessaoUsuario.atual.limpar);
 
@@ -195,6 +196,7 @@ void main() {
     expect(api.posts('/participacoes/cadastro-apadrinhado'), isEmpty);
     final envio = api.posts('/cadastro').single;
     expect(envio.headers.containsKey('x-user-id'), isFalse);
+    expect(envio.headers['authorization'], 'Bearer onboarding-teste');
     final corpo = api.corpo(envio);
     expect(corpo, containsPair('email', 'camila@pucminas.edu.br'));
     expect(corpo, containsPair('nome', 'Camila Duarte'));

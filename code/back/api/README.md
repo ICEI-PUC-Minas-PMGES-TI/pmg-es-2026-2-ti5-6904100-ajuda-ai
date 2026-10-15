@@ -85,7 +85,7 @@ A API fica disponível em `http://localhost:3000`.
 | `POST` | `/auth/login` | Valida um ID token Microsoft e devolve o JWT da API e os dados do usuário. |
 | `GET` | `/me` | Dados do usuário autenticado. Exige JWT no cabeçalho `Authorization`. |
 | `GET` | `/me/vinculos` | Padrinho ou apadrinhados vinculados ao usuário. Exige JWT. |
-| `POST` | `/auth/login-demo` | Login de desenvolvimento sem Microsoft (`AUTH_DEMO_ENABLED=true`). Usado pelo painel da coordenação enquanto não há login. |
+| `POST` | `/auth/login-demo` | Login de desenvolvimento sem Microsoft. Só com `AUTH_DEMO_ENABLED=true`, fora de produção, e só para os e-mails da base demo. |
 | `GET` | `/avisos` | Comunicados da coordenação (persistidos). `?publico=padrinhos\|apadrinhados` filtra os direcionados. |
 | `GET` | `/participacoes` | Histórico de participações do aluno (`x-user-id` ou `?usuarioId=`). |
 | `GET` | `/participacoes/situacao` | Situação do aluno no ciclo atual: candidatura, padrinho/apadrinhados, grupo e etapas do programa. |
@@ -131,7 +131,49 @@ Exemplo:
 curl -X POST http://localhost:3000/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"idToken":"ID_TOKEN_RECEBIDO_DA_MICROSOFT"}'
+```
 
+Quem já está em `usuarios` recebe `situacao: "autenticado"` e o JWT normal.
+Quem ainda não está recebe `situacao: "onboarding"` e um JWT de 15 minutos
+(`escopo: onboarding`) com nome e e-mail verificados. Esse token não abre `/me`.
+O `POST /cadastro` exige esse token (ou a sessão normal) e recusa um e-mail
+diferente do que está no token.
+
+## Login real e login demo
+
+O login real é `POST /auth/login` com o ID token da Microsoft. A conta precisa
+ser `@pucminas.edu.br` (`AUTH_ALLOWED_DOMAIN`). Um e-mail inventado não entra.
+
+O login demo é só para desenvolvimento. Não passa pela Microsoft, não usa senha
+e não aceita um e-mail qualquer. `POST /auth/login-demo` exige
+`AUTH_DEMO_ENABLED=true` e `NODE_ENV` diferente de `production`. Em produção
+a rota é recusada mesmo com a flag ligada.
+
+Usuários fixos (os e-mails já usados no código; não foram trocados):
+
+| Nome | E-mail | Papel no seletor |
+| --- | --- | --- |
+| Camila Duarte | `camila@pucminas.edu.br` | Apadrinhada |
+| Lucas Almeida | `lucas.almeida@pucminas.edu.br` | Apadrinhado |
+| Thiago Moreira | `thiago@pucminas.edu.br` | Padrinho |
+| Ana Beatriz Costa | `ana.beatriz@pucminas.edu.br` | Candidata a padrinho |
+| Pedro Henrique Lima | `pedro.lima@pucminas.edu.br` | Candidato a padrinho |
+| Julia Fernandes | `julia.fernandes@pucminas.edu.br` | Candidata não aprovada |
+| Renata Martins | `renata@pucminas.edu.br` | Coordenadora (não vai para o banco) |
+
+Renata continua só na base em memória. Os outros precisam de uma linha em
+`usuarios`. No ambiente compartilhado, rode **uma vez** (não em produção):
+
+```bash
+npm run seed:demo
+```
+
+O comando é idempotente: cria quem falta e não duplica quem já existe. Ele
+também completa programa, requisitos e participações demo. Não ligue
+`SEED_DEMO_DATA=true` no banco remoto; a API continua recusando essa flag
+fora de um banco local.
+
+```bash
 curl http://localhost:3000/me \
   -H 'Authorization: Bearer JWT_DEVOLVIDO_PELA_API'
 ```

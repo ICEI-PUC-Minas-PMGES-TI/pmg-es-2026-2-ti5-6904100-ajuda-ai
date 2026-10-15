@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 
 import '../services/auth_api.dart';
 import '../services/coordenacao_api.dart';
+import '../tela_login.dart';
 import '../theme/colors.dart';
 import 'tela_candidaturas_coord.dart';
 import 'tela_comunicado_coord.dart';
@@ -196,7 +197,15 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       TelaMaisCoord(
         nomeCoordenador: _sessao!.nome,
         onAbrir: (destino) => _abrirDestino(destino, const {}),
-        onSair: () => Navigator.of(context).maybePop(),
+        onSair: () {
+          _sessao = null;
+          _api = null;
+          encerrarSessao(
+            context,
+            client: widget.client,
+            baseUrl: widget.baseUrl,
+          );
+        },
       ),
     ];
 

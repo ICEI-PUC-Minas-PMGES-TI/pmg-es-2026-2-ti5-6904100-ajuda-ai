@@ -30,6 +30,7 @@ void main() {
       nome: 'Camila Duarte',
       email: 'camila@pucminas.edu.br',
     );
+    SessaoUsuario.atual.onboardingToken = 'onboarding-teste';
   });
   tearDown(SessaoUsuario.atual.limpar);
 

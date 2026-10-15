@@ -1,4 +1,8 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  INestApplication,
+  UnauthorizedException,
+  ValidationPipe,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
@@ -50,6 +54,7 @@ describe('Autenticação (e2e)', () => {
       .send({ idToken: 'id-token-valido' })
       .expect(201);
 
+    expect(login.body.situacao).toBe('autenticado');
     expect(login.body.accessToken).toEqual(expect.any(String));
 
     const perfil = await request(app.getHttpServer())
@@ -70,5 +75,56 @@ describe('Autenticação (e2e)', () => {
 
   it('rejeita um corpo de login sem ID token', async () => {
     await request(app.getHttpServer()).post('/auth/login').send({}).expect(400);
+  });
+
+  it('usuário Microsoft ainda não cadastrado recebe onboarding e não entra no /me', async () => {
+    const verificador = app.get(MicrosoftTokenVerifier) as {
+      verificar: ReturnType<typeof vi.fn>;
+    };
+    verificador.verificar.mockResolvedValueOnce({
+      subject: 'novo-subject',
+      email: 'gabriel@pucminas.edu.br',
+      name: 'Gabriel',
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ idToken: 'id-token-novo' })
+      .expect(201);
+
+    expect(login.body.situacao).toBe('onboarding');
+    expect(login.body.accessToken).toBeUndefined();
+    expect(login.body.identidade).toEqual({
+      nome: 'Gabriel',
+      email: 'gabriel@pucminas.edu.br',
+    });
+
+    await request(app.getHttpServer())
+      .get('/me')
+      .set('Authorization', `Bearer ${login.body.onboardingToken}`)
+      .expect(401);
+  });
+
+  it('domínio fora de @pucminas.edu.br e token inválido são recusados', async () => {
+    const verificador = app.get(MicrosoftTokenVerifier) as {
+      verificar: ReturnType<typeof vi.fn>;
+    };
+    verificador.verificar.mockResolvedValueOnce({
+      subject: 's',
+      email: 'gabriel@gmail.com',
+      name: 'Gabriel',
+    });
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ idToken: 'outro-dominio' })
+      .expect(401);
+
+    verificador.verificar.mockRejectedValueOnce(
+      new UnauthorizedException('Token Microsoft inválido ou expirado.'),
+    );
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ idToken: 'invalido' })
+      .expect(401);
   });
 });

@@ -2,6 +2,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
+import { JwtService } from '@nestjs/jwt';
 import { AuthModule } from '../src/auth/auth.module.js';
 import { CadastroModule } from '../src/cadastro/cadastro.module.js';
 import { CadastroService } from '../src/cadastro/cadastro.service.js';
@@ -55,8 +56,29 @@ describe('Cadastro (e2e)', () => {
 
   const http = () => request(app.getHttpServer());
 
+  const postCadastro = (corpo: { email: string; nome?: string }) => {
+    const token = app.get(JwtService).sign({
+      sub: corpo.email,
+      email: corpo.email,
+      nome: corpo.nome ?? 'Aluno',
+      escopo: 'onboarding',
+    });
+    return http()
+      .post('/cadastro')
+      .set('Authorization', `Bearer ${token}`)
+      .send(corpo);
+  };
+
+  const tokenAcesso = (email: string) =>
+    app.get(JwtService).sign({
+      sub: email,
+      email,
+      perfil: 'apadrinhado',
+      escopo: 'acesso',
+    });
+
   it('cria o cadastro PENDENTE com a candidatura do ciclo e devolve sessão', async () => {
-    const resposta = await http().post('/cadastro').send(base).expect(201);
+    const resposta = await postCadastro(base).expect(201);
 
     expect(resposta.body.accessToken).toEqual(expect.any(String));
     expect(resposta.body.usuario).toMatchObject({
@@ -85,9 +107,7 @@ describe('Cadastro (e2e)', () => {
   });
 
   it('rejeita PADRINHO no 1º período (regra do backend)', async () => {
-    const resposta = await http()
-      .post('/cadastro')
-      .send({ ...base, periodo: 1 })
+    const resposta = await postCadastro({ ...base, periodo: 1 })
       .expect(400);
 
     expect(resposta.body.message).toMatch(
@@ -98,9 +118,7 @@ describe('Cadastro (e2e)', () => {
   });
 
   it('aceita APADRINHADO no 1º período, pendente de aprovação', async () => {
-    const resposta = await http()
-      .post('/cadastro')
-      .send({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
+    const resposta = await postCadastro({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
       .expect(201);
 
     expect(resposta.body.usuario.statusCadastro).toBe('pendente');
@@ -112,9 +130,7 @@ describe('Cadastro (e2e)', () => {
 
   it('rejeita APADRINHADO a partir do 2º período (regra do backend)', async () => {
     for (const periodo of [2, 5, 12]) {
-      const resposta = await http()
-        .post('/cadastro')
-        .send({ ...base, periodo, tipoParticipacao: 'apadrinhado' })
+      const resposta = await postCadastro({ ...base, periodo, tipoParticipacao: 'apadrinhado' })
         .expect(400);
       expect(resposta.body.message).toMatch(
         /A partir do 2º período não é possível se cadastrar como apadrinhado/,
@@ -125,9 +141,7 @@ describe('Cadastro (e2e)', () => {
   });
 
   it('aceita PADRINHO a partir do 2º período', async () => {
-    const resposta = await http()
-      .post('/cadastro')
-      .send({ ...base, periodo: 2 })
+    const resposta = await postCadastro({ ...base, periodo: 2 })
       .expect(201);
     expect(resposta.body.usuario).toMatchObject({
       tipoParticipacao: 'padrinho',
@@ -138,6 +152,7 @@ describe('Cadastro (e2e)', () => {
   it('rota antiga do mobile: 2º+ período como apadrinhado → 400', async () => {
     const resposta = await http()
       .post('/participacoes/cadastro-apadrinhado')
+      .set('Authorization', `Bearer ${tokenAcesso('veterano@pucminas.edu.br')}`)
       .set('x-user-id', 'veterano@pucminas.edu.br')
       .send({ respostas: { nome: 'Veterano', curso: 'SI', periodo: 3 } })
       .expect(400);
@@ -146,9 +161,7 @@ describe('Cadastro (e2e)', () => {
   });
 
   it('rota antiga com token: x-user-id falso não troca a identidade', async () => {
-    const { body } = await http()
-      .post('/cadastro')
-      .send({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
+    const { body } = await postCadastro({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
       .expect(201);
     const resposta = await http()
       .post('/participacoes/cadastro-apadrinhado')
@@ -173,6 +186,7 @@ describe('Cadastro (e2e)', () => {
   it('a regra do 1º período vale também na rota antiga (app mobile)', async () => {
     const resposta = await http()
       .post('/participacoes/candidatura-padrinho')
+      .set('Authorization', `Bearer ${tokenAcesso('calouro@pucminas.edu.br')}`)
       .set('x-user-id', 'calouro@pucminas.edu.br')
       .send({ respostas: { nome: 'Calouro', curso: 'SI', periodo: 1 } })
       .expect(400);
@@ -182,44 +196,30 @@ describe('Cadastro (e2e)', () => {
   });
 
   it('valida dados obrigatórios e modalidade', async () => {
-    await http()
-      .post('/cadastro')
-      .send({ ...base, tipoParticipacao: 'coordenador' })
+    await postCadastro({ ...base, tipoParticipacao: 'coordenador' })
       .expect(400);
-    await http()
-      .post('/cadastro')
-      .send({ ...base, nome: '' })
+    await postCadastro({ ...base, nome: '' })
       .expect(400);
-    await http()
-      .post('/cadastro')
-      .send({ ...base, periodo: 0 })
+    await postCadastro({ ...base, periodo: 0 })
       .expect(400);
-    await http()
-      .post('/cadastro')
-      .send({ ...base, email: 'rafa@gmail.com' })
+    await postCadastro({ ...base, email: 'rafa@gmail.com' })
       .expect(400);
-    await http()
-      .post('/cadastro')
-      .send({ ...base, email: 'renata@pucminas.edu.br' })
+    await postCadastro({ ...base, email: 'renata@pucminas.edu.br' })
       .expect(400);
   });
 
   it('não troca de modalidade num cadastro já existente', async () => {
-    await http()
-      .post('/cadastro')
-      .send({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
+    await postCadastro({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
       .expect(201);
     // já no 2º período, tenta virar padrinho com o mesmo e-mail
-    const resposta = await http()
-      .post('/cadastro')
-      .send({ ...base, periodo: 2, tipoParticipacao: 'padrinho' })
+    const resposta = await postCadastro({ ...base, periodo: 2, tipoParticipacao: 'padrinho' })
       .expect(409);
 
     expect(resposta.body.message).toMatch(/já está cadastrado/);
   });
 
   it('pendente e rejeitado não acessam recursos de participante; aprovado acessa', async () => {
-    const { body } = await http().post('/cadastro').send(base).expect(201);
+    const { body } = await postCadastro(base).expect(201);
     const token = `Bearer ${body.accessToken}`;
     const cadastro = app.get(CadastroService);
 
@@ -234,9 +234,7 @@ describe('Cadastro (e2e)', () => {
   });
 
   it('rejeitado não ganha acesso e não consegue reenviar', async () => {
-    const { body } = await http()
-      .post('/cadastro')
-      .send({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
+    const { body } = await postCadastro({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
       .expect(201);
     const cadastro = app.get(CadastroService);
     await cadastro.rejeitar(
@@ -251,17 +249,13 @@ describe('Cadastro (e2e)', () => {
       .expect(403);
     expect(vinculos.body.message).toMatch(/não foi aprovado/);
 
-    const reenvio = await http()
-      .post('/cadastro')
-      .send({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
+    const reenvio = await postCadastro({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
       .expect(409);
     expect(reenvio.body.message).toMatch(/Faltam dados/);
   });
 
   it('situação só traz cadastro e esconde vínculos de quem não é aprovado', async () => {
-    const { body } = await http()
-      .post('/cadastro')
-      .send({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
+    const { body } = await postCadastro({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
       .expect(201);
 
     const situacao = await http()
@@ -281,7 +275,7 @@ describe('Cadastro (e2e)', () => {
   });
 
   it('aprovar a candidatura na tela de Candidaturas aprova o cadastro pendente', async () => {
-    const { body } = await http().post('/cadastro').send(base).expect(201);
+    const { body } = await postCadastro(base).expect(201);
     const cadastro = app.get(CadastroService);
     const participacao = participacoes.find(
       (p) => p.id === body.participacao.id,
@@ -309,6 +303,36 @@ describe('Cadastro (e2e)', () => {
     expect(status['ana.beatriz@pucminas.edu.br']).toBe('pendente');
     expect(status['julia.fernandes@pucminas.edu.br']).toBe('rejeitado');
     expect(status['renata@pucminas.edu.br']).toBeUndefined();
+  });
+
+  it('cadastro sem token ou com e-mail diferente do token é recusado', async () => {
+    await http().post('/cadastro').send(base).expect(401);
+
+    const token = app.get(JwtService).sign({
+      sub: 'subject-microsoft',
+      email: 'gabriel@pucminas.edu.br',
+      nome: 'Gabriel',
+      escopo: 'onboarding',
+    });
+    const resposta = await http()
+      .post('/cadastro')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        ...base,
+        nome: 'Gabriel',
+        email: 'outra.pessoa@pucminas.edu.br',
+        periodo: 1,
+        tipoParticipacao: 'apadrinhado',
+      })
+      .expect(400);
+
+    expect(resposta.body.message).toMatch(/conta Microsoft/);
+    expect(
+      usuarios.find((u) => u.email === 'outra.pessoa@pucminas.edu.br'),
+    ).toBeUndefined();
+    expect(
+      usuarios.find((u) => u.email === 'gabriel@pucminas.edu.br'),
+    ).toBeUndefined();
   });
 
   it('token inválido é recusado nas rotas do aluno', async () => {

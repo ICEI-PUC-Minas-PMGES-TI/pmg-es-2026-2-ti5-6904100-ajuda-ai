@@ -2,6 +2,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
+import { JwtService } from '@nestjs/jwt';
 import { AuthModule } from '../src/auth/auth.module.js';
 import { CadastroModule } from '../src/cadastro/cadastro.module.js';
 import { FormularioEntity } from '../src/formularios/entities/formulario.entity.js';
@@ -55,6 +56,18 @@ describe('Período e requisitos de padrinho (e2e)', () => {
   });
 
   const http = () => request(app.getHttpServer());
+  const postCadastro = (corpo: { email: string; nome?: string }) => {
+    const token = app.get(JwtService).sign({
+      sub: corpo.email,
+      email: corpo.email,
+      nome: corpo.nome ?? 'Aluno',
+      escopo: 'onboarding',
+    });
+    return http()
+      .post('/cadastro')
+      .set('Authorization', `Bearer ${token}`)
+      .send(corpo);
+  };
   let n = 0;
   const corpo = (tipo: string, periodo: number, requisitos?: unknown) => ({
     nome: 'Aluno',
@@ -70,37 +83,29 @@ describe('Período e requisitos de padrinho (e2e)', () => {
   ];
 
   it('1. 1º + APADRINHADO → permitido', async () => {
-    await http().post('/cadastro').send(corpo('apadrinhado', 1)).expect(201);
+    await postCadastro(corpo('apadrinhado', 1)).expect(201);
   });
 
   it('2. 1º + PADRINHO → 400 (mesmo declarando os requisitos)', async () => {
-    const r = await http()
-      .post('/cadastro')
-      .send(corpo('padrinho', 1, todos))
+    const r = await postCadastro(corpo('padrinho', 1, todos))
       .expect(400);
     expect(r.body.message).toMatch(/1º período/);
   });
 
   it('3/5. 2º e 3º+ + APADRINHADO → 400', async () => {
     for (const periodo of [2, 3, 8]) {
-      await http()
-        .post('/cadastro')
-        .send(corpo('apadrinhado', periodo))
+      await postCadastro(corpo('apadrinhado', periodo))
         .expect(400);
     }
   });
 
   it('4/6. 2º e 3º+ + PADRINHO → entram na validação dos requisitos', async () => {
     for (const periodo of [2, 3, 8]) {
-      const sem = await http()
-        .post('/cadastro')
-        .send(corpo('padrinho', periodo))
+      const sem = await postCadastro(corpo('padrinho', periodo))
         .expect(400);
       expect(sem.body.message).toMatch(/é preciso cumprir: Cálculo I; AED I/);
 
-      const com = await http()
-        .post('/cadastro')
-        .send(corpo('padrinho', periodo, todos))
+      const com = await postCadastro(corpo('padrinho', periodo, todos))
         .expect(201);
       expect(com.body.usuario.statusCadastro).toBe('pendente');
       expect(com.body.participacao).toMatchObject({
@@ -111,9 +116,7 @@ describe('Período e requisitos de padrinho (e2e)', () => {
   });
 
   it('B. declara que NÃO cumpre um requisito → 400', async () => {
-    const r = await http()
-      .post('/cadastro')
-      .send(
+    const r = await postCadastro(
         corpo('padrinho', 3, [
           { id: 'calculo-i', cumpre: false },
           { id: 'aed-i', cumpre: true },
@@ -126,8 +129,15 @@ describe('Período e requisitos de padrinho (e2e)', () => {
   });
 
   it('B. rota antiga do mobile aplica os mesmos requisitos', async () => {
+    const token = app.get(JwtService).sign({
+      sub: 'legado@pucminas.edu.br',
+      email: 'legado@pucminas.edu.br',
+      perfil: 'padrinho',
+      escopo: 'acesso',
+    });
     await http()
       .post('/participacoes/candidatura-padrinho')
+      .set('Authorization', `Bearer ${token}`)
       .set('x-user-id', 'legado@pucminas.edu.br')
       .send({
         respostas: {

@@ -86,6 +86,7 @@ void main() {
       nome: _ana.nome,
       email: _ana.email,
     );
+    SessaoUsuario.atual.onboardingToken = 'onboarding-teste';
   });
   tearDown(SessaoUsuario.atual.limpar);
 

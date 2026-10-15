@@ -505,13 +505,7 @@ class _ProfilePageState extends State<ProfilePage> {
     ).push(MaterialPageRoute(builder: (_) => PerfilCadastroPage(dados: dados)));
   }
 
-  void _sair(BuildContext context) {
-    _sessao.limpar();
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginPage()),
-      (route) => false,
-    );
-  }
+  void _sair(BuildContext context) => encerrarSessao(context);
 }
 
 class _Titulo extends StatelessWidget {

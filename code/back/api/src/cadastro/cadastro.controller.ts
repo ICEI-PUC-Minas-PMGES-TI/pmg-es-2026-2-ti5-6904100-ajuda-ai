@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -9,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
+import { AuthService } from '../auth/auth.service.js';
 import {
   CadastroAprovadoGuard,
   type ParticipanteRequest,
@@ -26,15 +28,32 @@ import { CadastroDto } from './dto/cadastro.dto.js';
 /** Cadastro do aluno (público) e consulta do próprio cadastro. */
 @Controller('cadastro')
 export class CadastroController {
-  constructor(private readonly cadastroService: CadastroService) {}
+  constructor(
+    private readonly cadastroService: CadastroService,
+    private readonly authService: AuthService,
+  ) {}
 
   /**
    * Cria a solicitação de cadastro (status PENDENTE) e devolve a sessão do
-   * aluno para ele acompanhar a análise.
+   * aluno para ele acompanhar a análise. O e-mail vem do token Microsoft
+   * (onboarding ou sessão), nunca do valor livre do corpo.
    */
   @Post()
-  cadastrar(@Body() corpo: CadastroDto) {
-    return this.cadastroService.cadastrar(corpo);
+  async cadastrar(
+    @Headers('authorization') autorizacao: string | undefined,
+    @Body() corpo: CadastroDto,
+  ) {
+    const identidade = await this.authService.identidadeDoCadastro(autorizacao);
+    const informado = corpo.email.trim().toLowerCase();
+    if (informado !== identidade.email) {
+      throw new BadRequestException(
+        'O e-mail do cadastro deve ser o da conta Microsoft autenticada.',
+      );
+    }
+    return this.cadastroService.cadastrar({
+      ...corpo,
+      email: identidade.email,
+    });
   }
 
   @Get('me')
@@ -82,22 +101,24 @@ interface CorpoCadastroAntigo {
  * Rotas antigas de envio (usadas pelo app mobile e por "Editar candidatura").
  * Passam pelo mesmo CadastroService: mesmas validações (inclusive a regra do
  * 1º período) e o cadastro fica PENDENTE até a coordenação decidir.
- * Com token, a identidade vem do token; sem token, de `x-user-id`.
+ * A identidade vem do JWT (sessão ou onboarding). `x-user-id` não escolhe o e-mail.
  */
 @Controller('participacoes')
 @UseGuards(JwtOpcionalGuard)
 export class CadastroParticipacoesController {
-  constructor(private readonly cadastroService: CadastroService) {}
+  constructor(
+    private readonly cadastroService: CadastroService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Post('candidatura-padrinho')
   async registrarCandidatura(
     @Req() requisicao: AuthenticatedRequest,
     @Body() corpo: CorpoCadastroAntigo,
-    @Headers('x-user-id') headerUsuarioId?: string,
   ) {
     const { participacao } = await this.cadastroService.registrar(
       CadastroService.dadosDasRespostas(
-        this.usuarioId(requisicao, headerUsuarioId, corpo.usuarioId),
+        await this.emailAutenticado(requisicao),
         'padrinho',
         corpo.respostas,
         corpo.programa,
@@ -110,11 +131,10 @@ export class CadastroParticipacoesController {
   async cadastrarApadrinhado(
     @Req() requisicao: AuthenticatedRequest,
     @Body() corpo: CorpoCadastroAntigo,
-    @Headers('x-user-id') headerUsuarioId?: string,
   ) {
     const { participacao } = await this.cadastroService.registrar(
       CadastroService.dadosDasRespostas(
-        this.usuarioId(requisicao, headerUsuarioId, corpo.usuarioId),
+        await this.emailAutenticado(requisicao),
         'apadrinhado',
         corpo.respostas,
         corpo.programa,
@@ -123,16 +143,12 @@ export class CadastroParticipacoesController {
     return serializarParticipacao(participacao);
   }
 
-  private usuarioId(
+  private async emailAutenticado(
     requisicao: AuthenticatedRequest,
-    header?: string,
-    fallback?: string,
-  ): string {
-    return (
-      requisicao.user?.email ||
-      header?.trim() ||
-      fallback?.trim() ||
-      ''
-    ).toLowerCase();
+  ): Promise<string> {
+    const identidade = await this.authService.identidadeDoCadastro(
+      requisicao.headers.authorization,
+    );
+    return identidade.email;
   }
 }

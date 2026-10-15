@@ -151,7 +151,11 @@ export const api = {
   /* ===== Cadastro e sessão do aluno ===== */
   /** Cria a solicitação de cadastro (fica PENDENTE) e guarda a sessão do aluno. */
   async cadastrar(dados) {
-    const sessao = await request('/cadastro', { method: 'POST', body: dados, anonimo: true });
+    const sessao = await request('/cadastro', {
+      method: 'POST',
+      body: dados,
+      aluno: dados?.email,
+    });
     persistAlunoSession(sessao);
     return sessao;
   },

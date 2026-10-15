@@ -51,6 +51,7 @@ class ParticipacoesApi {
   /// do ciclo e devolve a sessão; o token passa a ser usado nas próximas
   /// chamadas. Reenviar com o mesmo e-mail atualiza enquanto estiver pendente.
   Future<ResultadoCadastro> cadastrar({
+    String? autorizacao,
     required String nome,
     required String email,
     required String curso,
@@ -66,6 +67,8 @@ class ParticipacoesApi {
         headers: {
           'accept': 'application/json',
           'content-type': 'application/json',
+          if ((autorizacao ?? accessToken) != null)
+            'authorization': 'Bearer ${autorizacao ?? accessToken}',
         },
         body: jsonEncode({
           'nome': nome,
