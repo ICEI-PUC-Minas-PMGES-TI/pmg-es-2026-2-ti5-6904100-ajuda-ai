@@ -9,7 +9,8 @@ enum CampusLocationStatus {
   mapUnavailable,
 }
 
-/// Posição efêmera: nunca gravada, enviada ao backend ou incluída em logs.
+/// Posição efêmera: nunca gravada nem incluída em logs. Só sai do aparelho
+/// quando o usuário pede uma rota (origem do [CampusRouteService]).
 class CampusUserLocation {
   const CampusUserLocation({
     required this.longitude,

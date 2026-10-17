@@ -1,6 +1,6 @@
 # Mapa do campus — visão geral
 
-> Estado: ATUAL (mapa base, renderer 2D com snapshot, campus 3D remoto, vegetação/props, diagnóstico, banco geo e API de leitura com busca remota) + PLANEJADO (rotas e demais funcionalidades)
+> Estado: ATUAL (mapa base, renderer 2D com snapshot, campus 3D remoto, vegetação/props, diagnóstico, banco geo, API de leitura com busca remota e rotas sob demanda) + PLANEJADO (demais funcionalidades)
 
 ## Objetivo da integração
 
@@ -127,6 +127,22 @@ O status dos testes, do APK e da validação visual está em
   no `campus_map`, que busca na API e cai no snapshot local se ela falhar;
   mesmas chaves estáveis e mesmo foco.
 - Sem rotas, sem pgRouting, sem escrita/admin, sem mudança em 3D/Azure/migrations.
+
+## Implementação atual — rotas sob demanda (Tarefa 9)
+
+- Backend: `POST /mapa/rotas` (`src/mapa/rotas/`): grafo da versão ativa em
+  memória com cache por versão, encaixe da coordenada (aresta até 30 m) ou do
+  prédio (todas as entradas), Dijkstra dirigido por tempo, rota acessível,
+  LineString orientada. Público, só leitura, sem gravar nem logar a posição.
+- Validação: mesmo tempo ótimo do `pgr_dijkstra` do PUCMaps em todos os
+  770 302 pares; ambiguidades da origem documentadas em
+  [rotas.md](rotas.md#ambiguidades-encontradas-e-como-foram-resolvidas).
+- Flutter: card "Traçar rota" depois da busca, com "Rota acessível" e
+  "Limpar rota"; origem pela localização atual; linha GeoJSON sobre o 3D e
+  câmera enquadrando a rota. API fora do ar → "Não foi possível calcular a
+  rota agora." (sem rota local).
+- Sem pgRouting, sem migration, sem turn-by-turn, sem PucStops/admin, sem
+  mudança em Azure/GLBs.
 
 ## O que será aproveitado
 

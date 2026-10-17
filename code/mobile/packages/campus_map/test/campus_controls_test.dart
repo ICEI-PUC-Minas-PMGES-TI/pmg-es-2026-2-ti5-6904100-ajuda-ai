@@ -252,4 +252,8 @@ class _Camera implements CampusMapCamera {
   @override
   Future<void> showUser(CampusUserLocation location) async =>
       locations.add(location);
+  @override
+  Future<void> showRoute(CampusRoute route) async {}
+  @override
+  Future<void> clearRoute() async {}
 }

@@ -24,6 +24,8 @@ void main() {
     expect(map.config.mapAssetsBaseUrl, isEmpty);
     // Busca remota pela API do app, com o snapshot local como fallback.
     expect(map.remotePlaceRepository, isA<MapaApiPlaceRepository>());
+    // Rotas pela mesma API, sem rota local.
+    expect(map.routeService, isA<MapaApiRouteService>());
     expect(find.textContaining('Mapa indisponível'), findsOneWidget);
     expect(find.text('Mapa em breve'), findsNothing);
     final navigation = tester.widget<AppBottomNavigation>(

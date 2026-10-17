@@ -168,8 +168,9 @@ Reprodução manual:
 
 Sem salas, departamentos inferidos, favoritos, histórico, rotas, grafo,
 snapping, botão Ir ou ETA. Aparelho físico e iOS fora da validação atual.
-Banco geográfico (Tarefa 7) e busca remota com fallback (Tarefa 8) já existem;
-rotas continuam em tarefa própria.
+Banco geográfico (Tarefa 7) e busca remota com fallback (Tarefa 8) já existem.
+Rotas (Tarefa 9): escolher um resultado abre o card "Traçar rota", que usa a
+mesma localização sob demanda como origem; ver [rotas.md](rotas.md).
 
 ## Evidências da execução — 17/10/2026
 

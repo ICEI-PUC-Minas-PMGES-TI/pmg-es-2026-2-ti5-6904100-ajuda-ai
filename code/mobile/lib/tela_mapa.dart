@@ -8,10 +8,13 @@ import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
 
 class MapaPage extends StatefulWidget {
-  const MapaPage({super.key, this.placeRepository});
+  const MapaPage({super.key, this.placeRepository, this.routeService});
 
   /// Busca remota; padrão: API do Ajuda-aí (`API_BASE_URL`). Testes injetam.
   final CampusPlaceRepository? placeRepository;
+
+  /// Rotas a pé; padrão: `POST /mapa/rotas` da mesma API. Testes injetam.
+  final CampusRouteService? routeService;
 
   @override
   State<MapaPage> createState() => _MapaPageState();
@@ -21,6 +24,8 @@ class _MapaPageState extends State<MapaPage> {
   // Uma instância por tela: o mapa só recria a busca se a instância mudar.
   late final CampusPlaceRepository _placeRepository =
       widget.placeRepository ?? MapaApiPlaceRepository();
+  late final CampusRouteService _routeService =
+      widget.routeService ?? MapaApiRouteService();
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +45,8 @@ class _MapaPageState extends State<MapaPage> {
           ),
           // Remota primeiro; o snapshot local do pacote cobre a API fora do ar.
           remotePlaceRepository: _placeRepository,
+          // Sem fallback local: com a API fora, a rota avisa e não desenha.
+          routeService: _routeService,
         ),
       ),
       bottomNavigationBar: AppBottomNavigation(

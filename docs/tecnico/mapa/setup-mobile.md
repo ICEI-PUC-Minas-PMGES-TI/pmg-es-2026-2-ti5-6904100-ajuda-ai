@@ -1,6 +1,6 @@
 # Setup mobile — pacote campus_map
 
-> Estado: ATUAL para mapa base, campus 2D/3D, vegetação/props/diagnóstico e busca/localização (Tarefa 6). Demais recursos continuam PLANEJADOS.
+> Estado: ATUAL para mapa base, campus 2D/3D, vegetação/props/diagnóstico, busca/localização (Tarefa 6), busca remota (Tarefa 8) e rotas (Tarefa 9). Demais recursos continuam PLANEJADOS.
 
 ## Requisitos e escopo
 
@@ -20,8 +20,10 @@ pronto. Com `enable3d`, o campus 3D usa extrusão (LOD2) e 16 GLBs de prédios
 (LOD1/LOD0) baixados por HTTPS do container público `map-assets`, mais 16
 árvores, a área esportiva e 84 carros (12 GLBs pequenos da mesma versão); nenhum
 GLB é empacotado no app. A Tarefa 6 adiciona busca local por nome/código e
-localização Android sob demanda. Não há picking, rota, PucStop ou backend de
-mapa. Não há geometria confirmada de áreas abertas/salas.
+localização Android sob demanda. A busca usa a API do mapa com fallback local
+(Tarefa 8) e a rota a pé vem de `POST /mapa/rotas` (Tarefa 9,
+[rotas.md](rotas.md)); sem a API não há rota. Não há picking nem PucStop. Não
+há geometria confirmada de áreas abertas/salas.
 Fluxo, permissões e testes: [busca-localizacao.md](busca-localizacao.md).
 Detalhes: [renderizacao-3d.md](renderizacao-3d.md) e
 [assets-pipeline.md](assets-pipeline.md).

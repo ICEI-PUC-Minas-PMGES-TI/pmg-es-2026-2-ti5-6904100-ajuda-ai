@@ -12,6 +12,7 @@ export 'src/campus_fallback_place_repository.dart';
 export 'src/campus_location_service.dart';
 export 'src/campus_map_controller.dart';
 export 'src/campus_map_controls.dart';
+export 'src/campus_route.dart';
 export 'src/three_d/campus_model_manifest.dart'
     show
         CampusModelManifestSource,

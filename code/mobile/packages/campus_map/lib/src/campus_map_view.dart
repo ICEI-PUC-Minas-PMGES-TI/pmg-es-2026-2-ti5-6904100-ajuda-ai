@@ -15,6 +15,8 @@ import 'campus_place_repository.dart';
 import 'campus_map_defaults.dart';
 import 'campus_map_features.dart';
 import 'campus_map_renderer.dart';
+import 'campus_route.dart';
+import 'campus_route_layer.dart';
 import 'campus_snapshot.dart';
 import 'three_d/campus_3d_controller.dart';
 import 'three_d/campus_3d_diagnostics.dart';
@@ -32,6 +34,7 @@ class CampusMapView extends StatefulWidget {
     this.modelManifestSource = const LocalCampusModelManifestSource(),
     this.controller,
     this.remotePlaceRepository,
+    this.routeService,
   });
 
   final CampusMapConfig config;
@@ -45,6 +48,10 @@ class CampusMapView extends StatefulWidget {
   /// [FallbackCampusPlaceRepository]: remota primeiro, snapshot local se
   /// falhar. Ignorada quando [controller] é fornecido.
   final CampusPlaceRepository? remotePlaceRepository;
+
+  /// Cálculo de rota (ex.: API do app). Sem ele o card não oferece rota.
+  /// Ignorado quando [controller] é fornecido.
+  final CampusRouteService? routeService;
 
   @override
   State<CampusMapView> createState() => _CampusMapViewState();
@@ -71,6 +78,9 @@ class _CampusMapViewState extends State<CampusMapView>
   Future<CampusModelManifest>? _modelManifest;
   Timer? _cameraSettle;
 
+  /// Rota desenhada no momento; redesenhada se o style recarregar.
+  CampusRoute? _route;
+
   bool get _enable3d => widget.config.features.enable3d;
   CampusMapFeatures get _features => widget.config.features;
 
@@ -91,6 +101,7 @@ class _CampusMapViewState extends State<CampusMapView>
           placeRepository: remote == null
               ? local
               : FallbackCampusPlaceRepository(primary: remote, fallback: local),
+          routeService: widget.routeService,
         );
   }
 
@@ -144,16 +155,7 @@ class _CampusMapViewState extends State<CampusMapView>
     if (map == null || !_foreground || !_styleReady) {
       throw StateError('Mapa indisponível.');
     }
-    // O SDK usa seu provedor nativo para o puck; Geolocator só obtém a
-    // posição de centralização. Sem marcador manual nem câmera seguindo GPS.
-    await map.location.updateSettings(
-      LocationComponentSettings(
-        enabled: true,
-        showAccuracyRing: true,
-        puckBearingEnabled: false,
-        locationPuck: LocationPuck(locationPuck2D: DefaultLocationPuck2D()),
-      ),
-    );
+    await _enablePuck(map);
     if (!mounted ||
         !_foreground ||
         generation != _generation ||
@@ -167,6 +169,68 @@ class _CampusMapViewState extends State<CampusMapView>
       CampusMapDefaults.userZoom,
       _enable3d ? CampusMapDefaults.userPitch3d : CampusMapDefaults.pitch,
     );
+  }
+
+  /// O SDK usa seu provedor nativo para o puck; Geolocator só obtém a
+  /// posição de centralização. Sem marcador manual nem câmera seguindo GPS.
+  Future<void> _enablePuck(MapboxMap map) => map.location.updateSettings(
+    LocationComponentSettings(
+      enabled: true,
+      showAccuracyRing: true,
+      puckBearingEnabled: false,
+      locationPuck: LocationPuck(locationPuck2D: DefaultLocationPuck2D()),
+    ),
+  );
+
+  @override
+  Future<void> showRoute(CampusRoute route) async {
+    final map = _map;
+    final generation = _generation;
+    final revision = _styleRevision;
+    if (map == null || !_foreground || !_styleReady) {
+      throw StateError('Mapa indisponível.');
+    }
+    bool isActive() =>
+        mounted &&
+        _foreground &&
+        generation == _generation &&
+        revision == _styleRevision;
+    _route = route;
+    await _enablePuck(map);
+    if (!isActive()) return;
+    await CampusRouteLayer.show(map.style, route, isActive: isActive);
+    if (!isActive()) return;
+    final current = await map.getCameraState();
+    if (!isActive()) return;
+    // Mantém inclinação e rumo; o espaço reservado cobre busca e card.
+    final camera = await map.cameraForCoordinatesPadding(
+      [
+        for (final c in route.coordinates)
+          Point(coordinates: Position(c[0], c[1])),
+      ],
+      CameraOptions(pitch: current.pitch, bearing: current.bearing),
+      MbxEdgeInsets(
+        top: CampusMapDefaults.routePaddingTop,
+        left: CampusMapDefaults.routePaddingSide,
+        bottom: CampusMapDefaults.routePaddingBottom,
+        right: CampusMapDefaults.routePaddingSide,
+      ),
+      CampusMapDefaults.routeMaxZoom,
+      null,
+    );
+    if (!isActive()) return;
+    await map.flyTo(
+      camera,
+      MapAnimationOptions(duration: CampusMapDefaults.cameraDurationMs),
+    );
+  }
+
+  @override
+  Future<void> clearRoute() async {
+    _route = null;
+    final map = _map;
+    if (map == null || !_styleReady) return;
+    await CampusRouteLayer.clear(map.style);
   }
 
   Future<void> _flyTo(
@@ -198,7 +262,8 @@ class _CampusMapViewState extends State<CampusMapView>
     final features = config.features;
     if (oldWidget.controller != widget.controller ||
         oldWidget.dataSource != widget.dataSource ||
-        oldWidget.remotePlaceRepository != widget.remotePlaceRepository) {
+        oldWidget.remotePlaceRepository != widget.remotePlaceRepository ||
+        oldWidget.routeService != widget.routeService) {
       _controller.detach(this);
       if (oldWidget.controller == null) _controller.dispose();
       _createController();
@@ -257,6 +322,7 @@ class _CampusMapViewState extends State<CampusMapView>
     _diagnostics = null;
     _snapshot = null;
     _modelManifest = null;
+    _route = null;
     final token = widget.config.mapboxAccessToken.trim();
     if (token.isEmpty) {
       _configurationError =
@@ -297,6 +363,10 @@ class _CampusMapViewState extends State<CampusMapView>
       final snapshot = await _loadSnapshot();
       if (!isActive()) return;
       await renderer.render(snapshot, isActive: isActive);
+      // Style novo apaga sources: a rota em exibição volta a ser desenhada.
+      if (_route case final route? when isActive()) {
+        await CampusRouteLayer.show(map.style, route, isActive: isActive);
+      }
       if (isActive() && _foreground) _controller.attach(this);
       if (isActive()) _diagnostics?.mark('2d pronto');
       if (isActive() && _campusError) setState(() => _campusError = false);

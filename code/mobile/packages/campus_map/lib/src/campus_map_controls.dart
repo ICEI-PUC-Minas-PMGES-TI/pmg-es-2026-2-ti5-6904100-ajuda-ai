@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'campus_location_service.dart';
 import 'campus_map_controller.dart';
 import 'campus_place.dart';
+import 'campus_route.dart';
 
 /// Overlay isolado: digitação reconstrói somente os controles, não MapWidget.
 class CampusMapControls extends StatefulWidget {
@@ -23,9 +26,17 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   bool _locating = false;
   int _request = 0;
 
+  /// Local escolhido na busca: abre o card de rota.
+  CampusPlace? _selected;
+  CampusRoute? _route;
+  bool _accessible = false;
+  bool _routing = false;
+  int _routeRequest = 0;
+
   @override
   void dispose() {
     _request++;
+    _routeRequest++;
     _text.dispose();
     _focus.dispose();
     super.dispose();
@@ -69,9 +80,24 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     _request++;
     _text.clear();
     _focus.unfocus();
+    _closeRoute();
     setState(() {
       _results = const [];
       _expanded = false;
+    });
+  }
+
+  /// Fecha o card e apaga a linha (também cancela um cálculo pendente).
+  void _closeRoute() {
+    _routeRequest++;
+    if (_selected != null || _route != null || _routing) {
+      unawaited(widget.controller.clearRoute());
+    }
+    if (!mounted) return;
+    setState(() {
+      _selected = null;
+      _route = null;
+      _routing = false;
     });
   }
 
@@ -79,7 +105,12 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     _request++;
     _focus.unfocus();
     _text.text = place.displayName;
-    setState(() => _expanded = false);
+    // Outro destino: a rota anterior não vale mais.
+    _closeRoute();
+    setState(() {
+      _expanded = false;
+      _selected = place;
+    });
     try {
       await widget.controller.focusPlace(place.id);
     } catch (_) {
@@ -107,6 +138,52 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     }
   }
 
+  Future<void> _traceRoute() async {
+    final place = _selected;
+    if (place == null || _routing) return;
+    final request = ++_routeRequest;
+    final accessible = _accessible;
+    _focus.unfocus();
+    setState(() => _routing = true);
+    final result = await widget.controller.routeTo(
+      place.id,
+      accessible: accessible,
+    );
+    if (!mounted || request != _routeRequest || result.cancelled) return;
+    setState(() {
+      _routing = false;
+      if (result.route != null) _route = result.route;
+    });
+    if (result.route != null) return;
+    // Falhou: a linha anterior (de outro modo) não pode ficar como se valesse.
+    if (_route != null) {
+      unawaited(widget.controller.clearRoute());
+      setState(() => _route = null);
+    }
+    if (result.location case final status?) {
+      _locationMessage(status);
+      return;
+    }
+    _message(switch (result.failure!) {
+      CampusRouteFailure.unavailable =>
+        'Não foi possível calcular a rota agora.',
+      CampusRouteFailure.outsideCampus => 'Você está longe dos caminhos do campus. Aproxime-se para traçar a rota.',
+      CampusRouteFailure.samePlace => 'Você já está neste local.',
+      CampusRouteFailure.noPath =>
+        accessible
+            ? 'Não há rota acessível até este local.'
+            : 'Não há rota até este local.',
+      CampusRouteFailure.destinationUnavailable =>
+        'Este local ainda não tem rota disponível.',
+    });
+  }
+
+  void _setAccessible(bool value) {
+    setState(() => _accessible = value);
+    // Com uma rota na tela, refaz no novo modo.
+    if (_route != null) unawaited(_traceRoute());
+  }
+
   Future<void> _locate() async {
     _focus.unfocus();
     setState(() {
@@ -116,7 +193,11 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     final result = await widget.controller.moveToUser();
     if (!mounted) return;
     setState(() => _locating = false);
-    switch (result.status) {
+    _locationMessage(result.status);
+  }
+
+  void _locationMessage(CampusLocationStatus status) {
+    switch (status) {
       case CampusLocationStatus.located:
         break;
       case CampusLocationStatus.serviceDisabled:
@@ -151,6 +232,21 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     final colors = Theme.of(context).colorScheme;
     return Stack(
       children: [
+        if (_selected case final place? when widget.controller.canRoute)
+          Positioned(
+            left: 12,
+            right: 76, // Coluna do botão de localização.
+            bottom: 44,
+            child: _RouteCard(
+              place: place,
+              route: _route,
+              accessible: _accessible,
+              routing: _routing,
+              onAccessible: _setAccessible,
+              onTrace: _traceRoute,
+              onClose: _closeRoute,
+            ),
+          ),
         Positioned(
           top: 12,
           left: 12,
@@ -269,4 +365,103 @@ class _CampusMapControlsState extends State<CampusMapControls> {
       ],
     );
   }
+}
+
+class _RouteCard extends StatelessWidget {
+  const _RouteCard({
+    required this.place,
+    required this.route,
+    required this.accessible,
+    required this.routing,
+    required this.onAccessible,
+    required this.onTrace,
+    required this.onClose,
+  });
+
+  final CampusPlace place;
+  final CampusRoute? route;
+  final bool accessible;
+  final bool routing;
+  final ValueChanged<bool> onAccessible;
+  final VoidCallback onTrace;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final route = this.route;
+    return Material(
+      key: const Key('campus-route-card'),
+      color: colors.surface,
+      elevation: 3,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 4, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    place.displayName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.titleSmall,
+                  ),
+                ),
+                IconButton(
+                  key: const Key('campus-route-clear'),
+                  tooltip: 'Limpar rota',
+                  onPressed: onClose,
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            if (route != null)
+              Text(
+                campusRouteSummary(route),
+                key: const Key('campus-route-summary'),
+                style: text.bodyMedium?.copyWith(color: colors.primary),
+              ),
+            SwitchListTile(
+              key: const Key('campus-route-accessible'),
+              dense: true,
+              contentPadding: const EdgeInsets.only(right: 12),
+              title: const Text('Rota acessível'),
+              value: accessible,
+              onChanged: routing ? null : onAccessible,
+            ),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: FilledButton.icon(
+                key: const Key('campus-route-trace'),
+                onPressed: routing ? null : onTrace,
+                icon: routing
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.directions_walk),
+                label: Text(routing ? 'Calculando rota' : 'Traçar rota'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// "8 min a pé · 650 m": minutos arredondados (mínimo 1), metros de 10 em 10.
+String campusRouteSummary(CampusRoute route) {
+  final minutes = (route.durationSeconds / 60).round().clamp(1, 999);
+  final meters = route.distanceMeters;
+  final distance = meters < 1000
+      ? '${(meters / 10).round() * 10} m'
+      : '${(meters / 1000).toStringAsFixed(1).replaceAll('.', ',')} km';
+  return '$minutes min a pé · $distance';
 }

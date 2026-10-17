@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:campus_map/campus_map.dart';
 import 'package:http/http.dart' as http;
 
@@ -73,6 +75,116 @@ class MapaApiPlaceRepository implements CampusPlaceRepository {
         code: item['codigo'] as String?,
         type: item['categoria'] as String?,
         center: [longitude.toDouble(), latitude.toDouble()],
+      );
+    } on Object {
+      return null;
+    }
+  }
+}
+
+/// Rota a pé pela API (`POST /mapa/rotas`). A origem vai só no corpo do
+/// POST (nunca na URL) e não é guardada nem registrada pelo app.
+///
+/// Sem rota local: qualquer falha de rede/servidor vira
+/// [CampusRouteFailure.unavailable] ("Não foi possível calcular a rota agora.").
+class MapaApiRouteService implements CampusRouteService {
+  MapaApiRouteService({
+    http.Client? client,
+    this.baseUrl = apiBaseUrl,
+    this.timeout = const Duration(seconds: 8),
+  }) : _client = client ?? http.Client();
+
+  final http.Client _client;
+  final String baseUrl;
+
+  /// A primeira rota após subir a API também carrega o grafo.
+  final Duration timeout;
+
+  static const _falhas = {
+    'origem-fora': CampusRouteFailure.outsideCampus,
+    'mesmo-local': CampusRouteFailure.samePlace,
+    'sem-caminho': CampusRouteFailure.noPath,
+    'predio-sem-conexao': CampusRouteFailure.destinationUnavailable,
+  };
+
+  @override
+  Future<CampusRoute> route({
+    required CampusUserLocation origin,
+    required String destinationId,
+    required bool accessible,
+  }) async {
+    final http.Response resposta;
+    try {
+      resposta = await _client
+          .post(
+            Uri.parse('$baseUrl/mapa/rotas'),
+            headers: const {
+              'accept': 'application/json',
+              'content-type': 'application/json',
+            },
+            body: jsonEncode({
+              'origem': {
+                'latitude': origin.latitude,
+                'longitude': origin.longitude,
+              },
+              'destino': {'id': destinationId},
+              'acessivel': accessible,
+            }),
+          )
+          .timeout(timeout);
+    } catch (_) {
+      throw const CampusRouteException(CampusRouteFailure.unavailable);
+    }
+    final status = resposta.statusCode;
+    if (status == 404) {
+      throw const CampusRouteException(
+        CampusRouteFailure.destinationUnavailable,
+      );
+    }
+    Object? corpo;
+    try {
+      corpo = decodificarJson(resposta);
+    } catch (_) {
+      corpo = null;
+    }
+    if (status == 422) {
+      final motivo = corpo is Map ? corpo['motivo'] : null;
+      throw CampusRouteException(
+        _falhas[motivo] ?? CampusRouteFailure.unavailable,
+      );
+    }
+    if (!responseOk(status)) {
+      throw const CampusRouteException(CampusRouteFailure.unavailable);
+    }
+    final rota = _rota(corpo, destinationId);
+    if (rota == null) {
+      throw const CampusRouteException(CampusRouteFailure.unavailable);
+    }
+    return rota;
+  }
+
+  static CampusRoute? _rota(Object? corpo, String destino) {
+    if (corpo is! Map) return null;
+    final geometria = corpo['geometria'];
+    final distancia = corpo['distanciaMetros'];
+    final tempo = corpo['tempoSegundos'];
+    if (geometria is! Map ||
+        geometria['type'] != 'LineString' ||
+        geometria['coordinates'] is! List ||
+        distancia is! num ||
+        tempo is! num) {
+      return null;
+    }
+    try {
+      return CampusRoute(
+        destinationId: destino,
+        coordinates: [
+          for (final c in geometria['coordinates'] as List)
+            [for (final v in c as List) (v as num).toDouble()],
+        ],
+        distanceMeters: distancia.toDouble(),
+        durationSeconds: tempo.round(),
+        accessible: corpo['acessivel'] == true,
       );
     } on Object {
       return null;

@@ -19,10 +19,14 @@ import {
 } from '../src/mapa/importacao/snapshot.js';
 import { MapaController } from '../src/mapa/mapa.controller.js';
 import { MapaService } from '../src/mapa/mapa.service.js';
+import { calcularRota } from '../src/mapa/rotas/rota.js';
+import { RotasController } from '../src/mapa/rotas/rotas.controller.js';
+import { RotasService } from '../src/mapa/rotas/rotas.service.js';
 import { BaselineFeed1791900000000 } from '../src/migrations/1791900000000-BaselineFeed.js';
 import { UsuariosERequisitosPadrinho1791944105933 } from '../src/migrations/1791944105933-UsuariosERequisitosPadrinho.js';
 import { HabilitaPostgisESchemaMapa1792263378656 } from '../src/migrations/1792263378656-HabilitaPostgisESchemaMapa.js';
 import { CriaTabelasMapa1792263378657 } from '../src/migrations/1792263378657-CriaTabelasMapa.js';
+import { grafoDoSnapshot } from './mapa-rotas.grafo.js';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
 const snapshot = validarSnapshot(
@@ -86,8 +90,12 @@ async function bancoMigrado(nome: string): Promise<DataSource> {
 
 async function aplicacao(ds: DataSource): Promise<INestApplication> {
   const modulo = await Test.createTestingModule({
-    controllers: [MapaController],
-    providers: [MapaService, { provide: DataSource, useValue: ds }],
+    controllers: [MapaController, RotasController],
+    providers: [
+      MapaService,
+      RotasService,
+      { provide: DataSource, useValue: ds },
+    ],
   }).compile();
   const app = modulo.createNestApplication();
   // Mesmo pipe global do main.ts.
@@ -372,6 +380,108 @@ describe.skipIf(!URL_TESTE)('API do mapa (PostGIS + unaccent reais)', () => {
     expect(n).toBe(202); // duas versões intactas
   });
 
+  it('POST /mapa/rotas: grafo lido do banco = grafo do snapshot', async () => {
+    const referencia = grafoDoSnapshot(snapshot);
+    for (const [origem, destino, acessivel] of [
+      ['P01_R4751608', 'P02', false],
+      ['P26', 'P34', false],
+      ['P26', 'P34', true],
+      ['GATE_9028126517', 'P45', false],
+      ['P03', 'OSM_1278031371', true],
+    ] as const) {
+      const r = await http()
+        .post('/mapa/rotas')
+        .send({ origem: { id: origem }, destino: { id: destino }, acessivel })
+        .expect(200);
+      const esperado = calcularRota(referencia, {
+        origem: { tipo: 'predio', predioId: origem },
+        destino: { tipo: 'predio', predioId: destino },
+        acessivel,
+      });
+      expect(r.body).toMatchObject({
+        versao: 'pucmaps-12',
+        acessivel,
+        tempoSegundos: Math.round(esperado.tempo),
+        distanciaMetros: Math.round(esperado.distancia * 10) / 10,
+        nos: esperado.nos,
+        arestas: esperado.arestas,
+        origem: { tipo: 'predio', id: origem, conexao: 'entrada' },
+        destino: { tipo: 'predio', id: destino },
+      });
+      expect(r.body.geometria.type).toBe('LineString');
+      expect(r.body.geometria.coordinates).toHaveLength(
+        esperado.geometria.length,
+      );
+      r.body.geometria.coordinates.forEach((c: number[], i: number) => {
+        expect(c[0]).toBeCloseTo(esperado.geometria[i][0], 9);
+        expect(c[1]).toBeCloseTo(esperado.geometria[i][1], 9);
+      });
+    }
+  });
+
+  it('POST /mapa/rotas: origem por coordenada, só leitura', async () => {
+    const sqls: string[] = [];
+    const original = ds.query.bind(ds);
+    const espiao = vi.spyOn(ds, 'query').mockImplementation(((
+      sql: string,
+      p?: unknown[],
+    ) => {
+      sqls.push(sql);
+      return original(sql, p);
+    }) as typeof ds.query);
+    try {
+      const r = await http()
+        .post('/mapa/rotas')
+        .send({
+          origem: { latitude: -19.92255, longitude: -43.99165 },
+          destino: { id: 'P26' },
+        })
+        .expect(200);
+      expect(r.body.origem).toMatchObject({
+        tipo: 'coordenada',
+        conexao: 'caminho',
+      });
+      expect(r.body.geometria.coordinates[0]).toEqual([-43.99165, -19.92255]);
+    } finally {
+      espiao.mockRestore();
+    }
+    expect(sqls.length).toBeGreaterThan(0);
+    for (const sql of sqls) expect(sql).toMatch(/^\s*SELECT\s/i);
+    // A coordenada não entra em SQL algum (nem como parâmetro).
+    expect(sqls.join(' ')).not.toContain('19.92255');
+  });
+
+  it('POST /mapa/rotas: 400, 404 e 422', async () => {
+    const post = (corpo: object) => http().post('/mapa/rotas').send(corpo);
+    await post({ origem: { id: 'P26' } }).expect(400);
+    await post({
+      origem: { latitude: 99, longitude: 0 },
+      destino: { id: 'P26' },
+    }).expect(400);
+    await post({ origem: { id: 'P26' }, destino: { id: 'P26' }, x: 1 }).expect(
+      400,
+    );
+    await post({
+      origem: { id: 'P26' },
+      destino: { latitude: -19.92, longitude: -43.99 },
+    }).expect(400);
+    await post({ origem: { id: 'P999' }, destino: { id: 'P26' } }).expect(404);
+    await post({
+      origem: { id: 'P26' },
+      destino: { id: "P26' OR '1'='1" },
+    }).expect(400);
+    const mesmo = await post({
+      origem: { id: 'P26' },
+      destino: { id: 'P26' },
+    }).expect(422);
+    expect(mesmo.body.motivo).toBe('mesmo-local');
+    const longe = await post({
+      origem: { latitude: -19.932, longitude: -43.938 },
+      destino: { id: 'P26' },
+    }).expect(422);
+    expect(longe.body.motivo).toBe('origem-fora');
+  });
+
   it('sem versão ativa: 503 controlado', async () => {
     const vazio = await bancoMigrado('sem_ativa');
     const outra = await aplicacao(vazio);
@@ -385,6 +495,10 @@ describe.skipIf(!URL_TESTE)('API do mapa (PostGIS + unaccent reais)', () => {
         const r = await request(outra.getHttpServer()).get(rota).expect(503);
         expect(r.body.message).toBe('Mapa indisponível: nenhuma versão ativa.');
       }
+      await request(outra.getHttpServer())
+        .post('/mapa/rotas')
+        .send({ origem: { id: 'P26' }, destino: { id: 'P34' } })
+        .expect(503);
     } finally {
       await outra.close();
       await vazio.destroy();

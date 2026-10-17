@@ -68,7 +68,7 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 | 3 | Busca e localização (snapshot local) | IMPLEMENTADA; EVIDÊNCIAS E LIMITES EM busca-localizacao.md |
 | 4 | Banco geo (schema `mapa`) + PostGIS | IMPLEMENTADO E IMPORTADO NO BANCO LOCAL E NO SUPABASE |
 | 5 | API de mapa no backend | LEITURA E BUSCA REMOTA IMPLEMENTADAS (APP COM FALLBACK LOCAL); VALIDADAS NO EMULADOR |
-| 6 | Rotas (grafo + Dijkstra/A* sob demanda) | NÃO INICIADO |
+| 6 | Rotas (grafo + Dijkstra sob demanda) | IMPLEMENTADAS (NORMAL E ACESSÍVEL, ATÉ PRÉDIO); EQUIVALENTES AO pgRouting DO PUCMaps; VALIDADAS NO EMULADOR |
 | 7 | XP central + PucStops | NÃO INICIADO |
 | 8 | Ferramentas administrativas (inventário do admin Angular) | NÃO INICIADO |
 
@@ -105,3 +105,7 @@ A Tarefa 8 adiciona a API pública de leitura do mapa (versão ativa, prédios,
 áreas, salas e busca com `unaccent` e o mesmo ranking do app) e liga a busca do
 app a ela, com o snapshot local como fallback. Sem rotas. Ver
 [mapa/api.md](mapa/api.md).
+A Tarefa 9 adiciona rotas a pé sob demanda (`POST /mapa/rotas`): grafo da
+versão ativa em memória, Dijkstra por tempo, rota acessível, encaixe da
+posição do usuário e, no app, o card "Traçar rota" com a linha no mapa. Sem
+pgRouting, sem migration e sem rota local. Ver [mapa/rotas.md](mapa/rotas.md).

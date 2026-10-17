@@ -108,6 +108,19 @@ endpoint antigo é necessário em runtime. Áreas abertas, salas e limite
 administrativo não estão disponíveis como geometria estática confiável nos arquivos
 auditados; a lacuna permanece explícita, sem fabricar features.
 
+### Arquivos lidos para as rotas (Tarefa 9)
+
+Mesmo commit `776e113`. Nada foi copiado: o cálculo foi reescrito em memória
+(TypeScript, sem pgRouting) e validado contra os resultados do PUCMaps
+([mapa/rotas.md](mapa/rotas.md#validação-contra-o-pucmaps)).
+
+| Origem (PUCMaps) | Destino (Ajuda-aí) | O que foi aproveitado |
+|---|---|---|
+| `code/api/src/map/infrastructure/strategies/dijkstra.strategy.ts`, `astar.strategy.ts` | `code/back/api/src/mapa/rotas/dijkstra.ts` | Critério: dirigido, custo `walkingTimeSeconds`, filtro acessível; o A* de lá usa heurística 0 |
+| `code/api/src/map/infrastructure/database/services/typeorm-route-query.service.ts` | `code/back/api/src/mapa/rotas/rota.ts` | Encaixe: aresta mais próxima até 30 m, entradas do prédio; trecho parcial agora somado e par de entradas escolhido por tempo (ambiguidades 2 e 3) |
+| `code/api/src/map/infrastructure/repositories/utils/path-processor.util.ts` | `code/back/api/src/mapa/rotas/geo.ts`, `rota.ts` | Haversine (R = 6 371 km), 1,4 m/s para trechos fora do grafo |
+| `precalculated_routes` (banco, v12) | `code/back/api/scripts/mapa/rotas-pucmaps-*.sql`, `test/fixtures/mapa-rotas-pucmaps-12.json` | Só como referência de teste (amostra de pares de nós) |
+
 ## 8. Licença/atribuição
 
 A auditoria da documentação do projeto PUCMaps identificou que o projeto declara a licença **CC-BY-4.0** (metadados de citação do repositório de origem).

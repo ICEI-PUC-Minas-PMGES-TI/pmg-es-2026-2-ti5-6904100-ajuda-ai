@@ -1,6 +1,6 @@
 # ADR-0003 — Rotas sob demanda
 
-> Estado: PLANEJADO (nada implementado ainda)
+> Estado: ATUAL (decisão implementada na Tarefa 9; ver [mapa/rotas.md](../mapa/rotas.md))
 
 ## Contexto
 
@@ -26,3 +26,19 @@ Rotas **não são um requisito descartável**: a navegação pelo campus (inclui
 - É necessário validar, por benchmark, que o cálculo sob demanda responde em tempo aceitável para o tamanho do grafo do campus (a referência do PUCMaps é da ordem de ~650 nós por versão).
 - A decisão de usar ou não `pgRouting` fica em aberto e deve ser registrada como atualização deste ADR quando tomada, não presumida.
 - O visualizador de grafo (ferramenta de debug existente no admin Angular do PUCMaps) é tratado separadamente em [ADR-0007](ADR-0007-admin-pucmaps.md) e em [mapa/rotas.md](../mapa/rotas.md).
+
+## Atualização — implementação (Tarefa 9, 17/10/2026)
+
+- **Dijkstra** dirigido em memória (TypeScript), custo tempo de caminhada com
+  desempate por distância, várias entradas na origem e no destino. **Sem A\***:
+  o A* do PUCMaps usava heurística 0 (equivalente a Dijkstra) e uma heurística
+  admissível em tempo quase não poda neste grafo.
+- Cache do grafo **por versão ativa** (id da versão em `mapa.versoes`), com
+  recarga quando a versão ativa muda.
+- **pgRouting não adotado**: o cálculo em memória dá o mesmo ótimo do
+  `pgr_dijkstra` nos 770 302 pares da versão 12 e responde em menos de 5 ms
+  (14–15 ms de HTTP com o Supabase). Benchmark e validação em
+  [mapa/rotas.md](../mapa/rotas.md#validação-contra-o-pucmaps).
+- Achado da validação: as `precalculated_routes` do PUCMaps estavam
+  desatualizadas em relação ao próprio código (custo distância × tempo); o
+  cálculo sob demanda elimina essa classe de problema.

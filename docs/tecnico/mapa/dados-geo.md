@@ -8,7 +8,9 @@ do backend (schema `mapa`, [ADR-0005](../decisoes/ADR-0005-schema-mapa-postgis.m
 Migrations, PostGIS e procedimentos por ambiente:
 [banco/migrations.md](../banco/migrations.md). O app **continua** lendo o snapshot
 local como fallback; desde a Tarefa 8 a busca vem da [API do mapa](api.md),
-que lê a versão ativa deste schema.
+que lê a versão ativa deste schema. Desde a Tarefa 9 o grafo
+(`nos_grafo`/`arestas_grafo`) é carregado em memória para as
+[rotas](rotas.md), sem alteração de schema.
 
 ## Banco geográfico (schema `mapa`)
 

@@ -18,7 +18,9 @@ Confirmado em código nesta branch (`feat/integracao-mapa`).
   `mapa` e tabelas de `mapa`. Ver [banco/migrations.md](banco/migrations.md).
 - Domínio de mapa: `MapaModule` (`src/mapa/`) com API pública de leitura
   (`/mapa/versao`, `/mapa/predios`, `/mapa/areas`, `/mapa/salas`,
-  `/mapa/busca`; ver [mapa/api.md](mapa/api.md)), entidades em
+  `/mapa/busca`; ver [mapa/api.md](mapa/api.md)) e rotas sob demanda
+  (`POST /mapa/rotas`, `src/mapa/rotas/`: grafo da versão ativa em memória e
+  Dijkstra; ver [mapa/rotas.md](mapa/rotas.md)), entidades em
   `src/mapa/entities` e importador em `src/mapa/importacao`
   (`npm run mapa:importar`). TypeORM runtime com `installExtensions: false`.
 - Autenticação: login Microsoft (Entra ID) verificado por JWKS remoto (`jose`), mais um modo demo controlado por `AUTH_DEMO_ENABLED`. Token da aplicação é JWT HS256 de 1 hora, sem refresh.
@@ -61,7 +63,7 @@ flowchart TB
 
     subgraph Backend[NestJS Ajuda-aí]
         Core[Módulos atuais\nauth, usuarios, participacoes, ...]
-        MapaMod[Módulo mapa\nATUAL: leitura e busca\nrotas PLANEJADO]
+        MapaMod[Módulo mapa\nATUAL: leitura, busca\ne rotas sob demanda]
         XPMod[Módulo XP central\nPLANEJADO]
     end
 
@@ -85,9 +87,10 @@ Pontos confirmados desta arquitetura-alvo:
 
 - O pacote `campus_map` não tem login próprio; recebe um `accessTokenProvider` do app principal. Ver [ADR-0001](decisoes/ADR-0001-identidade-central.md).
 - O módulo de mapa no backend é novo, dentro do mesmo NestJS — não há um segundo backend. Ver [ADR-0004](decisoes/ADR-0004-campus-map-package.md) e [origem-pucmaps.md](origem-pucmaps.md).
-- O schema `mapa` e o PostGIS existem (Tarefa 7); falta o módulo HTTP que os expõe. Ver [ADR-0005](decisoes/ADR-0005-schema-mapa-postgis.md) e [banco/migrations.md](banco/migrations.md).
+- O schema `mapa` e o PostGIS existem (Tarefa 7) e o `MapaModule` os expõe: leitura e busca (Tarefa 8) e rotas calculadas em memória, sem pgRouting (Tarefa 9). Ver [ADR-0005](decisoes/ADR-0005-schema-mapa-postgis.md), [ADR-0003](decisoes/ADR-0003-rotas-sob-demanda.md) e [banco/migrations.md](banco/migrations.md).
 - XP é central e novo, não uma migração do `user_stats`/`xp_log` do PUCMaps. Ver [ADR-0002](decisoes/ADR-0002-xp-central.md) e [gamificacao/xp.md](gamificacao/xp.md).
 - Os GLBs ficam embutidos no pacote inicialmente; o Azure `map-assets` é evolução futura. Ver [ADR-0006](decisoes/ADR-0006-assets-3d.md).
 
-Nesta seção, só o schema `mapa` (tabelas e dados) está implementado; os módulos
-de backend continuam `PLANEJADO` até que o código correspondente exista.
+Nesta seção, o schema `mapa` e o módulo de mapa (leitura, busca e rotas) estão
+implementados; o módulo de XP e a integração com Azure pelo backend de mapa
+continuam `PLANEJADO` até que o código correspondente exista.

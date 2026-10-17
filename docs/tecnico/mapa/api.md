@@ -1,7 +1,7 @@
 # API pública do mapa
 
-> Estado: ATUAL (Tarefa 8). Somente leitura da versão ativa. Rotas NÃO
-> implementadas.
+> Estado: ATUAL (Tarefas 8 e 9). Somente leitura da versão ativa: dados,
+> busca e rotas a pé (`POST /mapa/rotas`, que calcula sem gravar nada).
 
 Módulo `code/back/api/src/mapa/` (`MapaModule`, `MapaController`,
 `MapaService`, `dto/mapa.dto.ts`), registrado no `AppModule`. Sem prefixo
@@ -12,7 +12,8 @@ global (como o resto da API). Dados: schema `mapa`, versão `ativa`
 
 - **Público, sem login**, como `GET /avisos`: são dados abertos do campus.
   Nenhum guard global foi alterado.
-- **Só GET.** Nada de escrita, publicação, exclusão ou administração.
+- **Só leitura.** GET para dados; o único POST (`/mapa/rotas`) calcula em
+  memória e não grava. Nada de escrita, publicação, exclusão ou administração.
 - **Sempre a versão ativa.** Toda leitura usa a subconsulta
   `(SELECT id FROM mapa.versoes WHERE status = 'ativa')`; versões arquivadas
   nunca aparecem (testado com uma versão arquivada alterada).
@@ -40,6 +41,7 @@ global (como o resto da API). Dados: schema `mapa`, versão `ativa`
 | `GET /mapa/areas` | `AreaDto[]` (12, ordem por nome) | 503 |
 | `GET /mapa/salas` | `SalaDto[]` (hoje `[]`: a origem não tem salas) | 503 |
 | `GET /mapa/busca?q=&limit=` | `ResultadoBuscaDto[]` | 400 `limit` fora de 1..20, `q` > 100 caracteres ou parâmetro desconhecido; 503 |
+| `POST /mapa/rotas` | `RotaDto` (200) | 400 corpo inválido; 404 prédio inexistente; 422 sem rota (`motivo`); 503 |
 
 503: `{"message": "Mapa indisponível: nenhuma versão ativa.", ...}`. Erros
 seguem o formato padrão do Nest (`message`, `error`, `statusCode`).
@@ -102,6 +104,41 @@ Mesmo comportamento do `LocalCampusPlaceRepository` (ver
 - Teste de compatibilidade: 15 consultas reais comparadas com uma porta direta
   do algoritmo do app sobre os mesmos dados — ordem idêntica.
 
+## Rotas
+
+Algoritmo, encaixe, validação e medições em [rotas.md](rotas.md). Público
+como o resto do mapa; `POST` porque a origem pode ser a posição do usuário,
+que vai no corpo (fora da URL e de logs de acesso) e não é gravada.
+
+```jsonc
+// POST /mapa/rotas — origem: { "id" } OU { "latitude", "longitude" };
+// destino: { "id" } de prédio; acessivel opcional (padrão false)
+{ "origem": { "latitude": -19.92255, "longitude": -43.99165 },
+  "destino": { "id": "P26" }, "acessivel": false }
+
+// 200
+{ "versao": "pucmaps-12", "acessivel": false,
+  "origem":  { "tipo": "coordenada", "id": null, "nome": null, "conexao": "caminho",
+               "latitude": -19.92255, "longitude": -43.99165 },
+  "destino": { "tipo": "predio", "id": "P26", "nome": "Biblioteca …", "conexao": "entrada",
+               "latitude": …, "longitude": … },          // centro do prédio
+  "distanciaMetros": 468.4, "tempoSegundos": 337, "nos": 10, "arestas": 9,
+  "geometria": { "type": "LineString", "coordinates": [[lon, lat], …] } }
+// geometria orientada: começa na origem e termina na entrada do destino
+
+// 422
+{ "message": "A origem está a mais de 30 m de um caminho do campus.",
+  "motivo": "origem-fora", "statusCode": 422 }
+```
+
+- `conexao`: `entrada` (nós do prédio), `caminho` (encaixe numa aresta até
+  30 m), `proximidade` (prédio sem nó próprio: nó mais próximo até 50 m).
+- `motivo` (422): `origem-fora`, `mesmo-local`, `sem-caminho`,
+  `predio-sem-conexao`.
+- 400: `id` e coordenada juntos ou nenhum; coordenada incompleta, fora de
+  ±90/±180 ou em texto; `id` fora de `[A-Za-z0-9_]{1,64}`; destino por
+  coordenada; `acessivel` não booleano; campo desconhecido.
+
 ## Cliente Flutter
 
 - O `campus_map` continua **sem HTTP e sem URL**. Novo:
@@ -120,6 +157,8 @@ Mesmo comportamento do `LocalCampusPlaceRepository` (ver
   no snapshot), depois `GET /mapa/predios/:id`, depois o snapshot.
 - Log (debug/profile), só quando a origem muda e sem o texto buscado:
   `[campus_map] map search source=remote|local-fallback`.
+- Rotas: `MapaApiRouteService` (mesmo arquivo), timeout de 8 s, sem fallback
+  local; ver [rotas.md](rotas.md#cliente-flutter).
 - `GET /mapa/versao` não é consultado pelo app nesta fase: não há bloqueio por
   versão divergente. Possibilidade futura: comparar `versaoAssets` com o
   manifesto 3D e avisar no diagnóstico.
@@ -143,6 +182,10 @@ mediana, via `127.0.0.1` (no Windows, `localhost` tenta IPv6 antes e soma
 
 Uma ida ao banco por requisição (a versão ativa é subconsulta), sem N+1.
 
+`POST /mapa/rotas` (grafo em cache): 14–15 ms de mediana, 0,7–1,9 KB; a
+primeira rota depois de subir a API carrega o grafo (255–359 ms). Detalhes
+em [rotas.md](rotas.md#medições-17102026).
+
 ## Testes
 
 - `src/mapa/mapa.service.spec.ts` (sem banco): busca vazia sem consulta;
@@ -154,13 +197,17 @@ Uma ida ao banco por requisição (a versão ativa é subconsulta), sem N+1.
   áreas, salas, busca vazia, código/nome exato, prefixo, contém, caixa, acento,
   espaços, ranking igual ao do app, limites, 400, entradas maliciosas, versão
   arquivada invisível, 503 sem versão ativa.
+- Rotas: ver [rotas.md](rotas.md#testes); o mesmo
+  `test/mapa-api.integration.spec.ts` cobre `POST /mapa/rotas` com o grafo
+  lido do banco.
 - Flutter: `campus_fallback_place_repository_test.dart` (pacote) e
   `test/mapa_api_test.dart` (app, `MockClient`), incluindo API fora do ar →
-  snapshot com as mesmas chaves.
+  snapshot com as mesmas chaves e o contrato de `POST /mapa/rotas`.
 
 ## Limitações
 
-- Sem rotas, grafo exposto, snapping, ETA ou pgRouting (próxima fase).
+- O grafo não é exposto; rotas só até prédio; sem ETA dinâmico nem pgRouting
+  (ver [rotas.md](rotas.md#limitações)).
 - Sem salas reais; `/mapa/salas` existe para estabilizar o contrato.
 - A busca dispara a cada tecla (como antes); sem debounce. Com ~18 ms por busca
   local isso não pesa; em rede móvel pode valer um debounce na UI.
