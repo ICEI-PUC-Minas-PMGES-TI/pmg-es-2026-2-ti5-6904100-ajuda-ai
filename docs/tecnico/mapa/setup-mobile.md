@@ -1,6 +1,6 @@
 # Setup mobile — pacote campus_map
 
-> Estado: ATUAL para o mapa base da fase 1. Recursos de campus das fases 2+ continuam PLANEJADOS.
+> Estado: ATUAL para mapa base e campus 2D com snapshot local. 3D e demais recursos continuam PLANEJADOS.
 
 ## Requisitos e escopo
 
@@ -13,9 +13,11 @@
 - O mapa base não depende de Docker, API local, sessão, banco ou login próprio.
   Para chegar à aba Mapa pelo app, permanece o fluxo de entrada já existente.
 
-Não há dados próprios do campus nesta fase: nenhum snapshot, GeoJSON, footprint,
-GLB, LOD, vegetação, props, picking, busca, localização, rota, PucStop ou backend.
-O snapshot local descrito em outros documentos pertence às etapas futuras.
+O pacote contém um snapshot local de 82 footprints reais do PUCMaps em
+`assets/data/campus_footprints.geojson`, sem requisição a backend antigo/novo.
+O renderer adiciona preenchimento, contornos e rótulos depois que o style está
+pronto. Não há GLB, extrusão, LOD, vegetação, props, picking, busca, localização,
+rota, PucStop ou backend de mapa. Não há geometria confirmada de áreas abertas/salas.
 
 ## Configuração
 
@@ -40,6 +42,13 @@ O pacote inicializa pelo mecanismo oficial `MapboxOptions.setAccessToken`, antes
 de montar `MapWidget`, sem repetir a chamada a cada rebuild. Mudança de token ou
 estilo recria o mapa; não existe armazenamento global adicional do token no pacote.
 Logo e attribution permanecem habilitados com os padrões do SDK.
+
+`CampusMapView` usa `LocalCampusDataSource` por padrão, com caminho de bundle
+`packages/campus_map/assets/data/campus_footprints.geojson`. A leitura é centralizada,
+sem dependência HTTP, e pode receber outra `CampusDataSource` no futuro.
+São duas sources e quatro layers 2D, com instalação idempotente, proteção contra
+callbacks antigos e parsing uma vez por tela. Falha de dados/style do campus gera
+mensagem controlada; não expõe exceções ou URLs.
 
 ## Execução
 
@@ -89,11 +98,11 @@ Não usar o token público de runtime como credencial de download.
 
 ## Câmera e plataformas
 
-`CampusMapDefaults` concentra a câmera aproximada: latitude `-19.924266`,
-longitude `-43.991491`, zoom `15.5`, pitch `0`, bearing `0`. A referência é a
-[localização pública de uma fotografia da entrada do campus](https://commons.wikimedia.org/wiki/File:Entradapucminas.jpg).
-O enquadramento deve ser refinado ao portar o renderer PUCMaps. Não são dados
-geográficos de prédios ou salas.
+`CampusMapDefaults` concentra a câmera atual: latitude `-19.92252415`,
+longitude `-43.9927295`, zoom `15.2`, pitch `0`, bearing `0`. É o centro do bbox
+dos footprints reais, substituindo a câmera aproximada da primeira integração.
+Esse bbox é a extensão das construções do snapshot, não um limite administrativo.
+Ver [dados-geo.md](dados-geo.md) para origem, coordenadas e transformações.
 
 A versão 2.31.0 do plugin suporta Android/iOS, sem Web/desktop. O widget mostra
 estado controlado nessas outras plataformas. O Ajuda-aí não possui pasta iOS;
@@ -119,11 +128,16 @@ flutter test
 
 Os widget tests com token ausente/inválido não inicializam o renderer nativo.
 Os testes cobrem flags, configuração, fallback, estados sem token e integração
-com a tela e navegação existente. Eles não comprovam carregamento remoto de tiles.
+com a tela e navegação existente. A Tarefa 3 acrescenta validação do asset real,
+parsing, identidade/geometria, bbox, imutabilidade, bundle do app, labels e
+instalação idempotente/interrupção do renderer, sem inicializar Mapbox nativo.
+Eles não comprovam carregamento remoto de tiles.
 
 ## Validação desta execução
 
 Execução de 17/10/2026, branch `feat/integracao-mapa`.
+
+### Mapa base — registro da validação anterior
 
 - Dependências por path resolvidas no app e no pacote com Mapbox 2.31.0, sem upgrade
   amplo ou adaptação da versão solicitada.
@@ -165,6 +179,33 @@ Execução de 17/10/2026, branch `feat/integracao-mapa`.
   por `pk.`, `sk.`, `token`, `secret` e `password`: somente nomes, prefixos e
   referências de configuração; nenhum segredo real introduzido.
 
+### Campus 2D — Tarefa 3
+
+- `flutter pub get` no app e package: sucesso, nenhuma dependência nova ou upgrade.
+- `flutter analyze` do pacote: sem problemas. No app permanece somente o info
+  preexistente `unnecessary_import` em `test/historico_test.dart:3`, saída 1.
+- `flutter test` no pacote: **18 testes passaram**. No app: **147 testes passaram**,
+  incluindo resolução do asset do package pelo `LocalCampusDataSource` padrão.
+- `flutter build apk --debug`: sucesso, saída 0, `assembleDebug` em **22,6 s**.
+  Nenhuma alteração Android ou em `MapaPage` foi necessária. Permanece o aviso
+  de compatibilidade futura Kotlin dos plugins já registrado acima.
+- App recompilado/executado com o token público local autorizado, somente por
+  dart-define em memória, sem `MAPBOX_STYLE_URI`: **Mapbox Standard**.
+- No `emulator-5554` (Android 15, API 35, x64), footprints alinhados ao basemap,
+  preenchimento/contornos neutros e labels próprios visíveis, inclusive Biblioteca
+  e números de prédio ao aproximar. Cores permaneceram constantes no zoom.
+- Zoom e arraste responderam; não foi realizado benchmark de FPS. Fluxo normal
+  Perfil → Mapa → Perfil → Mapa passou, reabrindo no enquadramento inicial e sem
+  duplicação visível de labels/camadas ou aviso de erro. Processo permaneceu ativo
+  e os logs AndroidRuntime/Flutter/Mapbox de erro verificados não indicaram crash.
+- Logo e botão de attribution permaneceram visíveis. Nenhum GLB/modelo/extrusão
+  foi adicionado. O recorte de labels do basemap usa somente os footprints reais.
+- Asset de **47.032 bytes**, **82 polígonos**, **77 labels possíveis** (sujeitos a
+  colisão/zoom). Dados e limitações: [dados-geo.md](dados-geo.md).
+- Renderer validado visualmente com Standard; estilos customizados não foram
+  testados nesta execução. `git diff --check` limpo e busca nos arquivos novos/
+  alterados sem token real, URL privada, e-mail ou caminho local no asset.
+
 ## Diagnóstico
 
 Token ausente ou inválido: conferir o dart-define de runtime e recompilar. Nunca
@@ -172,6 +213,8 @@ usar secret token no app. Erro de carregamento: conferir conexão, acesso do tok
 à conta/estilo e URI escolhida. A UI mostra mensagem genérica sem dados do SDK.
 Nenhum erro exige iniciar backend de mapa nesta fase.
 
-Sem prédios customizados do campus: comportamento esperado; os assets e dados
-próprios só entram nas próximas fases. O Mapbox Standard pode exibir conteúdo
-cartográfico próprio, independente das flags futuras de campus 3D.
+Sem footprints/labels próprios, mas com basemap carregado: conferir declaração do
+asset no pubspec do package e resolução do caminho `packages/campus_map/...`.
+Geometria de áreas abertas/salas e volumes 3D ainda não fazem parte do snapshot.
+O Mapbox Standard pode exibir conteúdo cartográfico próprio, independente das
+flags futuras de campus 3D.

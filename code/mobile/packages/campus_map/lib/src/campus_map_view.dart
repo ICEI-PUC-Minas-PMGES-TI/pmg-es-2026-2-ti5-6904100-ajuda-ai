@@ -2,14 +2,22 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
+import 'campus_data_source.dart';
 import 'campus_map_config.dart';
 import 'campus_map_defaults.dart';
+import 'campus_map_renderer.dart';
+import 'campus_snapshot.dart';
 
 /// Mapa anônimo do campus. O token deve ser público e fornecido externamente.
 class CampusMapView extends StatefulWidget {
-  const CampusMapView({super.key, required this.config});
+  const CampusMapView({
+    super.key,
+    required this.config,
+    this.dataSource = const LocalCampusDataSource(),
+  });
 
   final CampusMapConfig config;
+  final CampusDataSource dataSource;
 
   @override
   State<CampusMapView> createState() => _CampusMapViewState();
@@ -18,7 +26,13 @@ class CampusMapView extends StatefulWidget {
 class _CampusMapViewState extends State<CampusMapView> {
   String? _configurationError;
   bool _loadError = false;
+  bool _campusError = false;
   int _generation = 0;
+  int _styleRevision = 0;
+  bool _styleReady = false;
+  MapboxMap? _map;
+  CampusMapRenderer? _renderer;
+  Future<CampusSnapshot>? _snapshot;
 
   @override
   void initState() {
@@ -30,7 +44,8 @@ class _CampusMapViewState extends State<CampusMapView> {
   void didUpdateWidget(covariant CampusMapView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.config.mapboxAccessToken != widget.config.mapboxAccessToken ||
-        oldWidget.config.effectiveStyleUri != widget.config.effectiveStyleUri) {
+        oldWidget.config.effectiveStyleUri != widget.config.effectiveStyleUri ||
+        oldWidget.dataSource != widget.dataSource) {
       _generation++;
       _configure();
     }
@@ -38,6 +53,11 @@ class _CampusMapViewState extends State<CampusMapView> {
 
   void _configure() {
     _loadError = false;
+    _campusError = false;
+    _styleReady = false;
+    _map = null;
+    _renderer = null;
+    _snapshot = null;
     final token = widget.config.mapboxAccessToken.trim();
     if (token.isEmpty) {
       _configurationError =
@@ -63,6 +83,24 @@ class _CampusMapViewState extends State<CampusMapView> {
     MapboxOptions.setAccessToken(token);
   }
 
+  Future<void> _renderCampus(int generation, int revision) async {
+    final map = _map;
+    if (map == null || !_styleReady) return;
+    final renderer = _renderer ??= CampusMapRenderer(map.style);
+    bool isActive() =>
+        mounted && generation == _generation && revision == _styleRevision;
+    try {
+      // Parsing uma vez por tela, só depois do style ficar pronto.
+      final snapshot = await (_snapshot ??= widget.dataSource.load());
+      if (!isActive()) return;
+      await renderer.render(snapshot, isActive: isActive);
+      if (isActive() && _campusError) setState(() => _campusError = false);
+    } catch (_) {
+      // Falhas do bundle/parsing/style são controladas; não expor URLs do SDK.
+      if (isActive()) setState(() => _campusError = true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_configurationError case final message?) {
@@ -77,6 +115,18 @@ class _CampusMapViewState extends State<CampusMapView> {
           MapWidget(
             key: ValueKey(generation),
             styleUri: widget.config.effectiveStyleUri,
+            onMapCreated: (map) {
+              if (!mounted || generation != _generation) return;
+              _map = map;
+              if (_styleReady) _renderCampus(generation, _styleRevision);
+            },
+            onStyleLoadedListener: (_) {
+              if (!mounted || generation != _generation) return;
+              _styleReady = true;
+              _styleRevision++;
+              _renderer = null;
+              _renderCampus(generation, _styleRevision);
+            },
             viewport: CameraViewportState(
               center: Point(
                 coordinates: Position(
@@ -98,18 +148,20 @@ class _CampusMapViewState extends State<CampusMapView> {
               setState(() => _loadError = false);
             },
           ),
-          if (_loadError)
+          if (_loadError || _campusError)
             Positioned(
               top: 0,
               left: 0,
               right: 0,
               child: Material(
                 color: Theme.of(context).colorScheme.surface,
-                child: const Padding(
-                  padding: EdgeInsets.all(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
                   child: Text(
-                    'Não foi possível carregar o mapa.\n'
-                    'Verifique a conexão e a configuração do Mapbox.',
+                    _loadError
+                        ? 'Não foi possível carregar o mapa.\n'
+                              'Verifique a conexão e a configuração do Mapbox.'
+                        : 'Não foi possível carregar os dados do campus.',
                     textAlign: TextAlign.center,
                   ),
                 ),

@@ -62,7 +62,7 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 |---|---|---|
 | 0 | Decisões e documentação | CONCLUÍDA |
 | 1 | Pacote Flutter `campus_map` + Mapbox base | IMPLEMENTADA E VALIDADA VISUALMENTE NO ANDROID |
-| 2 | Renderização 2D/3D + assets | NÃO INICIADO |
+| 2 | Renderização 2D/3D + assets | 2D IMPLEMENTADO E VALIDADO NO ANDROID; 3D PENDENTE |
 | 3 | Busca e localização (snapshot local) | NÃO INICIADO |
 | 4 | Banco geo (schema `mapa`) + PostGIS | NÃO INICIADO |
 | 5 | API de mapa no backend | NÃO INICIADO |
@@ -73,7 +73,12 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 Esta tabela é atualizada conforme cada fase avança. Ela não substitui o changelog do repositório nem o histórico de commits.
 
 A fase 1 cria `code/mobile/packages/campus_map`, consumido por path pela `MapaPage`,
-com `mapbox_maps_flutter` 2.31.0, câmera inicial aproximada do campus, token externo
+com `mapbox_maps_flutter` 2.31.0, câmera inicial do campus, token externo
 (`MAPBOX_ACCESS_TOKEN`) e estilo externo opcional (`MAPBOX_STYLE_URI`, fallback
-Mapbox Standard). Não inclui dados próprios do campus nem recursos das fases 2+.
+Mapbox Standard).
+A etapa 2D agora inclui snapshot local de 82 footprints reais do PUCMaps
+(47.032 bytes), renderer de preenchimento/contorno/rótulos e câmera centrada no
+bbox dessas construções. Não inclui áreas abertas sem fonte geométrica confirmada,
+salas, busca, localização, GLBs, extrusão ou recursos de backend.
+Fonte e transformações: [dados-geo.md](mapa/dados-geo.md).
 Comandos, evidências de validação e limitações: [setup-mobile.md](mapa/setup-mobile.md).

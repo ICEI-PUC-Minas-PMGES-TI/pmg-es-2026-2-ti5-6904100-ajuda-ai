@@ -1,6 +1,6 @@
 # Mapa do campus — visão geral
 
-> Estado: ATUAL (mapa base da fase 1) + PLANEJADO (funcionalidades das fases 2+)
+> Estado: ATUAL (mapa base e renderer 2D com snapshot) + PLANEJADO (3D e demais funcionalidades)
 
 ## Objetivo da integração
 
@@ -18,18 +18,48 @@ A estratégia geral está detalhada em [origem-pucmaps.md](../origem-pucmaps.md)
   ocupando o corpo da tela em `SafeArea`, preservando a navegação inferior existente.
 - Mapbox Maps Flutter 2.31.0, token público externo por `MAPBOX_ACCESS_TOKEN`,
   estilo opcional por `MAPBOX_STYLE_URI` e fallback `MapboxStyles.STANDARD`.
-- Câmera aproximada: latitude `-19.924266`, longitude `-43.991491`, zoom `15.5`,
-  pitch `0`, bearing `0`. Referência pública da região de entrada do campus:
-  [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Entradapucminas.jpg).
-  É somente um enquadramento inicial a refinar na portabilidade do renderer;
-  não representa geometria nem localização exata de prédios/salas.
+- Câmera atual: latitude `-19.92252415`, longitude `-43.9927295`, zoom `15.2`,
+  pitch `0`, bearing `0`. Centro calculado a partir do bbox dos footprints reais;
+  substitui o enquadramento aproximado da primeira integração.
 - Token ausente/inválido apresenta mensagem controlada sem criar `MapWidget`.
   Erros de carregamento exibem aviso genérico, sem detalhes do SDK; o mapa permanece
   montado e o aviso desaparece quando o SDK sinaliza carregamento completo.
 - Attribution e logo mantidos nos padrões do SDK, sem desativação ou sobreposição
   por controles do aplicativo. Não há localização do usuário.
 - O mapa base é anônimo: `apiBaseUrl` e `accessTokenProvider` são `null` na integração.
-  Não há GeoJSON, snapshot, GLB, renderer próprio, busca, rotas ou backend de mapa.
+  Não há GLB, extrusão, busca, rotas ou backend de mapa.
+
+## Implementação atual — campus 2D (Tarefa 3)
+
+- Um único asset GeoJSON embutido em
+  `code/mobile/packages/campus_map/assets/data/campus_footprints.geojson`, com
+  82 polígonos reais de construções, 77 nomes e 74 vínculos à API de origem.
+  A API antiga não é acessada em runtime. Ver [dados-geo.md](dados-geo.md).
+- API mínima adicional: `CampusDataSource.load()` → `CampusSnapshot`,
+  `LocalCampusDataSource`, `CampusFeature` e `CampusBounds`. A fonte é injetável
+  em `CampusMapView(dataSource: ...)`; o padrão usa o bundle do package.
+  Nenhuma implementação remota foi criada.
+- `CampusMapRenderer` adapta apenas a parte plana de `map_renderer.dart` e a
+  abreviação de `BuildingLabel.mapText` do PUCMaps. Duas sources (polígonos e
+  pontos de rótulo), quatro layers (`fill`, `line`, `clip`, `symbol`), IDs em
+  `CampusMapLayerIds`. Cores discretas constantes, sem alternância por zoom.
+- O recorte remove somente símbolos do basemap dentro das pegadas reais,
+  para reduzir duplicação de rótulos. Não usa o retângulo de campus do stub,
+  não recorta modelos e não altera globalmente o Mapbox Standard. Rótulos próprios
+  começam no zoom 15.2, têm halo e respeitam colisão; cinco features sem nome
+  permanecem sem rótulo inventado.
+- Carregamento/parsing centralizados, uma vez por tela, depois do style pronto.
+  Sources/layers existentes não são registradas novamente; callbacks de telas
+  descartadas ou styles substituídos são ignorados. Falha no asset/renderer
+  mostra estado controlado sem derrubar o mapa base.
+- `MapaPage`, navegação, autenticação e backend permanecem sem alterações.
+  Zoom, arraste e Perfil → Mapa → Perfil → Mapa foram validados no emulador.
+
+Limitações: nenhuma geometria estática confiável de áreas abertas, salas ou limite
+administrativo foi encontrada nos arquivos auditados. O snapshot não inventa esses
+dados nem categorias ausentes. A distinção plana de `PARK`, `PARKING_LOT` e
+`CONSTRUCTION` está preparada no renderer para uma futura fonte que as contenha;
+não há volumes, mesmo que a feature possua altura.
 
 O status dos testes, do APK e da validação visual está em
 [setup-mobile.md](setup-mobile.md#validação-desta-execução).
