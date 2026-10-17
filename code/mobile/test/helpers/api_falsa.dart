@@ -33,6 +33,8 @@ class ApiFalsa {
 
   /// Se o e-mail já tem cadastro (login demo responde 201; senão 401).
   bool cadastrado;
+  Map<String, dynamic>? perfilSalvo;
+  String? fotoUrl;
 
   /// Corpo de `GET /participacoes/situacao` (null → 404, mantém estado local).
   Map<String, dynamic>? situacao;
@@ -63,6 +65,53 @@ class ApiFalsa {
   late final MockClient client = MockClient((requisicao) async {
     requisicoes.add(requisicao);
     final caminho = requisicao.url.path;
+    if (caminho == '/me' || caminho == '/cadastro/perfil') {
+      final sessao = SessaoUsuario.atual;
+      final p =
+          perfilSalvo ??
+          {
+            'nome':
+                sessao.dados?.nome ??
+                sessao.identidade?.nome ??
+                'Camila Duarte',
+            'email':
+                sessao.identidade?.email ??
+                sessao.dados?.email ??
+                'camila@pucminas.edu.br',
+            'curso': sessao.dados?.curso ?? 'Engenharia de Software',
+            'periodo': sessao.dados?.periodo ?? 1,
+            'turno': sessao.dados?.turno ?? 'Noite',
+            'interesses': sessao.dados?.interesses ?? [],
+          };
+      if (requisicao.method != 'GET') {
+        perfilSalvo = {...p, ...corpo(requisicao)};
+      }
+      if (caminho == '/cadastro/perfil') {
+        return _json({'accessToken': token, 'usuario': perfilSalvo});
+      }
+      return _json(perfilSalvo ?? p);
+    }
+    if (caminho == '/me/foto') {
+      if (requisicao.method == 'PUT') fotoUrl = 'https://storage.test/avatar';
+      return _json({'url': fotoUrl});
+    }
+    if (caminho == '/participacoes/programas') {
+      return _json([
+        {
+          'codigo': '2026/2',
+          'titulo': 'Programa 2026/2',
+          'atual': true,
+          'inscricoesDisponiveis': true,
+        },
+        {
+          'codigo': '2026/1',
+          'titulo': 'Programa 2026/1',
+          'atual': false,
+          'inscricoesDisponiveis': false,
+        },
+      ]);
+    }
+
     if (requisicao.method == 'POST' && caminho.endsWith('/auth/login-demo')) {
       if (!cadastrado) {
         return _json({'message': 'Usuário não cadastrado no Ajuda-aí.'}, 401);
@@ -105,6 +154,24 @@ class ApiFalsa {
         }
       }
       cadastrado = true;
+      situacao = {
+        'situacao': padrinho ? 'candidatura_pendente' : 'apadrinhado_pendente',
+        'programa': {
+          'codigo': enviado['programa'] ?? '2026/2',
+          'titulo': 'Programa 2026/2',
+        },
+        'cadastro': {
+          'status': 'pendente',
+          'tipoParticipacao': padrinho ? 'padrinho' : 'apadrinhado',
+        },
+        'registro': {
+          'id': 99,
+          'papel': padrinho ? 'candidato' : 'apadrinhado',
+          'status': 'pendente',
+          'respostas': enviado['respostas'],
+        },
+      };
+
       return _json({
         'accessToken': token,
         'tokenType': 'Bearer',
@@ -155,9 +222,14 @@ class ApiFalsa {
       }, 201);
     }
     if (caminho.endsWith('/participacoes/situacao')) {
-      return situacao == null
-          ? _json({'message': 'não encontrado'}, 404)
-          : _json(situacao!);
+      return _json(
+        situacao ??
+            {
+              'situacao': 'nenhuma',
+              'programa': {'codigo': '2026/2', 'titulo': 'Programa 2026/2'},
+              'registro': null,
+            },
+      );
     }
     if (caminho.endsWith('/participacoes')) return _json(const []);
     if (caminho.contains('/formularios/')) {
@@ -174,7 +246,10 @@ class ApiFalsa {
 
   /// Injeta esta API na sessão.
   ApiFalsa instalar() {
-    SessaoUsuario.atual.configurarApi(ParticipacoesApi(client: client));
+    SessaoUsuario.atual.configurarApi(
+      ParticipacoesApi(client: client)..accessToken = token,
+    );
+    SessaoUsuario.atual.inscricoesDisponiveis = true;
     return this;
   }
 }

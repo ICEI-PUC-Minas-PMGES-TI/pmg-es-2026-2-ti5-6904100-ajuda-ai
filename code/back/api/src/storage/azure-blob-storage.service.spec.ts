@@ -198,6 +198,49 @@ describe('operações no container', () => {
     };
   }
 
+  it('substitui foto privada sem excluir previamente e sem condição de criação exclusiva', async () => {
+    const { service, uploadData, deleteIfExists } = servicoMockado();
+    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]);
+    await service.substituirFotoPerfil('usuarios/42/avatar.img', png);
+    await service.substituirFotoPerfil('usuarios/42/avatar.img', png);
+    expect(uploadData).toHaveBeenCalledTimes(2);
+    expect(uploadData).toHaveBeenCalledWith(png, {
+      blobHTTPHeaders: {
+        blobContentType: 'image/png',
+        blobCacheControl: 'private, no-cache',
+      },
+    });
+    expect(deleteIfExists).not.toHaveBeenCalled();
+    uploadData.mockRejectedValueOnce(new Error('Indisponível'));
+    await expect(
+      service.substituirFotoPerfil('usuarios/42/avatar.img', png),
+    ).rejects.toThrow();
+    expect(deleteIfExists).not.toHaveBeenCalled();
+    const sas = service.sasLeitura('profiles', 'usuarios/42/avatar.img');
+    expect(permissoesDaUrl(sas.url).toString()).toBe('r');
+    expect(sas.expiraEm.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('recusa foto sem assinatura de imagem, chave arbitrária e tamanho excessivo', async () => {
+    const { service, uploadData } = servicoMockado();
+    await expect(
+      service.substituirFotoPerfil(
+        'usuarios/1/avatar.img',
+        Buffer.from('<svg/>'),
+      ),
+    ).rejects.toThrow(/Formato/);
+    await expect(
+      service.substituirFotoPerfil('outra/chave.png', Buffer.from('x')),
+    ).rejects.toThrow(/Chave/);
+    await expect(
+      service.substituirFotoPerfil(
+        'usuarios/1/avatar.img',
+        Buffer.alloc(5 * 1024 * 1024 + 1),
+      ),
+    ).rejects.toThrow(/5 MB/);
+    expect(uploadData).not.toHaveBeenCalled();
+  });
+
   it('não cria container ausente e não envia o blob', async () => {
     const { service, uploadData } = servicoMockado(false);
     await expect(

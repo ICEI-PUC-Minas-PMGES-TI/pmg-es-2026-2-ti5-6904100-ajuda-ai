@@ -87,19 +87,10 @@ export class CoordenacaoService implements OnModuleInit {
     }
 
     const codigoAtual = ParticipacoesService.programaAtual();
-    const solicitado = programaCodigo?.trim();
-    const codigo =
-      (solicitado && programas.some((p) => p.codigo === solicitado)
-        ? solicitado
-        : null) ||
-      programas.find((p) => p.codigo === codigoAtual)?.codigo ||
-      programas.find((p) => p.etapaAtual !== 'encerramento')?.codigo ||
-      programas[0].codigo;
-
-    const programa = await this.programasService.buscarPorCodigo(codigo);
-    if (!programa) {
-      throw new NotFoundException(`Programa ${codigo} não encontrado.`);
-    }
+    const programa =
+      await this.programasService.resolverConsulta(programaCodigo);
+    if (!programa) throw new NotFoundException('Nenhum programa cadastrado.');
+    const codigo = programa.codigo;
 
     const registros = await this.participacoesService.listarPorPrograma({
       programa: codigo,
@@ -122,19 +113,22 @@ export class CoordenacaoService implements OnModuleInit {
     const rejeitadas = candidatos.filter(
       (r) => r.status === 'nao_aprovado',
     ).length;
-    const aprovadas = padrinhos.filter(
-      (r) => r.status === 'em_andamento' || r.status === 'concluido',
-    ).length;
-    const padrinhosComVinculo = padrinhos.filter(
+    const aprovadas = [
+      ...padrinhos,
+      ...candidatos.filter((r) => r.status === 'aprovado'),
+    ].filter(
       (r) =>
-        r.status === 'em_andamento' &&
-        ((r.grupo && r.grupo.trim()) || r.apadrinhados > 0),
+        r.status === 'aprovado' ||
+        r.status === 'em_andamento' ||
+        r.status === 'concluido',
     ).length;
-    const gruposFormados = new Set(
-      padrinhos
-        .map((r) => r.grupo?.trim())
-        .filter((g): g is string => Boolean(g)),
-    ).size;
+    const ativos = [];
+    for (const padrinho of padrinhos) {
+      if (await this.participacoesService.temVinculoValido(padrinho))
+        ativos.push(padrinho);
+    }
+    const padrinhosComVinculo = ativos.length;
+    const gruposFormados = new Set(ativos.map((r) => r.grupo)).size;
 
     const candidaturasInscritas =
       pendentes + emAnalise + rejeitadas + aprovadas;
@@ -148,7 +142,7 @@ export class CoordenacaoService implements OnModuleInit {
       .map((item) => this.enriquecerCandidatura(item));
 
     const semVinculoLista = apadrinhados.filter(
-      (r) => !r.grupo || !r.grupo.trim(),
+      (r) => !ParticipacoesService.vinculoValido(r, registros),
     );
     const gruposIncompletos = Math.max(
       0,
@@ -247,11 +241,17 @@ export class CoordenacaoService implements OnModuleInit {
     const filtro = status?.trim();
 
     if (filtro === 'aprovadas') {
-      const aprovados = await this.participacoesService.listarPorPrograma({
+      const registros = await this.participacoesService.listarPorPrograma({
         programa,
-        papel: 'padrinho',
       });
-      return aprovados.map((item) => this.enriquecerCandidatura(item));
+      return registros
+        .filter(
+          (r) =>
+            (r.papel === 'candidato' && r.status === 'aprovado') ||
+            (r.papel === 'padrinho' &&
+              ['em_andamento', 'concluido'].includes(r.status)),
+        )
+        .map((item) => this.enriquecerCandidatura(item));
     }
 
     if (filtro === 'sem_vinculo') {
@@ -260,9 +260,12 @@ export class CoordenacaoService implements OnModuleInit {
         papel: 'apadrinhado',
         status: 'em_andamento',
       });
-      return apadrinhados
-        .filter((r) => !r.grupo || !r.grupo.trim())
-        .map((item) => this.enriquecerCandidatura(item));
+      const semVinculo = [];
+      for (const registro of apadrinhados) {
+        if (!(await this.participacoesService.temVinculoValido(registro)))
+          semVinculo.push(registro);
+      }
+      return semVinculo.map((item) => this.enriquecerCandidatura(item));
     }
 
     if (filtro === 'aguardando') {
@@ -314,6 +317,7 @@ export class CoordenacaoService implements OnModuleInit {
     if (item.papel === 'padrinho') return 'Aprovada';
     if (item.papel === 'apadrinhado') {
       return {
+        aprovado: 'Aprovado — aguardando matching',
         pendente: 'Aguardando aprovação',
         em_analise: 'Em análise',
         nao_aprovado: 'Rejeitado',
@@ -322,6 +326,7 @@ export class CoordenacaoService implements OnModuleInit {
       }[item.status];
     }
     return {
+      aprovado: 'Aprovado — aguardando matching',
       pendente: 'Nova',
       em_analise: 'Em análise',
       nao_aprovado: 'Rejeitada',
@@ -520,6 +525,8 @@ export class CoordenacaoService implements OnModuleInit {
       ...this.enriquecerCandidatura(item),
       respostas: item.respostas ?? {},
       observacoes: item.observacoes ?? '',
+      decisao: item.respostas?._servidor?.decisao ?? null,
+      formularioRespondido: item.respostas?._servidor?.formulario ?? null,
       requisitos,
       requisitosRespondidos: Boolean(respondidos),
       criterios: [
@@ -532,9 +539,12 @@ export class CoordenacaoService implements OnModuleInit {
     };
   }
 
-  /** Aprovar a candidatura também aprova o cadastro pendente que veio com ela. */
+  /** Decisão acadêmica da candidatura; conta e permissões ativas são independentes. */
   async aprovarCandidatura(id: number, coordenador?: string) {
-    const registro = await this.participacoesService.aprovarCandidatura(id);
+    const registro = await this.participacoesService.aprovarCandidatura(
+      id,
+      coordenador,
+    );
     await this.cadastroService.refletirDecisaoDaCandidatura(
       registro,
       'aprovado',
@@ -543,9 +553,16 @@ export class CoordenacaoService implements OnModuleInit {
     return this.detalharCandidatura(id);
   }
 
-  async rejeitarCandidatura(id: number, coordenador?: string) {
-    const registro =
-      await this.participacoesService.rejeitarCandidaturaPorId(id);
+  async rejeitarCandidatura(
+    id: number,
+    coordenador?: string,
+    justificativa?: string,
+  ) {
+    const registro = await this.participacoesService.rejeitarCandidaturaPorId(
+      id,
+      justificativa,
+      coordenador,
+    );
     await this.cadastroService.refletirDecisaoDaCandidatura(
       registro,
       'rejeitado',
@@ -576,7 +593,7 @@ export class CoordenacaoService implements OnModuleInit {
 
   /** Aprovar/rejeitar/colocar em análise várias candidaturas de uma vez. */
   async acaoEmMassa(
-    corpo: { ids?: unknown; acao?: string },
+    corpo: { ids?: unknown; acao?: string; justificativa?: string },
     coordenador?: string,
   ) {
     const ids = Array.isArray(corpo.ids)
@@ -589,6 +606,8 @@ export class CoordenacaoService implements OnModuleInit {
       throw new BadRequestException('Selecione ao menos uma candidatura.');
     }
     const acao = corpo.acao;
+    if (acao === 'rejeitar' && !corpo.justificativa?.trim())
+      throw new BadRequestException('Justificativa obrigatória.');
     if (acao !== 'aprovar' && acao !== 'rejeitar' && acao !== 'em_analise') {
       throw new BadRequestException('Ação em massa inválida.');
     }
@@ -598,7 +617,7 @@ export class CoordenacaoService implements OnModuleInit {
         if (acao === 'aprovar') {
           await this.aprovarCandidatura(id, coordenador);
         } else if (acao === 'rejeitar') {
-          await this.rejeitarCandidatura(id, coordenador);
+          await this.rejeitarCandidatura(id, coordenador, corpo.justificativa);
         } else {
           await this.participacoesService.atualizarCandidatura(id, {
             status: 'em_analise',
@@ -628,18 +647,27 @@ export class CoordenacaoService implements OnModuleInit {
     });
     const filtro = papel?.trim();
     const usuarios = await this.usuariosService.mapaPorEmail();
-    return registros
-      .filter((r) => !filtro || r.papel === filtro)
-      .map((r) => {
-        const usuario = usuarios.get(r.usuarioId);
-        return {
-          ...this.enriquecerCandidatura(r),
-          situacao: ParticipacoesService.situacaoDe(r),
-          usuarioCadastroId: usuario?.id ?? null,
-          statusCadastro: usuario?.statusCadastro ?? null,
-        };
-      })
-      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    const lista = await Promise.all(
+      registros
+        .filter(
+          (r) =>
+            !filtro ||
+            r.papel === filtro ||
+            (filtro === 'padrinho' &&
+              r.papel === 'candidato' &&
+              r.status === 'aprovado'),
+        )
+        .map(async (r) => {
+          const usuario = usuarios.get(r.usuarioId);
+          return {
+            ...this.enriquecerCandidatura(r),
+            situacao: await this.participacoesService.situacaoDoRegistro(r),
+            usuarioCadastroId: usuario?.id ?? null,
+            statusCadastro: usuario?.statusCadastro ?? null,
+          };
+        }),
+    );
+    return lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   }
 
   async vincular(corpo: { apadrinhadoId?: unknown; padrinhoId?: unknown }) {
@@ -689,12 +717,18 @@ export class CoordenacaoService implements OnModuleInit {
             apadrinhados: registros.filter((r) => r.papel === 'apadrinhado')
               .length,
             grupos: new Set(
-              padrinhos.map((r) => r.grupo?.trim()).filter(Boolean),
+              padrinhos
+                .filter((r) => ParticipacoesService.vinculoValido(r, registros))
+                .map((r) => r.grupo),
             ).size,
           },
         };
       }),
     );
+  }
+
+  excluirPrograma(codigo: string, confirmacao: unknown) {
+    return this.programasService.excluir(codigo, confirmacao);
   }
 
   async atualizarPrograma(codigo: string, corpo: Record<string, unknown>) {
@@ -745,15 +779,9 @@ export class CoordenacaoService implements OnModuleInit {
   }
 
   private async resolverPrograma(codigo?: string): Promise<ProgramaEntity> {
-    const alvo = codigo?.trim();
-    if (alvo) {
-      const programa = await this.programasService.buscarPorCodigo(alvo);
-      if (!programa) {
-        throw new NotFoundException(`Programa ${alvo} não encontrado.`);
-      }
-      return programa;
-    }
-    return this.programasService.garantirProgramaAtual();
+    const programa = await this.programasService.resolverConsulta(codigo);
+    if (!programa) throw new NotFoundException('Nenhum programa cadastrado.');
+    return programa;
   }
 
   /**

@@ -5,6 +5,7 @@ import {
   getStoredToken,
   getStoredUser,
   persistSession,
+  clearAlunoSession,
 } from '../api/client';
 
 const AuthContext = createContext(null);
@@ -13,6 +14,10 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => getStoredToken());
   const [usuario, setUsuario] = useState(() => getStoredUser());
   const [carregando, setCarregando] = useState(false);
+
+  const aceitarSessao = useCallback((sessao) => {
+    persistSession(sessao); setToken(sessao.accessToken); setUsuario(sessao.usuario);
+  }, []);
 
   const loginDemo = useCallback(async (email) => {
     setCarregando(true);
@@ -29,6 +34,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(() => {
     clearSession();
+    clearAlunoSession();
     setToken(null);
     setUsuario(null);
   }, []);
@@ -41,9 +47,10 @@ export function AuthProvider({ children }) {
       autenticado: Boolean(token && usuario),
       ehCoordenador: usuario?.perfil === 'coordenador',
       loginDemo,
+      aceitarSessao,
       logout,
     }),
-    [token, usuario, carregando, loginDemo, logout],
+    [token, usuario, carregando, loginDemo, logout, aceitarSessao],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

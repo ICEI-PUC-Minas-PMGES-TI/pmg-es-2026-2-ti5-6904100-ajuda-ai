@@ -79,8 +79,6 @@ textarea.extra-input { resize: vertical; line-height: 1.45; }
 .extra-check.selected { border-color: #cfc6ff; color: #4032b0; background: #efedff; }
 .extra-check input { accent-color: var(--purple); }
 .extra-field.has-error .extra-checks { outline: 1px solid #df718d; outline-offset: 4px; border-radius: 8px; }
-.extra-upload { display: flex; align-items: center; gap: 8px; min-height: 37px; padding: 0 10px; border: 1px dashed #cfcbe3; border-radius: 7px; color: #8b89a8; background: #f6f5fb; font-size: 11px; }
-.extra-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
 /* ===================================================================
    Cadastro (complementos)

@@ -30,12 +30,12 @@ void main() {
       nome: 'Camila Duarte',
       email: 'camila@pucminas.edu.br',
     );
-    SessaoUsuario.atual.onboardingToken = 'onboarding-teste';
   });
   tearDown(SessaoUsuario.atual.limpar);
 
   testWidgets('perfil exibe informacoes sem idioma', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
+    await tester.pumpAndSettle();
 
     expect(find.text('Meu perfil'), findsOneWidget);
     expect(find.text('Perfil'), findsWidgets);
@@ -67,29 +67,24 @@ void main() {
     );
 
     await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
-
-    expect(find.text('Candidatura de padrinho'), findsOneWidget);
-    expect(find.text('Em análise'), findsOneWidget);
-    expect(
-      find.textContaining('sendo analisada pela coordenação'),
-      findsOneWidget,
-    );
-    expect(find.text('Enviada em: 15/03/2026'), findsOneWidget);
-    expect(find.text('Ver candidatura'), findsOneWidget);
-    expect(find.text('Apadrinhado ativo'), findsNothing);
-    expect(find.text('Padrinho ativo'), findsNothing);
-    expect(SessaoUsuario.atual.status, StatusParticipacao.padrinhoEmAnalise);
-
-    await tester.tap(find.text('Ver candidatura'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Minha candidatura'), findsOneWidget);
-    expect(find.text('Projetos'), findsOneWidget);
-    expect(find.text('Ocultar candidatura'), findsOneWidget);
+    expect(find.text('Candidatura recebida'), findsOneWidget);
+    expect(find.text('Recebida'), findsOneWidget);
+    expect(
+      find.textContaining('Aguarde a análise da coordenação'),
+      findsOneWidget,
+    );
+
+    expect(find.text('Acompanhar status'), findsOneWidget);
+    expect(find.text('Apadrinhado ativo'), findsNothing);
+    expect(find.text('Padrinho ativo'), findsNothing);
+    expect(SessaoUsuario.atual.status, StatusParticipacao.padrinhoPendente);
   });
 
   testWidgets('editar e confirmar atualiza o perfil', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('Editar perfil'));
     await tester.pumpAndSettle();
@@ -101,18 +96,14 @@ void main() {
     await tester.enterText(find.byType(TextField).at(0), 'Fernanda Soares');
     await tester.enterText(
       find.byType(TextField).at(1),
-      'Adoro criar interfaces e ajudar calouros.',
-    );
-    await tester.enterText(
-      find.byType(TextField).at(2),
       'Engenharia de Software',
     );
-    await tester.enterText(find.byType(TextField).at(3), '5º período');
+    await tester.enterText(find.byType(TextField).at(2), '5');
+    await tester.enterText(find.byType(TextField).at(3), 'Noite');
     await tester.enterText(
       find.byType(TextField).at(4),
-      'fernanda@pucminas.edu.br',
+      'Tecnologia, Projetos',
     );
-
     await tester.scrollUntilVisible(
       find.text('Confirmar'),
       300,
@@ -124,12 +115,13 @@ void main() {
     expect(find.text('Fernanda Soares'), findsOneWidget);
     expect(find.text('Engenharia de Software'), findsWidgets);
     expect(find.text('5º período'), findsWidgets);
-    expect(find.text('fernanda@pucminas.edu.br'), findsOneWidget);
-    expect(
-      find.text('Adoro criar interfaces e ajudar calouros.'),
-      findsOneWidget,
+    expect(find.text('camila@pucminas.edu.br'), findsOneWidget);
+    final patch = api.requisicoes.singleWhere(
+      (r) => r.method == 'PATCH' && r.url.path == '/me',
     );
-    expect(find.text('Perfil atualizado com sucesso.'), findsOneWidget);
+    expect(api.corpo(patch)['periodo'], 5);
+    expect(api.corpo(patch).containsKey('email'), isFalse);
+    expect(api.perfilSalvo?['nome'], 'Fernanda Soares');
   });
 
   testWidgets('sair da conta retorna para o login', (tester) async {
@@ -145,6 +137,7 @@ void main() {
     );
 
     await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.text('Sair da conta'),
       300,
@@ -161,6 +154,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('Configurações'));
     await tester.pumpAndSettle();
@@ -204,6 +198,7 @@ void main() {
 
     await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
     await tester.pumpAndSettle();
+    await tester.pumpAndSettle();
 
     expect(SessaoUsuario.atual.status, StatusParticipacao.apadrinhadoAtivo);
     expect(find.text('Apadrinhado ativo'), findsOneWidget);
@@ -224,12 +219,14 @@ void main() {
   testWidgets('aguardando padrinho mostra o card e o aviso do mapa', (
     tester,
   ) async {
+    api.situacao = {'situacao': 'apadrinhado_aguardando', 'registro': null};
     SessaoUsuario.atual.definir(
       dadosCadastro: _camila,
       escolha: Participacao.apadrinhado,
     );
 
     await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
+    await tester.pumpAndSettle();
     await tester.pumpAndSettle();
 
     expect(find.text('Aguardando padrinho'), findsOneWidget);

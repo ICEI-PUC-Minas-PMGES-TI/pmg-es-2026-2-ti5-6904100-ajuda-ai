@@ -1,6 +1,11 @@
-import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { seedDemoHabilitado } from '../config/seguranca.js';
 import { USUARIOS } from '../dados/dados.js';
 import {
@@ -83,6 +88,68 @@ export class UsuariosService implements OnModuleInit {
   async mapaPorEmail(): Promise<Map<string, UsuarioEntity>> {
     const todos = await this.usuarios.find();
     return new Map(todos.map((u) => [u.email, u]));
+  }
+
+  transacao<T>(acao: (manager: EntityManager) => Promise<T>): Promise<T> {
+    return this.usuarios.manager.transaction(acao);
+  }
+
+  async atualizarPerfil(
+    email: string,
+    dados: Record<string, unknown>,
+    criar = false,
+  ) {
+    if (!dados || typeof dados !== 'object' || Array.isArray(dados))
+      throw new BadRequestException('Perfil inválido.');
+    const permitidos = ['nome', 'curso', 'periodo', 'turno', 'interesses'];
+    if (Object.keys(dados).some((k) => !permitidos.includes(k))) {
+      throw new BadRequestException(
+        'Campo não autorizado. O e-mail institucional não pode ser alterado.',
+      );
+    }
+    let usuario = await this.buscarPorEmail(email);
+    if (!usuario && !criar)
+      throw new NotFoundException('Perfil não encontrado.');
+    usuario ??= this.usuarios.create({
+      email: UsuariosService.normalizarEmail(email),
+      tipoParticipacao: 'nenhuma',
+      statusCadastro: 'aprovado',
+    });
+    usuario = this.usuarios.create({ ...usuario });
+    const novo = { ...usuario, ...dados };
+    for (const chave of ['nome', 'curso'] as const) {
+      if (
+        typeof novo[chave] !== 'string' ||
+        !novo[chave].trim() ||
+        novo[chave].length > 120
+      )
+        throw new BadRequestException(`Informe ${chave} válido.`);
+      usuario[chave] = novo[chave].trim();
+    }
+    if (
+      !Number.isInteger(novo.periodo) ||
+      Number(novo.periodo) < 1 ||
+      Number(novo.periodo) > 12
+    )
+      throw new BadRequestException('Período deve estar entre 1 e 12.');
+    usuario.periodo = Number(novo.periodo);
+    if (dados.turno !== undefined) {
+      if (typeof dados.turno !== 'string' || dados.turno.length > 40)
+        throw new BadRequestException('Turno inválido.');
+      usuario.turno = dados.turno.trim();
+    }
+    if (dados.interesses !== undefined) {
+      if (
+        !Array.isArray(dados.interesses) ||
+        dados.interesses.length > 20 ||
+        dados.interesses.some((v) => typeof v !== 'string' || v.length > 80)
+      )
+        throw new BadRequestException('Interesses inválidos.');
+      usuario.interesses = dados.interesses
+        .map((v: string) => v.trim())
+        .filter(Boolean);
+    }
+    return this.usuarios.save(usuario);
   }
 
   criar(dados: Partial<UsuarioEntity>): UsuarioEntity {

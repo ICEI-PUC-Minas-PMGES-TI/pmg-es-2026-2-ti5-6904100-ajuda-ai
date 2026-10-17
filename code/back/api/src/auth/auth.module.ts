@@ -1,3 +1,5 @@
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -22,6 +24,7 @@ function obterSegredoJwt(configuracao: ConfigService): string {
 
 @Module({
   imports: [
+    TypeOrmModule.forFeature([ParticipacaoEntity]),
     ConfigModule,
     UsuariosModule,
     JwtModule.registerAsync({

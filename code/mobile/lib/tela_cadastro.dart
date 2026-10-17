@@ -39,6 +39,7 @@ class _CadastroPageState extends State<CadastroPage> {
 
   late final TextEditingController _nomeController;
   Uint8List? _foto;
+  bool _salvando = false;
   String _curso = _cursos.first;
   int _periodo = 1;
   String _turno = 'Noite';
@@ -68,7 +69,8 @@ class _CadastroPageState extends State<CadastroPage> {
     setState(() => _foto = bytes);
   }
 
-  void _continuar() {
+  Future<void> _continuar() async {
+    if (_salvando) return;
     final email = SessaoUsuario.atual.identidade?.email;
     if (email == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -87,20 +89,45 @@ class _CadastroPageState extends State<CadastroPage> {
       return;
     }
 
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ParticipacaoPage(
-          dados: DadosCadastro(
-            nome: _nomeController.text.trim(),
-            email: email,
-            curso: _curso,
-            periodo: _periodo,
-            turno: _turno,
-            interesses: List.of(_interesses),
-          ),
+    setState(() => _salvando = true);
+    try {
+      final sessao = SessaoUsuario.atual;
+      await sessao.salvarPerfil(
+        DadosCadastro(
+          nome: _nomeController.text.trim(),
+          email: email,
+          curso: _curso,
+          periodo: _periodo,
+          turno: _turno,
+          interesses: List.of(_interesses),
         ),
-      ),
-    );
+      );
+      if (_foto != null) {
+        try {
+          sessao.fotoUrl = await sessao.participacoesApi.enviarFoto(_foto!);
+        } catch (erro) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Perfil salvo. Foto não enviada: $erro')),
+            );
+          }
+        }
+      }
+      await sessao.carregarContexto();
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ParticipacaoPage(dados: sessao.dados!),
+        ),
+      );
+    } catch (erro) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$erro')));
+      }
+    } finally {
+      if (mounted) setState(() => _salvando = false);
+    }
   }
 
   @override

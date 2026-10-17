@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../../api/client';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
@@ -59,6 +59,13 @@ export function sugestoesDeCiclo(existentes, data = new Date()) {
 
 export default function ProgramasPage() {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const contexto = useOutletContext() || {};
+  const [excluindo, setExcluindo] = useState(null);
+  const [confirmacaoExclusao, setConfirmacaoExclusao] = useState('');
+  const [erroExclusao, setErroExclusao] = useState('');
+  const [ocupadoExclusao, setOcupadoExclusao] = useState(false);
+  const travaExclusao = useRef(false);
   const programaFoco = params.get('programa') || '';
   const pendencia = PENDENCIAS[params.get('pendencia')];
   const mostrarToast = useToast();
@@ -119,6 +126,7 @@ export default function ProgramasPage() {
       setConfirmarCiclo(false);
       mostrarToast(`Ciclo ${criado.codigo} aberto.`, 'sucesso');
       await carregar();
+      await contexto.carregarProgramas?.();
     } catch (error) {
       setErroCiclo(error.message || 'Não foi possível abrir o novo ciclo.');
     } finally {
@@ -126,8 +134,22 @@ export default function ProgramasPage() {
     }
   }
 
+  async function excluirPrograma() {
+    if (travaExclusao.current || confirmacaoExclusao.trim().toUpperCase() !== 'COORDENADOR') return;
+    travaExclusao.current = true; setOcupadoExclusao(true); setErroExclusao('');
+    try {
+      await api.excluirPrograma(excluindo.codigo, confirmacaoExclusao);
+      setProgramas(lista => lista.filter(p => p.codigo !== excluindo.codigo));
+      contexto.programaExcluido?.(excluindo.codigo);
+      setExcluindo(null); mostrarToast('Programa excluído.', 'sucesso');
+      await carregar();
+    } catch(e) {setErroExclusao(e.message || 'Não foi possível excluir o programa.');}
+    finally {travaExclusao.current = false; setOcupadoExclusao(false);}
+  }
+
   return (
     <section className="programs-page">
+      {excluindo && <ConfirmarExclusaoPrograma programa={excluindo} confirmacao={confirmacaoExclusao} ocupado={ocupadoExclusao} erro={erroExclusao} onAlterar={setConfirmacaoExclusao} onConfirmar={excluirPrograma} onFechar={() => setExcluindo(null)} />}
       <header className="dash-header">
         <div>
           <h1>Programas</h1>
@@ -171,6 +193,11 @@ export default function ProgramasPage() {
                   {p.matchingPendente && <span className="flag amber">Matching pendente</span>}
                 </div>
               </div>
+              <button type="button" className="ghost-button" onClick={async () => {
+                await contexto.carregarProgramas?.();
+                navigate(`/coordenacao?${new URLSearchParams({programa: p.codigo})}`);
+              }}>Administrar este programa</button>
+              <button type="button" className="ghost-button" aria-label={`Excluir programa ${p.codigo}`} onClick={() => {setExcluindo(p); setConfirmacaoExclusao(''); setErroExclusao('');}}>Excluir programa</button>
               <button type="button" className="ghost-button" aria-expanded={editando === p.codigo} onClick={() => setEditando(editando === p.codigo ? null : p.codigo)}>
                 <Icon name="edit" size={16} /> {editando === p.codigo ? 'Fechar edição' : 'Editar'}
               </button>
@@ -257,6 +284,23 @@ export default function ProgramasPage() {
       )}
     </section>
   );
+}
+
+export function ConfirmarExclusaoPrograma({ programa, confirmacao, ocupado, erro, onAlterar, onConfirmar, onFechar }) {
+  const permitido = !ocupado && confirmacao.trim().toUpperCase() === 'COORDENADOR';
+  const fechar = () => { if (!ocupado) onFechar(); };
+  return <Modal
+    titulo={`Excluir programa ${programa.codigo}?`}
+    descricao="A operação é permanente. Programas com candidaturas, participações, histórico, formulários ou comunicados não podem ser excluídos. Encerre o programa nesses casos."
+    onFechar={fechar}
+    acoes={<>
+      <button type="button" disabled={ocupado} onClick={fechar}>Cancelar</button>
+      <button type="button" className="danger-button" disabled={!permitido} onClick={() => { if (permitido) onConfirmar(); }}>Excluir definitivamente</button>
+    </>}
+  >
+    <label>Digite COORDENADOR para confirmar<input disabled={ocupado} value={confirmacao} onChange={e => onAlterar(e.target.value)} /></label>
+    {erro && <p role="alert">{erro}</p>}
+  </Modal>;
 }
 
 function EditorPrograma({ programa, onCancelar, onSalvo }) {

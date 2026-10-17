@@ -25,6 +25,11 @@ export class CadastroDto {
   @MaxLength(120)
   nome!: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  programa?: string;
+
   @IsEmail({}, { message: 'Informe um e-mail válido.' })
   email!: string;
 

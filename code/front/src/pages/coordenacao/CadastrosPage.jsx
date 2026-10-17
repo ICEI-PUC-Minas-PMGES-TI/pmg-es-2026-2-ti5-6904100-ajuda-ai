@@ -25,6 +25,7 @@ function normalizar(texto) {
  */
 export default function CadastrosPage() {
   const [params, setParams] = useSearchParams();
+  const programa = params.get('programa') || undefined;
   const status = params.get('status') || 'pendente';
   const idSelecionado = Number(params.get('id')) || null;
   const mostrarToast = useToast();
@@ -39,13 +40,13 @@ export default function CadastrosPage() {
     setCarregando(true);
     setErro('');
     try {
-      setItens(await api.cadastros(status === 'todos' ? undefined : status));
+      setItens(await api.cadastros(status === 'todos' ? undefined : status, programa));
     } catch (error) {
       setErro(error.message || 'Falha ao carregar os cadastros.');
     } finally {
       setCarregando(false);
     }
-  }, [status]);
+  }, [status, programa]);
 
   useEffect(() => {
     carregar();
@@ -131,7 +132,7 @@ export default function CadastrosPage() {
 
       <div className="cand-detail-pane">
         {idSelecionado ? (
-          <CadastroDetalhe
+          <CadastroDetalhe programa={programa}
             key={`${idSelecionado}-${versao}`}
             id={idSelecionado}
             onFechar={() => atualizarParam('id', '')}

@@ -1,3 +1,5 @@
+import { ParticipacoesService } from '../src/participacoes/participacoes.service.js';
+import { FormularioEntity } from '../src/formularios/entities/formulario.entity.js';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -10,7 +12,10 @@ import { ParticipacaoEntity } from '../src/participacoes/entities/participacao.e
 import { ParticipacoesModule } from '../src/participacoes/participacoes.module.js';
 import { ProgramaEntity } from '../src/programas/entities/programa.entity.js';
 import { UsuarioEntity } from '../src/usuarios/entities/usuario.entity.js';
-import { repositorioEmMemoria } from './helpers/repositorio-memoria.js';
+import {
+  repositorioEmMemoria,
+  conectarRepositorios,
+} from './helpers/repositorio-memoria.js';
 
 /** Cadastro pela API: validação, regra do 1º período e acesso por status. */
 describe('Cadastro (e2e)', () => {
@@ -26,21 +31,37 @@ describe('Cadastro (e2e)', () => {
     turno: 'Noite',
     interesses: ['Tecnologia'],
     tipoParticipacao: 'padrinho',
-    respostas: { motivacao: 'Quero ajudar calouros.', areas: ['Projetos'] },
+    respostas: {
+      areas: ['Projetos'],
+      disponibilidade: ['Noite'],
+      genero: 'Prefiro não informar',
+      bolsistaProuni: false,
+      deOutraCidade: false,
+      motivacao: 'Quero ajudar calouros.',
+    },
   };
 
   beforeEach(async () => {
     usuarios = [];
     participacoes = [];
+    const repos = conectarRepositorios({
+      UsuarioEntity: repositorioEmMemoria<UsuarioEntity>(usuarios),
+      ParticipacaoEntity:
+        repositorioEmMemoria<ParticipacaoEntity>(participacoes),
+      ProgramaEntity: repositorioEmMemoria<ProgramaEntity>(),
+      FormularioEntity: repositorioEmMemoria<FormularioEntity>(),
+    });
     const modulo = await Test.createTestingModule({
       imports: [AuthModule, ParticipacoesModule, CadastroModule],
     })
       .overrideProvider(getRepositoryToken(UsuarioEntity))
-      .useValue(repositorioEmMemoria(usuarios))
+      .useValue(repos.UsuarioEntity)
       .overrideProvider(getRepositoryToken(ParticipacaoEntity))
-      .useValue(repositorioEmMemoria(participacoes))
+      .useValue(repos.ParticipacaoEntity)
       .overrideProvider(getRepositoryToken(ProgramaEntity))
-      .useValue(repositorioEmMemoria<ProgramaEntity>())
+      .useValue(repos.ProgramaEntity)
+      .overrideProvider(getRepositoryToken(FormularioEntity))
+      .useValue(repos.FormularioEntity)
       .compile();
 
     app = modulo.createNestApplication();
@@ -48,6 +69,24 @@ describe('Cadastro (e2e)', () => {
       new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
     );
     await app.init();
+    const programas = await repos.ProgramaEntity.find();
+    for (const programa of programas) {
+      Object.assign(programa, {
+        etapaAtual: 'inscricoes',
+        inscricoesAbertas: true,
+        inscricoesInicio: '2000-01-01',
+        inscricoesFim: '2099-12-31',
+      });
+      await repos.ProgramaEntity.save(programa);
+      await repos.FormularioEntity.save(
+        repos.FormularioEntity.create({
+          programa: programa.codigo,
+          tipo: 'padrinho',
+          publicado: true,
+          perguntas: [],
+        }),
+      );
+    }
   });
 
   afterEach(async () => {
@@ -83,8 +122,8 @@ describe('Cadastro (e2e)', () => {
     expect(resposta.body.accessToken).toEqual(expect.any(String));
     expect(resposta.body.usuario).toMatchObject({
       email: 'rafaela.souza@pucminas.edu.br',
-      tipoParticipacao: 'padrinho',
-      statusCadastro: 'pendente',
+      tipoParticipacao: 'nenhuma',
+      statusCadastro: 'aprovado',
       periodo: 4,
     });
     expect(resposta.body.participacao).toMatchObject({
@@ -103,12 +142,11 @@ describe('Cadastro (e2e)', () => {
       .get('/cadastro/me')
       .set('Authorization', `Bearer ${resposta.body.accessToken}`)
       .expect(200);
-    expect(meu.body.usuario.statusCadastro).toBe('pendente');
+    expect(meu.body.usuario.statusCadastro).toBe('aprovado');
   });
 
   it('rejeita PADRINHO no 1º período (regra do backend)', async () => {
-    const resposta = await postCadastro({ ...base, periodo: 1 })
-      .expect(400);
+    const resposta = await postCadastro({ ...base, periodo: 1 }).expect(400);
 
     expect(resposta.body.message).toMatch(
       /1º período não podem se cadastrar como padrinho/,
@@ -118,10 +156,13 @@ describe('Cadastro (e2e)', () => {
   });
 
   it('aceita APADRINHADO no 1º período, pendente de aprovação', async () => {
-    const resposta = await postCadastro({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
-      .expect(201);
+    const resposta = await postCadastro({
+      ...base,
+      periodo: 1,
+      tipoParticipacao: 'apadrinhado',
+    }).expect(201);
 
-    expect(resposta.body.usuario.statusCadastro).toBe('pendente');
+    expect(resposta.body.usuario.statusCadastro).toBe('aprovado');
     expect(resposta.body.participacao).toMatchObject({
       papel: 'apadrinhado',
       status: 'pendente',
@@ -130,8 +171,11 @@ describe('Cadastro (e2e)', () => {
 
   it('rejeita APADRINHADO a partir do 2º período (regra do backend)', async () => {
     for (const periodo of [2, 5, 12]) {
-      const resposta = await postCadastro({ ...base, periodo, tipoParticipacao: 'apadrinhado' })
-        .expect(400);
+      const resposta = await postCadastro({
+        ...base,
+        periodo,
+        tipoParticipacao: 'apadrinhado',
+      }).expect(400);
       expect(resposta.body.message).toMatch(
         /A partir do 2º período não é possível se cadastrar como apadrinhado/,
       );
@@ -141,11 +185,10 @@ describe('Cadastro (e2e)', () => {
   });
 
   it('aceita PADRINHO a partir do 2º período', async () => {
-    const resposta = await postCadastro({ ...base, periodo: 2 })
-      .expect(201);
+    const resposta = await postCadastro({ ...base, periodo: 2 }).expect(201);
     expect(resposta.body.usuario).toMatchObject({
-      tipoParticipacao: 'padrinho',
-      statusCadastro: 'pendente',
+      tipoParticipacao: 'nenhuma',
+      statusCadastro: 'aprovado',
     });
   });
 
@@ -161,8 +204,11 @@ describe('Cadastro (e2e)', () => {
   });
 
   it('rota antiga com token: x-user-id falso não troca a identidade', async () => {
-    const { body } = await postCadastro({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
-      .expect(201);
+    const { body } = await postCadastro({
+      ...base,
+      periodo: 1,
+      tipoParticipacao: 'apadrinhado',
+    }).expect(201);
     const resposta = await http()
       .post('/participacoes/cadastro-apadrinhado')
       .set('Authorization', `Bearer ${body.accessToken}`)
@@ -176,8 +222,9 @@ describe('Cadastro (e2e)', () => {
           expectativa: 'nova',
         },
       })
-      .expect(201);
-    expect(resposta.body.usuarioId).toBe(base.email);
+      .expect(409);
+    expect(participacoes[0].usuarioId).toBe(base.email);
+    expect(resposta.body.message).toMatch(/Já existe/);
     expect(
       usuarios.find((u) => u.email === 'vitima@pucminas.edu.br'),
     ).toBeUndefined();
@@ -196,29 +243,34 @@ describe('Cadastro (e2e)', () => {
   });
 
   it('valida dados obrigatórios e modalidade', async () => {
-    await postCadastro({ ...base, tipoParticipacao: 'coordenador' })
-      .expect(400);
-    await postCadastro({ ...base, nome: '' })
-      .expect(400);
-    await postCadastro({ ...base, periodo: 0 })
-      .expect(400);
-    await postCadastro({ ...base, email: 'rafa@gmail.com' })
-      .expect(400);
-    await postCadastro({ ...base, email: 'renata@pucminas.edu.br' })
-      .expect(400);
+    await postCadastro({ ...base, tipoParticipacao: 'coordenador' }).expect(
+      400,
+    );
+    await postCadastro({ ...base, nome: '' }).expect(400);
+    await postCadastro({ ...base, periodo: 0 }).expect(400);
+    await postCadastro({ ...base, email: 'rafa@gmail.com' }).expect(400);
+    await postCadastro({ ...base, email: 'renata@pucminas.edu.br' }).expect(
+      400,
+    );
   });
 
   it('não troca de modalidade num cadastro já existente', async () => {
-    await postCadastro({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
-      .expect(201);
+    await postCadastro({
+      ...base,
+      periodo: 1,
+      tipoParticipacao: 'apadrinhado',
+    }).expect(201);
     // já no 2º período, tenta virar padrinho com o mesmo e-mail
-    const resposta = await postCadastro({ ...base, periodo: 2, tipoParticipacao: 'padrinho' })
-      .expect(409);
+    const resposta = await postCadastro({
+      ...base,
+      periodo: 2,
+      tipoParticipacao: 'padrinho',
+    }).expect(409);
 
-    expect(resposta.body.message).toMatch(/já está cadastrado/);
+    expect(resposta.body.message).toMatch(/Já existe/);
   });
 
-  it('pendente e rejeitado não acessam recursos de participante; aprovado acessa', async () => {
+  it('aprovação acadêmica não libera recursos de participação ativa', async () => {
     const { body } = await postCadastro(base).expect(201);
     const token = `Bearer ${body.accessToken}`;
     const cadastro = app.get(CadastroService);
@@ -226,16 +278,19 @@ describe('Cadastro (e2e)', () => {
     await http().get('/me/vinculos').set('Authorization', token).expect(403);
 
     await cadastro.aprovar(body.usuario.id, 'renata@pucminas.edu.br');
-    await http().get('/me/vinculos').set('Authorization', token).expect(200);
+    await http().get('/me/vinculos').set('Authorization', token).expect(403);
     expect(participacoes[0]).toMatchObject({
-      papel: 'padrinho',
-      status: 'em_andamento',
+      papel: 'candidato',
+      status: 'aprovado',
     });
   });
 
   it('rejeitado não ganha acesso e não consegue reenviar', async () => {
-    const { body } = await postCadastro({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
-      .expect(201);
+    const { body } = await postCadastro({
+      ...base,
+      periodo: 1,
+      tipoParticipacao: 'apadrinhado',
+    }).expect(201);
     const cadastro = app.get(CadastroService);
     await cadastro.rejeitar(
       body.usuario.id,
@@ -247,22 +302,26 @@ describe('Cadastro (e2e)', () => {
       .get('/me/vinculos')
       .set('Authorization', `Bearer ${body.accessToken}`)
       .expect(403);
-    expect(vinculos.body.message).toMatch(/não foi aprovado/);
+    expect(vinculos.body.message).toMatch(/vínculo confirmado/);
 
-    const reenvio = await postCadastro({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
-      .expect(409);
-    expect(reenvio.body.message).toMatch(/Faltam dados/);
+    const reenvio = await postCadastro({
+      ...base,
+      periodo: 1,
+      tipoParticipacao: 'apadrinhado',
+    }).expect(409);
+    expect(reenvio.body.message).toMatch(/Já existe/);
   });
 
   it('situação só traz cadastro e esconde vínculos de quem não é aprovado', async () => {
-    const { body } = await postCadastro({ ...base, periodo: 1, tipoParticipacao: 'apadrinhado' })
-      .expect(201);
+    const { body } = await postCadastro({
+      ...base,
+      periodo: 1,
+      tipoParticipacao: 'apadrinhado',
+    }).expect(201);
 
     const situacao = await http()
       .get('/participacoes/situacao')
       .set('Authorization', `Bearer ${body.accessToken}`)
-      // com token, x-user-id é ignorado
-      .set('x-user-id', 'outra.pessoa@pucminas.edu.br')
       .expect(200);
 
     expect(situacao.body.usuarioId).toBe('rafaela.souza@pucminas.edu.br');
@@ -274,7 +333,7 @@ describe('Cadastro (e2e)', () => {
     expect(situacao.body.padrinho).toBeNull();
   });
 
-  it('aprovar a candidatura na tela de Candidaturas aprova o cadastro pendente', async () => {
+  it('aprovação de candidatura preserva conta e registra decisão por ciclo', async () => {
     const { body } = await postCadastro(base).expect(201);
     const cadastro = app.get(CadastroService);
     const participacao = participacoes.find(
@@ -282,8 +341,9 @@ describe('Cadastro (e2e)', () => {
     )!;
 
     // mesma sequência que CoordenacaoService.aprovarCandidatura executa
-    participacao.papel = 'padrinho';
-    participacao.status = 'em_andamento';
+    await app
+      .get(ParticipacoesService)
+      .aprovarCandidatura(participacao.id, 'renata@pucminas.edu.br');
     await cadastro.refletirDecisaoDaCandidatura(
       participacao,
       'aprovado',
@@ -292,7 +352,10 @@ describe('Cadastro (e2e)', () => {
 
     const usuario = usuarios.find((u) => u.email === base.email)!;
     expect(usuario.statusCadastro).toBe('aprovado');
-    expect(usuario.analisadoPor).toBe('renata@pucminas.edu.br');
+    expect(usuario.analisadoPor).toBeNull();
+    expect(participacao.respostas?._servidor?.decisao?.por).toBe(
+      'renata@pucminas.edu.br',
+    );
   });
 
   it('demo: alunos semeados com status coerente', () => {

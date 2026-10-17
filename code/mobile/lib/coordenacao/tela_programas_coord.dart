@@ -36,6 +36,8 @@ class TelaProgramasCoord extends StatefulWidget {
     required this.api,
     this.pendencia,
     this.onProgramaCriado,
+    this.onProgramaSelecionado,
+    this.onProgramaExcluido,
   });
 
   final CoordenacaoApi api;
@@ -43,6 +45,8 @@ class TelaProgramasCoord extends StatefulWidget {
   /// `grupos` | `prazo` — vindo dos pontos de atenção do dashboard.
   final String? pendencia;
   final ValueChanged<String>? onProgramaCriado;
+  final ValueChanged<String>? onProgramaSelecionado;
+  final ValueChanged<String>? onProgramaExcluido;
 
   @override
   State<TelaProgramasCoord> createState() => _TelaProgramasCoordState();
@@ -120,6 +124,19 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
     }
   }
 
+  Future<void> _excluir(Map<String, dynamic> programa) async {
+    final codigo = programa['codigo'] as String;
+    final excluido = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _ExcluirProgramaDialog(api: widget.api, codigo: codigo),
+    );
+    if (!mounted || excluido != true) return;
+    mostrarMensagemCoord(context, 'Programa $codigo excluído.');
+    widget.onProgramaExcluido?.call(codigo);
+    await _carregar();
+  }
+
   @override
   Widget build(BuildContext context) {
     final aviso = switch (widget.pendencia) {
@@ -194,6 +211,15 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
                   _CardPrograma(
                     programa: programa,
                     onEditar: () => _editar(programa),
+                    onExcluir: () => _excluir(programa),
+                    onAdministrar: widget.onProgramaSelecionado == null
+                        ? null
+                        : () {
+                            widget.onProgramaSelecionado!(
+                              programa['codigo'] as String,
+                            );
+                            Navigator.of(context).pop();
+                          },
                   ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -216,10 +242,17 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
 }
 
 class _CardPrograma extends StatelessWidget {
-  const _CardPrograma({required this.programa, required this.onEditar});
+  const _CardPrograma({
+    required this.programa,
+    required this.onEditar,
+    required this.onExcluir,
+    this.onAdministrar,
+  });
 
   final Map<String, dynamic> programa;
   final VoidCallback onEditar;
+  final VoidCallback onExcluir;
+  final VoidCallback? onAdministrar;
 
   @override
   Widget build(BuildContext context) {
@@ -402,6 +435,25 @@ class _CardPrograma extends StatelessWidget {
                 ),
               ),
           ],
+          if (onAdministrar != null)
+            TextButton.icon(
+              onPressed: onAdministrar,
+              icon: const Icon(Icons.dashboard_outlined),
+              label: const Text('Administrar este programa'),
+            ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: PopupMenuButton<String>(
+              tooltip: 'Mais ações do programa',
+              onSelected: (_) => onExcluir(),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'excluir',
+                  child: Text('Excluir programa'),
+                ),
+              ],
+            ),
+          ),
           if (programa['encerrado'] != true)
             Align(
               alignment: Alignment.centerRight,
@@ -627,4 +679,79 @@ class _DialogoNovoCicloState extends State<_DialogoNovoCiclo> {
       ],
     );
   }
+}
+
+class _ExcluirProgramaDialog extends StatefulWidget {
+  const _ExcluirProgramaDialog({required this.api, required this.codigo});
+  final CoordenacaoApi api;
+  final String codigo;
+  @override
+  State<_ExcluirProgramaDialog> createState() => _ExcluirProgramaDialogState();
+}
+
+class _ExcluirProgramaDialogState extends State<_ExcluirProgramaDialog> {
+  String _confirmacao = '';
+  bool _excluindo = false;
+  String? _erro;
+  Future<void> _excluir() async {
+    if (_excluindo || _confirmacao.trim().toUpperCase() != 'COORDENADOR') {
+      return;
+    }
+    setState(() {
+      _excluindo = true;
+      _erro = null;
+    });
+    try {
+      await widget.api.excluirPrograma(widget.codigo, _confirmacao);
+      if (mounted) Navigator.pop(context, true);
+    } catch (erro) {
+      if (mounted) {
+        setState(() {
+          _excluindo = false;
+          _erro = mensagemDeErro(erro);
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_excluindo,
+    child: AlertDialog(
+      title: Text('Excluir programa ${widget.codigo}?'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'A operação é permanente. Programas com candidaturas, participações, histórico, formulários ou comunicados não podem ser excluídos. Nesses casos, encerre o programa.',
+            ),
+            TextField(
+              enabled: !_excluindo,
+              decoration: const InputDecoration(
+                labelText: 'Digite COORDENADOR para confirmar',
+              ),
+              onChanged: (valor) => setState(() => _confirmacao = valor),
+            ),
+            if (_erro != null)
+              Text(_erro!, style: const TextStyle(color: Colors.red)),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _excluindo ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+          onPressed:
+              _excluindo || _confirmacao.trim().toUpperCase() != 'COORDENADOR'
+              ? null
+              : _excluir,
+          child: Text(_excluindo ? 'Excluindo…' : 'Excluir definitivamente'),
+        ),
+      ],
+    ),
+  );
 }

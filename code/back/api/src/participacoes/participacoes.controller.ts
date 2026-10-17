@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Get,
   Headers,
@@ -10,25 +11,17 @@ import {
 } from '@nestjs/common';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
-import { JwtOpcionalGuard } from '../auth/jwt-opcional.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { ProgramasService } from '../programas/programas.service.js';
 import { montarEtapas, ROTULOS_STATUS_PROGRAMA } from '../programas/etapas.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
-import type { ParticipacaoEntity } from './entities/participacao.entity.js';
 import { ParticipacoesService } from './participacoes.service.js';
 import { perfilDoRegistro, serializarParticipacao } from './perfil.js';
 
-/**
- * Rotas do aluno. Com token (login demo/cadastro), a identidade vem do token
- * e `x-user-id` é ignorado. Sem token, vale o modo antigo do app mobile:
- * e-mail institucional em `x-user-id` ou `usuarioId`. Os envios de cadastro
- * ficam no CadastroModule. Ações que mudam o status do programa ficam só com
- * a coordenação.
- */
+/** Consultas do próprio aluno exigem JWT. Decisões são restritas à coordenação. */
 @Controller('participacoes')
-@UseGuards(JwtOpcionalGuard)
+@UseGuards(JwtAuthGuard)
 export class ParticipacoesController {
   constructor(
     private readonly participacoesService: ParticipacoesService,
@@ -53,6 +46,24 @@ export class ParticipacoesController {
    * etapas do programa. Alimenta Perfil, Status da candidatura e
    * "Seu padrinho foi definido".
    */
+  @Get('programas')
+  async programas() {
+    return (await this.programasService.listar()).map((programa) => {
+      let inscricoesDisponiveis = false;
+      try {
+        this.programasService.validarInscricoes(programa);
+        inscricoesDisponiveis = true;
+      } catch { /* Calendário fechado: consulta continua disponível. */ }
+      return {
+        codigo: programa.codigo,
+        titulo: programa.titulo,
+        etapaAtual: programa.etapaAtual,
+        inscricoesDisponiveis,
+        atual: programa.codigo === ParticipacoesService.programaAtual(),
+      };
+    });
+  }
+
   @Get('situacao')
   async situacao(
     @Req() requisicao: AuthenticatedRequest,
@@ -66,18 +77,35 @@ export class ParticipacoesController {
       requisicao,
     );
     const usuario = await this.usuariosService.buscarPorEmail(usuarioId);
-    // Dados de padrinho/apadrinhados só para cadastros aprovados.
-    const aprovado = usuario?.statusCadastro === 'aprovado';
-    const codigo =
-      programaQuery?.trim() || ParticipacoesService.programaAtual();
     const programa =
-      (await this.programasService.buscarPorCodigo(codigo)) ??
-      (await this.programasService.garantirProgramaAtual());
+      await this.programasService.resolverConsulta(programaQuery);
+    if (!programa)
+      return {
+        usuarioId,
+        programa: null,
+        situacao: 'nenhuma',
+        registro: null,
+        perfil: usuario
+          ? {
+              nome: usuario.nome,
+              email: usuario.email,
+              curso: usuario.curso,
+              periodo: usuario.periodo,
+              turno: usuario.turno,
+              interesses: usuario.interesses ?? [],
+            }
+          : null,
+        cadastro: null,
+        grupo: null,
+        padrinho: null,
+        apadrinhados: [],
+      };
     const registro = await this.participacoesService.registroPrincipal(
       usuarioId,
       programa.codigo,
     );
 
+    const aprovado = await this.participacoesService.temVinculoValido(registro);
     let padrinho: Record<string, unknown> | null = null;
     let apadrinhados: Array<Record<string, unknown>> = [];
     const grupo = registro?.grupo?.trim() || null;
@@ -112,19 +140,39 @@ export class ParticipacoesController {
         inscricoesAbertas: programa.inscricoesAbertas,
         etapas: montarEtapas(programa),
       },
-      situacao: ParticipacoesService.situacaoDe(registro),
+      situacao: await this.participacoesService.situacaoDoRegistro(registro),
       cadastro: usuario
         ? {
-            status: usuario.statusCadastro,
-            tipoParticipacao: usuario.tipoParticipacao,
-            motivoRejeicao: usuario.motivoRejeicao ?? null,
-            analisadoEm: usuario.analisadoEm ?? null,
+            status:
+              registro?.status === 'nao_aprovado'
+                ? 'rejeitado'
+                : registro &&
+                    ['pendente', 'em_analise'].includes(registro.status)
+                  ? 'pendente'
+                  : 'aprovado',
+            tipoParticipacao:
+              registro?.papel === 'candidato'
+                ? 'padrinho'
+                : (registro?.papel ?? 'nenhuma'),
+            motivoRejeicao:
+              registro?.status === 'nao_aprovado'
+                ? (registro.respostas?._servidor?.decisao?.justificativa ??
+                  null)
+                : null,
+            analisadoEm: registro?.respostas?._servidor?.decisao?.em ?? null,
             criadoEm: usuario.criadoEm,
           }
         : null,
-      perfil: perfilDoRegistro(
-        registro ?? ({ usuarioId, respostas: null } as ParticipacaoEntity),
-      ),
+      perfil: usuario
+        ? {
+            nome: usuario.nome,
+            email: usuario.email,
+            curso: usuario.curso,
+            periodo: usuario.periodo,
+            turno: usuario.turno,
+            interesses: usuario.interesses ?? [],
+          }
+        : null,
       registro: registro ? serializarParticipacao(registro) : null,
       grupo,
       padrinho,
@@ -162,10 +210,18 @@ export class ParticipacoesController {
   @Post('rejeitar-candidatura')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('coordenador')
-  async rejeitar(@Body() corpo: { usuarioId?: string; programa?: string }) {
+  async rejeitar(
+    @Body()
+    corpo: {
+      usuarioId?: string;
+      programa?: string;
+      justificativa?: string;
+    },
+  ) {
     const registro = await this.participacoesService.rejeitarCandidatura({
       usuarioId: this.usuarioId(undefined, corpo.usuarioId),
       programa: corpo.programa,
+      justificativa: corpo.justificativa,
     });
     return registro ? serializarParticipacao(registro) : null;
   }
@@ -175,8 +231,11 @@ export class ParticipacoesController {
     fallback?: string,
     requisicao?: AuthenticatedRequest,
   ): string {
-    const doToken =
-      requisicao?.user?.perfil !== 'coordenador' ? requisicao?.user?.email : '';
-    return (doToken || header?.trim() || fallback?.trim() || '').toLowerCase();
+    if (!requisicao) return (fallback ?? '').trim().toLowerCase();
+    const email = requisicao.user.email;
+    if ([header, fallback].some((v) => v && v.trim().toLowerCase() !== email)) {
+      throw new BadRequestException('Consulte apenas a própria participação.');
+    }
+    return email;
   }
 }

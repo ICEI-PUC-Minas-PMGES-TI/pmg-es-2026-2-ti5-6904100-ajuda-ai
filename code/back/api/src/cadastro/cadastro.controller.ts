@@ -1,3 +1,5 @@
+import { FileInterceptor } from '@nestjs/platform-express';
+import { AzureBlobStorageService } from '../storage/azure-blob-storage.service.js';
 import {
   BadRequestException,
   Body,
@@ -6,7 +8,12 @@ import {
   Headers,
   NotFoundException,
   Post,
+  Put,
+  Patch,
+  UploadedFile,
+  UseInterceptors,
   Req,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
@@ -31,6 +38,7 @@ export class CadastroController {
   constructor(
     private readonly cadastroService: CadastroService,
     private readonly authService: AuthService,
+    private readonly usuariosService: UsuariosService,
   ) {}
 
   /**
@@ -56,6 +64,23 @@ export class CadastroController {
     });
   }
 
+  /** Completa perfil com token de onboarding ou acesso, sem criar inscrição. */
+  @Put('perfil')
+  async completarPerfil(
+    @Headers('authorization') autorizacao: string | undefined,
+    @Body() corpo: Record<string, unknown>,
+  ) {
+    const identidade = await this.authService.identidadeDoCadastro(autorizacao);
+    if (buscarCoordenadorPorEmail(identidade.email))
+      throw new BadRequestException('Conta da coordenação.');
+    const usuario = await this.usuariosService.atualizarPerfil(
+      identidade.email,
+      corpo,
+      true,
+    );
+    return this.authService.emitirSessao(usuario);
+  }
+
   @Get('me')
   @UseGuards(JwtAuthGuard)
   meuCadastro(@Req() requisicao: AuthenticatedRequest) {
@@ -70,6 +95,7 @@ export class MeController {
   constructor(
     private readonly usuariosService: UsuariosService,
     private readonly cadastroService: CadastroService,
+    private readonly storage: AzureBlobStorageService,
   ) {}
 
   @Get()
@@ -83,11 +109,56 @@ export class MeController {
     return serializarUsuario(usuario);
   }
 
+  @Patch()
+  async atualizar(
+    @Req() requisicao: AuthenticatedRequest,
+    @Body() corpo: Record<string, unknown>,
+  ) {
+    return serializarUsuario(
+      await this.usuariosService.atualizarPerfil(requisicao.user.email, corpo),
+    );
+  }
+
+  private async chaveFoto(requisicao: AuthenticatedRequest) {
+    const usuario = await this.usuariosService.buscarPorEmail(
+      requisicao.user.email,
+    );
+    if (!usuario) throw new NotFoundException('Perfil não encontrado.');
+    return `usuarios/${usuario.id}/avatar.img`;
+  }
+
+  @Put('foto')
+  @UseInterceptors(
+    FileInterceptor('foto', {
+      limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+    }),
+  )
+  async foto(
+    @Req() requisicao: AuthenticatedRequest,
+    @UploadedFile() arquivo: { buffer: Buffer } | undefined,
+  ) {
+    const chave = await this.chaveFoto(requisicao);
+    if (!arquivo?.buffer?.length)
+      throw new BadRequestException('Envie uma foto PNG, JPEG ou WebP.');
+    await this.storage.substituirFotoPerfil(chave, arquivo.buffer);
+    return this.storage.sasLeitura('profiles', chave);
+  }
+
+  @Get('foto')
+  async lerFoto(@Req() requisicao: AuthenticatedRequest) {
+    const chave = await this.chaveFoto(requisicao);
+    if (!(await this.storage.existe('profiles', chave))) return { url: null };
+    return this.storage.sasLeitura('profiles', chave);
+  }
+
   /** Padrinho ↔ apadrinhados: só para cadastros aprovados. */
   @Get('vinculos')
   @UseGuards(CadastroAprovadoGuard)
-  vinculos(@Req() requisicao: ParticipanteRequest) {
-    return this.cadastroService.vinculosDe(requisicao.usuario.email);
+  vinculos(
+    @Req() requisicao: ParticipanteRequest,
+    @Query('programa') programa?: string,
+  ) {
+    return this.cadastroService.vinculosDe(requisicao.usuario.email, programa);
   }
 }
 

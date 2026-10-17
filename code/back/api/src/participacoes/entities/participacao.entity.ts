@@ -10,7 +10,12 @@ import {
 
 export type PapelParticipacao = 'padrinho' | 'apadrinhado' | 'candidato';
 export type StatusParticipacaoRegistro =
-  'pendente' | 'em_analise' | 'em_andamento' | 'concluido' | 'nao_aprovado';
+  | 'pendente'
+  | 'em_analise'
+  | 'aprovado'
+  | 'em_andamento'
+  | 'concluido'
+  | 'nao_aprovado';
 
 /** Resposta do candidato a um requisito do ciclo (foto do momento do envio). */
 export interface RequisitoRespondido {
@@ -25,7 +30,24 @@ export interface RequisitoRespondido {
  * Dados enviados pelo aluno no cadastro. Todos opcionais porque registros
  * antigos (e a semente demo) podem não ter respostas.
  */
+export interface MetadadosCandidatura {
+  formulario?: {
+    id: number | null;
+    programa: string;
+    perguntas: unknown[];
+    atualizadoEm: Date | null;
+  };
+  decisao?: {
+    resultado: 'aprovado' | 'nao_aprovado';
+    justificativa: string | null;
+    em: string;
+    por: string | null;
+  };
+}
+
 export interface RespostasCadastro {
+  /** Exclusivo do servidor. Nunca copiado do payload do aluno. */
+  _servidor?: MetadadosCandidatura;
   nome?: string;
   curso?: string;
   periodo?: number;

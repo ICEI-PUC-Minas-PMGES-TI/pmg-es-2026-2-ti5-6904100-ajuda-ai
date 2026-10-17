@@ -50,7 +50,7 @@ export default function UsuariosPage() {
     setParams(novos, { replace: true });
   }
 
-  const padrinhos = useMemo(() => (usuarios || []).filter((u) => u.papel === 'padrinho'), [usuarios]);
+  const padrinhos = useMemo(() => (usuarios || []).filter((u) => u.situacao === 'candidatura_aprovada_aguardando_matching' || u.situacao === 'padrinho_ativo'), [usuarios]);
   const situacoesPresentes = useMemo(() => Array.from(new Set((usuarios || []).map((u) => u.situacao))), [usuarios]);
   const lista = useMemo(() => {
     const termo = normalizar(busca.trim());

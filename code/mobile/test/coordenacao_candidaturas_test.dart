@@ -93,6 +93,11 @@ class _ApiCoordFalsa {
         },
       });
     }
+    if (caminho == '/coordenacao/programas') {
+      return _json([
+        {'codigo': '2026/2', 'titulo': 'Programa 2026/2'},
+      ]);
+    }
     if (caminho == '/coordenacao/dashboard') {
       return http.Response(
         File('test/fixtures/coordenacao_dashboard.json').readAsStringSync(),
@@ -283,6 +288,11 @@ void main() {
 
     await tester.tap(find.widgetWithText(OutlinedButton, 'Rejeitar'));
     await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextField).last,
+      'Requisitos não atendidos',
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Rejeitar'));
     await tester.pumpAndSettle();
     expect(
@@ -290,6 +300,7 @@ void main() {
       {
         'ids': [2],
         'acao': 'rejeitar',
+        'justificativa': 'Requisitos não atendidos',
       },
     );
 

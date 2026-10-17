@@ -109,7 +109,10 @@ void main() {
       tester.widget<CampoTexto>(find.byType(CampoTexto).at(1)).bloqueado,
       isTrue,
     );
-    expect(find.widgetWithText(TextField, 'ana.souza@pucminas.edu.br'), findsNothing);
+    expect(
+      find.widgetWithText(TextField, 'ana.souza@pucminas.edu.br'),
+      findsNothing,
+    );
   });
 
   testWidgets('período começa no 1º e pode ser alterado', (tester) async {
@@ -196,7 +199,7 @@ void main() {
     expect(api.posts('/participacoes/cadastro-apadrinhado'), isEmpty);
     final envio = api.posts('/cadastro').single;
     expect(envio.headers.containsKey('x-user-id'), isFalse);
-    expect(envio.headers['authorization'], 'Bearer onboarding-teste');
+    expect(envio.headers['authorization'], 'Bearer ${ApiFalsa.token}');
     final corpo = api.corpo(envio);
     expect(corpo, containsPair('email', 'camila@pucminas.edu.br'));
     expect(corpo, containsPair('nome', 'Camila Duarte'));

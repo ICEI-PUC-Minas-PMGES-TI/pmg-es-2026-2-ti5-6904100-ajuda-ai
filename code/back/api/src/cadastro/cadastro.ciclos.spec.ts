@@ -1,4 +1,8 @@
-import { repositorioEmMemoria } from '../../test/helpers/repositorio-memoria.js';
+import { FormularioEntity } from '../formularios/entities/formulario.entity.js';
+import {
+  repositorioEmMemoria,
+  conectarRepositorios,
+} from '../../test/helpers/repositorio-memoria.js';
 import type { AuthService } from '../auth/auth.service.js';
 import { CoordenacaoService } from '../coordenacao/coordenacao.service.js';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
@@ -26,9 +30,17 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
   beforeEach(async () => {
     usuarios = [];
     participacoes = [];
-    const usuariosService = new UsuariosService(repositorioEmMemoria(usuarios));
+    const repoUsuarios = repositorioEmMemoria(usuarios);
+    const usuariosService = new UsuariosService(repoUsuarios);
     const repoParticipacoes = repositorioEmMemoria(participacoes);
     const repoProgramas = repositorioEmMemoria<ProgramaEntity>();
+    const repoFormularios = repositorioEmMemoria<FormularioEntity>();
+    conectarRepositorios({
+      UsuarioEntity: repoUsuarios,
+      ParticipacaoEntity: repoParticipacoes,
+      ProgramaEntity: repoProgramas,
+      FormularioEntity: repoFormularios,
+    });
     participacoesService = new ParticipacoesService(
       repoParticipacoes,
       repoProgramas,
@@ -52,6 +64,18 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     );
     for (const codigo of ['2025/2', '2026/2', '2027/1', '2027/2']) {
       await programasService.criarNovoCiclo(codigo);
+      await programasService.atualizar(codigo, {
+        inscricoesInicio: '2000-01-01',
+        inscricoesFim: '2099-12-31',
+      });
+      await repoFormularios.save(
+        repoFormularios.create({
+          programa: codigo,
+          tipo: 'padrinho',
+          publicado: true,
+          perguntas: [],
+        }),
+      );
     }
     await programasService.atualizar('2026/2', {
       requisitosPadrinho: [{ descricao: 'Cálculo I' }],
@@ -82,7 +106,15 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     periodo,
     tipoParticipacao: 'padrinho' as const,
     programa,
-    respostas,
+    respostas: {
+      motivacao: 'Quero apoiar novos alunos.',
+      areas: ['Projetos'],
+      disponibilidade: ['Noite'],
+      genero: 'Prefiro não informar',
+      bolsistaProuni: false,
+      deOutraCidade: false,
+      ...respostas,
+    },
   });
 
   async function aprovadoEm2026_2() {
@@ -102,7 +134,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       papel: 'candidato',
       status: 'pendente',
     });
-    expect(u.statusCadastro).toBe('pendente');
+    expect(u.statusCadastro).toBe('aprovado');
     expect(participacao.respostas?.requisitos).toEqual([
       {
         id: 'calculo-i',
@@ -173,8 +205,8 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
 
     expect(historica.respostas?.requisitos).toEqual(fotoAntes);
     expect(historica).toMatchObject({
-      papel: 'padrinho',
-      status: 'em_andamento',
+      papel: 'candidato',
+      status: 'aprovado',
     });
     const detalhe = await coordenacao.detalharCandidatura(historica.id);
     expect(detalhe.requisitos.map((r) => r.descricao)).toEqual(['Cálculo I']);
@@ -229,6 +261,10 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       codigo: '2028/2',
       etapaAtual: 'inscricoes',
     });
+    await programasService.atualizar('2028/2', {
+      inscricoesInicio: '2000-01-01',
+      inscricoesFim: '2099-12-31',
+    });
     const { participacao } = await cadastro.registrar({
       email: 'calouro@pucminas.edu.br',
       nome: 'Calouro',
@@ -256,23 +292,39 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
 
   /* ---------- sincronização cadastro × participação ---------- */
 
-  it('aprovação inicial aprova cadastro e 1ª participação', async () => {
+  it('aprovação inicial decide somente a candidatura', async () => {
     const { participacao } = await cadastro.registrar(padrinho('2026/2'));
     await coordenacao.aprovarCandidatura(participacao.id, COORD);
     expect(usuario()).toMatchObject({
       statusCadastro: 'aprovado',
-      analisadoPor: COORD,
+      tipoParticipacao: 'nenhuma',
     });
     expect(participacoes[0]).toMatchObject({
-      papel: 'padrinho',
-      status: 'em_andamento',
+      papel: 'candidato',
+      status: 'aprovado',
     });
+    expect(await coordenacao.listarCandidaturas('2026/2', 'aprovadas')).toEqual(
+      [
+        expect.objectContaining({
+          id: participacao.id,
+          papel: 'candidato',
+          status: 'aprovado',
+        }),
+      ],
+    );
+    const dashboard = await coordenacao.obterDashboard('2026/2');
+    expect(dashboard.indicadores?.padrinhosAprovados.valor).toBe(1);
+    expect(dashboard.indicadores?.padrinhosAprovados.comVinculo).toBe(0);
   });
 
-  it('rejeição inicial rejeita cadastro e 1ª participação', async () => {
+  it('rejeição inicial preserva a conta e decide a candidatura', async () => {
     const { participacao } = await cadastro.registrar(padrinho('2026/2'));
-    await coordenacao.rejeitarCandidatura(participacao.id, COORD);
-    expect(usuario().statusCadastro).toBe('rejeitado');
+    await coordenacao.rejeitarCandidatura(
+      participacao.id,
+      COORD,
+      'Requisitos não confirmados.',
+    );
+    expect(usuario().statusCadastro).toBe('aprovado');
     expect(participacoes[0].status).toBe('nao_aprovado');
   });
 
@@ -280,7 +332,11 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     const analisadoEm = await aprovadoEm2026_2();
     const { participacao: f1 } = await cadastro.registrar(padrinho('2027/1'));
     expect(f1).toMatchObject({ programa: '2027/1', status: 'pendente' });
-    await coordenacao.rejeitarCandidatura(f1.id, COORD);
+    await coordenacao.rejeitarCandidatura(
+      f1.id,
+      COORD,
+      'Requisitos não confirmados.',
+    );
     expect(f1.status).toBe('nao_aprovado');
     expect(usuario()).toMatchObject({
       statusCadastro: 'aprovado',
@@ -289,7 +345,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
 
     const { participacao: f2 } = await cadastro.registrar(padrinho('2027/2'));
     await coordenacao.acaoEmMassa({ ids: [f2.id], acao: 'aprovar' }, COORD);
-    expect(f2).toMatchObject({ papel: 'padrinho', status: 'em_andamento' });
+    expect(f2).toMatchObject({ papel: 'candidato', status: 'aprovado' });
     expect(usuario()).toMatchObject({
       statusCadastro: 'aprovado',
       analisadoEm,
@@ -302,8 +358,12 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       programa: '2025/2',
     });
     await cadastro.registrar(padrinho('2026/2'));
-    await coordenacao.rejeitarCandidatura(antiga.id, COORD);
-    expect(usuario().statusCadastro).toBe('pendente');
+    await coordenacao.rejeitarCandidatura(
+      antiga.id,
+      COORD,
+      'Requisitos não confirmados.',
+    );
+    expect(usuario().statusCadastro).toBe('aprovado');
   });
 
   /* ---------- transição apadrinhado → padrinho ---------- */
@@ -332,7 +392,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
 
     expect(usuarios.filter((x) => x.email === EMAIL)).toHaveLength(1);
     expect(u).toMatchObject({ statusCadastro: 'aprovado', analisadoEm });
-    expect(u.tipoParticipacao).toBe('apadrinhado'); // só muda se aprovado
+    expect(u.tipoParticipacao).toBe('nenhuma'); // só muda se aprovado
     expect(participacao).toMatchObject({
       programa: '2027/1',
       papel: 'candidato',
@@ -351,7 +411,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     ).rejects.toThrow(/é preciso cumprir/);
   });
 
-  it('transição aprovada: participação vira PADRINHO e modalidade atual muda; histórico mantido', async () => {
+  it('transição aprovada aguarda matching sem alterar conta ou histórico', async () => {
     await apadrinhadoAprovadoEm2026_2();
     const analisadoEm = usuario().analisadoEm;
     const { participacao } = await cadastro.registrar(padrinho('2027/1', 2));
@@ -359,18 +419,18 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     await coordenacao.aprovarCandidatura(participacao.id, COORD);
 
     expect(participacao).toMatchObject({
-      papel: 'padrinho',
-      status: 'em_andamento',
+      papel: 'candidato',
+      status: 'aprovado',
     });
     expect(usuario()).toMatchObject({
       statusCadastro: 'aprovado',
-      tipoParticipacao: 'padrinho',
+      tipoParticipacao: 'nenhuma',
       analisadoEm,
     });
     const historico = await participacoesService.listarPorUsuario(EMAIL);
     expect(historico.map((p) => `${p.programa}:${p.papel}`).sort()).toEqual([
       '2026/2:apadrinhado',
-      '2027/1:padrinho',
+      '2027/1:candidato',
     ]);
   });
 
@@ -378,12 +438,16 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     await apadrinhadoAprovadoEm2026_2();
     const { participacao } = await cadastro.registrar(padrinho('2027/1', 2));
 
-    await coordenacao.rejeitarCandidatura(participacao.id, COORD);
+    await coordenacao.rejeitarCandidatura(
+      participacao.id,
+      COORD,
+      'Requisitos não confirmados.',
+    );
 
     expect(participacao.status).toBe('nao_aprovado');
     expect(usuario()).toMatchObject({
       statusCadastro: 'aprovado',
-      tipoParticipacao: 'apadrinhado',
+      tipoParticipacao: 'nenhuma',
     });
     expect(participacoes.find((p) => p.programa === '2026/2')).toMatchObject({
       papel: 'apadrinhado',
@@ -391,7 +455,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     });
   });
 
-  it('cadastro PENDENTE (ou rejeitado) não troca de modalidade', async () => {
+  it('inscrição anterior não impede outra modalidade em novo ciclo', async () => {
     await cadastro.registrar({
       email: EMAIL,
       nome: 'Calouro',
@@ -400,8 +464,12 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       tipoParticipacao: 'apadrinhado',
       programa: '2026/2',
     });
-    await expect(cadastro.registrar(padrinho('2027/1', 2))).rejects.toThrow(
-      /já está cadastrado/,
-    );
+    const nova = await cadastro.registrar(padrinho('2027/1', 2));
+    expect(nova.participacao).toMatchObject({
+      programa: '2027/1',
+      papel: 'candidato',
+      status: 'pendente',
+    });
+    expect(participacoes).toHaveLength(2);
   });
 });

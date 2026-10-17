@@ -24,16 +24,15 @@ class PerguntasAdicionais extends StatefulWidget {
   final VoidCallback? onChanged;
   final bool mostrarTitulo;
 
-  /// Ids das perguntas obrigatórias sem resposta ("upload" não conta).
+  /// Tipos não suportados bloqueiam o envio, mesmo quando opcionais.
   static List<String> pendentes(
     List<PerguntaFormulario> perguntas,
     Map<String, dynamic> respostas,
   ) {
     return [
       for (final pergunta in perguntas)
-        if (pergunta.obrigatoria &&
-            pergunta.tipo != TipoPergunta.upload &&
-            !_respondida(respostas[pergunta.id]))
+        if (!pergunta.tipo.suportado ||
+            (pergunta.obrigatoria && !_respondida(respostas[pergunta.id])))
           pergunta.id,
     ];
   }
@@ -92,6 +91,12 @@ class _PerguntasAdicionaisState extends State<PerguntasAdicionais> {
   @override
   Widget build(BuildContext context) {
     if (widget.perguntas.isEmpty) return const SizedBox.shrink();
+    if (widget.perguntas.any((p) => !p.tipo.suportado)) {
+      return const Text(
+        mensagemFormularioNaoSuportado,
+        style: TextStyle(color: Colors.red),
+      );
+    }
     final pendentes = widget.validar
         ? PerguntasAdicionais.pendentes(widget.perguntas, widget.respostas)
         : const <String>[];
@@ -179,20 +184,7 @@ class _PerguntasAdicionaisState extends State<PerguntasAdicionais> {
         erro: erro,
         onChanged: (lista) => _alterar(pergunta.id, lista),
       ),
-      TipoPergunta.upload => Container(
-        height: 48,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: EstiloCampo.decoracao(bloqueado: true),
-        child: const Row(
-          children: [
-            Icon(Icons.attach_file, size: 20, color: AppColors.muted),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text('Envio de arquivo em breve', style: EstiloCampo.dica),
-            ),
-          ],
-        ),
-      ),
+      TipoPergunta.naoSuportado => const Text(mensagemFormularioNaoSuportado),
     };
 
     return Column(

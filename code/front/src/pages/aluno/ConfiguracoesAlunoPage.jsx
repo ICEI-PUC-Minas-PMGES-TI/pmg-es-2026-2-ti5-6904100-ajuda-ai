@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { lerPreferencias, limparPreferencias, limparSessaoAluno, salvarPreferencias } from '../../auth/sessaoAluno';
+import {clearAlunoSession} from '../../api/client';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import Toggle from '../../components/Toggle';
@@ -21,6 +22,9 @@ const ROTULOS_SITUACAO = {
   candidatura_pendente: 'Candidatura a padrinho enviada',
   candidatura_em_analise: 'Candidatura a padrinho em análise',
   candidatura_rejeitada: 'Candidatura a padrinho não aprovada',
+  candidatura_aprovada_aguardando_matching: 'Candidatura aprovada aguardando definição do grupo',
+  apadrinhado_pendente: 'Cadastro aguardando aprovação',
+  apadrinhado_rejeitado: 'Cadastro não aprovado',
   padrinho_ativo: 'Padrinho ativo',
   apadrinhado_aguardando: 'Apadrinhado aguardando padrinho',
   apadrinhado_ativo: 'Apadrinhado com padrinho definido',
@@ -30,7 +34,7 @@ const ROTULOS_SITUACAO = {
 const FAQ = [
   { p: 'Como funciona o match com o padrinho?', r: 'A coordenação compara as respostas do cadastro (curso, interesses, disponibilidade e áreas de apoio) e confirma o vínculo durante a formação dos grupos.' },
   { p: 'Quem pode ser padrinho?', r: 'Alunos a partir do 2º período que cumpram os requisitos definidos pela coordenação para o semestre (exibidos no formulário de candidatura). A candidatura passa pela análise da coordenação.' },
-  { p: 'Posso editar minha candidatura?', r: 'Sim, enquanto ela estiver enviada ou em análise. Use “Editar candidatura” na tela Status da candidatura.' },
+  { p: 'Posso editar minha candidatura?', r: 'Revise e edite antes de confirmar o envio. Após o envio, as respostas ficam registradas e não podem ser editadas.' },
   { p: 'Onde fica o mapa do campus?', r: 'O mapa e as PUC Stops ficam no app Mapa da PUC, que está em desenvolvimento.' },
 ];
 
@@ -64,6 +68,7 @@ export default function ConfiguracoesAlunoPage() {
   }
 
   function limparTudo() {
+    clearAlunoSession();
     limparSessaoAluno();
     limparPreferencias();
     try {
@@ -73,7 +78,7 @@ export default function ConfiguracoesAlunoPage() {
     }
     setConfirmarLimpeza(false);
     mostrarToast('Dados locais removidos deste navegador.');
-    navigate('/', { replace: true });
+    navigate('/login', { replace: true });
   }
 
   return (

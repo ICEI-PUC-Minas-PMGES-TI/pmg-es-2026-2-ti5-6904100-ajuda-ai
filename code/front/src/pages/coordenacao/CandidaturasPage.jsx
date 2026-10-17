@@ -41,6 +41,7 @@ export default function CandidaturasPage() {
   const [busca, setBusca] = useState('');
   const [marcados, setMarcados] = useState([]);
   const [confirmacao, setConfirmacao] = useState(null);
+  const [justificativa, setJustificativa] = useState('');
   const [processando, setProcessando] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [versao, setVersao] = useState(0);
@@ -110,7 +111,7 @@ export default function CandidaturasPage() {
     setProcessando(true);
     setResultado(null);
     try {
-      const resposta = await api.acaoEmMassa(marcados, acao);
+      const resposta = await api.acaoEmMassa(marcados, acao, justificativa.trim());
       await carregar();
       setMarcados([]);
       setConfirmacao(null);
@@ -270,12 +271,13 @@ export default function CandidaturasPage() {
           acoes={(
             <>
               <button type="button" className="ghost-button" onClick={() => setConfirmacao(null)} disabled={processando} data-autofocus>Cancelar</button>
-              <button type="button" className={confirmacao === 'rejeitar' ? 'danger-button' : 'primary-button inline'} onClick={() => executarMassa(confirmacao)} disabled={processando}>
+              <button type="button" className={confirmacao === 'rejeitar' ? 'danger-button' : 'primary-button inline'} onClick={() => executarMassa(confirmacao)} disabled={processando || (confirmacao === 'rejeitar' && !justificativa.trim())}>
                 {processando ? 'Processando…' : ACOES_MASSA[confirmacao].rotulo}
               </button>
             </>
           )}
         >
+          {confirmacao === 'rejeitar' && <label>Justificativa visível ao candidato<textarea maxLength={1000} value={justificativa} onChange={e => setJustificativa(e.target.value)}/></label>}
           <ul className="modal-names">
             {marcados.slice(0, 8).map((id) => <li key={id}>{nomesPorId[id] || `#${id}`}</li>)}
             {marcados.length > 8 && <li>e mais {marcados.length - 8}…</li>}

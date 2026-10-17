@@ -5,6 +5,7 @@ import 'models/formulario.dart';
 import 'services/api_config.dart';
 import 'sessao_usuario.dart';
 import 'tela_candidatura_enviada.dart';
+import 'tela_revisao_padrinho.dart';
 import 'theme/colors.dart';
 import 'widgets/campos_cadastro.dart';
 import 'widgets/perguntas_adicionais.dart';
@@ -13,18 +14,12 @@ class CadastroPadrinhoPage extends StatefulWidget {
   const CadastroPadrinhoPage({
     super.key,
     required this.dados,
-    this.edicao = false,
     this.perguntasAdicionais,
     this.requisitos,
   });
 
-  /// Dados do aluno; em [edicao], já vêm preenchidos com as respostas salvas
-  /// (`DadosCadastro.comRespostas`).
+  /// Rascunho do aluno; não altera candidaturas já enviadas.
   final DadosCadastro dados;
-
-  /// "Editar candidatura": reenvia (o backend atualiza as respostas) e volta
-  /// para a tela anterior com `true`.
-  final bool edicao;
 
   /// Perguntas extras já conhecidas (testes). Se null, busca em
   /// `GET /formularios/padrinho`.
@@ -81,6 +76,8 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
   bool _validar = false;
   bool _enviando = false;
   List<PerguntaFormulario> _perguntas = const [];
+  String? _erroFormulario;
+  bool _carregandoPerguntas = false;
   late final Map<String, dynamic> _extras;
 
   final _chaveDeclaracao = GlobalKey();
@@ -111,6 +108,7 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
       PerguntasAdicionais.pendentes(_perguntas, _extras).isNotEmpty;
 
   bool get _incompleto =>
+      _erroFormulario != null ||
       _faltaDeclaracao ||
       _faltaExtras ||
       _faltaMotivo ||
@@ -149,13 +147,25 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
     if (conhecidas != null) {
       _perguntas = conhecidas;
     } else {
-      SessaoUsuario.atual.carregarPerguntasAdicionais('padrinho').then((
-        perguntas,
-      ) {
-        if (mounted && perguntas.isNotEmpty) {
-          setState(() => _perguntas = perguntas);
-        }
-      });
+      _carregandoPerguntas = true;
+      SessaoUsuario.atual
+          .carregarPerguntasAdicionais('padrinho')
+          .then((perguntas) {
+            if (mounted) {
+              setState(() {
+                _perguntas = perguntas;
+                _carregandoPerguntas = false;
+              });
+            }
+          })
+          .catchError((Object erro) {
+            if (mounted) {
+              setState(() {
+                _erroFormulario = erro.toString();
+                _carregandoPerguntas = false;
+              });
+            }
+          });
     }
   }
 
@@ -196,6 +206,20 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
   }
 
   Future<void> _enviar() async {
+    if (_carregandoPerguntas) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Aguarde o carregamento do formulário.')),
+      );
+      return;
+    }
+    if (_erroFormulario != null || _perguntas.any((p) => !p.tipo.suportado)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_erroFormulario ?? mensagemFormularioNaoSuportado),
+        ),
+      );
+      return;
+    }
     if (_enviando) return;
 
     if (_incompleto) {
@@ -221,28 +245,34 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
 
     setState(() => _enviando = true);
     try {
-      await SessaoUsuario.atual.registrarCandidaturaPadrinho(
-        dadosCadastro: widget.dados.comPasso2(
-          expectativaPadrinho: _motivoController.text.trim(),
-          outrasInformacoes: _experienciasController.text.trim(),
-          areasApoio: List.of(_areasInteresse),
-          disponibilidade: _disponibilidadesEscolhidas.join(', '),
-          genero: _genero,
-          bolsistaProuni: _bolsistaProuni,
-          deOutraCidade: _deOutraCidade,
-          requisitosCumpridos: {
-            for (final r in _requisitos ?? const <RequisitoPadrinho>[])
-              r.id: _cumpridos[r.id] == true,
-          },
-          extras: PerguntasAdicionais.limpar(_extras),
+      final rascunho = widget.dados.comPasso2(
+        expectativaPadrinho: _motivoController.text.trim(),
+        outrasInformacoes: _experienciasController.text.trim(),
+        areasApoio: List.of(_areasInteresse),
+        disponibilidade: _disponibilidadesEscolhidas.join(', '),
+        genero: _genero,
+        bolsistaProuni: _bolsistaProuni,
+        deOutraCidade: _deOutraCidade,
+        requisitosCumpridos: {
+          for (final r in _requisitos ?? const <RequisitoPadrinho>[])
+            r.id: _cumpridos[r.id] == true,
+        },
+        extras: PerguntasAdicionais.limpar(_extras),
+      );
+      final confirmou = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => RevisaoPadrinhoPage(
+            dados: rascunho,
+            perguntas: _perguntas,
+            requisitos: _requisitos ?? const [],
+          ),
         ),
       );
+      if (!mounted) return;
+      setState(() => _enviando = false);
+      if (confirmou != true) return;
 
       if (!mounted) return;
-      if (widget.edicao) {
-        Navigator.of(context).pop(true);
-        return;
-      }
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const CandidaturaEnviadaPage()),
         (_) => false,
@@ -427,6 +457,8 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
             ],
           ),
         ),
+        if (_erroFormulario != null)
+          Text(_erroFormulario!, style: const TextStyle(color: Colors.red)),
         KeyedSubtree(
           key: _chaveExtras,
           child: PerguntasAdicionais(
@@ -440,7 +472,7 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
         ),
         const SizedBox(height: 22),
         BotaoEnvio(
-          texto: widget.edicao ? 'Salvar alterações' : 'Enviar candidatura',
+          texto: 'Revisar candidatura',
           enviando: _enviando,
           onPressed: _enviar,
         ),

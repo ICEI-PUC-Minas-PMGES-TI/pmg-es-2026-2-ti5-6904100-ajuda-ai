@@ -126,7 +126,8 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
     final ok = await confirmarAcaoCoord(
       context,
       titulo: 'Aprovar candidatura',
-      mensagem: '${_dados['nome']} passará a ser padrinho no programa.',
+      mensagem:
+          '${_dados['nome']} terá candidatura aprovada e aguardará matching. As atividades dependem de vínculo confirmado.',
       confirmar: 'Aprovar',
     );
     if (ok) {
@@ -135,18 +136,12 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
   }
 
   Future<void> _rejeitar() async {
-    final ok = await confirmarAcaoCoord(
-      context,
-      titulo: 'Rejeitar candidatura',
-      mensagem:
-          'A candidatura de ${_dados['nome']} será marcada como não '
-          'aprovada.',
-      confirmar: 'Rejeitar',
-      destrutiva: true,
+    final justificativa = await solicitarJustificativaCoord(context);
+    if (justificativa == null || !mounted) return;
+    await _executar(
+      (id) => widget.api.rejeitarCandidatura(id, justificativa: justificativa),
+      'Candidatura rejeitada.',
     );
-    if (ok) {
-      await _executar(widget.api.rejeitarCandidatura, 'Candidatura rejeitada.');
-    }
   }
 
   Future<void> _solicitarRevisao() => _executar(
@@ -248,7 +243,8 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
     final historico = (dados['historico'] as List? ?? const [])
         .whereType<Map>()
         .toList();
-    final aprovado = dados['papel'] == 'padrinho';
+    final aprovado =
+        dados['status'] == 'aprovado' || dados['papel'] == 'padrinho';
 
     return Column(
       children: [
@@ -422,7 +418,7 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
                         ))
                 : aprovado || !_ehCandidato
                 ? const Text(
-                    'Candidatura aprovada — o aluno já é padrinho.',
+                    'Candidatura aprovada. As atividades dependem do vínculo confirmado.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppAccents.success),
                   )

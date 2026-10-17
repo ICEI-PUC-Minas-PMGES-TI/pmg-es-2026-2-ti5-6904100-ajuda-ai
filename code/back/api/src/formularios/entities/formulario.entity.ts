@@ -8,17 +8,25 @@ import {
 } from 'typeorm';
 
 export type TipoFormulario = 'padrinho' | 'apadrinhado';
-export type TipoPergunta =
-  | 'texto_curto'
-  | 'texto_longo'
-  | 'checklist'
-  | 'dropdown'
-  | 'upload';
+export const TIPOS_PERGUNTA_SUPORTADOS = [
+  'texto_curto',
+  'texto_longo',
+  'checklist',
+  'dropdown',
+] as const;
+export type TipoPergunta = (typeof TIPOS_PERGUNTA_SUPORTADOS)[number];
+export function tipoPerguntaSuportado(tipo: unknown): tipo is TipoPergunta {
+  return (
+    typeof tipo === 'string' &&
+    (TIPOS_PERGUNTA_SUPORTADOS as readonly string[]).includes(tipo)
+  );
+}
 
 export interface PerguntaFormulario {
   id: string;
   enunciado: string;
-  tipo: TipoPergunta;
+  /** String preserva tipos legados na leitura administrativa, sem convertê-los. */
+  tipo: string;
   opcoes: string[];
   obrigatoria: boolean;
 }

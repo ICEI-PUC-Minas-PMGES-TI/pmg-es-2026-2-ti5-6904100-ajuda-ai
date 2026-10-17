@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -54,7 +55,7 @@ export class CoordenacaoController {
   @Post('candidaturas/acoes')
   acaoEmMassa(
     @Req() requisicao: AuthenticatedRequest,
-    @Body() corpo: { ids?: unknown; acao?: string },
+    @Body() corpo: { ids?: unknown; acao?: string; justificativa?: string },
   ) {
     return this.coordenacaoService.acaoEmMassa(corpo, requisicao.user.email);
   }
@@ -85,12 +86,14 @@ export class CoordenacaoController {
 
   @Post('candidaturas/:id/rejeitar')
   rejeitar(
+    @Body() corpo: { justificativa?: string },
     @Req() requisicao: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.coordenacaoService.rejeitarCandidatura(
       id,
       requisicao.user.email,
+      corpo.justificativa,
     );
   }
 
@@ -98,25 +101,33 @@ export class CoordenacaoController {
 
   /** `status=pendente|aprovado|rejeitado`; sem status, todos. */
   @Get('cadastros')
-  cadastros(@Query('status') status?: string) {
-    return this.cadastroService.listar(status);
+  cadastros(
+    @Query('status') status?: string,
+    @Query('programa') programa?: string,
+  ) {
+    return this.cadastroService.listar(status, programa);
   }
 
   @Get('cadastros/:id')
-  cadastro(@Param('id', ParseIntPipe) id: number) {
-    return this.cadastroService.detalhar(id);
+  cadastro(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('programa') programa?: string,
+  ) {
+    return this.cadastroService.detalhar(id, programa);
   }
 
   @Post('cadastros/:id/aprovar')
   aprovarCadastro(
+    @Query('programa') programa: string | undefined,
     @Req() requisicao: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.cadastroService.aprovar(id, requisicao.user.email);
+    return this.cadastroService.aprovar(id, requisicao.user.email, programa);
   }
 
   @Post('cadastros/:id/rejeitar')
   rejeitarCadastro(
+    @Query('programa') programa: string | undefined,
     @Req() requisicao: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
     @Body() corpo: RejeitarCadastroDto,
@@ -125,6 +136,7 @@ export class CoordenacaoController {
       id,
       corpo.motivo,
       requisicao.user.email,
+      programa,
     );
   }
 
@@ -149,6 +161,15 @@ export class CoordenacaoController {
   @Post('programas')
   criarPrograma(@Body() corpo: { codigo?: string }) {
     return this.coordenacaoService.criarNovoCiclo(corpo.codigo);
+  }
+
+  /** O código contém barra; segue o padrão PATCH com ?codigo=AAAA/semestre. */
+  @Delete('programas')
+  excluirPrograma(
+    @Query('codigo') codigo: string,
+    @Body() corpo: { confirmacao?: unknown },
+  ) {
+    return this.coordenacaoService.excluirPrograma(codigo, corpo?.confirmacao);
   }
 
   /** O código tem barra (2026/2), então vem em query: ?codigo=2026/2 */
