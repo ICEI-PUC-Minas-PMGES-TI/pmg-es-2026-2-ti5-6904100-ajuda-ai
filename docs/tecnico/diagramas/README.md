@@ -20,6 +20,7 @@ Este documento registra o plano de diagramas técnicos da integração. Nenhum d
 ## Diagramas criados nesta etapa
 
 - [arquitetura.md](../arquitetura.md) contém um diagrama Mermaid da arquitetura-alvo da integração (app Flutter + pacote `campus_map` + backend NestJS + schemas `feed`/`mapa` + Mapbox + Azure).
+- [mapa/dados-geo.md](../mapa/dados-geo.md#banco-geográfico-schema-mapa) contém o diagrama ER (Mermaid) do schema `mapa` implementado na Tarefa 7. Não há PlantUML de banco no repositório para atualizar.
 
 ## Plano
 

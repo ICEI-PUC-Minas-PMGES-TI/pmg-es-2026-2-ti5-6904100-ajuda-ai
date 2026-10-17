@@ -10,9 +10,14 @@ Confirmado em código nesta branch (`feat/integracao-mapa`).
 
 - NestJS 12, projeto ESM (`"type": "module"`, imports terminam em `.js`).
 - TypeORM ^1.x com `@nestjs/typeorm`, driver `pg`.
-- Banco: PostgreSQL via Supabase, schema padrão `feed` (`DB_SCHEMA`).
+- Banco: PostgreSQL via Supabase, schema padrão `feed` (`DB_SCHEMA`) e schema
+  `mapa` com PostGIS (Tarefa 7; aplicado no banco local e no Supabase).
 - `DB_SYNCHRONIZE` é controlado por `src/config/seguranca.ts`, que só permite `synchronize`/seed de demo em host local e fora de produção.
-- Existe uma única migration incremental (`UsuariosERequisitosPadrinho`); o restante do schema foi criado historicamente por `synchronize`. Ver [banco/migrations.md](banco/migrations.md).
+- Migrations: baseline de `feed` (reconhece bancos criados por `synchronize`),
+  a incremental `UsuariosERequisitosPadrinho`, PostGIS/`unaccent` + schema
+  `mapa` e tabelas de `mapa`. Ver [banco/migrations.md](banco/migrations.md).
+- Domínio de mapa: entidades em `src/mapa/entities` e importador em
+  `src/mapa/importacao` (CLI `npm run mapa:importar`); sem módulo HTTP.
 - Autenticação: login Microsoft (Entra ID) verificado por JWKS remoto (`jose`), mais um modo demo controlado por `AUTH_DEMO_ENABLED`. Token da aplicação é JWT HS256 de 1 hora, sem refresh.
 - Armazenamento de arquivos: Azure Blob Storage (`@azure/storage-blob`), com containers públicos (`map-assets`, `restaurant-menus`) e privados (`profiles`, `feed`, `chat`).
 - Testes: Vitest + Supertest.
@@ -33,7 +38,9 @@ Confirmado em código nesta branch (`feat/integracao-mapa`).
 
 ### Infraestrutura local
 
-- `code/docker-compose.yml` sobe apenas `postgres:16-alpine` (sem PostGIS).
+- `code/docker-compose.yml` sobe `postgis/postgis:16-3.5-alpine` (PostgreSQL
+  16 + PostGIS 3.5), com `search_path` igual ao do Supabase e sem o init
+  automático de extensões da imagem (`code/postgres-init/`).
 
 ## Papel do Mapbox
 
@@ -57,7 +64,7 @@ flowchart TB
 
     subgraph DB[PostgreSQL / Supabase]
         FeedSchema[(schema feed\nATUAL)]
-        MapaSchema[(schema mapa\nPLANEJADO\ncom PostGIS)]
+        MapaSchema[(schema mapa\nATUAL: tabelas + dados\ncom PostGIS)]
     end
 
     Azure[(Azure Blob Storage)]
@@ -75,8 +82,9 @@ Pontos confirmados desta arquitetura-alvo:
 
 - O pacote `campus_map` não tem login próprio; recebe um `accessTokenProvider` do app principal. Ver [ADR-0001](decisoes/ADR-0001-identidade-central.md).
 - O módulo de mapa no backend é novo, dentro do mesmo NestJS — não há um segundo backend. Ver [ADR-0004](decisoes/ADR-0004-campus-map-package.md) e [origem-pucmaps.md](origem-pucmaps.md).
-- O schema `mapa` e o PostGIS são introduzidos antes das tabelas geoespaciais, não antes do mapa visual. Ver [ADR-0005](decisoes/ADR-0005-schema-mapa-postgis.md) e [banco/migrations.md](banco/migrations.md).
+- O schema `mapa` e o PostGIS existem (Tarefa 7); falta o módulo HTTP que os expõe. Ver [ADR-0005](decisoes/ADR-0005-schema-mapa-postgis.md) e [banco/migrations.md](banco/migrations.md).
 - XP é central e novo, não uma migração do `user_stats`/`xp_log` do PUCMaps. Ver [ADR-0002](decisoes/ADR-0002-xp-central.md) e [gamificacao/xp.md](gamificacao/xp.md).
 - Os GLBs ficam embutidos no pacote inicialmente; o Azure `map-assets` é evolução futura. Ver [ADR-0006](decisoes/ADR-0006-assets-3d.md).
 
-Nada nesta seção está implementado. Todo item é `PLANEJADO` até que o código correspondente exista e esta página seja atualizada.
+Nesta seção, só o schema `mapa` (tabelas e dados) está implementado; os módulos
+de backend continuam `PLANEJADO` até que o código correspondente exista.

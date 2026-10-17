@@ -69,12 +69,12 @@ Não são trazidos para o Ajuda-aí, sem nova justificativa documentada:
 | Vegetação | `campus_vegetation_controller.dart` + 4 GLBs + `trees_pilot.geojson` | `AGENTS.md` | Adaptar (pontos no manifesto, GLBs remotos) | `three_d/campus_environment*.dart` + `map-assets` r2 | IMPLEMENTADO E VALIDADO NO EMULADOR ANDROID |
 | Props | `campus_props_controller.dart` + 7 carros + área esportiva | `AGENTS.md` | Adaptar (mesmo controller da vegetação) | `three_d/campus_environment*.dart` + `map-assets` r2 | IMPLEMENTADO E VALIDADO NO EMULADOR ANDROID |
 | Busca | Serviço de busca sobre dados geoespaciais do app de origem | — | Adaptar (snapshot local → API) | Pacote `campus_map` + backend | PLANEJADO |
-| Dados geo (modelo conceitual) | Entidades de mapa do backend de origem | — | Reaproveitar o conceito | Schema `mapa` | PLANEJADO |
-| map_versions | Entidade do backend de origem | — | Reaproveitar o conceito | Schema `mapa` | PLANEJADO |
-| buildings | Entidade do backend de origem | — | Reaproveitar o conceito | Schema `mapa` | PLANEJADO |
-| rooms | Entidade do backend de origem | — | Reaproveitar o conceito | Schema `mapa` | PLANEJADO |
-| areas | Entidade do backend de origem | — | Reaproveitar o conceito | Schema `mapa` | PLANEJADO |
-| Grafo (nós/arestas) | Construção a partir de OpenStreetMap no backend de origem | — | Reaproveitar o conceito e o processo de construção | Schema `mapa` + script de importação | PLANEJADO |
+| Dados geo (modelo conceitual) | Entidades de mapa do backend de origem | — | Adaptar (português, chave por versão, FKs compostas) | Schema `mapa` | IMPLEMENTADO (LOCAL E SUPABASE) |
+| map_versions | `map-version.entity.ts` | — | Adaptar (sem estilo/tiles/flags de pipeline) | `mapa.versoes` | IMPLEMENTADO; `pucmaps-12` importada (LOCAL E SUPABASE) |
+| buildings | `building.entity.ts` | — | Adaptar (chave = id do footprint; portões `GATE_*`) | `mapa.predios` | 101 IMPORTADOS (LOCAL E SUPABASE) |
+| rooms | `room.entity.ts` | — | Adaptar (lat/lon → Point) | `mapa.salas` | TABELA CRIADA; 0 salas na origem |
+| areas | `area.entity.ts` | — | Adaptar | `mapa.areas` | 12 IMPORTADAS (LOCAL E SUPABASE) |
+| Grafo (nós/arestas) | `graph-node/edge.entity.ts` (construído do OSM no backend de origem) | — | Importar dados; processo de construção não portado | `mapa.nos_grafo`, `mapa.arestas_grafo` + `scripts/mapa/` | 653 NÓS / 1.654 ARESTAS IMPORTADOS (LOCAL E SUPABASE) |
 | Rotas | Estratégias Dijkstra/A* do backend de origem | — | Adaptar (sob demanda, sem pré-cálculo) | Backend NestJS do Ajuda-aí | PLANEJADO |
 | Snapping | Lógica de ajuste ao grafo do backend e do cliente de origem | — | Reaproveitar | Backend + pacote `campus_map` | PLANEJADO |
 | Eventos | Entidade/módulo do backend de origem | — | Reaproveitar o conceito, leitura inicial | Backend NestJS do Ajuda-aí | PLANEJADO |
@@ -172,6 +172,20 @@ externo (`place_trees.py`, `place_cars.py`, `build_*.py`, só leitura).
 | `debug/*.glb`, `torre_Pucstop.glb` (raiz) | DESCARTAR | — | Já descartados na Tarefa 4 |
 | `totens/torre_pucstop.glb`, `audio/*` | MIGRAR DEPOIS | — | Fase PucStops |
 
+### Arquivos utilizados na migração do banco geográfico (Tarefa 7)
+
+Auditados no repositório de origem (commit `776e113`) e no banco local do
+PUCMaps (container `pucmaps-postgres`, somente leitura).
+
+| Origem (PUCMaps) | Decisão | Destino no Ajuda-aí | Observação |
+|---|---|---|---|
+| `map/infrastructure/database/entities/*.entity.ts` (6) | ADAPTAR | `src/mapa/entities/*.entity.ts` | Português/snake_case; chave (versão, id); sem cascata |
+| `shared/database/migrations/*` (36) | REESCREVER | 2 migrations novas | Lidas para entender campos, índices e SRID; não copiadas |
+| `scripts/postgres-init.sql` (postgis, unaccent, pgrouting) | ADAPTAR | migration `HabilitaPostgisESchemaMapa` | Sem pgRouting |
+| Banco local, versão 12 ACTIVE | EXPORTAR | `scripts/mapa/dados/pucmaps-12.json` | Via `scripts/mapa/exportar-pucmaps.mjs` |
+| `routingId`, `precalculated_routes`, `admin_routes_view`, `renderStyle`, tiles | DESCARTAR | — | Rotas sob demanda (ADR-0003); tiles fora do escopo |
+| `CampusGraphMapper`, processador do grafo, estratégias de rota | NÃO PORTAR AGORA | — | Lidos só para entender campos; rotas são outra fase |
+
 ## 10. Histórico de decisões
 
 | Data | Decisão | Registro |
@@ -181,6 +195,7 @@ externo (`place_trees.py`, `place_cars.py`, `build_*.py`, só leitura).
 | 2026-10-17 (esta etapa) | Criação da estrutura de documentação técnica e dos ADRs 0001–0007, antes de qualquer código do mapa | Este documento e os arquivos em `decisoes/` |
 | 2026-10-17 (Tarefa 3) | Snapshot local de 82 footprints e renderer 2D migrados, testados, compilados e validados no Android; 3D permanece pendente | [dados-geo.md](mapa/dados-geo.md), [setup-mobile.md](mapa/setup-mobile.md) |
 | 2026-10-17 (Tarefa 4) | GLBs de prédios saem do Git/APK: versão imutável `2026-09-30-r1` no Azure `map-assets`, manifesto no package; LOD0/LOD1/LOD2 portados; vegetação, props, PucStops e picking adiados | [assets-pipeline.md](mapa/assets-pipeline.md), [renderizacao-3d.md](mapa/renderizacao-3d.md) |
+| 2026-10-17 (Tarefa 7) | Baseline de `feed`, PostGIS/unaccent em `extensions`, schema `mapa` com 6 tabelas; versão `pucmaps-12` importada por importador idempotente no banco local e, após preflight somente leitura e backup validado, no Supabase | [banco/migrations.md](banco/migrations.md), [mapa/dados-geo.md](mapa/dados-geo.md), [ADR-0005](decisoes/ADR-0005-schema-mapa-postgis.md) |
 | 2026-10-17 (Tarefa 5) | Vegetação, área esportiva e carros migrados como seções do manifesto na nova versão imutável `2026-09-30-r2` (r1 preservada); diagnóstico 3D atrás de flag; debug, totem e variantes descartados | [assets-pipeline.md](mapa/assets-pipeline.md), [renderizacao-3d.md](mapa/renderizacao-3d.md) |
 
 Decisões futuras devem ser adicionadas a esta tabela à medida que forem tomadas, com uma referência ao commit, PR ou documento que as registra.

@@ -100,6 +100,22 @@ não há volumes, mesmo que a feature possua altura.
 O status dos testes, do APK e da validação visual está em
 [setup-mobile.md](setup-mobile.md#validação-desta-execução).
 
+## Implementação atual — banco geográfico (Tarefa 7)
+
+- Baseline de migrations de `feed` resolvida, PostGIS e `unaccent` habilitados
+  por migration, schema `mapa` com 6 tabelas (`versoes`, `predios`, `salas`,
+  `areas`, `nos_grafo`, `arestas_grafo`), SRID 4326, chave por versão.
+- Versão `pucmaps-12` (ACTIVE no PUCMaps) importada e ativa no banco local e no
+  Supabase: 101 prédios, 0 salas, 12 áreas, 653 nós, 1.654 arestas; zero
+  inconsistências.
+- Importador idempotente e snapshot versionado no Git; imagem local trocada para
+  `postgis/postgis:16-3.5-alpine` sem perder o volume.
+- Supabase: aplicado em 17/10/2026 após preflight somente leitura e backup
+  validado; dados de `feed` e o schema `public` preservados.
+- Sem API pública, sem rotas, sem mudança no Flutter (o app segue no snapshot
+  local). Ver [dados-geo.md](dados-geo.md) e
+  [../banco/migrations.md](../banco/migrations.md).
+
 ## O que será aproveitado
 
 - Renderização de mapa via Mapbox, incluindo o estilo visual do campus.

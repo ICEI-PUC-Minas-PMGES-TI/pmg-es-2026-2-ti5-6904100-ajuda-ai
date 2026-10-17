@@ -1,6 +1,7 @@
 # Rotas e navegação
 
-> Estado: PLANEJADO (nenhum código de rota implementado no Ajuda-aí)
+> Estado: PLANEJADO (nenhum código de rota implementado). Os DADOS do grafo já
+> estão no banco (`mapa.nos_grafo`, `mapa.arestas_grafo`, Tarefa 7).
 
 ## Objetivo
 
@@ -9,6 +10,27 @@ Permitir que o usuário solicite uma rota a pé entre dois pontos do campus (doi
 ## Grafo
 
 O grafo de navegação (nós e arestas, ver [dados-geo.md](dados-geo.md)) é a estrutura de dados sobre a qual as rotas são calculadas. No projeto de origem, o grafo é construído a partir de dados do OpenStreetMap, com nós carregados em memória e pesos de aresta considerando tipo de via, escadas e superfície.
+
+## Grafo no banco (ATUAL, Tarefa 7)
+
+Versão `pucmaps-12` (ACTIVE no PUCMaps), importada e ativa no banco local e no
+Supabase. Detalhes em [dados-geo.md](dados-geo.md#banco-geográfico-schema-mapa).
+
+| Item | Valor |
+|---|---|
+| Nós | 653 (147 ligados a prédios, 19 deles a portões) |
+| Arestas | 1.654 dirigidas (827 trechos, cada um nos dois sentidos) |
+| Acessíveis | 1.516; 138 marcadas como não acessíveis na origem |
+| Geradas (conectores) | 114 |
+| Comprimento zero | 32 (conectores entre nós no mesmo ponto; `geometria` nula) |
+| Arestas paralelas | 20 pares (mesmos nós, caminhos e distâncias diferentes) |
+| Níveis / camadas | `nivel` -1…1 (decimal); `camada` -2…1 |
+| Custos | `distancia_m` ≥ 0 (difere de `ST_Length` da linha em < 1 m), `tempo_caminhada_s` ≥ 0 (velocidade implícita média ~1,29 m/s) |
+
+O que a rota futura precisa e já está garantido pelo banco: nenhuma aresta aponta
+para nó inexistente ou de outra versão (FK composta), sem laços, geometria
+válida em SRID 4326 e índice GIST em `nos_grafo.localizacao` para snapping.
+Nada de Dijkstra, A*, snapping, ETA ou endpoint foi implementado.
 
 ## Origem do grafo
 
@@ -38,7 +60,10 @@ Volume do projeto de origem: aproximadamente 770 mil rotas por versão ativa, ce
 
 ## pgRouting
 
-Opcional e futuro. Depende de a extensão `pgrouting` estar disponível no ambiente de banco usado (a confirmar) e de um benchmark que justifique seu uso frente ao cálculo em memória. Não é um requisito para a primeira implementação de rotas.
+Opcional e futuro. A extensão está **disponível** no Supabase (pgRouting 3.4.1,
+confirmado em 17/10/2026), mas **não foi instalada**. O `routingId` inteiro do
+PUCMaps não foi portado; se o pgRouting for adotado, ids inteiros podem ser
+derivados. Só com benchmark que justifique o uso frente ao cálculo em memória.
 
 ## Benchmark
 
