@@ -411,6 +411,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 10),
                 AcessosRapidos(itens: _acessosRapidos(status)),
                 if (status == StatusParticipacao.apadrinhadoAguardandoMatch ||
+                    status == StatusParticipacao.apadrinhadoPendente ||
                     status == StatusParticipacao.padrinhoEmAnalise ||
                     status == StatusParticipacao.explorar) ...[
                   const SizedBox(height: 14),
@@ -504,13 +505,7 @@ class _ProfilePageState extends State<ProfilePage> {
     ).push(MaterialPageRoute(builder: (_) => PerfilCadastroPage(dados: dados)));
   }
 
-  void _sair(BuildContext context) {
-    _sessao.limpar();
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginPage()),
-      (route) => false,
-    );
-  }
+  void _sair(BuildContext context) => encerrarSessao(context);
 }
 
 class _Titulo extends StatelessWidget {

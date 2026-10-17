@@ -20,6 +20,11 @@ export interface Aviso {
   data: string;
 }
 
+/**
+ * Base demo. O coordenador é mockado e só existe aqui; os alunos servem de
+ * semente para a tabela `usuarios` (ver UsuariosService) e de dados de
+ * exibição para registros antigos.
+ */
 export const USUARIOS: Record<string, Usuario> = {
   apadrinhado: {
     id: 1,
@@ -105,6 +110,12 @@ export function buscarUsuarioPorEmail(email: string): Usuario | undefined {
   return Object.values(USUARIOS).find(
     (item) => item.email.toLowerCase() === chave,
   );
+}
+
+/** Coordenador mockado (não há coordenador no banco). */
+export function buscarCoordenadorPorEmail(email: string): Usuario | undefined {
+  const usuario = buscarUsuarioPorEmail(email);
+  return usuario?.perfil === 'coordenador' ? usuario : undefined;
 }
 
 export function buscarUsuarioPorId(id: number): Usuario | undefined {

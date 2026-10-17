@@ -14,11 +14,18 @@ class TelaMaisCoord extends StatelessWidget {
 
   final String nomeCoordenador;
 
-  /// Destino: formularios | usuarios | programas | comunicado | sem_vinculo.
+  /// Destino: cadastros | formularios | usuarios | programas | comunicado |
+  /// sem_vinculo.
   final ValueChanged<String> onAbrir;
   final VoidCallback onSair;
 
   static const _itens = <(IconData, String, String, String)>[
+    (
+      Icons.how_to_reg_outlined,
+      'Cadastros',
+      'Aprovar ou rejeitar padrinhos e apadrinhados',
+      'cadastros',
+    ),
     (
       Icons.dynamic_form_outlined,
       'Formulários',

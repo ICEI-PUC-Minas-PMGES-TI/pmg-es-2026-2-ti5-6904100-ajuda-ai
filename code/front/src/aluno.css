@@ -88,6 +88,9 @@ textarea.extra-input { resize: vertical; line-height: 1.45; }
 .existing-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid #cfe0ff; border-radius: 10px; color: #33427a; background: #eff5ff; font-size: 11px; line-height: 1.4; }
 .existing-notice .icon { color: #3b6ded; }
 .existing-notice span { flex: 1; min-width: 200px; }
+.cadastro-notice { margin-bottom: 18px; font-size: 13px; }
+.cadastro-notice.rejeitado { border-color: #f5c2c7; color: #7a2633; background: #fff1f2; }
+.cadastro-notice.rejeitado .icon { color: #d6455d; }
 .three-cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .prereq-box ul { margin: 6px 0 0; padding-left: 18px; }
 .prereq-box li { margin: 2px 0; }
@@ -479,3 +482,5 @@ html.a11y-sem-animacao *, html.a11y-sem-animacao *::before, html.a11y-sem-animac
 @media (max-width: 420px) {
   .topbar:not(.aluno-topbar) .account-name { display: none; }
 }
+.requisitos-declaracao { margin: 8px 0 0; padding: 0; border: 0; }
+.requisitos-declaracao legend { margin-bottom: 4px; color: #2a267d; font-size: 12px; font-weight: 700; }

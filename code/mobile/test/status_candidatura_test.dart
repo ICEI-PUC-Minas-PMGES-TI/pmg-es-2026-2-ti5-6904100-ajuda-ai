@@ -50,7 +50,20 @@ Map<String, dynamic> _emAnalise() => {
       'genero': 'Feminino',
       'bolsistaProuni': false,
       'deOutraCidade': true,
-      'declaraPreRequisitos': true,
+      'requisitos': [
+        {
+          'id': 'calculo-i',
+          'descricao': 'Cálculo I',
+          'obrigatorio': true,
+          'cumpre': true,
+        },
+        {
+          'id': 'aed-i',
+          'descricao': 'AED I',
+          'obrigatorio': true,
+          'cumpre': true,
+        },
+      ],
     },
   },
   'grupo': null,
@@ -67,7 +80,14 @@ void _telaGrande(WidgetTester tester) {
 void main() {
   late ApiFalsa api;
 
-  setUp(() => api = ApiFalsa().instalar());
+  setUp(() {
+    api = ApiFalsa().instalar();
+    SessaoUsuario.atual.definirIdentidade(
+      nome: _ana.nome,
+      email: _ana.email,
+    );
+    SessaoUsuario.atual.onboardingToken = 'onboarding-teste';
+  });
   tearDown(SessaoUsuario.atual.limpar);
 
   testWidgets('timeline da candidatura em análise', (tester) async {
@@ -133,11 +153,14 @@ void main() {
     expect(find.byType(StatusCandidaturaPage), findsOneWidget);
     expect(find.text('Candidatura atualizada com sucesso.'), findsOneWidget);
     final respostas =
-        api.corpo(api.posts('/candidatura-padrinho').single)['respostas']
+        api.corpo(api.posts('/cadastro').single)['respostas']
             as Map<String, dynamic>;
     expect(respostas['motivacao'], 'Motivação atualizada.');
     expect(respostas['disponibilidade'], ['Manhã', 'Tarde']);
-    expect(respostas['declaraPreRequisitos'], isTrue);
+    expect(respostas['requisitos'], [
+      {'id': 'calculo-i', 'cumpre': true},
+      {'id': 'aed-i', 'cumpre': true},
+    ]);
   });
 
   testWidgets('candidatura enviada leva ao status', (tester) async {

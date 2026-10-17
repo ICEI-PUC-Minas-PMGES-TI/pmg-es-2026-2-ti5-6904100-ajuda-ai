@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Ajuda-aí (Android Emulator)",
+      "request": "launch",
+      "type": "dart",
+      "program": "code/mobile/lib/main.dart",
+      "cwd": "code/mobile",
+      "flutterMode": "debug"
+    }
+  ]
+}

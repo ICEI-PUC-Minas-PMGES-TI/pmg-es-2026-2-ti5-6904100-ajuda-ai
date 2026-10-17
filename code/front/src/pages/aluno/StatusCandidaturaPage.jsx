@@ -23,7 +23,7 @@ function passosCandidatura(dados) {
     aprovado
       ? { titulo: 'Resultado', texto: `Candidatura aprovada! Você é padrinho(a) no ${programa.titulo}.`, estado: 'concluida' }
       : rejeitado
-        ? { titulo: 'Resultado', texto: 'Sua candidatura não foi aprovada neste ciclo.', estado: 'recusada' }
+        ? { titulo: 'Resultado', texto: `Sua candidatura não foi aprovada neste ciclo.${dados.cadastro?.motivoRejeicao ? ` Motivo: ${dados.cadastro.motivoRejeicao}` : ''}`, estado: 'recusada' }
         : { titulo: 'Resultado', texto: 'Você será notificado aqui e no aplicativo.', estado: 'futura' },
     rejeitado
       ? { titulo: 'Início das atividades', texto: 'Você poderá se candidatar novamente no próximo ciclo.', estado: 'futura' }
@@ -42,8 +42,24 @@ function passosApadrinhado(dados) {
   const formacao = etapa(programa, 'formacao');
   const andamento = etapa(programa, 'andamento');
   const atividadesComecaram = andamento && andamento.estado !== 'futura';
+  const pendente = registro.status === 'pendente';
+  const rejeitado = registro.status === 'nao_aprovado';
+  const aprovacao = rejeitado
+    ? { titulo: 'Aprovação do cadastro', texto: `Seu cadastro não foi aprovado pela coordenação.${dados.cadastro?.motivoRejeicao ? ` Motivo: ${dados.cadastro.motivoRejeicao}` : ''}`, estado: 'recusada' }
+    : pendente
+      ? { titulo: 'Aprovação do cadastro', texto: 'A coordenação está analisando seu cadastro.', estado: 'atual' }
+      : { titulo: 'Aprovação do cadastro', texto: 'Cadastro aprovado pela coordenação.', estado: 'concluida' };
+  if (pendente || rejeitado) {
+    return [
+      { titulo: 'Cadastro enviado', texto: formatarDataHora(registro.criadoEm), estado: 'concluida' },
+      aprovacao,
+      { titulo: 'Formação dos grupos', texto: rejeitado ? 'Sem participação neste ciclo.' : 'Começa depois da aprovação do cadastro.', estado: 'futura' },
+      { titulo: 'Padrinho definido', texto: 'Você será notificado aqui assim que o match for confirmado.', estado: 'futura' },
+    ];
+  }
   return [
     { titulo: 'Cadastro enviado', texto: formatarDataHora(registro.criadoEm), estado: 'concluida' },
+    aprovacao,
     grupo
       ? { titulo: 'Formação dos grupos', texto: `Você faz parte do ${grupo}.`, estado: 'concluida' }
       : { titulo: 'Formação dos grupos', texto: `A coordenação está formando os grupos (${formacao?.periodoTexto || 'conforme o calendário'}).`, estado: 'atual' },

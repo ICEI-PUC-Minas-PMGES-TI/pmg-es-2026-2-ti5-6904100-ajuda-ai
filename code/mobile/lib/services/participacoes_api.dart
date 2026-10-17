@@ -7,8 +7,23 @@ import '../models/formulario.dart';
 import '../models/situacao_participacao.dart';
 import 'api_config.dart';
 
-/// Rotas do aluno (sem token). A identidade é o e-mail institucional
-/// (`usuarioId` em minúsculas), enviado na query/corpo e no `x-user-id`.
+/// Resposta de `POST /cadastro`: sessão do aluno + inscrição do ciclo.
+class ResultadoCadastro {
+  const ResultadoCadastro({
+    required this.accessToken,
+    required this.usuario,
+    required this.participacao,
+  });
+
+  final String accessToken;
+  final Map<String, dynamic> usuario;
+  final CicloParticipacao participacao;
+}
+
+/// Rotas do aluno. A identidade vem do token do aluno ([accessToken], obtido
+/// no cadastro ou no login demo); com token, `x-user-id` NÃO é enviado e o
+/// backend usa só o token. Sem token (ex.: "apenas explorar"), as leituras
+/// seguem no modo antigo, com o e-mail em `x-user-id`.
 ///
 /// Erros: [ApiIndisponivelException] quando o backend não responde e
 /// [ApiException] quando ele responde com erro.
@@ -19,11 +34,97 @@ class ParticipacoesApi {
   final http.Client _client;
   final String baseUrl;
 
+  /// JWT do aluno (cadastro/login). Null → modo antigo por `x-user-id`.
+  String? accessToken;
+
   Map<String, String> _headers(String? usuarioId, {bool json = false}) => {
     'accept': 'application/json',
     if (json) 'content-type': 'application/json',
-    'x-user-id': ?usuarioId,
+    if (accessToken != null)
+      'authorization': 'Bearer $accessToken'
+    else
+      'x-user-id': ?usuarioId,
   };
+
+  /// Cadastro no programa (`POST /cadastro`). O backend valida as regras
+  /// (inclusive período × modalidade), cria o usuário PENDENTE + a inscrição
+  /// do ciclo e devolve a sessão; o token passa a ser usado nas próximas
+  /// chamadas. Reenviar com o mesmo e-mail atualiza enquanto estiver pendente.
+  Future<ResultadoCadastro> cadastrar({
+    String? autorizacao,
+    required String nome,
+    required String email,
+    required String curso,
+    required int periodo,
+    String? turno,
+    List<String> interesses = const [],
+    required String tipoParticipacao,
+    Map<String, dynamic>? respostas,
+  }) async {
+    final resposta = await executarRequisicao(
+      () => _client.post(
+        Uri.parse('$baseUrl/cadastro'),
+        headers: {
+          'accept': 'application/json',
+          'content-type': 'application/json',
+          if ((autorizacao ?? accessToken) != null)
+            'authorization': 'Bearer ${autorizacao ?? accessToken}',
+        },
+        body: jsonEncode({
+          'nome': nome,
+          'email': email,
+          'curso': curso,
+          'periodo': periodo,
+          if (turno != null && turno.isNotEmpty) 'turno': turno,
+          if (interesses.isNotEmpty) 'interesses': interesses,
+          'tipoParticipacao': tipoParticipacao,
+          'respostas': ?respostas,
+        }),
+      ),
+      erroPadrao: 'Falha ao enviar cadastro',
+    );
+    final corpo = decodificarJson(resposta);
+    final token = corpo is Map ? corpo['accessToken'] : null;
+    final participacao = corpo is Map ? corpo['participacao'] : null;
+    if (token is! String || participacao is! Map) {
+      throw const ApiException('Resposta inválida do cadastro.');
+    }
+    accessToken = token;
+    return ResultadoCadastro(
+      accessToken: token,
+      usuario: Map<String, dynamic>.from(corpo['usuario'] as Map? ?? const {}),
+      participacao: CicloParticipacao.fromJson(
+        Map<String, dynamic>.from(participacao),
+      ),
+    );
+  }
+
+  /// Login demo do aluno já cadastrado (no lugar do login Microsoft).
+  /// Devolve `false` se o e-mail não tem cadastro; falha de rede propaga.
+  Future<bool> entrar(String email) async {
+    try {
+      final resposta = await executarRequisicao(
+        () => _client.post(
+          Uri.parse('$baseUrl/auth/login-demo'),
+          headers: {
+            'accept': 'application/json',
+            'content-type': 'application/json',
+          },
+          body: jsonEncode({'email': email}),
+        ),
+        erroPadrao: 'Falha ao entrar',
+      );
+      final corpo = decodificarJson(resposta);
+      final token = corpo is Map ? corpo['accessToken'] : null;
+      final usuario = corpo is Map ? corpo['usuario'] : null;
+      final perfil = usuario is Map ? usuario['perfil'] : null;
+      if (token is! String || perfil == 'coordenador') return false;
+      accessToken = token;
+      return true;
+    } on ApiException {
+      return false;
+    }
+  }
 
   Future<List<CicloParticipacao>> listar(String usuarioId) async {
     final resposta = await executarRequisicao(
@@ -58,58 +159,6 @@ class ParticipacoesApi {
       throw const ApiException('Resposta inválida da situação.');
     }
     return SituacaoParticipacao.fromJson(Map<String, dynamic>.from(corpo));
-  }
-
-  Future<CicloParticipacao> registrarCandidaturaPadrinho({
-    required String usuarioId,
-    String? programa,
-    Map<String, dynamic>? respostas,
-  }) {
-    return _enviarCadastro(
-      rota: 'candidatura-padrinho',
-      usuarioId: usuarioId,
-      programa: programa,
-      respostas: respostas,
-      erroPadrao: 'Falha ao registrar candidatura',
-    );
-  }
-
-  Future<CicloParticipacao> cadastrarApadrinhado({
-    required String usuarioId,
-    String? programa,
-    required Map<String, dynamic> respostas,
-  }) {
-    return _enviarCadastro(
-      rota: 'cadastro-apadrinhado',
-      usuarioId: usuarioId,
-      programa: programa,
-      respostas: respostas,
-      erroPadrao: 'Falha ao enviar cadastro',
-    );
-  }
-
-  Future<CicloParticipacao> _enviarCadastro({
-    required String rota,
-    required String usuarioId,
-    required String? programa,
-    required Map<String, dynamic>? respostas,
-    required String erroPadrao,
-  }) async {
-    final resposta = await executarRequisicao(
-      () => _client.post(
-        Uri.parse('$baseUrl/participacoes/$rota'),
-        headers: _headers(usuarioId, json: true),
-        body: jsonEncode({
-          'usuarioId': usuarioId,
-          'programa': ?programa,
-          'respostas': ?respostas,
-        }),
-      ),
-      erroPadrao: erroPadrao,
-    );
-    final corpo = decodificarJson(resposta);
-    if (corpo is! Map) throw ApiException('$erroPadrao: resposta inválida.');
-    return CicloParticipacao.fromJson(Map<String, dynamic>.from(corpo));
   }
 
   /// Formulário publicado (`padrinho` ou `apadrinhado`). Sem publicação,

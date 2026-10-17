@@ -38,6 +38,25 @@ const PENDENCIAS = {
   },
 };
 
+const PADRAO_CODIGO = /^\d{4}\/[12]$/;
+
+/** Semestre pela data (mesma regra do backend: jan–jun = /1, jul–dez = /2). */
+function codigoDaData(data = new Date()) {
+  return `${data.getFullYear()}/${data.getMonth() < 6 ? 1 : 2}`;
+}
+
+function semestreSeguinte(codigo) {
+  const [ano, semestre] = codigo.split('/').map(Number);
+  return semestre === 1 ? `${ano}/2` : `${ano + 1}/1`;
+}
+
+/** Sugestões para o novo ciclo: o vigente pela data e os próximos, se ainda não existem. */
+export function sugestoesDeCiclo(existentes, data = new Date()) {
+  const atual = codigoDaData(data);
+  const lista = [atual, semestreSeguinte(atual), semestreSeguinte(semestreSeguinte(atual))];
+  return lista.filter((codigo) => !existentes.includes(codigo));
+}
+
 export default function ProgramasPage() {
   const [params] = useSearchParams();
   const programaFoco = params.get('programa') || '';
@@ -49,6 +68,10 @@ export default function ProgramasPage() {
   const [confirmarCiclo, setConfirmarCiclo] = useState(false);
   const [abrindo, setAbrindo] = useState(false);
   const [erroCiclo, setErroCiclo] = useState('');
+  const [novoCodigo, setNovoCodigo] = useState('');
+  const codigosExistentes = (programas || []).map((p) => p.codigo);
+  const sugestoes = sugestoesDeCiclo(codigosExistentes);
+  const vigentePelaData = codigoDaData();
 
   const carregar = useCallback(async () => {
     setErro('');
@@ -73,11 +96,26 @@ export default function ProgramasPage() {
     });
   }, [carregar, programaFoco]);
 
+  function iniciarNovoCiclo() {
+    setErroCiclo('');
+    setNovoCodigo(sugestoes[0] || '');
+    setConfirmarCiclo(true);
+  }
+
   async function abrirCiclo() {
+    const codigo = novoCodigo.trim();
+    if (!PADRAO_CODIGO.test(codigo)) {
+      setErroCiclo('Informe o ciclo no formato AAAA/1 ou AAAA/2 (ex.: 2027/1).');
+      return;
+    }
+    if (codigosExistentes.includes(codigo)) {
+      setErroCiclo(`O ciclo ${codigo} já existe.`);
+      return;
+    }
     setAbrindo(true);
     setErroCiclo('');
     try {
-      const criado = await api.criarPrograma();
+      const criado = await api.criarPrograma(codigo);
       setConfirmarCiclo(false);
       mostrarToast(`Ciclo ${criado.codigo} aberto.`, 'sucesso');
       await carregar();
@@ -95,7 +133,7 @@ export default function ProgramasPage() {
           <h1>Programas</h1>
           <p>Ciclos do programa de apadrinhamento, etapas, vagas e calendário.</p>
         </div>
-        <button type="button" className="primary-button inline" onClick={() => { setErroCiclo(''); setConfirmarCiclo(true); }}>
+        <button type="button" className="primary-button inline" onClick={iniciarNovoCiclo}>
           <Icon name="plus" size={17} /> Abrir novo ciclo
         </button>
       </header>
@@ -145,6 +183,17 @@ export default function ProgramasPage() {
               <div><dt>Grupos</dt><dd>{p.totais?.grupos ?? 0}<small> / {p.gruposPrevistos} previstos</small></dd></div>
             </dl>
 
+            <section className="program-requirements" aria-label={`Requisitos para padrinho — ${p.codigo}`}>
+              <h3><Icon name="checkCircle" size={16} /> Requisitos para padrinho — {p.codigo}</h3>
+              {p.requisitosPadrinho?.length ? (
+                <ul className="detail-chips">
+                  {p.requisitosPadrinho.map((r) => <li key={r.id}>{r.descricao}{r.obrigatorio ? '' : ' (desejável)'}</li>)}
+                </ul>
+              ) : (
+                <p className="detail-muted">Nenhuma disciplina exigida. Basta estar a partir do 2º período.</p>
+              )}
+            </section>
+
             <ol className="program-stages" aria-label="Etapas">
               {p.etapas.map((e) => (
                 <li key={e.id} className={e.estado}>
@@ -174,7 +223,7 @@ export default function ProgramasPage() {
       {confirmarCiclo && (
         <Modal
           titulo="Abrir novo ciclo?"
-          descricao="Um novo programa será criado com o próximo código de semestre e as etapas padrão."
+          descricao="Escolha o semestre. O ciclo é criado com as etapas e o calendário padrão (editáveis depois) e com uma cópia dos requisitos do ciclo mais recente."
           onFechar={() => !abrindo && setConfirmarCiclo(false)}
           acoes={(
             <>
@@ -183,6 +232,26 @@ export default function ProgramasPage() {
             </>
           )}
         >
+          <label className="editor-field" htmlFor="novo-ciclo-codigo">
+            <span>Código do ciclo</span>
+            <input
+              id="novo-ciclo-codigo"
+              list="novo-ciclo-sugestoes"
+              value={novoCodigo}
+              placeholder="Ex.: 2027/1"
+              maxLength={6}
+              onChange={(e) => { setNovoCodigo(e.target.value); setErroCiclo(''); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); abrirCiclo(); } }}
+            />
+            <datalist id="novo-ciclo-sugestoes">
+              {sugestoes.map((codigo) => <option key={codigo} value={codigo} />)}
+            </datalist>
+          </label>
+          <p className="field-hint">
+            Pela data de hoje, o ciclo vigente é <strong>{vigentePelaData}</strong>
+            {codigosExistentes.includes(vigentePelaData) ? ' (já aberto).' : ' — ainda não aberto: cadastros e candidaturas ficam bloqueados até ele existir.'}
+            {' '}O ciclo não é criado automaticamente.
+          </p>
           {erroCiclo && <p className="form-error" role="alert">{erroCiclo}</p>}
         </Modal>
       )}
@@ -198,7 +267,10 @@ function EditorPrograma({ programa, onCancelar, onSalvo }) {
     vagasApadrinhados: String(programa.vagasApadrinhados ?? ''),
     gruposPrevistos: String(programa.gruposPrevistos ?? ''),
     ...Object.fromEntries(DATAS.map((d) => [d.chave, programa.datas?.[d.chave] || ''])),
+    requisitosPadrinho: (programa.requisitosPadrinho || []).map((r) => ({ ...r })),
   }));
+  const [novoRequisito, setNovoRequisito] = useState('');
+  const encerrado = programa.etapaAtual === 'encerramento';
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
   const base = useId();
@@ -206,6 +278,21 @@ function EditorPrograma({ programa, onCancelar, onSalvo }) {
   function campo(chave, valor) {
     setForm((atual) => ({ ...atual, [chave]: valor }));
     setErro('');
+  }
+
+  function adicionarRequisito() {
+    const descricao = novoRequisito.trim();
+    if (!descricao) return;
+    if (form.requisitosPadrinho.some((r) => r.descricao.toLowerCase() === descricao.toLowerCase())) {
+      setErro(`"${descricao}" já está na lista.`);
+      return;
+    }
+    campo('requisitosPadrinho', [...form.requisitosPadrinho, { descricao, obrigatorio: true }]);
+    setNovoRequisito('');
+  }
+
+  function alterarRequisito(indice, parcial) {
+    campo('requisitosPadrinho', form.requisitosPadrinho.map((r, i) => (i === indice ? { ...r, ...parcial } : r)));
   }
 
   async function salvar(event) {
@@ -220,6 +307,8 @@ function EditorPrograma({ programa, onCancelar, onSalvo }) {
     DATAS.forEach((d) => {
       if (form[d.chave]) corpo[d.chave] = form[d.chave];
     });
+    // Ciclo encerrado é histórico: o backend não aceita mudar seus requisitos.
+    if (!encerrado) corpo.requisitosPadrinho = form.requisitosPadrinho;
     setSalvando(true);
     try {
       onSalvo(await api.atualizarPrograma(programa.codigo, corpo));
@@ -262,6 +351,47 @@ function EditorPrograma({ programa, onCancelar, onSalvo }) {
             </label>
           ))}
         </div>
+      </fieldset>
+      <fieldset className="editor-requirements">
+        <legend>Requisitos para padrinho neste ciclo</legend>
+        <p className="field-hint">
+          {encerrado
+            ? 'Ciclo encerrado: os requisitos ficam como registro histórico e não podem ser alterados.'
+            : 'Disciplinas ou condições que o candidato a padrinho precisa declarar que cumpre. Valem só para este ciclo; candidaturas já enviadas guardam os requisitos da época.'}
+        </p>
+        {form.requisitosPadrinho.length === 0 && <p className="detail-muted">Nenhum requisito: basta estar a partir do 2º período.</p>}
+        <ul className="requirement-list">
+          {form.requisitosPadrinho.map((r, i) => (
+            <li key={`${r.id || 'novo'}-${i}`}>
+              <span>{r.descricao}</span>
+              <label className="requirement-flag">
+                <input type="checkbox" checked={r.obrigatorio !== false} disabled={encerrado} onChange={(e) => alterarRequisito(i, { obrigatorio: e.target.checked })} />
+                Obrigatório
+              </label>
+              <button type="button" className="mini-btn danger" disabled={encerrado} onClick={() => campo('requisitosPadrinho', form.requisitosPadrinho.filter((_, j) => j !== i))} aria-label={`Remover requisito ${r.descricao}`}>
+                <Icon name="trash" size={14} /> Remover
+              </button>
+            </li>
+          ))}
+        </ul>
+        {!encerrado && (
+          <div className="requirement-add">
+            <label className="editor-field" htmlFor={`${base}-novo-requisito`}>
+              <span>Adicionar requisito</span>
+              <input
+                id={`${base}-novo-requisito`}
+                value={novoRequisito}
+                maxLength={120}
+                placeholder="Ex.: Aprovação em Cálculo I"
+                onChange={(e) => setNovoRequisito(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adicionarRequisito(); } }}
+              />
+            </label>
+            <button type="button" className="ghost-button" onClick={adicionarRequisito} disabled={!novoRequisito.trim()}>
+              <Icon name="plus" size={15} /> Adicionar
+            </button>
+          </div>
+        )}
       </fieldset>
       {erro && <p className="form-error" role="alert"><Icon name="alert" size={15} /> {erro}</p>}
       <div className="editor-actions">

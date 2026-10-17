@@ -32,6 +32,30 @@ export function useFormularioPublico(tipo) {
   return perguntas;
 }
 
+/**
+ * Requisitos para padrinho do ciclo atual, definidos pela coordenação
+ * (vêm de GET /formularios/padrinho; o mobile lê o mesmo endpoint).
+ * `requisitos` é null enquanto carrega.
+ */
+export function useRequisitosPadrinho() {
+  const [estado, setEstado] = useState({ requisitos: null, erro: '' });
+  useEffect(() => {
+    let ativo = true;
+    api
+      .formularioPublico('padrinho')
+      .then((formulario) => {
+        if (ativo) setEstado({ requisitos: Array.isArray(formulario?.requisitos) ? formulario.requisitos : [], erro: '' });
+      })
+      .catch((error) => {
+        if (ativo) setEstado({ requisitos: [], erro: error.message || 'Não foi possível carregar os requisitos do ciclo.' });
+      });
+    return () => {
+      ativo = false;
+    };
+  }, []);
+  return estado;
+}
+
 function vazio(valor) {
   if (Array.isArray(valor)) return valor.length === 0;
   return !String(valor ?? '').trim();

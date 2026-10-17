@@ -72,6 +72,9 @@ export default function AlunoLayout() {
     setCarregando(true);
     setErro('');
     try {
+      // Sessão do aluno cadastrado (login demo no lugar do Microsoft). Sem
+      // cadastro (ex.: "apenas explorar"), segue identificado pelo e-mail.
+      await api.entrarAluno(email).catch(() => false);
       setSituacao(await api.situacao(email));
     } catch (error) {
       setErro(error.message || 'Não foi possível carregar sua situação no programa.');
@@ -138,9 +141,37 @@ export default function AlunoLayout() {
         </aside>
         {menuAberto && <AlunoDrawer itens={nav} onFechar={() => setMenuAberto(false)} />}
         <main className="aluno-content" id="conteudo">
+          <AvisoCadastro cadastro={situacao?.cadastro} />
           <Outlet context={contexto} />
         </main>
       </div>
+    </div>
+  );
+}
+
+const ROTULO_TIPO = { padrinho: 'padrinho', apadrinhado: 'apadrinhado' };
+
+/** Faixa com o estado do cadastro enquanto ele não está aprovado. */
+function AvisoCadastro({ cadastro }) {
+  if (!cadastro || cadastro.status === 'aprovado') return null;
+  const tipo = ROTULO_TIPO[cadastro.tipoParticipacao] || 'participante';
+  if (cadastro.status === 'rejeitado') {
+    return (
+      <div className="existing-notice cadastro-notice rejeitado" role="status">
+        <Icon name="alert" size={18} />
+        <span>
+          <strong>Seu cadastro como {tipo} não foi aprovado pela coordenação.</strong>
+          {cadastro.motivoRejeicao ? ` Motivo: ${cadastro.motivoRejeicao}` : ''} Em caso de dúvida, procure a coordenação do programa.
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="existing-notice cadastro-notice" role="status">
+      <Icon name="clock" size={18} />
+      <span>
+        <strong>Seu cadastro como {tipo} está aguardando a análise da coordenação.</strong> Os recursos de {tipo} são liberados após a aprovação.
+      </span>
     </div>
   );
 }

@@ -1,6 +1,21 @@
 import type { Repository } from 'typeorm';
 import { ParticipacaoEntity } from './entities/participacao.entity.js';
+import { repositorioEmMemoria } from '../../test/helpers/repositorio-memoria.js';
+import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ParticipacoesService } from './participacoes.service.js';
+
+/** Ciclos cadastrados usados nestes testes (participação exige ciclo existente). */
+const ciclos = () =>
+  repositorioEmMemoria(
+    [
+      ...new Set([
+        '2025/2',
+        '2026/1',
+        '2026/2',
+        ParticipacoesService.programaAtual(),
+      ]),
+    ].map((codigo, i) => ({ id: i + 1, codigo }) as ProgramaEntity),
+  );
 
 /** Fluxo completo: cadastro → análise → aprovação/rejeição → vínculo. */
 describe('ParticipacoesService (fluxo da coordenação)', () => {
@@ -11,10 +26,10 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
   beforeEach(() => {
     registros = [];
     proximoId = 1;
-    service = new ParticipacoesService(criarRepo());
+    service = new ParticipacoesService(criarRepo(), ciclos());
   });
 
-  it('cadastra apadrinhado aguardando match e limpa respostas', async () => {
+  it('cadastra apadrinhado pendente de aprovação e limpa respostas', async () => {
     const registro = await service.cadastrarApadrinhado({
       usuarioId: 'Fernanda@PUCMinas.edu.br',
       programa: '2026/2',
@@ -30,14 +45,87 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
 
     expect(registro.usuarioId).toBe('fernanda@pucminas.edu.br');
     expect(registro.papel).toBe('apadrinhado');
-    expect(registro.status).toBe('em_andamento');
+    expect(registro.status).toBe('pendente');
     expect(registro.respostas?.nome).toBe('Fernanda');
     expect(registro.respostas?.areas).toEqual(['Projetos']);
     expect(registro.respostas?.expectativa).toHaveLength(500);
     expect(registro.respostas).not.toHaveProperty('senha');
     expect(ParticipacoesService.situacaoDe(registro)).toBe(
+      'apadrinhado_pendente',
+    );
+  });
+
+  it('aprovar o cadastro do apadrinhado o deixa aguardando match', async () => {
+    const registro = await service.cadastrarApadrinhado({
+      usuarioId: 'a1@pucminas.edu.br',
+      programa: '2026/2',
+    });
+    const aprovado = await service.aprovarCandidatura(registro.id);
+
+    expect(aprovado.papel).toBe('apadrinhado');
+    expect(aprovado.status).toBe('em_andamento');
+    expect(ParticipacoesService.situacaoDe(aprovado)).toBe(
       'apadrinhado_aguardando',
     );
+  });
+
+  it('rejeita cadastro de apadrinhado pendente e bloqueia edição', async () => {
+    const registro = await service.cadastrarApadrinhado({
+      usuarioId: 'a1@pucminas.edu.br',
+      programa: '2026/2',
+      respostas: { expectativa: 'original' },
+    });
+    const rejeitado = await service.rejeitarCandidaturaPorId(registro.id);
+    const reenvio = await service.cadastrarApadrinhado({
+      usuarioId: 'a1@pucminas.edu.br',
+      programa: '2026/2',
+      respostas: { expectativa: 'nova' },
+    });
+
+    expect(rejeitado.status).toBe('nao_aprovado');
+    expect(ParticipacoesService.situacaoDe(rejeitado)).toBe(
+      'apadrinhado_rejeitado',
+    );
+    expect(reenvio.respostas?.expectativa).toBe('original');
+  });
+
+  it('não vincula apadrinhado com cadastro pendente', async () => {
+    const candidatura = await service.registrarCandidaturaPadrinho({
+      usuarioId: 'padrinho@pucminas.edu.br',
+      programa: '2026/2',
+    });
+    const padrinho = await service.aprovarCandidatura(candidatura.id);
+    const pendente = await service.cadastrarApadrinhado({
+      usuarioId: 'a1@pucminas.edu.br',
+      programa: '2026/2',
+    });
+
+    await expect(service.vincular(pendente.id, padrinho.id)).rejects.toThrow(
+      /ainda não foi aprovado/,
+    );
+  });
+
+  it('não cria participação em ciclo inexistente (padrinho, apadrinhado, ingresso)', async () => {
+    await expect(
+      service.cadastrarApadrinhado({
+        usuarioId: 'a@pucminas.edu.br',
+        programa: '2099/1',
+      }),
+    ).rejects.toThrow(/Ciclo 2099\/1 não cadastrado/);
+    await expect(
+      service.registrarCandidaturaPadrinho({
+        usuarioId: 'p@pucminas.edu.br',
+        programa: '2099/1',
+      }),
+    ).rejects.toThrow(/não cadastrado/);
+    await expect(
+      service.confirmarIngresso({
+        usuarioId: 'x@pucminas.edu.br',
+        papel: 'padrinho',
+        programa: '2099/1',
+      }),
+    ).rejects.toThrow(/não cadastrado/);
+    expect(registros).toHaveLength(0);
   });
 
   it('reenviar candidatura pendente atualiza as respostas sem duplicar', async () => {
@@ -116,10 +204,12 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
     const a1 = await service.cadastrarApadrinhado({
       usuarioId: 'a1@pucminas.edu.br',
       programa: '2026/2',
+      statusInicial: 'em_andamento',
     });
     const a2 = await service.cadastrarApadrinhado({
       usuarioId: 'a2@pucminas.edu.br',
       programa: '2026/2',
+      statusInicial: 'em_andamento',
     });
 
     await service.vincular(a1.id, padrinho.id);
@@ -144,6 +234,7 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
     const apadrinhado = await service.cadastrarApadrinhado({
       usuarioId: 'a1@pucminas.edu.br',
       programa: '2026/2',
+      statusInicial: 'em_andamento',
     });
 
     await expect(

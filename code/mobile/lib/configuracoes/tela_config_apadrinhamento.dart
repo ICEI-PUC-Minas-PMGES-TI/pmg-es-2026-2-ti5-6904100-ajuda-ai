@@ -110,6 +110,7 @@ class _ApadrinhamentoConfigPageState extends State<ApadrinhamentoConfigPage> {
             titulo: 'Status da candidatura',
             onTap: () => _abrir(const StatusCandidaturaPage()),
           ),
+        // Só com cadastro aprovado (pendente/rejeitado não têm padrinho).
         if (status == StatusParticipacao.apadrinhadoAtivo ||
             status == StatusParticipacao.apadrinhadoAguardandoMatch)
           _Acao(

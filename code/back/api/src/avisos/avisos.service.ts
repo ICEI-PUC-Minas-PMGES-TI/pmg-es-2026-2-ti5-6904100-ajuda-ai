@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { seedDemoHabilitado } from '../config/seguranca.js';
 import { AVISOS } from '../dados/dados.js';
 import { AvisoEntity, PublicoAviso } from './entities/aviso.entity.js';
 
@@ -13,8 +14,12 @@ export class AvisosService implements OnModuleInit {
     private readonly avisos: Repository<AvisoEntity>,
   ) {}
 
-  /** Semeia os avisos de demonstração só quando a tabela está vazia. */
+  /**
+   * Semeia os avisos de demonstração (SEED_DEMO_DATA=true) só quando a
+   * tabela está vazia.
+   */
   async onModuleInit() {
+    if (!seedDemoHabilitado()) return;
     if ((await this.avisos.count()) > 0) return;
     await this.avisos.save(
       AVISOS.map((aviso) =>

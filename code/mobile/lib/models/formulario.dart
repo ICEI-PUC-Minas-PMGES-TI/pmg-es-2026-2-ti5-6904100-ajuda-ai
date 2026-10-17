@@ -71,6 +71,29 @@ class PerguntaFormulario {
   }
 }
 
+/// Requisito para padrinho definido pela coordenação para o ciclo
+/// (`requisitos` em `GET /formularios/padrinho`).
+class RequisitoPadrinho {
+  const RequisitoPadrinho({
+    required this.id,
+    required this.descricao,
+    this.obrigatorio = true,
+  });
+
+  final String id;
+  final String descricao;
+
+  /// Obrigatório: sem ele o backend recusa a candidatura.
+  final bool obrigatorio;
+
+  factory RequisitoPadrinho.fromJson(Map<String, dynamic> json) =>
+      RequisitoPadrinho(
+        id: '${json['id'] ?? ''}',
+        descricao: '${json['descricao'] ?? ''}',
+        obrigatorio: json['obrigatorio'] != false,
+      );
+}
+
 class Formulario {
   const Formulario({
     required this.tipo,
@@ -78,7 +101,11 @@ class Formulario {
     required this.perguntas,
     this.programa,
     this.salvo = true,
+    this.requisitos = const [],
   });
+
+  /// Só no formulário de padrinho: requisitos do ciclo.
+  final List<RequisitoPadrinho> requisitos;
 
   final String tipo;
   final String? programa;
@@ -92,6 +119,13 @@ class Formulario {
       programa: json['programa'] as String?,
       publicado: json['publicado'] == true,
       salvo: json['salvo'] != false,
+      requisitos: (json['requisitos'] as List? ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) =>
+                RequisitoPadrinho.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList(),
       perguntas: (json['perguntas'] as List? ?? const [])
           .whereType<Map>()
           .map(

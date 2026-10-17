@@ -174,6 +174,19 @@ class _SinoNotificacoes extends StatelessWidget {
   }
 }
 
+String _saudacao() {
+  final nome = SessaoUsuario.atual.nomeExibicao;
+  if (nome == null) return 'Olá!';
+  final primeiro = nome.split(RegExp(r'\s+')).first;
+  return 'Olá, $primeiro!';
+}
+
+String _inicialCabecalho() {
+  final nome = SessaoUsuario.atual.nomeExibicao;
+  if (nome == null || nome.isEmpty) return '';
+  return nome[0].toUpperCase();
+}
+
 class _Saudacao extends StatelessWidget {
   const _Saudacao();
 
@@ -182,21 +195,21 @@ class _Saudacao extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Expanded(
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Olá, Camila!',
-                style: TextStyle(
+                _saudacao(),
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 26,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.5,
                 ),
               ),
-              SizedBox(height: 6),
-              Text(
+              const SizedBox(height: 6),
+              const Text(
                 'Bem-vinda à PUC Minas!',
                 style: TextStyle(
                   fontFamily: 'Inter',
@@ -210,7 +223,7 @@ class _Saudacao extends StatelessWidget {
         const SizedBox(width: 12),
         const _BotaoResgatar(),
         const SizedBox(width: 12),
-        const _AvatarNivel(iniciais: 'C', nivel: 4),
+        _AvatarNivel(iniciais: _inicialCabecalho(), nivel: 4),
       ],
     );
   }

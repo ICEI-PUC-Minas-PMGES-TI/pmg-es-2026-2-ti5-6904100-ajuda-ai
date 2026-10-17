@@ -24,7 +24,14 @@ const _camila = DadosCadastro(
 void main() {
   late ApiFalsa api;
 
-  setUp(() => api = ApiFalsa().instalar());
+  setUp(() {
+    api = ApiFalsa().instalar();
+    SessaoUsuario.atual.definirIdentidade(
+      nome: 'Camila Duarte',
+      email: 'camila@pucminas.edu.br',
+    );
+    SessaoUsuario.atual.onboardingToken = 'onboarding-teste';
+  });
   tearDown(SessaoUsuario.atual.limpar);
 
   testWidgets('perfil exibe informacoes sem idioma', (tester) async {
@@ -50,6 +57,7 @@ void main() {
         turno: 'Noite',
         areasApoio: ['Projetos'],
         disponibilidade: 'Noite',
+        requisitosCumpridos: {'calculo-i': true, 'aed-i': true},
         genero: 'Feminino',
         bolsistaProuni: false,
         deOutraCidade: true,

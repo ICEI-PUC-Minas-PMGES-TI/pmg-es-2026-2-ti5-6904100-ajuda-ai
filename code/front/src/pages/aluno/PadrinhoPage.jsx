@@ -101,6 +101,24 @@ export default function PadrinhoPage() {
     );
   }
 
+  if (tipo === 'apadrinhado_pendente' || tipo === 'apadrinhado_rejeitado') {
+    const rejeitado = tipo === 'apadrinhado_rejeitado';
+    return (
+      <div className="aluno-page">
+        <PageHeader titulo="Meu padrinho" subtitulo={dados.programa?.titulo} />
+        <EstadoVazio
+          icon={rejeitado ? 'alert' : 'clock'}
+          titulo={rejeitado ? 'Seu cadastro não foi aprovado' : 'Seu cadastro aguarda aprovação'}
+          texto={rejeitado
+            ? 'A coordenação não aprovou seu cadastro neste ciclo, por isso não haverá definição de padrinho.'
+            : 'Depois que a coordenação aprovar seu cadastro, você entra na formação dos grupos e seu padrinho aparece aqui.'}
+        >
+          <button type="button" className="ghost-button" onClick={() => navigate('/aluno/candidatura')}>Acompanhar meu cadastro</button>
+        </EstadoVazio>
+      </div>
+    );
+  }
+
   if (tipo === 'apadrinhado_aguardando' || tipo === 'apadrinhado_ativo') {
     return (
       <div className="aluno-page">

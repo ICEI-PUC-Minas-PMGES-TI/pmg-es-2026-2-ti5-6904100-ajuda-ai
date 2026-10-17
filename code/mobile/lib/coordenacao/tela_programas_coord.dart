@@ -4,6 +4,31 @@ import '../services/coordenacao_api.dart';
 import '../theme/colors.dart';
 import 'componentes_coord.dart';
 
+/// Semestre pela data (mesma regra do backend: jan–jun = /1, jul–dez = /2).
+String codigoCicloDaData([DateTime? data]) {
+  final d = data ?? DateTime.now();
+  return '${d.year}/${d.month <= 6 ? 1 : 2}';
+}
+
+String _semestreSeguinte(String codigo) {
+  final [ano, semestre] = codigo.split('/').map(int.parse).toList();
+  return semestre == 1 ? '$ano/2' : '${ano + 1}/1';
+}
+
+/// Sugestões para o novo ciclo: o vigente pela data e os próximos, se ainda
+/// não existem.
+List<String> sugestoesDeCiclo(List<String> existentes, [DateTime? data]) {
+  final atual = codigoCicloDaData(data);
+  final seguinte = _semestreSeguinte(atual);
+  return [
+    atual,
+    seguinte,
+    _semestreSeguinte(seguinte),
+  ].where((codigo) => !existentes.contains(codigo)).toList();
+}
+
+final _padraoCodigoCiclo = RegExp(r'^\d{4}/[12]$');
+
 /// Programas (ciclos): totais, etapa atual, inscrições e novo ciclo.
 class TelaProgramasCoord extends StatefulWidget {
   const TelaProgramasCoord({
@@ -55,18 +80,22 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
     }
   }
 
+  /// Abre um ciclo com código explícito (ex.: 2027/1), sem depender da data.
   Future<void> _novoCiclo() async {
-    final ok = await confirmarAcaoCoord(
-      context,
-      titulo: 'Abrir novo ciclo',
-      mensagem:
-          'Um novo programa será criado com as etapas padrão. O ciclo atual '
-          'continua disponível no histórico.',
-      confirmar: 'Abrir ciclo',
+    final existentes = [for (final p in _programas) '${p['codigo']}'];
+    final sugestoes = sugestoesDeCiclo(existentes);
+    final vigente = codigoCicloDaData();
+    final escolhido = await showDialog<String>(
+      context: context,
+      builder: (_) => _DialogoNovoCiclo(
+        existentes: existentes,
+        sugestoes: sugestoes,
+        vigentePelaData: vigente,
+      ),
     );
-    if (!ok || !mounted) return;
+    if (escolhido == null || !mounted) return;
     try {
-      final criado = await widget.api.criarPrograma();
+      final criado = await widget.api.criarPrograma(escolhido);
       if (!mounted) return;
       final codigo = criado['codigo'] as String?;
       mostrarMensagemCoord(context, 'Ciclo ${codigo ?? ''} aberto.');
@@ -286,6 +315,44 @@ class _CardPrograma extends StatelessWidget {
               color: corTextoSecundarioCoord,
             ),
           ),
+          const SizedBox(height: 10),
+          Text(
+            'Requisitos para padrinho — ${programa['codigo']}',
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              color: AppColors.ink,
+            ),
+          ),
+          const SizedBox(height: 4),
+          if ((programa['requisitosPadrinho'] as List? ?? const []).isEmpty)
+            const Text(
+              'Nenhuma disciplina exigida (basta estar a partir do 2º período).',
+              style: TextStyle(fontSize: 12, color: corTextoSecundarioCoord),
+            )
+          else
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final r
+                    in (programa['requisitosPadrinho'] as List)
+                        .whereType<Map>())
+                  Chip(
+                    label: Text(
+                      '${r['descricao']}'
+                      '${r['obrigatorio'] == false ? ' (desejável)' : ''}',
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: AppColors.lavender,
+                    side: BorderSide.none,
+                  ),
+              ],
+            ),
+          const Text(
+            'A edição dos requisitos é feita no painel web (Programas).',
+            style: TextStyle(fontSize: 11, color: corTextoSecundarioCoord),
+          ),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -461,6 +528,103 @@ class _EditorProgramaState extends State<_EditorPrograma> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DialogoNovoCiclo extends StatefulWidget {
+  const _DialogoNovoCiclo({
+    required this.existentes,
+    required this.sugestoes,
+    required this.vigentePelaData,
+  });
+
+  final List<String> existentes;
+  final List<String> sugestoes;
+  final String vigentePelaData;
+
+  @override
+  State<_DialogoNovoCiclo> createState() => _DialogoNovoCicloState();
+}
+
+class _DialogoNovoCicloState extends State<_DialogoNovoCiclo> {
+  late final _codigo = TextEditingController(
+    text: widget.sugestoes.isEmpty ? '' : widget.sugestoes.first,
+  );
+  String? _erro;
+
+  @override
+  void dispose() {
+    _codigo.dispose();
+    super.dispose();
+  }
+
+  void _confirmar() {
+    final codigo = _codigo.text.trim();
+    if (!_padraoCodigoCiclo.hasMatch(codigo)) {
+      setState(() => _erro = 'Use o formato AAAA/1 ou AAAA/2 (ex.: 2027/1).');
+      return;
+    }
+    if (widget.existentes.contains(codigo)) {
+      setState(() => _erro = 'O ciclo $codigo já existe.');
+      return;
+    }
+    Navigator.of(context).pop(codigo);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final vigenteAberto = widget.existentes.contains(widget.vigentePelaData);
+    return AlertDialog(
+      title: const Text('Abrir novo ciclo'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _codigo,
+            maxLength: 6,
+            decoration: InputDecoration(
+              labelText: 'Código do ciclo',
+              hintText: 'Ex.: 2027/1',
+              errorText: _erro,
+            ),
+            onChanged: (_) => setState(() => _erro = null),
+            onSubmitted: (_) => _confirmar(),
+          ),
+          if (widget.sugestoes.isNotEmpty)
+            Wrap(
+              spacing: 6,
+              children: [
+                for (final codigo in widget.sugestoes)
+                  ActionChip(
+                    label: Text(codigo),
+                    onPressed: () => setState(() {
+                      _codigo.text = codigo;
+                      _erro = null;
+                    }),
+                  ),
+              ],
+            ),
+          const SizedBox(height: 8),
+          Text(
+            'Pela data de hoje, o ciclo vigente é ${widget.vigentePelaData}'
+            '${vigenteAberto ? ' (já aberto).' : ' — ainda não aberto: cadastros e candidaturas ficam bloqueados até ele existir.'}'
+            ' O ciclo não é criado automaticamente.',
+            style: const TextStyle(
+              fontSize: 12,
+              color: corTextoSecundarioCoord,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(onPressed: _confirmar, child: const Text('Abrir ciclo')),
+      ],
     );
   }
 }

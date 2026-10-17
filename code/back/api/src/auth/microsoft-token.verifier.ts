@@ -3,7 +3,18 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+
+/** E-mail institucional presente no ID token v2 (sem inventar claim). */
+export function emailDaIdentidadeMicrosoft(
+  payload: JWTPayload,
+): string | undefined {
+  for (const claim of ['preferred_username', 'email', 'upn'] as const) {
+    const valor = payload[claim];
+    if (typeof valor === 'string' && valor.includes('@')) return valor;
+  }
+  return undefined;
+}
 
 export interface MicrosoftIdentity {
   subject: string;
@@ -35,12 +46,13 @@ export class MicrosoftTokenVerifier {
         audience: clientId,
         issuer,
       });
-      const email =
-        typeof payload.preferred_username === 'string'
-          ? payload.preferred_username
-          : typeof payload.email === 'string'
-            ? payload.email
-            : undefined;
+      if (typeof payload.tid === 'string' && payload.tid !== tenantId) {
+        throw new UnauthorizedException(
+          'O token Microsoft é de outro diretório.',
+        );
+      }
+
+      const email = emailDaIdentidadeMicrosoft(payload);
 
       if (!payload.sub || !email) {
         throw new UnauthorizedException(

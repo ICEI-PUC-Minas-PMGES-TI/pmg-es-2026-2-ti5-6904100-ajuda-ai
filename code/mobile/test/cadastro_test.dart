@@ -12,6 +12,7 @@ import 'package:ajuda_ai/tela_cadastro_revisao.dart';
 import 'package:ajuda_ai/tela_perfil.dart';
 import 'package:ajuda_ai/tela_padrinho_definido.dart';
 import 'package:ajuda_ai/tela_participacao.dart';
+import 'package:ajuda_ai/widgets/campos_cadastro.dart';
 
 import 'helpers/api_falsa.dart';
 
@@ -67,8 +68,49 @@ Future<void> _preencherPasso2(WidgetTester tester) async {
 void main() {
   late ApiFalsa api;
 
-  setUp(() => api = ApiFalsa().instalar());
+  setUp(() {
+    api = ApiFalsa().instalar();
+    SessaoUsuario.atual.definirIdentidade(
+      nome: 'Camila Duarte',
+      email: 'camila@pucminas.edu.br',
+    );
+    SessaoUsuario.atual.onboardingToken = 'onboarding-teste';
+  });
   tearDown(SessaoUsuario.atual.limpar);
+
+  testWidgets('não nasce como Camila sem conta autenticada', (tester) async {
+    SessaoUsuario.atual.limpar();
+    api = ApiFalsa().instalar();
+    await tester.pumpWidget(const MaterialApp(home: CadastroPage()));
+
+    expect(find.text('Camila Duarte'), findsNothing);
+    expect(find.text('camila@pucminas.edu.br'), findsNothing);
+    await _tocar(tester, find.text('Continuar'));
+    expect(
+      find.text('Entre com a conta institucional antes de completar o perfil.'),
+      findsOneWidget,
+    );
+    expect(find.byType(ParticipacaoPage), findsNothing);
+  });
+
+  testWidgets('conta autenticada preenche nome e e-mail bloqueado', (
+    tester,
+  ) async {
+    SessaoUsuario.atual.definirIdentidade(
+      nome: 'Ana Souza',
+      email: 'ana.souza@pucminas.edu.br',
+    );
+    await tester.pumpWidget(const MaterialApp(home: CadastroPage()));
+
+    expect(find.text('Ana Souza'), findsOneWidget);
+    expect(find.text('ana.souza@pucminas.edu.br'), findsOneWidget);
+    expect(find.text('Camila Duarte'), findsNothing);
+    expect(
+      tester.widget<CampoTexto>(find.byType(CampoTexto).at(1)).bloqueado,
+      isTrue,
+    );
+    expect(find.widgetWithText(TextField, 'ana.souza@pucminas.edu.br'), findsNothing);
+  });
 
   testWidgets('período começa no 1º e pode ser alterado', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: CadastroPage()));
@@ -142,15 +184,25 @@ void main() {
     await _tocar(tester, find.text('Enviar cadastro'));
 
     expect(find.byType(CadastroConcluidoPage), findsOneWidget);
-    expect(find.text('Cadastro concluído!'), findsOneWidget);
+    expect(find.text('Cadastro enviado!'), findsOneWidget);
+    expect(
+      find.text('Agora ele aguarda a aprovação da coordenação.'),
+      findsOneWidget,
+    );
     expect(find.byType(CadastroPage), findsNothing);
     expect(tester.takeException(), isNull);
 
-    // POST /participacoes/cadastro-apadrinhado com as respostas completas.
-    final envio = api.posts('/participacoes/cadastro-apadrinhado').single;
-    expect(envio.headers['x-user-id'], 'camila@pucminas.edu.br');
+    // POST /cadastro (mesmo endpoint do web) com dados + respostas.
+    expect(api.posts('/participacoes/cadastro-apadrinhado'), isEmpty);
+    final envio = api.posts('/cadastro').single;
+    expect(envio.headers.containsKey('x-user-id'), isFalse);
+    expect(envio.headers['authorization'], 'Bearer onboarding-teste');
     final corpo = api.corpo(envio);
-    expect(corpo['usuarioId'], 'camila@pucminas.edu.br');
+    expect(corpo, containsPair('email', 'camila@pucminas.edu.br'));
+    expect(corpo, containsPair('nome', 'Camila Duarte'));
+    expect(corpo, containsPair('curso', 'Engenharia de Software'));
+    expect(corpo, containsPair('periodo', 1));
+    expect(corpo, containsPair('tipoParticipacao', 'apadrinhado'));
     expect(corpo['respostas'], {
       'nome': 'Camila Duarte',
       'curso': 'Engenharia de Software',
@@ -165,10 +217,9 @@ void main() {
       'expectativa': 'Dicas sobre a rotina',
       'extras': <String, dynamic>{},
     });
-    expect(
-      SessaoUsuario.atual.status,
-      StatusParticipacao.apadrinhadoAguardandoMatch,
-    );
+    // Cadastro novo nasce PENDENTE e o app guarda o token da sessão.
+    expect(SessaoUsuario.atual.status, StatusParticipacao.apadrinhadoPendente);
+    expect(SessaoUsuario.atual.accessToken, ApiFalsa.token);
 
     await tester.tap(find.text('Ir para meu perfil'));
     await tester.pumpAndSettle();
@@ -201,7 +252,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(CadastroConcluidoPage), findsOneWidget);
-    expect(api.posts('/participacoes/cadastro-apadrinhado'), hasLength(2));
+    expect(api.posts('/cadastro'), hasLength(2));
   });
 
   testWidgets('perguntas adicionais do apadrinhado são validadas', (

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module.js';
 import { AvisosModule } from '../avisos/avisos.module.js';
+import { CadastroModule } from '../cadastro/cadastro.module.js';
 import { FormulariosModule } from '../formularios/formularios.module.js';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { ParticipacoesModule } from '../participacoes/participacoes.module.js';
@@ -13,6 +14,7 @@ import { CoordenacaoService } from './coordenacao.service.js';
   imports: [
     AuthModule,
     AvisosModule,
+    CadastroModule,
     FormulariosModule,
     ProgramasModule,
     ParticipacoesModule,
@@ -20,5 +22,6 @@ import { CoordenacaoService } from './coordenacao.service.js';
   ],
   controllers: [CoordenacaoController],
   providers: [CoordenacaoService],
+  exports: [CoordenacaoService],
 })
 export class CoordenacaoModule {}

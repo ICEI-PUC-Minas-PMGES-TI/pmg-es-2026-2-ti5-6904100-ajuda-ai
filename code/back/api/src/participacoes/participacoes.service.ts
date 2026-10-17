@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import {
   PapelParticipacao,
   ParticipacaoEntity,
@@ -22,6 +23,11 @@ export interface CadastrarApadrinhadoDto {
   usuarioId: string;
   programa?: string;
   respostas?: RespostasCadastro;
+  /**
+   * `pendente` (padrão) enquanto o cadastro do aluno aguarda a coordenação;
+   * `em_andamento` quando o aluno já tem cadastro aprovado (novo ciclo).
+   */
+  statusInicial?: 'pendente' | 'em_andamento';
 }
 
 export interface ConfirmarParticipacaoDto {
@@ -44,6 +50,8 @@ export type SituacaoAluno =
   | 'candidatura_em_analise'
   | 'candidatura_rejeitada'
   | 'padrinho_ativo'
+  | 'apadrinhado_pendente'
+  | 'apadrinhado_rejeitado'
   | 'apadrinhado_aguardando'
   | 'apadrinhado_ativo'
   | 'concluido';
@@ -53,7 +61,22 @@ export class ParticipacoesService {
   constructor(
     @InjectRepository(ParticipacaoEntity)
     private readonly participacoes: Repository<ParticipacaoEntity>,
+    @InjectRepository(ProgramaEntity)
+    private readonly programas: Repository<ProgramaEntity>,
   ) {}
+
+  /**
+   * Uma participação só pode apontar para um ciclo cadastrado em `programas`.
+   * Nunca cria ciclo: quem abre o ciclo é a coordenação (Programas).
+   */
+  async exigirCiclo(codigo: string): Promise<void> {
+    const existe = await this.programas.findOne({ where: { codigo } });
+    if (!existe) {
+      throw new BadRequestException(
+        `Ciclo ${codigo} não cadastrado. A coordenação precisa abrir o ciclo em Programas.`,
+      );
+    }
+  }
 
   static programaAtual(referencia = new Date()): string {
     const ano = referencia.getFullYear();
@@ -67,6 +90,8 @@ export class ParticipacoesService {
     if (registro.status === 'concluido') return 'concluido';
     if (registro.papel === 'padrinho') return 'padrinho_ativo';
     if (registro.papel === 'apadrinhado') {
+      if (registro.status === 'pendente') return 'apadrinhado_pendente';
+      if (registro.status === 'nao_aprovado') return 'apadrinhado_rejeitado';
       return registro.grupo?.trim()
         ? 'apadrinhado_ativo'
         : 'apadrinhado_aguardando';
@@ -80,6 +105,15 @@ export class ParticipacoesService {
     const id = this.normalizarUsuario(usuarioId);
     return this.participacoes.find({
       where: { usuarioId: id },
+      order: { programa: 'DESC', criadoEm: 'DESC' },
+    });
+  }
+
+  async listarPorUsuarios(usuarioIds: string[]): Promise<ParticipacaoEntity[]> {
+    const ids = [...new Set(usuarioIds.map((id) => id.trim().toLowerCase()))];
+    if (!ids.length) return [];
+    return this.participacoes.find({
+      where: { usuarioId: In(ids) },
       order: { programa: 'DESC', criadoEm: 'DESC' },
     });
   }
@@ -124,7 +158,8 @@ export class ParticipacoesService {
     dto: RegistrarCandidaturaDto,
   ): Promise<ParticipacaoEntity> {
     const usuarioId = this.normalizarUsuario(dto.usuarioId);
-    const programa = dto.programa?.trim() || ParticipacoesService.programaAtual();
+    const programa =
+      dto.programa?.trim() || ParticipacoesService.programaAtual();
 
     const padrinhoAtivo = await this.participacoes.findOne({
       where: { usuarioId, programa, papel: 'padrinho' },
@@ -146,6 +181,7 @@ export class ParticipacoesService {
       return existente;
     }
 
+    await this.exigirCiclo(programa);
     const registro = this.participacoes.create({
       usuarioId,
       programa,
@@ -159,33 +195,38 @@ export class ParticipacoesService {
   }
 
   /**
-   * Cadastro do apadrinhado no ciclo: fica em andamento sem grupo até a
-   * coordenação confirmar o match. Idempotente; reenviar atualiza respostas
-   * enquanto ainda não há vínculo.
+   * Cadastro do apadrinhado no ciclo: nasce `pendente` (aguardando a
+   * coordenação aprovar o cadastro) e, depois de aprovado, fica em andamento
+   * sem grupo até o match. Idempotente; reenviar atualiza respostas enquanto
+   * ainda não há vínculo nem rejeição.
    */
   async cadastrarApadrinhado(
     dto: CadastrarApadrinhadoDto,
   ): Promise<ParticipacaoEntity> {
     const usuarioId = this.normalizarUsuario(dto.usuarioId);
-    const programa = dto.programa?.trim() || ParticipacoesService.programaAtual();
+    const programa =
+      dto.programa?.trim() || ParticipacoesService.programaAtual();
 
     const existente = await this.participacoes.findOne({
       where: { usuarioId, programa, papel: 'apadrinhado' },
     });
     if (existente) {
-      if (!existente.grupo?.trim() && dto.respostas) {
+      const editavel =
+        !existente.grupo?.trim() && existente.status !== 'nao_aprovado';
+      if (editavel && dto.respostas) {
         existente.respostas = this.limparRespostas(dto.respostas);
         return this.participacoes.save(existente);
       }
       return existente;
     }
 
+    await this.exigirCiclo(programa);
     return this.participacoes.save(
       this.participacoes.create({
         usuarioId,
         programa,
         papel: 'apadrinhado',
-        status: 'em_andamento',
+        status: dto.statusInicial ?? 'pendente',
         apadrinhados: 0,
         inicioEm: new Date(),
         respostas: dto.respostas ? this.limparRespostas(dto.respostas) : null,
@@ -243,10 +284,24 @@ export class ParticipacoesService {
     return registro;
   }
 
-  /** Aprova uma candidatura (por id) transformando-a em padrinho ativo. */
+  /**
+   * Aprova uma candidatura (por id) transformando-a em padrinho ativo. Para
+   * apadrinhados, aprova o cadastro do ciclo (fica aguardando o match).
+   */
   async aprovarCandidatura(id: number): Promise<ParticipacaoEntity> {
     const registro = await this.buscarPorId(id);
     if (registro.papel === 'padrinho') return registro;
+    if (registro.papel === 'apadrinhado') {
+      if (
+        registro.status !== 'pendente' &&
+        registro.status !== 'nao_aprovado'
+      ) {
+        return registro;
+      }
+      registro.status = 'em_andamento';
+      registro.terminoEm = null;
+      return this.participacoes.save(registro);
+    }
     if (registro.papel !== 'candidato') {
       throw new BadRequestException('Apenas candidaturas podem ser aprovadas.');
     }
@@ -260,6 +315,17 @@ export class ParticipacoesService {
   /** Rejeita uma candidatura (por id). Padrinhos já aprovados não mudam. */
   async rejeitarCandidaturaPorId(id: number): Promise<ParticipacaoEntity> {
     const registro = await this.buscarPorId(id);
+    if (registro.papel === 'apadrinhado') {
+      if (registro.status === 'nao_aprovado') return registro;
+      if (registro.status !== 'pendente') {
+        throw new BadRequestException(
+          'Apenas cadastros de apadrinhado aguardando análise podem ser rejeitados.',
+        );
+      }
+      registro.status = 'nao_aprovado';
+      registro.terminoEm = new Date();
+      return this.participacoes.save(registro);
+    }
     if (registro.papel !== 'candidato') {
       throw new BadRequestException(
         'Apenas candidaturas ainda não aprovadas podem ser rejeitadas.',
@@ -297,13 +363,21 @@ export class ParticipacoesService {
   async vincular(
     apadrinhadoId: number,
     padrinhoId: number,
-  ): Promise<{ apadrinhado: ParticipacaoEntity; padrinho: ParticipacaoEntity }> {
+  ): Promise<{
+    apadrinhado: ParticipacaoEntity;
+    padrinho: ParticipacaoEntity;
+  }> {
     const [apadrinhado, padrinho] = await Promise.all([
       this.buscarPorId(apadrinhadoId),
       this.buscarPorId(padrinhoId),
     ]);
     if (apadrinhado.papel !== 'apadrinhado') {
       throw new BadRequestException('Selecione um apadrinhado válido.');
+    }
+    if (apadrinhado.status !== 'em_andamento') {
+      throw new BadRequestException(
+        'O cadastro deste apadrinhado ainda não foi aprovado pela coordenação.',
+      );
     }
     if (padrinho.papel !== 'padrinho') {
       throw new BadRequestException('Selecione um padrinho aprovado.');
@@ -349,7 +423,8 @@ export class ParticipacoesService {
       throw new BadRequestException('Papel inválido para ingresso.');
     }
 
-    const programa = dto.programa?.trim() || ParticipacoesService.programaAtual();
+    const programa =
+      dto.programa?.trim() || ParticipacoesService.programaAtual();
 
     const existente = await this.participacoes.findOne({
       where: { usuarioId, programa, papel },
@@ -381,6 +456,7 @@ export class ParticipacoesService {
       return this.participacoes.save(candidatura);
     }
 
+    await this.exigirCiclo(programa);
     const registro = this.participacoes.create({
       usuarioId,
       programa,
@@ -399,7 +475,8 @@ export class ParticipacoesService {
     dto: RejeitarCandidaturaDto,
   ): Promise<ParticipacaoEntity | null> {
     const usuarioId = this.normalizarUsuario(dto.usuarioId);
-    const programa = dto.programa?.trim() || ParticipacoesService.programaAtual();
+    const programa =
+      dto.programa?.trim() || ParticipacoesService.programaAtual();
 
     const candidatura = await this.participacoes.findOne({
       where: { usuarioId, programa, papel: 'candidato' },
@@ -458,7 +535,10 @@ export class ParticipacoesService {
 
     const extras: Record<string, string | string[]> = {};
     if (respostas.extras && typeof respostas.extras === 'object') {
-      for (const [chave, valor] of Object.entries(respostas.extras).slice(0, 30)) {
+      for (const [chave, valor] of Object.entries(respostas.extras).slice(
+        0,
+        30,
+      )) {
         if (Array.isArray(valor)) {
           extras[chave.slice(0, 60)] = lista(valor) ?? [];
         } else if (typeof valor === 'string') {
@@ -481,6 +561,14 @@ export class ParticipacoesService {
       motivacao: texto(respostas.motivacao, 500),
       experiencias: texto(respostas.experiencias, 300),
       declaraPreRequisitos: booleano(respostas.declaraPreRequisitos),
+      requisitos: Array.isArray(respostas.requisitos)
+        ? respostas.requisitos.slice(0, 20).map((r) => ({
+            id: String(r.id).slice(0, 60),
+            descricao: String(r.descricao).slice(0, 120),
+            obrigatorio: r.obrigatorio === true,
+            cumpre: r.cumpre === true,
+          }))
+        : undefined,
       expectativa: texto(respostas.expectativa, 500),
       outrasInformacoes: texto(respostas.outrasInformacoes, 300),
       extras: Object.keys(extras).length ? extras : undefined,
