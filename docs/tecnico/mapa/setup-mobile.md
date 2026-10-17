@@ -1,6 +1,6 @@
 # Setup mobile — pacote campus_map
 
-> Estado: ATUAL para mapa base, campus 2D com snapshot local, campus 3D remoto (Tarefa 4) e vegetação/props/diagnóstico (Tarefa 5). Demais recursos continuam PLANEJADOS.
+> Estado: ATUAL para mapa base, campus 2D/3D, vegetação/props/diagnóstico e busca/localização (Tarefa 6). Demais recursos continuam PLANEJADOS.
 
 ## Requisitos e escopo
 
@@ -19,8 +19,10 @@ O renderer adiciona preenchimento, contornos e rótulos depois que o style está
 pronto. Com `enable3d`, o campus 3D usa extrusão (LOD2) e 16 GLBs de prédios
 (LOD1/LOD0) baixados por HTTPS do container público `map-assets`, mais 16
 árvores, a área esportiva e 84 carros (12 GLBs pequenos da mesma versão); nenhum
-GLB é empacotado no app. Não há picking, busca, localização, rota, PucStop ou
-backend de mapa. Não há geometria confirmada de áreas abertas/salas.
+GLB é empacotado no app. A Tarefa 6 adiciona busca local por nome/código e
+localização Android sob demanda. Não há picking, rota, PucStop ou backend de
+mapa. Não há geometria confirmada de áreas abertas/salas.
+Fluxo, permissões e testes: [busca-localizacao.md](busca-localizacao.md).
 Detalhes: [renderizacao-3d.md](renderizacao-3d.md) e
 [assets-pipeline.md](assets-pipeline.md).
 
@@ -107,7 +109,9 @@ Inspecionado: `android/app/build.gradle.kts`, `android/build.gradle.kts`,
 - `compileSdk` / `targetSdk`: 36, herdados do mesmo Flutter.
 - AGP 9.1.0, Gradle 9.4.1, Kotlin declarado 2.4.0, Java/JVM target 17.
 - `INTERNET` já existia no manifest principal; não foi duplicado.
-- Nenhuma permissão de localização adicionada.
+- Tarefa 6: `ACCESS_COARSE_LOCATION` e `ACCESS_FINE_LOCATION`, somente durante
+  uso do mapa e com solicitação explícita pelo botão. Sem background location
+  ou permissão de serviço foreground. Detalhes em [busca-localizacao.md](busca-localizacao.md).
 - Nenhuma mudança em `API_BASE_URL`, `10.0.2.2`, cleartext ou network security.
   Os GLBs vêm por HTTPS; nenhuma configuração nativa foi necessária para o
   `ModelSource` remoto (Tarefa 4).

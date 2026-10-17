@@ -4,6 +4,11 @@
 
 ## Objetivo da integração
 
+Tarefa 6: busca local em 77 lugares, foco por ID e localização Android sob
+demanda com puck nativo implementados no `campus_map`.
+[Contrato, permissões e validação](busca-localizacao.md).
+Os registros de fases abaixo descrevem o escopo de cada entrega anterior.
+
 Trazer o mapa do campus desenvolvido no projeto PUCMaps para dentro do Ajuda-aí, como uma funcionalidade integrada ao aplicativo principal, sem manter um segundo aplicativo, um segundo login ou um segundo backend.
 
 A estratégia geral está detalhada em [origem-pucmaps.md](../origem-pucmaps.md) e nos ADRs em [decisoes/](../decisoes/). Este documento resume o que será aproveitado, o que será adaptado, e a sequência geral planejada.

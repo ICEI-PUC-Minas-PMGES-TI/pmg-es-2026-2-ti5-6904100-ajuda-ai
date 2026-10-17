@@ -6,6 +6,11 @@ export 'src/campus_map_defaults.dart';
 export 'src/campus_map_features.dart';
 export 'src/campus_map_view.dart';
 export 'src/campus_snapshot.dart';
+export 'src/campus_place.dart';
+export 'src/campus_place_repository.dart';
+export 'src/campus_location_service.dart';
+export 'src/campus_map_controller.dart';
+export 'src/campus_map_controls.dart';
 export 'src/three_d/campus_model_manifest.dart'
     show
         CampusModelManifestSource,

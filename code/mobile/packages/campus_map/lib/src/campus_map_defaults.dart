@@ -10,6 +10,10 @@ abstract final class CampusMapDefaults {
   static const zoom = 15.2;
   static const pitch = 0.0;
   static const bearing = 0.0;
+  static const placeZoom = 18.0;
+  static const userZoom = 17.5;
+  static const userPitch3d = 35.0;
+  static const cameraDurationMs = 900;
 
   /// Inclinação inicial só com 3D ligado. O PUCMaps usava 65°; aqui é menor
   /// para manter a leitura do campus inteiro na abertura.

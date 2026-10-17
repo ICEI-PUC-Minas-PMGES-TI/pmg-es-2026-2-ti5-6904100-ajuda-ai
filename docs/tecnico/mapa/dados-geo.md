@@ -92,6 +92,11 @@ sem geometria derivada de salas/prédios inventados.
 
 ### Métricas e limites
 
+A Tarefa 6 consome este snapshot em `LocalCampusPlaceRepository`: 77 lugares
+com nome/código e centro, sem copiar geometria. Cinco footprints anônimos
+são omitidos; código é literal (ex.: `26`, não `P26`). Sem salas/aliases
+inferidos. Modelo e regras: [busca-localizacao.md](busca-localizacao.md).
+
 Duas sources e quatro layers 2D. Uma leitura de arquivo + parsing no host Windows
 (Dart 3.13.0, execução única nesta tarefa) levou aproximadamente **42,2 ms**.
 Esse valor não mede carregamento no Android nem constitui benchmark de FPS.

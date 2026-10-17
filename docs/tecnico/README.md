@@ -46,6 +46,7 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 - [mapa/eventos-cantinas.md](mapa/eventos-cantinas.md)
 - [mapa/assets-pipeline.md](mapa/assets-pipeline.md)
 - [mapa/setup-mobile.md](mapa/setup-mobile.md)
+- [mapa/busca-localizacao.md](mapa/busca-localizacao.md)
 - [mapa/administracao.md](mapa/administracao.md)
 
 ## Gamificação
@@ -63,7 +64,7 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 | 0 | Decisões e documentação | CONCLUÍDA |
 | 1 | Pacote Flutter `campus_map` + Mapbox base | IMPLEMENTADA E VALIDADA VISUALMENTE NO ANDROID |
 | 2 | Renderização 2D/3D + assets | 2D, 3D DE PRÉDIOS, VEGETAÇÃO, PROPS E DIAGNÓSTICO IMPLEMENTADOS E VALIDADOS NO EMULADOR ANDROID; APARELHO FÍSICO PENDENTE |
-| 3 | Busca e localização (snapshot local) | NÃO INICIADO |
+| 3 | Busca e localização (snapshot local) | IMPLEMENTADA; EVIDÊNCIAS E LIMITES EM busca-localizacao.md |
 | 4 | Banco geo (schema `mapa`) + PostGIS | NÃO INICIADO |
 | 5 | API de mapa no backend | NÃO INICIADO |
 | 6 | Rotas (grafo + Dijkstra/A* sob demanda) | NÃO INICIADO |
@@ -90,3 +91,7 @@ preservada) e um painel técnico de medição atrás de `diagnostics`.
 Detalhes: [renderizacao-3d.md](mapa/renderizacao-3d.md) e
 [assets-pipeline.md](mapa/assets-pipeline.md).
 Comandos, evidências de validação e limitações: [setup-mobile.md](mapa/setup-mobile.md).
+
+A Tarefa 6 adiciona busca em 77 lugares reais, foco por ID e localização
+Android sob demanda com puck nativo, sem persistência ou backend.
+Detalhes: [busca-localizacao.md](mapa/busca-localizacao.md).

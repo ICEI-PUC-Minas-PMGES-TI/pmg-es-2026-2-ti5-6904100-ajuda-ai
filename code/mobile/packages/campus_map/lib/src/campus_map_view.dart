@@ -6,6 +6,11 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 import 'campus_data_source.dart';
 import 'campus_map_config.dart';
+import 'campus_map_controller.dart';
+import 'campus_map_controls.dart';
+import 'campus_location_service.dart';
+import 'campus_place.dart';
+import 'campus_place_repository.dart';
 import 'campus_map_defaults.dart';
 import 'campus_map_features.dart';
 import 'campus_map_renderer.dart';
@@ -24,17 +29,25 @@ class CampusMapView extends StatefulWidget {
     required this.config,
     this.dataSource = const LocalCampusDataSource(),
     this.modelManifestSource = const LocalCampusModelManifestSource(),
+    this.controller,
   });
 
   final CampusMapConfig config;
   final CampusDataSource dataSource;
   final CampusModelManifestSource modelManifestSource;
 
+  /// Opcional. Se fornecido, seu dono deve descartá-lo ao sair da tela.
+  final CampusMapController? controller;
+
   @override
   State<CampusMapView> createState() => _CampusMapViewState();
 }
 
-class _CampusMapViewState extends State<CampusMapView> {
+class _CampusMapViewState extends State<CampusMapView>
+    with WidgetsBindingObserver
+    implements CampusMapCamera {
+  late CampusMapController _controller;
+  bool _foreground = true;
   String? _configurationError;
   bool _loadError = false;
   bool _campusError = false;
@@ -57,7 +70,114 @@ class _CampusMapViewState extends State<CampusMapView> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _createController();
     _configure();
+  }
+
+  void _createController() {
+    _controller =
+        widget.controller ??
+        CampusMapController(
+          placeRepository: LocalCampusPlaceRepository(
+            loadSnapshot: _loadSnapshot,
+          ),
+        );
+  }
+
+  Future<CampusSnapshot> _loadSnapshot() => _snapshot ??= _readSnapshot();
+
+  Future<CampusSnapshot> _readSnapshot() async {
+    try {
+      return await widget.dataSource.load();
+    } catch (_) {
+      _snapshot = null;
+      rethrow;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // A caixa de permissão causa inactive: não cancelar a própria solicitação.
+    if (state == AppLifecycleState.inactive) return;
+    _foreground = state == AppLifecycleState.resumed;
+    if (!_foreground) {
+      _controller.detach(this);
+      unawaited(_disablePuck(_map));
+    } else if (_map != null && _styleReady) {
+      _controller.attach(this);
+    }
+  }
+
+  Future<void> _disablePuck(MapboxMap? map) async {
+    try {
+      await map?.location.updateSettings(
+        LocationComponentSettings(enabled: false),
+      );
+    } catch (_) {
+      // A platform view pode já ter sido descartada.
+    }
+  }
+
+  @override
+  Future<void> focus(CampusPlace place) => _flyTo(
+    place.center[0],
+    place.center[1],
+    CampusMapDefaults.placeZoom,
+    _enable3d ? CampusMapDefaults.pitch3d : CampusMapDefaults.pitch,
+  );
+
+  @override
+  Future<void> showUser(CampusUserLocation location) async {
+    final map = _map;
+    final generation = _generation;
+    final revision = _styleRevision;
+    if (map == null || !_foreground || !_styleReady) {
+      throw StateError('Mapa indisponível.');
+    }
+    // O SDK usa seu provedor nativo para o puck; Geolocator só obtém a
+    // posição de centralização. Sem marcador manual nem câmera seguindo GPS.
+    await map.location.updateSettings(
+      LocationComponentSettings(
+        enabled: true,
+        showAccuracyRing: true,
+        puckBearingEnabled: false,
+        locationPuck: LocationPuck(locationPuck2D: DefaultLocationPuck2D()),
+      ),
+    );
+    if (!mounted ||
+        !_foreground ||
+        generation != _generation ||
+        revision != _styleRevision) {
+      await _disablePuck(map);
+      return;
+    }
+    await _flyTo(
+      location.longitude,
+      location.latitude,
+      CampusMapDefaults.userZoom,
+      _enable3d ? CampusMapDefaults.userPitch3d : CampusMapDefaults.pitch,
+    );
+  }
+
+  Future<void> _flyTo(
+    double longitude,
+    double latitude,
+    double zoom,
+    double pitch,
+  ) async {
+    final map = _map;
+    if (map == null || !_styleReady || !_foreground) {
+      throw StateError('Mapa indisponível.');
+    }
+    await map.flyTo(
+      CameraOptions(
+        center: Point(coordinates: Position(longitude, latitude)),
+        zoom: zoom,
+        pitch: pitch,
+      ),
+      MapAnimationOptions(duration: CampusMapDefaults.cameraDurationMs),
+    );
   }
 
   @override
@@ -67,6 +187,13 @@ class _CampusMapViewState extends State<CampusMapView> {
     final config = widget.config;
     final oldFeatures = oldConfig.features;
     final features = config.features;
+    if (oldWidget.controller != widget.controller ||
+        oldWidget.dataSource != widget.dataSource) {
+      _controller.detach(this);
+      if (oldWidget.controller == null) _controller.dispose();
+      _createController();
+      if (_map != null && _styleReady && _foreground) _controller.attach(this);
+    }
     if (oldConfig.mapboxAccessToken != config.mapboxAccessToken ||
         oldConfig.effectiveStyleUri != config.effectiveStyleUri ||
         oldConfig.mapAssetsBaseUrl != config.mapAssetsBaseUrl ||
@@ -83,6 +210,10 @@ class _CampusMapViewState extends State<CampusMapView> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controller.detach(this);
+    if (widget.controller == null) _controller.dispose();
+    unawaited(_disablePuck(_map));
     _cameraSettle?.cancel();
     _dispose3d();
     _diagnostics?.dispose();
@@ -102,6 +233,8 @@ class _CampusMapViewState extends State<CampusMapView> {
   }
 
   void _configure() {
+    _controller.detach(this);
+    unawaited(_disablePuck(_map));
     _loadError = false;
     _campusError = false;
     _models3dUnavailable = false;
@@ -151,9 +284,10 @@ class _CampusMapViewState extends State<CampusMapView> {
         mounted && generation == _generation && revision == _styleRevision;
     try {
       // Parsing uma vez por tela, só depois do style ficar pronto.
-      final snapshot = await (_snapshot ??= widget.dataSource.load());
+      final snapshot = await _loadSnapshot();
       if (!isActive()) return;
       await renderer.render(snapshot, isActive: isActive);
+      if (isActive() && _foreground) _controller.attach(this);
       if (isActive()) _diagnostics?.mark('2d pronto');
       if (isActive() && _campusError) setState(() => _campusError = false);
     } catch (_) {
@@ -258,6 +392,8 @@ class _CampusMapViewState extends State<CampusMapView> {
             onStyleLoadedListener: (_) {
               if (!mounted || generation != _generation) return;
               _styleReady = true;
+              _controller.detach(this);
+              unawaited(_disablePuck(_map));
               _styleRevision++;
               _renderer = null;
               _diagnostics?.mark('style carregado');
@@ -325,13 +461,13 @@ class _CampusMapViewState extends State<CampusMapView> {
             // No topo: logo e atribuição do Mapbox (rodapé) continuam visíveis.
             Positioned(
               left: 8,
-              top: 8,
+              top: 90,
               right: 8,
               child: Campus3dDiagnosticsPanel(diagnostics: diagnostics),
             ),
           if (notice != null)
             Positioned(
-              top: 0,
+              bottom: 110,
               left: 0,
               right: 0,
               child: Material(
@@ -342,6 +478,7 @@ class _CampusMapViewState extends State<CampusMapView> {
                 ),
               ),
             ),
+          CampusMapControls(controller: _controller),
         ],
       ),
     );
