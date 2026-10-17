@@ -286,9 +286,9 @@ export class CoordenacaoService implements OnModuleInit {
     return registros.map((item) => this.enriquecerCandidatura(item));
   }
 
-  async criarNovoCiclo(codigo?: string) {
+  async criarNovoCiclo(codigo?: string, configuracao: Record<string, unknown> = {}) {
     return this.serializarPrograma(
-      await this.programasService.criarNovoCiclo(codigo),
+      await this.programasService.criarNovoCiclo(codigo, configuracao),
     );
   }
 
@@ -483,6 +483,17 @@ export class CoordenacaoService implements OnModuleInit {
       vagasApadrinhados: programa.vagasApadrinhados,
       gruposPrevistos: programa.gruposPrevistos,
       inscricoesFim: programa.inscricoesFim,
+      datas: {
+        inscricoesInicio: programa.inscricoesInicio,
+        inscricoesFim: programa.inscricoesFim,
+        analiseInicio: programa.analiseInicio,
+        analiseFim: programa.analiseFim,
+        formacaoInicio: programa.formacaoInicio,
+        formacaoFim: programa.formacaoFim,
+        andamentoInicio: programa.andamentoInicio,
+        andamentoFim: programa.andamentoFim,
+        encerramentoEm: programa.encerramentoEm,
+      },
       requisitosPadrinho: programa.requisitosPadrinho ?? [],
     };
   }

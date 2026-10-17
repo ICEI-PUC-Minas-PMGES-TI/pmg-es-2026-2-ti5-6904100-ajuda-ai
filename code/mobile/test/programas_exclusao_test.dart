@@ -78,11 +78,21 @@ void main() {
         expect(pedidos.where((r) => r.method == 'DELETE'), isEmpty);
         await tester.enterText(find.byType(TextField), 'coordenador');
         await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Excluir definitivamente'),
+              )
+              .onPressed,
+          isNull,
+        );
+        await tester.enterText(find.byType(TextField), 'COORDENADOR');
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Excluir definitivamente'));
         await tester.pumpAndSettle();
         final delete = pedidos.singleWhere((r) => r.method == 'DELETE');
         expect(delete.url.queryParameters['codigo'], '2026/2');
-        expect(jsonDecode(delete.body), {'confirmacao': 'coordenador'});
+        expect(jsonDecode(delete.body), {'confirmacao': 'COORDENADOR'});
         if (bloqueado) {
           expect(find.textContaining('candidaturas: 1'), findsOneWidget);
           expect(programas, hasLength(1));

@@ -233,6 +233,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       _ => TelaProgramasCoord(
         api: api,
         pendencia: query['pendencia'],
+        iniciarNovo: query['novo'] == '1',
         onProgramaCriado: (codigo) => _carregarProgramas(preferido: codigo),
         onProgramaSelecionado: (codigo) {
           _aba = 0;

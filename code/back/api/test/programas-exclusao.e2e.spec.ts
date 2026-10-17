@@ -112,16 +112,21 @@ describe('exclusão segura de programas', () => {
     await excluir('COORDENADOR', '2027/1').expect(404);
     expect(programas).toHaveLength(1);
   });
-  for (const confirmacao of ['', 'coordenado', 'SIM', null, 42])
-    it(`recusa confirmação ${confirmacao}`, async () => {
+  for (const confirmacao of [
+    '',
+    'coordenado',
+    'coordenador',
+    ' COORDENADOR',
+    'COORDENADOR ',
+    'SIM',
+    null,
+    42,
+  ])
+    it(`recusa confirmação ${JSON.stringify(confirmacao)}`, async () => {
       await excluir(confirmacao).expect(400);
       expect(programas).toHaveLength(1);
       expect(query).not.toHaveBeenCalled();
     });
-  it('aceita confirmação case-insensitive', async () => {
-    await excluir('coordenador').expect(200);
-    expect(programas).toHaveLength(0);
-  });
   for (const [nome, extra] of [
     ['candidatura', { papel: 'candidato', status: 'pendente' }],
     ['participação', { papel: 'apadrinhado', status: 'pendente' }],

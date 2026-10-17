@@ -8,9 +8,9 @@ globalThis.localStorage = { getItem: k => storage.get(k) || null, setItem: (k, v
 const server = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
 after(() => server.close());
 const client = await server.ssrLoadModule('/src/api/client.js');
-const { ConfirmarExclusaoPrograma } = await server.ssrLoadModule('/src/pages/coordenacao/ProgramasPage.jsx');
+const { ConfirmarExclusaoPrograma, validarCronograma, sugestaoCronograma } = await server.ssrLoadModule('/src/pages/coordenacao/ProgramasPage.jsx');
 
-for (const [confirmacao, ocupado, habilitado] of [['', false, false], ['SIM', false, false], ['COORDENADOR', false, true], ['coordenador', false, true], ['COORDENADOR', true, false]]) {
+for (const [confirmacao, ocupado, habilitado] of [['', false, false], ['SIM', false, false], ['coordenador', false, false], ['COORDENADOR', false, true], ['COORDENADOR', true, false]]) {
   test(`confirmação ${JSON.stringify(confirmacao)}, ocupado=${ocupado}`, () => {
     let chamadas = 0;
     const tree = ConfirmarExclusaoPrograma({ programa: { codigo: '2026/2' }, confirmacao, ocupado, erro: '', onConfirmar: () => chamadas++, onFechar: () => {}, onAlterar: () => {} });
@@ -40,4 +40,12 @@ test('DELETE usa código explícito, confirmação e JWT da coordenação; propa
   assert.deepEqual(JSON.parse(chamada.body), { confirmacao: 'COORDENADOR' });
   globalThis.fetch = async () => new Response(JSON.stringify({ message: 'participacoes: 3. Encerre o programa.' }), { status: 409 });
   await assert.rejects(() => client.api.excluirPrograma('2026/2', 'COORDENADOR'), /participacoes: 3/);
+});
+test('cronograma sugerido é editável e recusa ordem inválida', () => {
+  const sugerido = sugestaoCronograma('2027/1');
+  assert.equal(sugerido.inscricoesInicio, '2027-02-01');
+  assert.equal(sugerido.encerramentoEm, '2027-06-20');
+  assert.equal(validarCronograma(sugerido, true), '');
+  assert.match(validarCronograma({ ...sugerido, analiseInicio: '2027-02-10' }), /Ordem do cronograma inválida/);
+  assert.match(validarCronograma({}, true), /Informe início das inscrições/);
 });

@@ -247,10 +247,10 @@ export const api = {
   excluirPrograma(codigo, confirmacao) {
     return request(`/coordenacao/programas${query({codigo})}`, {method: 'DELETE', body: {confirmacao}});
   },
-  criarPrograma(codigo) {
+  criarPrograma(codigo, configuracao = {}) {
     return request('/coordenacao/programas', {
       method: 'POST',
-      body: codigo ? { codigo } : {},
+      body: { ...(codigo ? { codigo } : {}), ...configuracao },
     });
   },
   atualizarPrograma(codigo, dados) {

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:ajuda_ai/coordenacao/configurar_programa.dart';
 import 'package:ajuda_ai/coordenacao/tela_programas_coord.dart';
 import 'package:ajuda_ai/services/coordenacao_api.dart';
 import 'package:flutter/material.dart';
@@ -94,11 +95,22 @@ void main() {
       expect(find.text('Código do ciclo'), findsOneWidget);
 
       await tester.enterText(find.byType(TextField), '2027/1');
-      await tester.tap(find.text('Abrir ciclo'));
+      await tester.tap(find.text('Revisar cronograma'));
+      await tester.pumpAndSettle();
+      expect(find.text('01/02/2027'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Confirmar criação'),
+        300,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(find.text('Confirmar criação'));
       await tester.pumpAndSettle();
 
       final envio = pedidos.firstWhere((r) => r.method == 'POST');
-      expect(jsonDecode(envio.body), {'codigo': '2027/1'});
+      final corpo = jsonDecode(envio.body) as Map;
+      expect(corpo['codigo'], '2027/1');
+      expect(corpo['inscricoesInicio'], '2027-02-01');
+      expect(corpo['encerramentoEm'], '2027-06-20');
       expect(find.text('Programa 2027/1'), findsOneWidget);
     });
 
@@ -108,7 +120,7 @@ void main() {
       await abrirDialogo(tester);
 
       await tester.enterText(find.byType(TextField), '2027/3');
-      await tester.tap(find.text('Abrir ciclo'));
+      await tester.tap(find.text('Revisar cronograma'));
       await tester.pumpAndSettle();
       expect(
         find.text('Use o formato AAAA/1 ou AAAA/2 (ex.: 2027/1).'),
@@ -116,10 +128,69 @@ void main() {
       );
 
       await tester.enterText(find.byType(TextField), '2026/2');
-      await tester.tap(find.text('Abrir ciclo'));
+      await tester.tap(find.text('Revisar cronograma'));
       await tester.pumpAndSettle();
       expect(find.text('O ciclo 2026/2 já existe.'), findsOneWidget);
       expect(pedidos.where((r) => r.method == 'POST'), isEmpty);
+    });
+
+    testWidgets('impede cronograma fora de ordem e edita requisito do ciclo', (
+      tester,
+    ) async {
+      programas = [
+        {
+          ..._programa('2026/2'),
+          'datas': sugestaoCronograma('2026/2'),
+          'requisitosPadrinho': [
+            {'id': 'calculo', 'descricao': 'Cálculo I', 'obrigatorio': true},
+          ],
+        },
+        {
+          ..._programa('2026/1'),
+          'requisitosPadrinho': [
+            {'id': 'antigo', 'descricao': 'Requisito antigo', 'obrigatorio': true},
+          ],
+        },
+      ];
+      await abrirDialogo(tester);
+      await tester.tap(find.text('Cancelar'));
+      await tester.pumpAndSettle();
+
+      expect(
+        validarCronogramaPrograma({
+          'inscricoesInicio': '2026-03-10',
+          'inscricoesFim': '2026-03-01',
+        }),
+        contains('Ordem do cronograma inválida'),
+      );
+
+      await tester.tap(find.text('Configurar programa').first);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('inscricoesFim')),
+        '2026-08-20',
+      );
+      await tester.tap(find.byTooltip('Remover requisito'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Adicionar requisito'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).last, 'AED I');
+      await tester.scrollUntilVisible(
+        find.text('Salvar programa'),
+        300,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(find.text('Salvar programa'));
+      await tester.pumpAndSettle();
+
+      final envio = pedidos.singleWhere((r) => r.method == 'PATCH');
+      expect(envio.url.queryParameters['codigo'], '2026/2');
+      final corpo = jsonDecode(envio.body) as Map;
+      expect(corpo['inscricoesFim'], '2026-08-20');
+      expect(corpo['requisitosPadrinho'], [
+        {'descricao': 'AED I', 'obrigatorio': true},
+      ]);
+      expect(pedidos.where((r) => r.url.queryParameters['codigo'] == '2026/1' && r.method == 'PATCH'), isEmpty);
     });
   });
 }

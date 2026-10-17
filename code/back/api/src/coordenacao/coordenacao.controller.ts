@@ -159,8 +159,8 @@ export class CoordenacaoController {
   }
 
   @Post('programas')
-  criarPrograma(@Body() corpo: { codigo?: string }) {
-    return this.coordenacaoService.criarNovoCiclo(corpo.codigo);
+  criarPrograma(@Body() corpo: { codigo?: string } & Record<string, unknown>) {
+    return this.coordenacaoService.criarNovoCiclo(corpo.codigo, corpo);
   }
 
   /** O código contém barra; segue o padrão PATCH com ?codigo=AAAA/semestre. */

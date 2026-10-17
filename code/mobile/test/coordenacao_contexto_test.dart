@@ -316,10 +316,23 @@ void main() {
       );
       await tester.tap(find.text('Novo ciclo'));
       await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '2027/1');
+      await tester.tap(find.text('Revisar cronograma'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Confirmar criação'),
+        400,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(find.text('Confirmar criação'));
+      await tester.pumpAndSettle();
       expect(
         tester
             .widget<DropdownButton<String>>(
-              find.byKey(const ValueKey('programa-coordenacao')),
+              find.byKey(
+                const ValueKey('programa-coordenacao'),
+                skipOffstage: false,
+              ),
             )
             .value,
         '2027/1',

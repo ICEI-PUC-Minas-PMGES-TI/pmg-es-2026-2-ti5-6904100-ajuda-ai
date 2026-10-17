@@ -242,11 +242,14 @@ class CoordenacaoApi {
     );
   }
 
-  Future<Map<String, dynamic>> criarPrograma([String? codigo]) async => _mapa(
+  Future<Map<String, dynamic>> criarPrograma(
+    String? codigo, [
+    Map<String, dynamic>? configuracao,
+  ]) async => _mapa(
     await _enviar(
       'POST',
       '/coordenacao/programas',
-      corpo: {'codigo': ?codigo},
+      corpo: {'codigo': ?codigo, ...?configuracao},
       erro: 'Falha ao abrir ciclo',
     ),
   );

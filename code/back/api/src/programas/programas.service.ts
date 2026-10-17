@@ -18,6 +18,7 @@ import { ParticipacaoEntity } from '../participacoes/entities/participacao.entit
 import { FormularioEntity } from '../formularios/entities/formulario.entity.js';
 import { AvisoEntity } from '../avisos/entities/aviso.entity.js';
 import { ORDEM_ETAPAS } from './etapas.js';
+import { DATAS_PROGRAMA, validarCronograma } from './cronograma.js';
 
 @Injectable()
 export class ProgramasService implements OnModuleInit {
@@ -36,10 +37,7 @@ export class ProgramasService implements OnModuleInit {
 
   /** Exclui somente o ciclo vazio, com confirmação e proteção concorrente. */
   async excluir(codigo: string, confirmacao: unknown) {
-    if (
-      typeof confirmacao !== 'string' ||
-      confirmacao.trim().toUpperCase() !== 'COORDENADOR'
-    ) {
+    if (confirmacao !== 'COORDENADOR') {
       throw new BadRequestException(
         'Digite COORDENADOR para confirmar a exclusão permanente.',
       );
@@ -321,7 +319,7 @@ export class ProgramasService implements OnModuleInit {
    * data atual; sem `codigo`, sugere o semestre seguinte ao vigente. Recusa
    * (409) se o ciclo já existir, em vez de fingir que criou.
    */
-  async criarNovoCiclo(codigo?: string): Promise<ProgramaEntity> {
+  async criarNovoCiclo(codigo?: string, configuracao: Record<string, unknown> = {}): Promise<ProgramaEntity> {
     const alvo = codigo?.trim()
       ? ProgramasService.validarCodigoCiclo(codigo)
       : this.proximoCodigo();
@@ -334,9 +332,8 @@ export class ProgramasService implements OnModuleInit {
     const anterior = (await this.listar())
       .sort((a, b) => b.codigo.localeCompare(a.codigo))
       .find((p) => p.requisitosPadrinho);
-    const [ano, semestre] = alvo.split('/').map(Number);
-    const base = semestre === 1 ? `${ano}-02` : `${ano}-08`;
-    const fimSemestre = semestre === 1 ? `${ano}-06` : `${ano}-12`;
+    validarCronograma(configuracao, true);
+    const datas = Object.fromEntries(Object.keys(DATAS_PROGRAMA).map(chave => [chave, configuracao[chave]]));
     return this.programas.save(
       this.programas.create({
         codigo: alvo,
@@ -347,16 +344,10 @@ export class ProgramasService implements OnModuleInit {
         matchingPendente: false,
         vagasApadrinhados: 80,
         gruposPrevistos: 25,
-        inscricoesInicio: `${base}-01`,
-        inscricoesFim: `${base}-28`,
-        analiseInicio: `${ano}-${semestre === 1 ? '03' : '09'}-01`,
-        analiseFim: `${ano}-${semestre === 1 ? '03' : '09'}-30`,
-        formacaoInicio: `${ano}-${semestre === 1 ? '04' : '10'}-01`,
-        formacaoFim: `${ano}-${semestre === 1 ? '04' : '10'}-20`,
-        andamentoInicio: `${ano}-${semestre === 1 ? '04' : '10'}-21`,
-        andamentoFim: `${fimSemestre}-15`,
-        encerramentoEm: `${fimSemestre}-20`,
-        requisitosPadrinho: anterior?.requisitosPadrinho
+        ...datas,
+        requisitosPadrinho: configuracao.requisitosPadrinho !== undefined
+          ? ProgramasService.validarRequisitos(configuracao.requisitosPadrinho)
+          : anterior?.requisitosPadrinho
           ? anterior.requisitosPadrinho.map((r) => ({ ...r }))
           : null,
       }),
@@ -368,10 +359,11 @@ export class ProgramasService implements OnModuleInit {
     codigo: string,
     corpo: Record<string, unknown>,
   ): Promise<ProgramaEntity> {
-    const programa = await this.buscarPorCodigo(codigo);
-    if (!programa) {
+    const existente = await this.buscarPorCodigo(codigo);
+    if (!existente) {
       throw new NotFoundException(`Programa ${codigo} não encontrado.`);
     }
+    const programa = { ...existente };
 
     if (corpo.requisitosPadrinho !== undefined) {
       // Ciclo encerrado é histórico: seus requisitos não mudam mais.
@@ -406,17 +398,7 @@ export class ProgramasService implements OnModuleInit {
         programa[chave] = valor;
       }
     }
-    for (const chave of [
-      'inscricoesInicio',
-      'inscricoesFim',
-      'analiseInicio',
-      'analiseFim',
-      'formacaoInicio',
-      'formacaoFim',
-      'andamentoInicio',
-      'andamentoFim',
-      'encerramentoEm',
-    ] as const) {
+    for (const chave of Object.keys(DATAS_PROGRAMA) as (keyof typeof DATAS_PROGRAMA)[]) {
       const valor = corpo[chave];
       if (valor === undefined) continue;
       if (typeof valor !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
@@ -425,6 +407,9 @@ export class ProgramasService implements OnModuleInit {
         );
       }
       programa[chave] = valor;
+    }
+    if (Object.keys(DATAS_PROGRAMA).some(chave => corpo[chave] !== undefined)) {
+      validarCronograma({ ...programa });
     }
     return this.programas.save(programa);
   }

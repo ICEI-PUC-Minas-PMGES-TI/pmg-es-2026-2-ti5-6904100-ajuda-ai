@@ -79,19 +79,12 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
     }
   }
 
-  Future<void> _abrirNovoCiclo() async {
+  void _abrirNovoCiclo() {
     final acoes = _dados?['acoes'] as Map?;
     if (acoes?['podeAbrirNovoCiclo'] == false) return;
-    try {
-      final criado = await widget.api.criarPrograma();
-      final codigo = criado['codigo'] as String?;
-      if (codigo != null) widget.onProgramaChanged(codigo);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-      );
-    }
+    final abrir = widget.onAbrirDestino;
+    if (abrir == null) return;
+    abrir('programas', const {'novo': '1'});
   }
 
   Future<void> _abrirSeletorPrograma(
