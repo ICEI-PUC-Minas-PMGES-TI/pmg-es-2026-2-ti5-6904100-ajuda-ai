@@ -1,6 +1,6 @@
 # Mapa do campus — visão geral
 
-> Estado: ATUAL (mapa base e renderer 2D com snapshot) + PLANEJADO (3D e demais funcionalidades)
+> Estado: ATUAL (mapa base, renderer 2D com snapshot e campus 3D remoto) + PLANEJADO (demais funcionalidades)
 
 ## Objetivo da integração
 
@@ -61,6 +61,19 @@ dados nem categorias ausentes. A distinção plana de `PARK`, `PARKING_LOT` e
 `CONSTRUCTION` está preparada no renderer para uma futura fonte que as contenha;
 não há volumes, mesmo que a feature possua altura.
 
+## Implementação atual — campus 3D remoto (Tarefa 4)
+
+- `MapaPage` liga `CampusMapFeatures(enable3d: true)` e passa `MAP_ASSETS_BASE_URL`.
+- 82 prédios em três LODs: extrusão (LOD2, zoom < 16,5), 4 grupos GLB (LOD1) e
+  12 chunks GLB (LOD0, zoom ≥ 17,8), baixados por HTTPS do Azure `map-assets`,
+  versão imutável `2026-09-30-r1`. Nenhum GLB no Git do Ajuda-aí nem no APK.
+- Manifesto `assets/data/campus_models.json` no package; vínculo 2D↔3D pelo `id`
+  estável do footprint. Materiais dos GLBs preservados; sem cor por zoom.
+- Câmera inicial com pitch 45° quando o 3D está ligado.
+- Sem base URL, ou com GLB indisponível, o 2D/extrusão continuam.
+- Vegetação, props, PucStops, picking, iluminação e diagnóstico: não migrados.
+  Ver [renderizacao-3d.md](renderizacao-3d.md) e [assets-pipeline.md](assets-pipeline.md).
+
 O status dos testes, do APK e da validação visual está em
 [setup-mobile.md](setup-mobile.md#validação-desta-execução).
 
@@ -82,7 +95,7 @@ O status dos testes, do APK e da validação visual está em
 - Rotas: deixam de ser pré-calculadas e passam a ser calculadas sob demanda (ver [ADR-0003](../decisoes/ADR-0003-rotas-sob-demanda.md)).
 - Estrutura do app Flutter: o mapa entra como pacote interno `campus_map`, não como código solto no app principal (ver [ADR-0004](../decisoes/ADR-0004-campus-map-package.md)).
 - Dados geoespaciais: migram para um schema `mapa` próprio, com PostGIS, introduzido só quando necessário (ver [ADR-0005](../decisoes/ADR-0005-schema-mapa-postgis.md)).
-- Assets 3D: ficam embutidos no pacote inicialmente, sem a infraestrutura de CDN do projeto original (ver [ADR-0006](../decisoes/ADR-0006-assets-3d.md)).
+- Assets 3D: GLBs de prédios publicados como versão imutável no Azure `map-assets` e carregados por HTTPS (Tarefa 4; revisa a [ADR-0006](../decisoes/ADR-0006-assets-3d.md), ver [assets-pipeline.md](assets-pipeline.md#decisão-atual-de-hospedagem)).
 - Administração: a aplicação Angular do PUCMaps não é migrada como aplicação; suas funcionalidades úteis são inventariadas e, quando fizer sentido, reimplementadas na coordenação em React do Ajuda-aí (ver [ADR-0007](../decisoes/ADR-0007-admin-pucmaps.md) e [administracao.md](administracao.md)).
 
 ## O que não é trazido

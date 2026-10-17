@@ -1,0 +1,674 @@
+{
+  "schemaVersion": 1,
+  "version": "2026-09-30-r1",
+  "source": {
+    "project": "PUCMaps",
+    "manifest": "code/mobile/assets/campus/campus_chunks.json",
+    "manifestSchemaVersion": 1,
+    "manifestSha256": "3a1d0bf0f4b1cc9bfd94fc547ca38b6c77f57a8dd3e1654731b80527f0cffd77",
+    "generator": "scripts/build_chunks.py",
+    "provider": "OpenStreetMap",
+    "license": "ODbL 1.0",
+    "attribution": "© OpenStreetMap contributors",
+    "osmTimestamp": "2026-09-30T17:10:14Z"
+  },
+  "placement": {
+    "units": "meters",
+    "orientation": [0, 0, 0],
+    "scale": [1, 1, 1]
+  },
+  "lod1": [
+    {
+      "id": "g0",
+      "path": "models/lod1/g0.glb",
+      "anchor": [-43.9940316, -19.919423975],
+      "bbox": [-43.994839, -19.9203901, -43.9934622, -19.9185451],
+      "buildings": ["P35", "P36", "P54", "P70", "OSM_1066225656", "OSM_1278041908"],
+      "bytes": 107316,
+      "sha256": "e911bbe4b21e7e3fb30601426e8afa3562183e928d71d9e5b9b98a0cf79cba2c"
+    },
+    {
+      "id": "g1",
+      "path": "models/lod1/g1.glb",
+      "anchor": [-43.99114375, -19.921797599999998],
+      "bbox": [-43.9927755, -19.9234976, -43.9894735, -19.9203386],
+      "buildings": ["P06", "P11", "P14", "P27", "P29", "P30", "P37", "P39", "P40", "P49", "P53", "P59", "P60", "P63", "P65", "OSM_325598969", "OSM_1278031371", "OSM_1409922619", "OSM_1519725630", "OSM_1526555698", "OSM_1526555699"],
+      "bytes": 292148,
+      "sha256": "33a0b855bc5e64bdac1247c01ca5e9b044200eebdf8aaf7c94e4b2fca9f26df6"
+    },
+    {
+      "id": "g2",
+      "path": "models/lod1/g2.glb",
+      "anchor": [-43.992873499999995, -19.9225984],
+      "bbox": [-43.9942814, -19.9245579, -43.9914281, -19.9204563],
+      "buildings": ["P01_R4751608", "P01_W1519720030", "P02", "P03", "P04", "P05", "P07", "P08", "P12", "P13", "P16", "P17", "P18", "P19", "P21", "P22", "P26", "P42", "P43", "P48", "P50", "P51", "P57", "P61", "P84", "P94", "P95", "OSM_271050665", "OSM_301682559", "OSM_301822375", "OSM_455954541", "OSM_1519593818"],
+      "bytes": 314420,
+      "sha256": "588feb5cc7a5f7f96169ad2e5fc4c349115a8839f968a8f27eedb875bdd0ac25"
+    },
+    {
+      "id": "g3",
+      "path": "models/lod1/g3.glb",
+      "anchor": [-43.994573625, -19.92444145],
+      "bbox": [-43.9959853, -19.9265022, -43.9929577, -19.9226798],
+      "buildings": ["P09", "P10", "P15", "P20_W88694480", "P20_W1519720025", "P23", "P24", "P25", "P34", "P38", "P41", "P44", "P45", "P46", "P47", "P52", "P56", "P73", "P86", "P93", "OSM_R18033154", "OSM_269543955", "OSM_1278041359"],
+      "bytes": 420708,
+      "sha256": "e77e648f1013b30b15d3cc1e9ce2d7fef40c6be12f6c99222421cc5399a340f8"
+    }
+  ],
+  "lod0": [
+    {
+      "id": "c00",
+      "lod1": "g0",
+      "path": "models/lod0/c00.glb",
+      "anchor": [-43.9940316, -19.919423975],
+      "bbox": [-43.994839, -19.9203901, -43.9934622, -19.9185451],
+      "buildings": ["P35", "P36", "P54", "P70", "OSM_1066225656", "OSM_1278041908"],
+      "bytes": 373672,
+      "sha256": "9b93fb6325f44df6870282c96590ecabaca270711a9591fbde9b5fce5187fd4d"
+    },
+    {
+      "id": "c01",
+      "lod1": "g2",
+      "path": "models/lod0/c01.glb",
+      "anchor": [-43.99369545, -19.92156425],
+      "bbox": [-43.9942814, -19.9224848, -43.9927928, -19.9204563],
+      "buildings": ["P19", "P22", "P26", "P50", "P51", "P61", "OSM_301682559", "OSM_301822375"],
+      "bytes": 204244,
+      "sha256": "db3574f964c804648fa19f9ab81dbcdaf27f54f7e6d360a2d23650736058574e"
+    },
+    {
+      "id": "c02",
+      "lod1": "g1",
+      "path": "models/lod0/c02.glb",
+      "anchor": [-43.991961775, -19.921143550000004],
+      "bbox": [-43.9927755, -19.9220211, -43.9912216, -19.9203386],
+      "buildings": ["P11", "P27", "P37", "P39", "P53", "P60", "OSM_325598969"],
+      "bytes": 463548,
+      "sha256": "9a42030683b58dc0c90cc69d7b304711d88efd8dcfc49e334ef26c658cdce49e"
+    },
+    {
+      "id": "c03",
+      "lod1": "g1",
+      "path": "models/lod0/c03.glb",
+      "anchor": [-43.9900923, -19.921680475000002],
+      "bbox": [-43.9906741, -19.9226005, -43.9894735, -19.9206219],
+      "buildings": ["P40", "P59", "P63", "OSM_1278031371", "OSM_1409922619"],
+      "bytes": 220348,
+      "sha256": "69833c6a04a9a32fea9e982d90b3a1046837e8caef50f3d6c9091b2921f8ad14"
+    },
+    {
+      "id": "c04",
+      "lod1": "g3",
+      "path": "models/lod0/c04.glb",
+      "anchor": [-43.995059375, -19.923153850000002],
+      "bbox": [-43.9959853, -19.923702, -43.9941476, -19.9226798],
+      "buildings": ["P20_W88694480", "P20_W1519720025", "P34", "P44", "P45", "P56", "P86", "OSM_269543955", "OSM_1278041359"],
+      "bytes": 427576,
+      "sha256": "7fef5de07c4a394642bd1aff83d6dc45a6aa3504c878e5f5794544dfdca5e7d6"
+    },
+    {
+      "id": "c05",
+      "lod1": "g2",
+      "path": "models/lod0/c05.glb",
+      "anchor": [-43.9928683, -19.922747775],
+      "bbox": [-43.9935489, -19.9234806, -43.9920689, -19.9219894],
+      "buildings": ["P04", "P05", "P08", "P12", "P13", "P16", "P17", "P18", "P42", "P48"],
+      "bytes": 354536,
+      "sha256": "376c3244419593e1f2f983a05a66f8262cd7d140d645e73032c024fc7f184506"
+    },
+    {
+      "id": "c06",
+      "lod1": "g1",
+      "path": "models/lod0/c06.glb",
+      "anchor": [-43.991066175, -19.92289065],
+      "bbox": [-43.9922536, -19.9234976, -43.9901262, -19.9221862],
+      "buildings": ["P06", "P14", "P29", "P30", "P49", "P65", "OSM_1519725630", "OSM_1526555698", "OSM_1526555699"],
+      "bytes": 497064,
+      "sha256": "a9bf008fe49e32f32ffa41abbfce06709de89e8af9fc5e8d13d5ba8ce9fb5454"
+    },
+    {
+      "id": "c07",
+      "lod1": "g3",
+      "path": "models/lod0/c07.glb",
+      "anchor": [-43.994675175, -19.924056325000002],
+      "bbox": [-43.9954479, -19.9245393, -43.9939505, -19.9235649],
+      "buildings": ["P25", "P38", "P41", "P46", "P52", "P73"],
+      "bytes": 266516,
+      "sha256": "8455ed326e4906b0f02e2814c3f410685b4a738bd093e972a8da41f5f2b3e4eb"
+    },
+    {
+      "id": "c08",
+      "lod1": "g2",
+      "path": "models/lod0/c08.glb",
+      "anchor": [-43.993529275, -19.923795475],
+      "bbox": [-43.9940933, -19.9245579, -43.9927193, -19.9232205],
+      "buildings": ["P03", "P21", "P43", "P57", "OSM_271050665", "OSM_455954541", "OSM_1519593818"],
+      "bytes": 293788,
+      "sha256": "e8194f874fc9f3e0adea8bab65f80f1f5a968826c91b66d6d56b816a52799425"
+    },
+    {
+      "id": "c09",
+      "lod1": "g2",
+      "path": "models/lod0/c09.glb",
+      "anchor": [-43.991992675, -19.9240198],
+      "bbox": [-43.99262, -19.9244789, -43.9914281, -19.9234811],
+      "buildings": ["P01_R4751608", "P01_W1519720030", "P02", "P07", "P84", "P94", "P95"],
+      "bytes": 130152,
+      "sha256": "c98230e96633faeb9b26b99bd0335339a419dcbd023e5253af031b938ecd4774"
+    },
+    {
+      "id": "c10",
+      "lod1": "g3",
+      "path": "models/lod0/c10.glb",
+      "anchor": [-43.994195000000005, -19.926145499999997],
+      "bbox": [-43.9945746, -19.9265022, -43.9938154, -19.9257888],
+      "buildings": ["P93"],
+      "bytes": 109792,
+      "sha256": "ac34cc318cd6235886b95134d91935c2f8cd245b33e71c3b2c06b4fea43ad05f"
+    },
+    {
+      "id": "c11",
+      "lod1": "g3",
+      "path": "models/lod0/c11.glb",
+      "anchor": [-43.993792925, -19.925068500000002],
+      "bbox": [-43.9945558, -19.9259664, -43.9929577, -19.924365],
+      "buildings": ["P09", "P10", "P15", "P23", "P24", "P47", "OSM_R18033154"],
+      "bytes": 629064,
+      "sha256": "db51e86c66c382bd8f56e4ceeccc50a55f61992cd1259dcf43dfe01942c1086d"
+    }
+  ],
+  "buildings": [
+    {
+      "id": "P01_R4751608",
+      "lod0": "c09",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P01_W1519720030",
+      "lod0": "c09",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P02",
+      "lod0": "c09",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P03",
+      "lod0": "c08",
+      "lod1": "g2",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P04",
+      "lod0": "c05",
+      "lod1": "g2",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P05",
+      "lod0": "c05",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P06",
+      "lod0": "c06",
+      "lod1": "g1",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P07",
+      "lod0": "c09",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P08",
+      "lod0": "c05",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P09",
+      "lod0": "c11",
+      "lod1": "g3",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P10",
+      "lod0": "c11",
+      "lod1": "g3",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P11",
+      "lod0": "c02",
+      "lod1": "g1",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P12",
+      "lod0": "c05",
+      "lod1": "g2",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P13",
+      "lod0": "c05",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P14",
+      "lod0": "c06",
+      "lod1": "g1",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P15",
+      "lod0": "c11",
+      "lod1": "g3",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P16",
+      "lod0": "c05",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P17",
+      "lod0": "c05",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P18",
+      "lod0": "c05",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P19",
+      "lod0": "c01",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P20_W88694480",
+      "lod0": "c04",
+      "lod1": "g3",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P20_W1519720025",
+      "lod0": "c04",
+      "lod1": "g3",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P21",
+      "lod0": "c08",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P22",
+      "lod0": "c01",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P23",
+      "lod0": "c11",
+      "lod1": "g3",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P24",
+      "lod0": "c11",
+      "lod1": "g3",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P25",
+      "lod0": "c07",
+      "lod1": "g3",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P26",
+      "lod0": "c01",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P27",
+      "lod0": "c02",
+      "lod1": "g1",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P29",
+      "lod0": "c06",
+      "lod1": "g1",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P30",
+      "lod0": "c06",
+      "lod1": "g1",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P34",
+      "lod0": "c04",
+      "lod1": "g3",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P35",
+      "lod0": "c00",
+      "lod1": "g0",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P36",
+      "lod0": "c00",
+      "lod1": "g0",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P37",
+      "lod0": "c02",
+      "lod1": "g1",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P38",
+      "lod0": "c07",
+      "lod1": "g3",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P39",
+      "lod0": "c02",
+      "lod1": "g1",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P40",
+      "lod0": "c03",
+      "lod1": "g1",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P41",
+      "lod0": "c07",
+      "lod1": "g3",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P42",
+      "lod0": "c05",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P43",
+      "lod0": "c08",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P44",
+      "lod0": "c04",
+      "lod1": "g3",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P45",
+      "lod0": "c04",
+      "lod1": "g3",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P46",
+      "lod0": "c07",
+      "lod1": "g3",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "P47",
+      "lod0": "c11",
+      "lod1": "g3",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P48",
+      "lod0": "c05",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P49",
+      "lod0": "c06",
+      "lod1": "g1",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P50",
+      "lod0": "c01",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P51",
+      "lod0": "c01",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P52",
+      "lod0": "c07",
+      "lod1": "g3",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P53",
+      "lod0": "c02",
+      "lod1": "g1",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P54",
+      "lod0": "c00",
+      "lod1": "g0",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P56",
+      "lod0": "c04",
+      "lod1": "g3",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P57",
+      "lod0": "c08",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P59",
+      "lod0": "c03",
+      "lod1": "g1",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P60",
+      "lod0": "c02",
+      "lod1": "g1",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P61",
+      "lod0": "c01",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P63",
+      "lod0": "c03",
+      "lod1": "g1",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P65",
+      "lod0": "c06",
+      "lod1": "g1",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P70",
+      "lod0": "c00",
+      "lod1": "g0",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "P73",
+      "lod0": "c07",
+      "lod1": "g3",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P84",
+      "lod0": "c09",
+      "lod1": "g2",
+      "wallColor": "#f6f6f3"
+    },
+    {
+      "id": "P86",
+      "lod0": "c04",
+      "lod1": "g3",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P93",
+      "lod0": "c10",
+      "lod1": "g3",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P94",
+      "lod0": "c09",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "P95",
+      "lod0": "c09",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "OSM_R18033154",
+      "lod0": "c11",
+      "lod1": "g3",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "OSM_269543955",
+      "lod0": "c04",
+      "lod1": "g3",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "OSM_271050665",
+      "lod0": "c08",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "OSM_301682559",
+      "lod0": "c01",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "OSM_301822375",
+      "lod0": "c01",
+      "lod1": "g2",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "OSM_325598969",
+      "lod0": "c02",
+      "lod1": "g1",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "OSM_455954541",
+      "lod0": "c08",
+      "lod1": "g2",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "OSM_1066225656",
+      "lod0": "c00",
+      "lod1": "g0",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "OSM_1278031371",
+      "lod0": "c03",
+      "lod1": "g1",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "OSM_1278041359",
+      "lod0": "c04",
+      "lod1": "g3",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "OSM_1278041908",
+      "lod0": "c00",
+      "lod1": "g0",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "OSM_1409922619",
+      "lod0": "c03",
+      "lod1": "g1",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "OSM_1519593818",
+      "lod0": "c08",
+      "lod1": "g2",
+      "wallColor": "#d1d1d0"
+    },
+    {
+      "id": "OSM_1519725630",
+      "lod0": "c06",
+      "lod1": "g1",
+      "wallColor": "#eae7e2"
+    },
+    {
+      "id": "OSM_1526555698",
+      "lod0": "c06",
+      "lod1": "g1",
+      "wallColor": "#e7dac8"
+    },
+    {
+      "id": "OSM_1526555699",
+      "lod0": "c06",
+      "lod1": "g1",
+      "wallColor": "#e7dac8"
+    }
+  ]
+}

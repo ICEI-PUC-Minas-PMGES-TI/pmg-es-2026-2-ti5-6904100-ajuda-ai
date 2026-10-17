@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
@@ -7,6 +9,9 @@ import 'campus_map_config.dart';
 import 'campus_map_defaults.dart';
 import 'campus_map_renderer.dart';
 import 'campus_snapshot.dart';
+import 'three_d/campus_3d_controller.dart';
+import 'three_d/campus_3d_layers.dart';
+import 'three_d/campus_model_manifest.dart';
 
 /// Mapa anônimo do campus. O token deve ser público e fornecido externamente.
 class CampusMapView extends StatefulWidget {
@@ -14,10 +19,12 @@ class CampusMapView extends StatefulWidget {
     super.key,
     required this.config,
     this.dataSource = const LocalCampusDataSource(),
+    this.modelManifestSource = const LocalCampusModelManifestSource(),
   });
 
   final CampusMapConfig config;
   final CampusDataSource dataSource;
+  final CampusModelManifestSource modelManifestSource;
 
   @override
   State<CampusMapView> createState() => _CampusMapViewState();
@@ -27,12 +34,18 @@ class _CampusMapViewState extends State<CampusMapView> {
   String? _configurationError;
   bool _loadError = false;
   bool _campusError = false;
+  bool _models3dUnavailable = false;
   int _generation = 0;
   int _styleRevision = 0;
   bool _styleReady = false;
   MapboxMap? _map;
   CampusMapRenderer? _renderer;
+  Campus3dController? _campus3d;
   Future<CampusSnapshot>? _snapshot;
+  Future<CampusModelManifest>? _modelManifest;
+  Timer? _cameraSettle;
+
+  bool get _enable3d => widget.config.features.enable3d;
 
   @override
   void initState() {
@@ -43,21 +56,38 @@ class _CampusMapViewState extends State<CampusMapView> {
   @override
   void didUpdateWidget(covariant CampusMapView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.config.mapboxAccessToken != widget.config.mapboxAccessToken ||
-        oldWidget.config.effectiveStyleUri != widget.config.effectiveStyleUri ||
-        oldWidget.dataSource != widget.dataSource) {
+    final oldConfig = oldWidget.config;
+    final config = widget.config;
+    if (oldConfig.mapboxAccessToken != config.mapboxAccessToken ||
+        oldConfig.effectiveStyleUri != config.effectiveStyleUri ||
+        oldConfig.mapAssetsBaseUrl != config.mapAssetsBaseUrl ||
+        oldConfig.features.enable3d != config.features.enable3d ||
+        oldWidget.dataSource != widget.dataSource ||
+        oldWidget.modelManifestSource != widget.modelManifestSource) {
       _generation++;
       _configure();
     }
   }
 
+  @override
+  void dispose() {
+    _cameraSettle?.cancel();
+    _campus3d?.dispose();
+    super.dispose();
+  }
+
   void _configure() {
     _loadError = false;
     _campusError = false;
+    _models3dUnavailable = false;
     _styleReady = false;
     _map = null;
     _renderer = null;
+    _cameraSettle?.cancel();
+    _campus3d?.dispose();
+    _campus3d = null;
     _snapshot = null;
+    _modelManifest = null;
     final token = widget.config.mapboxAccessToken.trim();
     if (token.isEmpty) {
       _configurationError =
@@ -86,7 +116,10 @@ class _CampusMapViewState extends State<CampusMapView> {
   Future<void> _renderCampus(int generation, int revision) async {
     final map = _map;
     if (map == null || !_styleReady) return;
-    final renderer = _renderer ??= CampusMapRenderer(map.style);
+    final renderer = _renderer ??= CampusMapRenderer(
+      map.style,
+      clipBasemapModels: _enable3d,
+    );
     bool isActive() =>
         mounted && generation == _generation && revision == _styleRevision;
     try {
@@ -98,6 +131,40 @@ class _CampusMapViewState extends State<CampusMapView> {
     } catch (_) {
       // Falhas do bundle/parsing/style são controladas; não expor URLs do SDK.
       if (isActive()) setState(() => _campusError = true);
+      return;
+    }
+    if (_enable3d && isActive()) await _start3d(map, isActive);
+  }
+
+  /// O 3D depende do 2D (usa a source das footprints). Qualquer falha aqui
+  /// deixa o mapa 2D intacto.
+  Future<void> _start3d(MapboxMap map, bool Function() isActive) async {
+    if (_campus3d != null) return;
+    try {
+      final manifest = await (_modelManifest ??= widget.modelManifestSource
+          .load());
+      if (!isActive() || _campus3d != null) return;
+      final resolver = Campus3dController.resolverFor(widget.config, manifest);
+      if (resolver == null) {
+        _set3dUnavailable(isActive);
+        return;
+      }
+      final controller = Campus3dController(
+        map: map,
+        manifest: manifest,
+        resolver: resolver,
+        isActive: isActive,
+      );
+      _campus3d = controller;
+      await controller.install();
+    } catch (_) {
+      _set3dUnavailable(isActive);
+    }
+  }
+
+  void _set3dUnavailable(bool Function() isActive) {
+    if (isActive() && !_models3dUnavailable) {
+      setState(() => _models3dUnavailable = true);
     }
   }
 
@@ -108,6 +175,14 @@ class _CampusMapViewState extends State<CampusMapView> {
     }
 
     final generation = _generation;
+    final notice = _loadError
+        ? 'Não foi possível carregar o mapa.\n'
+              'Verifique a conexão e a configuração do Mapbox.'
+        : _campusError
+        ? 'Não foi possível carregar os dados do campus.'
+        : _models3dUnavailable
+        ? 'Prédios 3D indisponíveis neste ambiente.'
+        : null;
     return SizedBox.expand(
       child: Stack(
         fit: StackFit.expand,
@@ -125,7 +200,20 @@ class _CampusMapViewState extends State<CampusMapView> {
               _styleReady = true;
               _styleRevision++;
               _renderer = null;
+              // Um novo style descarta sources/layers; o 3D recomeça nele.
+              _campus3d?.dispose();
+              _campus3d = null;
               _renderCampus(generation, _styleRevision);
+            },
+            // Não usa `idle`: com um GLB indisponível o Mapbox não volta a
+            // ficar ocioso. A câmera parada por um instante basta.
+            onCameraChangeListener: (_) {
+              if (_campus3d == null) return;
+              _cameraSettle?.cancel();
+              _cameraSettle = Timer(Campus3dLod.cameraSettle, () {
+                if (!mounted || generation != _generation) return;
+                _campus3d?.onCameraIdle();
+              });
             },
             viewport: CameraViewportState(
               center: Point(
@@ -135,11 +223,19 @@ class _CampusMapViewState extends State<CampusMapView> {
                 ),
               ),
               zoom: CampusMapDefaults.zoom,
-              pitch: CampusMapDefaults.pitch,
+              pitch: _enable3d
+                  ? CampusMapDefaults.pitch3d
+                  : CampusMapDefaults.pitch,
               bearing: CampusMapDefaults.bearing,
             ),
-            onMapLoadErrorListener: (_) {
-              if (!mounted || generation != _generation || _loadError) return;
+            onMapLoadErrorListener: (event) {
+              if (!mounted || generation != _generation) return;
+              // Falha de um GLB: só aquela região volta à extrusão.
+              if (Campus3dLayerIds.owns(event.sourceId)) {
+                _campus3d?.onSourceError(event.sourceId!);
+                return;
+              }
+              if (_loadError) return;
               // Não exibir/logar mensagens do SDK: podem conter URLs e tokens.
               setState(() => _loadError = true);
             },
@@ -148,7 +244,7 @@ class _CampusMapViewState extends State<CampusMapView> {
               setState(() => _loadError = false);
             },
           ),
-          if (_loadError || _campusError)
+          if (notice != null)
             Positioned(
               top: 0,
               left: 0,
@@ -157,13 +253,7 @@ class _CampusMapViewState extends State<CampusMapView> {
                 color: Theme.of(context).colorScheme.surface,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Text(
-                    _loadError
-                        ? 'Não foi possível carregar o mapa.\n'
-                              'Verifique a conexão e a configuração do Mapbox.'
-                        : 'Não foi possível carregar os dados do campus.',
-                    textAlign: TextAlign.center,
-                  ),
+                  child: Text(notice, textAlign: TextAlign.center),
                 ),
               ),
             ),

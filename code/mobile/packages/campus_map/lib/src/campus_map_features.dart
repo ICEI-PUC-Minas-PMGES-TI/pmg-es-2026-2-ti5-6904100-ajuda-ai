@@ -1,4 +1,5 @@
-/// Contrato para integrações futuras. As flags ainda não ativam recursos.
+/// Recursos opcionais do mapa. Só [enable3d] tem implementação nesta fase;
+/// as demais flags são contrato futuro e não ativam nada.
 class CampusMapFeatures {
   const CampusMapFeatures({
     this.enable3d = false,
@@ -9,6 +10,7 @@ class CampusMapFeatures {
     this.diagnostics = false,
   });
 
+  /// Prédios 3D (extrusão + GLBs remotos). Exige `mapAssetsBaseUrl`.
   final bool enable3d;
   final bool routes;
   final bool pucStops;

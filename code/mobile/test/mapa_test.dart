@@ -18,6 +18,9 @@ void main() {
     expect(map.config.effectiveStyleUri, CampusMapDefaults.styleUri);
     expect(map.config.apiBaseUrl, isNull);
     expect(map.config.accessTokenProvider, isNull);
+    // 3D ligado; a base pública vem só de MAP_ASSETS_BASE_URL (vazia no teste).
+    expect(map.config.features.enable3d, isTrue);
+    expect(map.config.mapAssetsBaseUrl, isEmpty);
     expect(find.textContaining('Mapa indisponível'), findsOneWidget);
     expect(find.text('Mapa em breve'), findsNothing);
     final navigation = tester.widget<AppBottomNavigation>(

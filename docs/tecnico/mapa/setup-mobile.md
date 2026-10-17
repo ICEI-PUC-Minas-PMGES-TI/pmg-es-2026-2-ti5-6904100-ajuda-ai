@@ -1,6 +1,6 @@
 # Setup mobile — pacote campus_map
 
-> Estado: ATUAL para mapa base e campus 2D com snapshot local. 3D e demais recursos continuam PLANEJADOS.
+> Estado: ATUAL para mapa base, campus 2D com snapshot local e campus 3D remoto (Tarefa 4). Demais recursos continuam PLANEJADOS.
 
 ## Requisitos e escopo
 
@@ -16,8 +16,12 @@
 O pacote contém um snapshot local de 82 footprints reais do PUCMaps em
 `assets/data/campus_footprints.geojson`, sem requisição a backend antigo/novo.
 O renderer adiciona preenchimento, contornos e rótulos depois que o style está
-pronto. Não há GLB, extrusão, LOD, vegetação, props, picking, busca, localização,
-rota, PucStop ou backend de mapa. Não há geometria confirmada de áreas abertas/salas.
+pronto. Com `enable3d`, o campus 3D usa extrusão (LOD2) e 16 GLBs de prédios
+(LOD1/LOD0) baixados por HTTPS do container público `map-assets`; nenhum GLB é
+empacotado no app. Não há vegetação, props, picking, busca, localização, rota,
+PucStop ou backend de mapa. Não há geometria confirmada de áreas abertas/salas.
+Detalhes: [renderizacao-3d.md](renderizacao-3d.md) e
+[assets-pipeline.md](assets-pipeline.md).
 
 ## Configuração
 
@@ -35,8 +39,15 @@ A `MapaPage` lê `String.fromEnvironment` no app principal e fornece
   troca silenciosa de estilo depois de uma falha remota.
 - `apiBaseUrl` e `accessTokenProvider`: `null`; reservados no contrato para uma
   futura API autenticada do Ajuda-aí. Não são o token Mapbox.
+- `MAP_ASSETS_BASE_URL`: URL HTTPS pública do container de assets do mapa, sem
+  SAS/query (ex.: `https://<conta>.blob.core.windows.net/map-assets`). O pacote
+  monta `<base>/campus/versions/<versão do manifesto>/<caminho relativo>`.
+  Ausente, vazia, `http:`, com query/fragment ou credencial: o 2D continua e a
+  tela mostra “Prédios 3D indisponíveis neste ambiente.”. O app recebe só essa
+  URL pública; connection string, chave de conta e SAS nunca entram no Flutter.
 - `CampusMapFeatures`: `enable3d`, `routes`, `pucStops`, `events`, `canteens` e
-  `diagnostics`, todos `false`; ainda não ativam recursos.
+  `diagnostics`, todos `false` por padrão. Só `enable3d` tem efeito; a `MapaPage`
+  o liga. Com `false`, manifesto 3D não é lido e nenhuma camada 3D é criada.
 
 O pacote inicializa pelo mecanismo oficial `MapboxOptions.setAccessToken`, antes
 de montar `MapWidget`, sem repetir a chamada a cada rebuild. Mudança de token ou
@@ -57,8 +68,11 @@ no ambiente local da sessão (seu valor não deve ser impresso):
 
 ```powershell
 flutter pub get
-flutter run -d emulator-5554 --dart-define="MAPBOX_ACCESS_TOKEN=$env:MAPBOX_ACCESS_TOKEN"
+flutter run -d emulator-5554 --dart-define="MAPBOX_ACCESS_TOKEN=$env:MAPBOX_ACCESS_TOKEN" --dart-define="MAP_ASSETS_BASE_URL=$env:MAP_ASSETS_BASE_URL"
 ```
+
+`MAP_ASSETS_BASE_URL` não é segredo (o container é público), mas também fica fora
+do código para permitir trocar host/CDN sem alterar o renderer.
 
 Estilo customizado opcional, também definido no ambiente local:
 
@@ -88,6 +102,8 @@ Inspecionado: `android/app/build.gradle.kts`, `android/build.gradle.kts`,
 - `INTERNET` já existia no manifest principal; não foi duplicado.
 - Nenhuma permissão de localização adicionada.
 - Nenhuma mudança em `API_BASE_URL`, `10.0.2.2`, cleartext ou network security.
+  Os GLBs vêm por HTTPS; nenhuma configuração nativa foi necessária para o
+  `ModelSource` remoto (Tarefa 4).
 - Nenhuma alteração nativa foi necessária: o plugin configura seu repositório
   Maven de releases e o APK compilou. Nenhum secret/download token foi configurado
   nesta execução; não houve erro de download que exigisse credencial extra.
@@ -99,7 +115,9 @@ Não usar o token público de runtime como credencial de download.
 ## Câmera e plataformas
 
 `CampusMapDefaults` concentra a câmera atual: latitude `-19.92252415`,
-longitude `-43.9927295`, zoom `15.2`, pitch `0`, bearing `0`. É o centro do bbox
+longitude `-43.9927295`, zoom `15.2`, pitch `0`, bearing `0`. Com `enable3d`, a
+inclinação inicial é `pitch3d = 45` (o PUCMaps usava 65°); zoom, centro e
+gestos permanecem os mesmos. É o centro do bbox
 dos footprints reais, substituindo a câmera aproximada da primeira integração.
 Esse bbox é a extensão das construções do snapshot, não um limite administrativo.
 Ver [dados-geo.md](dados-geo.md) para origem, coordenadas e transformações.
@@ -132,6 +150,14 @@ com a tela e navegação existente. A Tarefa 3 acrescenta validação do asset r
 parsing, identidade/geometria, bbox, imutabilidade, bundle do app, labels e
 instalação idempotente/interrupção do renderer, sem inicializar Mapbox nativo.
 Eles não comprovam carregamento remoto de tiles.
+
+A Tarefa 4 acrescenta `campus_model_manifest_test.dart`,
+`campus_asset_resolver_test.dart` e `campus_3d_test.dart`: manifesto real,
+ids/caminhos relativos, vínculo footprint↔modelo, ausência de debug/PucStop/
+vegetação/props, montagem de URL com/sem barra, recusa de `http`/SAS/`..`,
+decisão `enable3d`, faixas de LOD, ausência de cor por zoom/paleta antiga,
+instalação idempotente, fallback por falha de GLB e controller inativo. Usam
+fakes de `StyleManager`/`MapboxMap`; não executam o motor nativo.
 
 ## Validação desta execução
 
@@ -206,6 +232,29 @@ Execução de 17/10/2026, branch `feat/integracao-mapa`.
   testados nesta execução. `git diff --check` limpo e busca nos arquivos novos/
   alterados sem token real, URL privada, e-mail ou caminho local no asset.
 
+### Campus 3D remoto — Tarefa 4
+
+Execução de 17/10/2026, branch `feat/integracao-mapa`, `emulator-5554`
+(Android 15 / API 35, x64), token público local passado só em memória.
+
+- Pacote: `flutter analyze` sem problemas; `flutter test` **40 testes passaram**.
+- App: `flutter analyze` mantém só o info preexistente de `historico_test.dart`;
+  `flutter test` **147 testes passaram**; `flutter build apk --debug` saída 0
+  (`assembleDebug` 20,7 s). O APK contém o manifesto (16.039 B) e os footprints,
+  e **nenhum `.glb`**.
+- Prova com um GLB: só `models/lod0/c09.glb` publicado → Prédio 1/PROGRAD,
+  Prédio 84 e vizinhos renderizados do Azure, alinhados ao footprint, escala e
+  rotação corretas, base no solo, materiais originais. Os outros 15 GLBs (404
+  naquele momento) caíram no fallback de extrusão, sem crash.
+- Depois da publicação completa: zoom 15,2 (LOD2/extrusão), ~17,2 (LOD1) e ~18,2+
+  (LOD0) conferidos por screenshot. Sem cores por zoom, sem tint, sem subsolo;
+  3D do Standard recortado dentro das pegadas e mantido fora do campus.
+- Perfil → Mapa → Perfil → Mapa (duas vezes): uma instalação por entrada, sem
+  source/layer duplicada, processo ativo.
+- Sem `MAP_ASSETS_BASE_URL`: footprints/rótulos 2D e aviso controlado.
+- Não validado: zoom out por gesto via adb (o gesto de quick-zoom virou pan);
+  FPS/draw calls/memória (o painel de diagnóstico não foi portado); aparelho físico.
+
 ## Diagnóstico
 
 Token ausente ou inválido: conferir o dart-define de runtime e recompilar. Nunca
@@ -216,5 +265,12 @@ Nenhum erro exige iniciar backend de mapa nesta fase.
 Sem footprints/labels próprios, mas com basemap carregado: conferir declaração do
 asset no pubspec do package e resolução do caminho `packages/campus_map/...`.
 Geometria de áreas abertas/salas e volumes 3D ainda não fazem parte do snapshot.
-O Mapbox Standard pode exibir conteúdo cartográfico próprio, independente das
-flags futuras de campus 3D.
+O Mapbox Standard pode exibir conteúdo cartográfico próprio fora das pegadas
+do campus.
+
+Aviso “Prédios 3D indisponíveis neste ambiente.”: conferir `MAP_ASSETS_BASE_URL`
+(HTTPS, sem query). Prédios em extrusão simples mesmo com zoom alto: os GLBs da
+versão não responderam; conferir no navegador
+`<base>/campus/versions/<versão>/models/lod0/c00.glb` (HTTP 200,
+`model/gltf-binary`). Uma falha de GLB não aciona o aviso geral de mapa: a região
+volta à extrusão. Logs `[campus3d]` (debug/profile) mostram pedidos e falhas.

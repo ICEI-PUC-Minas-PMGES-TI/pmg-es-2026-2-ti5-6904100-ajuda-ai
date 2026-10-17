@@ -1,25 +1,93 @@
 # ADR-0006 — Assets 3D
 
-> Estado: PLANEJADO (nenhum asset copiado ainda)
+> Estado: IMPLEMENTADO (Tarefa 4). Substitui a decisão inicial de embutir os GLBs no pacote, registrada abaixo como histórico.
 
 ## Contexto
 
-O PUCMaps renderiza o campus em 3D usando modelos GLB carregados via Mapbox (`ModelSource`/`ModelLayer`), organizados em níveis de detalhe (LOD0, LOD1, LOD2 — este último como extrusão de contorno, não GLB), além de vegetação, props e um modelo de totem.
+O PUCMaps renderiza o campus em 3D com modelos GLB carregados pelo Mapbox
+(`ModelSource`/`ModelLayer`), em níveis de detalhe: LOD0 e LOD1 em GLB e LOD2
+como extrusão das footprints. No projeto de origem os GLBs eram **locais**,
+embutidos no app (cerca de 10,7 MB entre prédios, debug, vegetação, props e o
+totem), sem CDN. Eles são gerados por um pipeline externo ao repositório.
 
-Os GLBs do PUCMaps somam cerca de 10,7 MB, divididos entre chunks de LOD0/LOD1, uma pasta de debug (não faz parte do produto final), o modelo do totem, e modelos pequenos de vegetação/veículos/esportes. Eles são embutidos no app (bundled), sem CDN.
-
-A origem desses arquivos é um pipeline externo ao repositório do PUCMaps (fora do controle de versão do projeto), que gera os GLBs a partir de um processo de modelagem e exportação.
+A primeira versão desta ADR previa embutir os GLBs úteis no pacote `campus_map`
+e tratar o Azure Blob Storage como evolução futura. Durante a integração (Tarefa 4)
+foi validado que o Mapbox Maps Flutter 2.31.0 carrega GLB diretamente por `https:`
+na `ModelSource`, e o Ajuda-aí já tinha o container público `map-assets`. A
+decisão passou a ser hospedar os assets pesados no Azure.
 
 ## Decisão
 
-- Os assets 3D **úteis ao produto final** (LOD0, LOD1, vegetação, props, modelo do totem/PucStop) são preservados e, quando portados, ficam embutidos no pacote `campus_map` (ver [ADR-0004](ADR-0004-campus-map-package.md)).
-- A pasta de debug e qualquer asset identificado como temporário/teste não são migrados.
-- A resolução de caminho de asset (`asset://...`) usada pelo Mapbox precisa ser revalidada no contexto de um pacote Flutter (caminho `packages/campus_map/assets/...`), já que o cálculo original foi feito assumindo que o asset pertence diretamente ao app.
-- O Azure Blob Storage (container público `map-assets`, já existente no Ajuda-aí) é uma evolução **futura** para hospedar os GLBs fora do bundle do app, não um requisito da primeira etapa.
-- O pipeline de geração dos GLBs, por estar fora do repositório de origem, é documentado como processo externo não reproduzível a partir do repositório atual (ver [mapa/assets-pipeline.md](../mapa/assets-pipeline.md)), sem inventar passos que não estejam confirmados.
+- Os GLBs de produção ficam no **Azure Blob Storage**, container público
+  `map-assets`, organizados por versão do mapa.
+- O manifesto usa **caminhos relativos** à versão (`models/lod0/c00.glb`).
+- A URL base é configurável: `CampusMapConfig.mapAssetsBaseUrl`, que a `MapaPage`
+  lê de `MAP_ASSETS_BASE_URL`. O pacote monta
+  `<base>/campus/versions/<versão>/<caminho relativo>`.
+- O pacote **não depende de SDK do Azure**: o cliente só faz leitura HTTPS pública.
+- O GeoJSON pequeno das footprints e o manifesto (16 KB) continuam locais no
+  pacote, porque são dados necessários para o 2D e para resolver os modelos.
+- O campus **não é duplicado** no APK e no storage: nenhum `.glb` é versionado no
+  Git do Ajuda-aí nem empacotado no app.
+- Assets de debug e órfãos não são migrados. Vegetação, props e PucStop ficam
+  para fases próprias, seguindo a mesma regra de hospedagem.
+- Cada versão publicada é **imutável**: alterar um arquivo exige nova versão.
+
+### Estrutura atual
+
+- Container: `map-assets`.
+- Versão técnica atual: `2026-09-30-r1` (data do snapshot OSM + revisão).
+- Estrutura:
+  - `campus/versions/{version}/models/lod0/`
+  - `campus/versions/{version}/models/lod1/`
+  - `campus/versions/{version}/manifests/`
+
+A publicação é feita pelo script versionado
+`code/back/api/scripts/publicar-assets-mapa.mjs` (ver
+[mapa/assets-pipeline.md](../mapa/assets-pipeline.md)).
 
 ## Consequências
 
-- O tamanho do app aumenta em alguns megabytes pelos assets embutidos; isso é aceitável para a primeira etapa.
-- Preocupações de desempenho (LOD, draw calls, uso de GPU/memória) existentes no PUCMaps são preservadas como referência técnica em [mapa/renderizacao-3d.md](../mapa/renderizacao-3d.md), mas não há medição nova feita nesta etapa — qualquer número citado é identificado como vindo do projeto de origem, não medido no Ajuda-aí.
-- Se o pipeline de geração de assets precisar ser usado novamente (por exemplo, para adicionar um novo prédio), isso exigirá acesso ao processo externo, hoje fora deste repositório.
+Positivas:
+
+- APK menor (nenhum GLB no bundle).
+- Modelos versionados independentemente do app.
+- Sem binários grandes no Git.
+- Atualização futura por nova versão, sem alterar o renderer.
+- Estrutura pronta para um futuro `map_versions` no banco.
+- Host trocável (CDN ou outro storage) apenas mudando a URL base.
+
+Trade-offs:
+
+- O 3D depende de rede. Por isso há fallback: o 2D e a extrusão (LOD2/pendente)
+  continuam quando a URL falta ou um GLB não carrega.
+- A publicação precisa ser controlada (script com bloqueio de sobrescrita).
+- Cache e versionamento precisam ser imutáveis
+  (`Cache-Control: public, max-age=31536000, immutable`).
+- A URL de assets precisa estar configurada no build (`MAP_ASSETS_BASE_URL`).
+
+## Segurança
+
+- Connection string, account key e SAS de escrita **nunca** vão para o Flutter.
+- O app recebe somente a URL pública de leitura; o resolver recusa URL com
+  query (SAS), credencial, fragmento ou esquema diferente de `https`.
+- Credenciais de escrita ficam só no ambiente local de quem publica
+  (`AZURE_STORAGE_CONNECTION_STRING`, mesmo nome usado pelo backend).
+
+## Status
+
+Implementado e validado (HTTP 200, tamanho e SHA-256 dos 17 objetos publicados;
+renderização no emulador Android). GLBs embutidos no pacote **não são mais
+arquitetura-alvo**.
+
+## Histórico
+
+| Data | Decisão |
+|---|---|
+| 2026-10-17 (Fase 0) | GLBs úteis embutidos no pacote `campus_map`; Azure `map-assets` como evolução futura; resolução de `asset://` a revalidar. **Substituída.** |
+| 2026-10-17 (Tarefa 4) | GLBs no Azure `map-assets`, versão imutável `2026-09-30-r1`, manifesto relativo no pacote, URL base configurável. O problema de `asset://` deixou de existir. |
+
+Continuam válidas da versão anterior: o pipeline de geração é externo e não
+reproduzível a partir deste repositório, e os números de desempenho do PUCMaps
+são só referência até serem medidos no Ajuda-aí (ver
+[mapa/renderizacao-3d.md](../mapa/renderizacao-3d.md)).

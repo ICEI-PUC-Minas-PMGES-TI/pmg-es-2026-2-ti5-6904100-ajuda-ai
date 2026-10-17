@@ -62,7 +62,7 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 |---|---|---|
 | 0 | Decisões e documentação | CONCLUÍDA |
 | 1 | Pacote Flutter `campus_map` + Mapbox base | IMPLEMENTADA E VALIDADA VISUALMENTE NO ANDROID |
-| 2 | Renderização 2D/3D + assets | 2D IMPLEMENTADO E VALIDADO NO ANDROID; 3D PENDENTE |
+| 2 | Renderização 2D/3D + assets | 2D E 3D DE PRÉDIOS IMPLEMENTADOS E VALIDADOS NO EMULADOR ANDROID; VEGETAÇÃO/PROPS PENDENTES |
 | 3 | Busca e localização (snapshot local) | NÃO INICIADO |
 | 4 | Banco geo (schema `mapa`) + PostGIS | NÃO INICIADO |
 | 5 | API de mapa no backend | NÃO INICIADO |
@@ -81,4 +81,9 @@ A etapa 2D agora inclui snapshot local de 82 footprints reais do PUCMaps
 bbox dessas construções. Não inclui áreas abertas sem fonte geométrica confirmada,
 salas, busca, localização, GLBs, extrusão ou recursos de backend.
 Fonte e transformações: [dados-geo.md](mapa/dados-geo.md).
+A etapa 3D adiciona LOD2 (extrusão), LOD1 e LOD0 com 16 GLBs de prédios servidos
+por HTTPS do container público `map-assets` (versão imutável `2026-09-30-r1`),
+configurados por `MAP_ASSETS_BASE_URL`; nenhum GLB fica no Git ou no APK.
+Detalhes: [renderizacao-3d.md](mapa/renderizacao-3d.md) e
+[assets-pipeline.md](mapa/assets-pipeline.md).
 Comandos, evidências de validação e limitações: [setup-mobile.md](mapa/setup-mobile.md).

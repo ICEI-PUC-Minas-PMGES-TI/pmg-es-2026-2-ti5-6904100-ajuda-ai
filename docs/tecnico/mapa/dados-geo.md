@@ -101,7 +101,11 @@ medição formal de fluidez ou tempo até o primeiro frame.
 Áreas, salas e categorias específicas continuam dependentes de uma fonte real
 exportada/confirmada. A presença de um nome como “Canteiro em Obras” no manifesto
 de construções não foi usada para inventar categoria `CONSTRUCTION`.
-Busca e renderização 3D ainda não foram implementadas.
+Busca ainda não foi implementada. A renderização 3D (Tarefa 4) reutiliza a mesma
+source de footprints: a extrusão usa `height`/`minHeight` e os GLBs se ligam às
+features pelo `id`, via `assets/data/campus_models.json` (não duplica geometria;
+ver [assets-pipeline.md](assets-pipeline.md#manifesto)). O `color` removido do
+snapshot na Tarefa 3 voltou só como `wallColor` no manifesto 3D, para a extrusão.
 
 ## Importação futura
 

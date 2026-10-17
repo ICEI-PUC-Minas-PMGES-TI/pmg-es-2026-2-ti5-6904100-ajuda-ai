@@ -7,9 +7,13 @@ import 'campus_snapshot.dart';
 
 /// Parte 2D adaptada de MapRenderer do PUCMaps. Nenhum recurso de volume.
 class CampusMapRenderer {
-  CampusMapRenderer(this.style);
+  CampusMapRenderer(this.style, {this.clipBasemapModels = false});
 
   final StyleManager style;
+
+  /// Com o 3D do campus ligado, os modelos do basemap dentro das pegadas
+  /// reais também são recortados para não sobrepor os GLBs.
+  final bool clipBasemapModels;
   Future<void>? _rendering;
 
   /// Chamadas concorrentes compartilham a instalação; IDs existentes não duplicam.
@@ -41,7 +45,7 @@ class CampusMapRenderer {
         );
       }
     }
-    for (final layer in layers) {
+    for (final layer in layersFor(clipBasemapModels: clipBasemapModels)) {
       if (!isActive()) return;
       final exists = await style.styleLayerExists(layer['id'] as String);
       if (!isActive()) return;
@@ -49,8 +53,12 @@ class CampusMapRenderer {
     }
   }
 
+  static List<Map<String, dynamic>> get layers => layersFor();
+
   /// Cores constantes; o zoom só regula a entrada dos rótulos.
-  static List<Map<String, dynamic>> get layers => [
+  static List<Map<String, dynamic>> layersFor({
+    bool clipBasemapModels = false,
+  }) => [
     {
       'id': CampusMapLayerIds.fill,
       'type': 'fill',
@@ -88,10 +96,10 @@ class CampusMapRenderer {
       'type': 'clip',
       'source': CampusMapLayerIds.footprintsSource,
       'slot': 'top',
-      // Só símbolos do basemap dentro das pegadas reais. Não recorta o campus
-      // inteiro, ruas, modelos ou rótulos adicionados pelo próprio pacote.
+      // Só o basemap dentro das pegadas reais: símbolos e, com 3D, modelos.
+      // Não recorta o campus inteiro, ruas nem camadas do próprio pacote.
       'layout': {
-        'clip-layer-types': ['symbol'],
+        'clip-layer-types': ['symbol', if (clipBasemapModels) 'model'],
         'clip-layer-scope': ['basemap'],
       },
     },

@@ -64,10 +64,10 @@ Não são trazidos para o Ajuda-aí, sem nova justificativa documentada:
 | Mapbox (renderização base) | Configuração de estilo e camadas do app Flutter de origem | Documentação de configuração e execução local do projeto de origem | Adaptar (token/estilo configuráveis, sem conta pessoal fixa) | Pacote `campus_map` | IMPLEMENTADO E VALIDADO NO ANDROID |
 | Renderer 2D | `map_renderer.dart` + `building_label.dart` | [dados-geo.md](mapa/dados-geo.md) | Extrair somente sources, fill/line, labels e recorte localizado | Pacote `campus_map` | IMPLEMENTADO E VALIDADO NO ANDROID |
 | Snapshot de footprints | `campus_footprints.geojson` + metadados de `campus_chunks.json` | [dados-geo.md](mapa/dados-geo.md) | Preservar 82 geometrias e identidade; complementar por ID | `campus_map/assets/data/campus_footprints.geojson` | IMPLEMENTADO; SEM ÁREAS/SALAS CONFIRMADAS |
-| Renderer 3D | Controlador de campus 3D (LOD0/1/2) | `renderizacao-3d.md` (origem) | Reaproveitar, revalidando resolução de assets | Pacote `campus_map` | PLANEJADO |
-| GLBs | Modelos 3D embutidos no app de origem | — | Adaptar (selecionar, excluir debug, embutir no pacote) | Pacote `campus_map` | PLANEJADO |
-| Vegetação | Controlador próprio no app de origem | — | Reaproveitar | Pacote `campus_map` | PLANEJADO |
-| Props | Controlador próprio no app de origem | — | Reaproveitar | Pacote `campus_map` | PLANEJADO |
+| Renderer 3D | `campus_3d_controller.dart` (LOD0/1/2) | `AGENTS.md`, `docs/campus-3d-validacao.md` (origem) | Adaptar: LOD, extrusão pendente, prefetch por câmera; sem picking, janelas, overrides de cor, `asset://` | `campus_map/lib/src/three_d/` | IMPLEMENTADO E VALIDADO NO EMULADOR ANDROID |
+| GLBs de prédios | `assets/campus/lod0` (12) e `lod1` (4) | `campus_chunks.json` | Publicar versão imutável por HTTPS; debug/órfão descartados | Azure `map-assets/campus/versions/2026-09-30-r1/` + manifesto no package | PUBLICADO E VALIDADO (hash/HTTP) |
+| Vegetação | `campus_vegetation_controller.dart` + 4 GLBs + `trees_pilot.geojson` | `AGENTS.md` | Reaproveitar | Pacote `campus_map` + `map-assets` | PLANEJADO (não migrado na Tarefa 4) |
+| Props | `campus_props_controller.dart` + 7 carros + área esportiva | `AGENTS.md` | Reaproveitar | Pacote `campus_map` + `map-assets` | PLANEJADO (não migrado na Tarefa 4) |
 | Busca | Serviço de busca sobre dados geoespaciais do app de origem | — | Adaptar (snapshot local → API) | Pacote `campus_map` + backend | PLANEJADO |
 | Dados geo (modelo conceitual) | Entidades de mapa do backend de origem | — | Reaproveitar o conceito | Schema `mapa` | PLANEJADO |
 | map_versions | Entidade do backend de origem | — | Reaproveitar o conceito | Schema `mapa` | PLANEJADO |
@@ -83,7 +83,7 @@ Não são trazidos para o Ajuda-aí, sem nova justificativa documentada:
 | Totens → PucStops | Módulo de totens do backend/cliente de origem | Auditoria de totens do projeto de origem | Reescrever (geofence no servidor, claim idempotente) | Backend + schema `mapa` | PLANEJADO |
 | XP | `user_stats`/`xp_log` do backend de origem | — | Reescrever como domínio central | Backend NestJS do Ajuda-aí | PLANEJADO |
 | Admin (geral) | Aplicação Angular de origem | — | Reescrever caso a caso | Coordenação React do Ajuda-aí / scripts | PLANEJADO (ver `mapa/administracao.md`) |
-| Diagnóstico 3D | Painel de diagnóstico do app de origem | `docs/campus-3d-validacao.md` do projeto de origem | Reaproveitar como ferramenta de debug | Pacote `campus_map` | PLANEJADO |
+| Diagnóstico 3D | `campus_3d_diagnostics.dart` | `docs/campus-3d-validacao.md` do projeto de origem | Reaproveitar atrás de `CampusMapFeatures.diagnostics` | Pacote `campus_map` | PLANEJADO (hoje só logs `[campus3d]`) |
 | Visualizador de grafo | Ferramenta do admin Angular de origem | — | Adaptar/recriar como debug ou figura de documentação | A decidir (ver `mapa/administracao.md`) | AINDA AVALIAR |
 
 ### Arquivos utilizados na migração 2D (Tarefa 3)
@@ -138,6 +138,23 @@ Registradas aqui para não se perderem, sem repetir dados sensíveis:
 - Parte da documentação técnica do projeto de origem descreve uma arquitetura de produção (nuvem) que já foi desligada; essa documentação não deve ser tratada como representando a arquitetura atual do PUCMaps, nem a do Ajuda-aí.
 - O pipeline de geração dos modelos 3D (GLB) do projeto de origem não está no controle de versão do projeto de origem — é um processo externo, não reproduzível a partir do repositório (ver [mapa/assets-pipeline.md](mapa/assets-pipeline.md)).
 
+### Arquivos utilizados na migração 3D (Tarefa 4)
+
+| Origem (PUCMaps) | Decisão | Destino no Ajuda-aí | Observação |
+|---|---|---|---|
+| `campus_3d_controller.dart` | ADAPTAR | `three_d/campus_3d_controller.dart`, `campus_3d_layers.dart` | Mantidos LOD, limiares, extrusão pendente, prefetch, idempotência; gatilho `idle` trocado por câmera com debounce |
+| `CampusManifest`/`CampusChunk` (mesmo arquivo) | ADAPTAR | `three_d/campus_model_manifest.dart` | Validação de caminhos relativos, ids e vínculo prédio/modelo |
+| `campus_chunks.json` | ADAPTAR | `assets/data/campus_models.json` + Azure `manifests/` | Só campos usados; sha256/bytes por GLB |
+| `assets/campus/lod0/*.glb`, `lod1/*.glb` | MIGRAR | Azure `map-assets` | Binários idênticos (sha256 verificado) |
+| `assets/campus/debug/*.glb`, `torre_Pucstop.glb` (raiz) | DESCARTAR | — | Debug/órfão |
+| `campus_vegetation_controller.dart`, `campus_props_controller.dart` | MIGRAR DEPOIS | — | Fase própria |
+| `totens/torre_pucstop.glb`, `audio/*` | MIGRAR DEPOIS | — | Fase PucStops |
+| `campus_3d_diagnostics.dart` | MIGRAR DEPOIS | — | Atrás de flag de diagnóstico |
+| Picking (`pickLogical`, `pickWithTapLayer`) | NÃO PORTAR AGORA | — | Reavaliar em fase própria |
+| Janelas acesas / `materialOverrideNames` | NÃO PORTAR AGORA | — | Iluminação futura |
+| `map_renderer.dart` (extrusão genérica da API, cores por tipo/zoom) | DESCARTAR | — | Origem do azul/roxo indesejado |
+| `asset://` + camada-sonda (`_assetUri`) | DESCARTAR | — | GLBs agora são HTTPS |
+
 ## 10. Histórico de decisões
 
 | Data | Decisão | Registro |
@@ -146,6 +163,7 @@ Registradas aqui para não se perderem, sem repetir dados sensíveis:
 | 2026-10-17 (reavaliação) | F02/F07 concluído; integração autorizada a começar em branch própria | Histórico de conversa/arquitetura |
 | 2026-10-17 (esta etapa) | Criação da estrutura de documentação técnica e dos ADRs 0001–0007, antes de qualquer código do mapa | Este documento e os arquivos em `decisoes/` |
 | 2026-10-17 (Tarefa 3) | Snapshot local de 82 footprints e renderer 2D migrados, testados, compilados e validados no Android; 3D permanece pendente | [dados-geo.md](mapa/dados-geo.md), [setup-mobile.md](mapa/setup-mobile.md) |
+| 2026-10-17 (Tarefa 4) | GLBs de prédios saem do Git/APK: versão imutável `2026-09-30-r1` no Azure `map-assets`, manifesto no package; LOD0/LOD1/LOD2 portados; vegetação, props, PucStops e picking adiados | [assets-pipeline.md](mapa/assets-pipeline.md), [renderizacao-3d.md](mapa/renderizacao-3d.md) |
 
 Decisões futuras devem ser adicionadas a esta tabela à medida que forem tomadas, com uma referência ao commit, PR ou documento que as registra.
 
