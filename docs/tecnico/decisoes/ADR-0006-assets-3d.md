@@ -29,17 +29,20 @@ decisão passou a ser hospedar os assets pesados no Azure.
   pacote, porque são dados necessários para o 2D e para resolver os modelos.
 - O campus **não é duplicado** no APK e no storage: nenhum `.glb` é versionado no
   Git do Ajuda-aí nem empacotado no app.
-- Assets de debug e órfãos não são migrados. Vegetação, props e PucStop ficam
-  para fases próprias, seguindo a mesma regra de hospedagem.
+- Assets de debug e órfãos não são migrados. Vegetação e props seguem a mesma
+  regra de hospedagem desde a Tarefa 5; PucStop fica para fase própria.
 - Cada versão publicada é **imutável**: alterar um arquivo exige nova versão.
 
 ### Estrutura atual
 
 - Container: `map-assets`.
-- Versão técnica atual: `2026-09-30-r1` (data do snapshot OSM + revisão).
+- Versão técnica atual: `2026-09-30-r2` (data do snapshot OSM + revisão). A
+  `2026-09-30-r1` continua publicada e intacta.
 - Estrutura:
   - `campus/versions/{version}/models/lod0/`
   - `campus/versions/{version}/models/lod1/`
+  - `campus/versions/{version}/models/vegetation/` (desde r2)
+  - `campus/versions/{version}/models/props/` (desde r2)
   - `campus/versions/{version}/manifests/`
 
 A publicação é feita pelo script versionado
@@ -86,6 +89,7 @@ arquitetura-alvo**.
 |---|---|
 | 2026-10-17 (Fase 0) | GLBs úteis embutidos no pacote `campus_map`; Azure `map-assets` como evolução futura; resolução de `asset://` a revalidar. **Substituída.** |
 | 2026-10-17 (Tarefa 4) | GLBs no Azure `map-assets`, versão imutável `2026-09-30-r1`, manifesto relativo no pacote, URL base configurável. O problema de `asset://` deixou de existir. |
+| 2026-10-17 (Tarefa 5) | Vegetação e props na mesma hospedagem; como mudam o manifesto, entram na nova versão `2026-09-30-r2` (autocontida, prédios repetidos com bytes idênticos), sem tocar na r1. |
 
 Continuam válidas da versão anterior: o pipeline de geração é externo e não
 reproduzível a partir deste repositório, e os números de desempenho do PUCMaps

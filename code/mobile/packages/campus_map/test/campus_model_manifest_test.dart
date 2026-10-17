@@ -29,7 +29,8 @@ void main() {
   }
 
   test('manifesto versionado tem os 16 GLBs de prédios e 82 prédios', () {
-    expect(manifest.version, '2026-09-30-r1');
+    // r2 = mesmos prédios da r1 publicada + vegetação/props (versão imutável).
+    expect(manifest.version, '2026-09-30-r2');
     expect(manifest.lod0, hasLength(12));
     expect(manifest.lod1, hasLength(4));
     expect(manifest.buildings, hasLength(82));
@@ -58,28 +59,27 @@ void main() {
     }
   });
 
-  test(
-    'somente prédios: nenhum asset de debug, PucStop, vegetação ou props',
-    () {
-      final text = source.toLowerCase();
-      for (final banned in [
-        'debug',
-        'nowin',
-        'ss_g',
-        'ind_p',
-        'totem',
-        'pucstop',
-        'vegetation',
-        'tree_',
-        'car_',
-        'sports',
-        'materialoverride',
-        'window_emissive',
-      ]) {
-        expect(text, isNot(contains(banned)), reason: banned);
-      }
-    },
-  );
+  test('nenhum asset de debug, PucStop ou override de material', () {
+    final text = source.toLowerCase();
+    for (final banned in [
+      'debug',
+      'nowin',
+      'ss_g',
+      'ind_p',
+      'totem',
+      'pucstop',
+      'materialoverride',
+      'window_emissive',
+    ]) {
+      expect(text, isNot(contains(banned)), reason: banned);
+    }
+  });
+
+  test('ambiente fica fora das listas de prédios', () {
+    for (final model in [...manifest.lod0, ...manifest.lod1]) {
+      expect(model.path, isNot(matches(RegExp('tree_|car_|sports'))));
+    }
+  });
 
   test('todo prédio 3D tem footprint 2D com o mesmo id estável', () {
     final footprints = {for (final f in snapshot.features) f.id};

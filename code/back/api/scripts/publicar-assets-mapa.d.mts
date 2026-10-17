@@ -3,6 +3,7 @@ export const CONTAINER: string;
 export const CACHE_CONTROL: string;
 export const CAMINHO_MANIFESTO: string;
 export const CONTENT_TYPES: Record<string, string>;
+export const SECOES_AMBIENTE: string[];
 
 export interface ItemPublicacao {
   caminho: string;

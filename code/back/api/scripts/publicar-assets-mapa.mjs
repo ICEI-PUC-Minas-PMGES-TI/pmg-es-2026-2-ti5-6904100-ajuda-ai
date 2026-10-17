@@ -1,5 +1,6 @@
-// Publica uma versão IMUTÁVEL dos GLBs de prédios do campus (LOD0/LOD1) e do
-// manifesto no container público `map-assets`. Não sobrescreve nada: se algum
+// Publica uma versão IMUTÁVEL dos GLBs do campus (prédios LOD0/LOD1 e, se o
+// manifesto tiver, vegetação e props) e do manifesto no container público
+// `map-assets`. Não sobrescreve nada: se algum
 // blob da versão já existir, para antes de enviar qualquer arquivo.
 //
 // Uso (em code/back/api):
@@ -7,8 +8,9 @@
 //   node --env-file=.env scripts/publicar-assets-mapa.mjs --source <dir>
 //   node scripts/publicar-assets-mapa.mjs --source <dir> --verificar --base-url <url>
 //
-// --source   pasta com os GLBs, em `models/lod0|lod1/` ou `lod0|lod1/`
-//            (saída do pipeline / assets/campus do PUCMaps).
+// --source   pasta com os GLBs, em `models/<tipo>/` ou no layout do pipeline
+//            (assets/campus do PUCMaps: `lod0|lod1|vegetation/`, props em
+//            `sports/` e `cars/`).
 // --manifest manifesto (padrão: o do package campus_map); a versão vem dele.
 // --version  opcional; se informada, precisa ser igual à do manifesto.
 // --dry-run  só valida e lista; com credencial, também consulta o que já existe.
@@ -36,7 +38,13 @@ const MANIFESTO_PADRAO = path.resolve(
   '../../mobile/packages/campus_map/assets/data/campus_models.json',
 );
 const VERSAO = /^[a-z0-9][a-z0-9.-]{0,63}$/;
-const MODELO = /^models\/(lod[01])\/[a-z0-9_-]+\.glb$/;
+const MODELO = /^models\/(lod[01]|vegetation|props)\/[a-z0-9_-]+\.glb$/;
+/** Seções ambientais opcionais do manifesto. */
+export const SECOES_AMBIENTE = ['vegetation', 'props'];
+/** Assets do PUCMaps que não são produto: PucStop/totem e variantes de debug. */
+const PROIBIDO = /(debug|totem|pucstop|torre|(^|\/)(ss|nowin|ind)_)/i;
+/** Layout do pipeline: props do PUCMaps ficam em duas pastas. */
+const PASTAS_PIPELINE = { props: ['sports', 'cars'] };
 const SHA256 = /^[0-9a-f]{64}$/;
 
 export function validarVersao(versao) {
@@ -46,7 +54,10 @@ export function validarVersao(versao) {
   return versao;
 }
 
-/** Só `models/lod0|lod1/<nome>.glb` ou o manifesto; nunca `..`, `/` ou esquema. */
+/**
+ * Só `models/lod0|lod1|vegetation|props/<nome>.glb` ou o manifesto; nunca
+ * `..`, `/` inicial, esquema, debug ou totem.
+ */
 export function validarCaminhoRelativo(caminho) {
   if (
     typeof caminho !== 'string' ||
@@ -54,9 +65,10 @@ export function validarCaminhoRelativo(caminho) {
     caminho.includes('\\') ||
     caminho.split('/').some((parte) => parte === '' || parte === '..') ||
     /^[a-z][a-z0-9+.-]*:/i.test(caminho) ||
-    (caminho !== CAMINHO_MANIFESTO && !MODELO.test(caminho))
+    (caminho !== CAMINHO_MANIFESTO &&
+      (!MODELO.test(caminho) || PROIBIDO.test(caminho)))
   ) {
-    throw new Error(`caminho fora de LOD0/LOD1: ${JSON.stringify(caminho)}`);
+    throw new Error(`caminho não publicável: ${JSON.stringify(caminho)}`);
   }
   return caminho;
 }
@@ -74,20 +86,28 @@ export function contentTypePara(caminho) {
 export const sha256 = (buffer) =>
   crypto.createHash('sha256').update(buffer).digest('hex');
 
-/** Modelos declarados no manifesto (LOD1 e LOD0), já validados. */
+/** Modelos declarados no manifesto (LOD1, LOD0, vegetação, props), já validados. */
 export function lerManifesto(texto) {
   const json = JSON.parse(texto);
   if (json?.schemaVersion !== 1) throw new Error('schemaVersion inesperado');
   const versao = validarVersao(json.version);
+  const listas = [
+    ['lod1', json.lod1],
+    ['lod0', json.lod0],
+    ...SECOES_AMBIENTE.filter((secao) => secao in json).map((secao) => [
+      secao,
+      json[secao]?.models,
+    ]),
+  ];
   const modelos = [];
-  for (const lod of ['lod1', 'lod0']) {
-    if (!Array.isArray(json[lod]) || json[lod].length === 0) {
-      throw new Error(`lista ${lod} ausente no manifesto`);
+  for (const [tipo, lista] of listas) {
+    if (!Array.isArray(lista) || lista.length === 0) {
+      throw new Error(`lista ${tipo} ausente no manifesto`);
     }
-    for (const modelo of json[lod]) {
+    for (const modelo of lista) {
       const caminho = validarCaminhoRelativo(modelo?.path);
-      if (!caminho.startsWith(`models/${lod}/`)) {
-        throw new Error(`${caminho} declarado em ${lod}`);
+      if (!caminho.startsWith(`models/${tipo}/`)) {
+        throw new Error(`${caminho} declarado em ${tipo}`);
       }
       if (
         !Number.isInteger(modelo.bytes) ||
@@ -106,7 +126,13 @@ export function lerManifesto(texto) {
 
 /** Arquivo local do modelo: layout publicado ou layout do pipeline (sem `models/`). */
 export function localizar(origem, caminho) {
-  for (const candidato of [caminho, caminho.replace(/^models\//, '')]) {
+  const [, tipo, nome] = caminho.split('/');
+  const candidatos = [
+    caminho,
+    `${tipo}/${nome}`,
+    ...(PASTAS_PIPELINE[tipo] ?? []).map((pasta) => `${pasta}/${nome}`),
+  ];
+  for (const candidato of candidatos) {
     const arquivo = path.join(origem, ...candidato.split('/'));
     if (fs.existsSync(arquivo)) return arquivo;
   }

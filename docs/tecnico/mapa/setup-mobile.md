@@ -1,6 +1,6 @@
 # Setup mobile — pacote campus_map
 
-> Estado: ATUAL para mapa base, campus 2D com snapshot local e campus 3D remoto (Tarefa 4). Demais recursos continuam PLANEJADOS.
+> Estado: ATUAL para mapa base, campus 2D com snapshot local, campus 3D remoto (Tarefa 4) e vegetação/props/diagnóstico (Tarefa 5). Demais recursos continuam PLANEJADOS.
 
 ## Requisitos e escopo
 
@@ -17,9 +17,10 @@ O pacote contém um snapshot local de 82 footprints reais do PUCMaps em
 `assets/data/campus_footprints.geojson`, sem requisição a backend antigo/novo.
 O renderer adiciona preenchimento, contornos e rótulos depois que o style está
 pronto. Com `enable3d`, o campus 3D usa extrusão (LOD2) e 16 GLBs de prédios
-(LOD1/LOD0) baixados por HTTPS do container público `map-assets`; nenhum GLB é
-empacotado no app. Não há vegetação, props, picking, busca, localização, rota,
-PucStop ou backend de mapa. Não há geometria confirmada de áreas abertas/salas.
+(LOD1/LOD0) baixados por HTTPS do container público `map-assets`, mais 16
+árvores, a área esportiva e 84 carros (12 GLBs pequenos da mesma versão); nenhum
+GLB é empacotado no app. Não há picking, busca, localização, rota, PucStop ou
+backend de mapa. Não há geometria confirmada de áreas abertas/salas.
 Detalhes: [renderizacao-3d.md](renderizacao-3d.md) e
 [assets-pipeline.md](assets-pipeline.md).
 
@@ -45,9 +46,15 @@ A `MapaPage` lê `String.fromEnvironment` no app principal e fornece
   Ausente, vazia, `http:`, com query/fragment ou credencial: o 2D continua e a
   tela mostra “Prédios 3D indisponíveis neste ambiente.”. O app recebe só essa
   URL pública; connection string, chave de conta e SAS nunca entram no Flutter.
-- `CampusMapFeatures`: `enable3d`, `routes`, `pucStops`, `events`, `canteens` e
-  `diagnostics`, todos `false` por padrão. Só `enable3d` tem efeito; a `MapaPage`
-  o liga. Com `false`, manifesto 3D não é lido e nenhuma camada 3D é criada.
+- `CampusMapFeatures`: `enable3d`, `vegetation`, `props`, `routes`, `pucStops`,
+  `events`, `canteens` e `diagnostics`. Têm efeito: `enable3d` (padrão `false`;
+  a `MapaPage` liga), `vegetation` e `props` (padrão `true`, só valem com
+  `enable3d`; servem para rollback/medição sem tocar nos prédios) e
+  `diagnostics` (padrão `false`). Com `enable3d: false`, manifesto 3D não é lido
+  e nenhuma camada 3D é criada.
+- `CAMPUS_MAP_DIAGNOSTICS`: opcional, padrão `false`. Com `true` a `MapaPage` liga
+  `diagnostics`: painel técnico no topo do mapa e logs `[campus3d] diag`. Só para
+  build de medição; nunca em build distribuído a usuários.
 
 O pacote inicializa pelo mecanismo oficial `MapboxOptions.setAccessToken`, antes
 de montar `MapWidget`, sem repetir a chamada a cada rebuild. Mudança de token ou
@@ -254,6 +261,45 @@ Execução de 17/10/2026, branch `feat/integracao-mapa`, `emulator-5554`
 - Sem `MAP_ASSETS_BASE_URL`: footprints/rótulos 2D e aviso controlado.
 - Não validado: zoom out por gesto via adb (o gesto de quick-zoom virou pan);
   FPS/draw calls/memória (o painel de diagnóstico não foi portado); aparelho físico.
+
+### Ambiente 3D e diagnóstico — Tarefa 5
+
+Execução de 17/10/2026, branch `feat/integracao-mapa`, `emulator-5554`
+(Android 15 / API 35, x64), token público local passado só em memória.
+
+```powershell
+flutter run -d emulator-5554 --debug `
+  --dart-define="MAPBOX_ACCESS_TOKEN=$env:MAPBOX_ACCESS_TOKEN" `
+  --dart-define="MAP_ASSETS_BASE_URL=$env:MAP_ASSETS_BASE_URL" `
+  --dart-define=CAMPUS_MAP_DIAGNOSTICS=true
+```
+
+- Pacote: `flutter analyze` sem problemas; `flutter test` **61 testes passaram**
+  (20 novos em `test/campus_environment_test.dart` e 1 em
+  `campus_model_manifest_test.dart`).
+- App: `flutter analyze` mantém só o info preexistente de `historico_test.dart`;
+  `flutter test` **147 testes passaram**; `flutter build apk --debug` saída 0
+  (21 s). O APK contém o manifesto r2 (32.465 B) e **nenhum `.glb`**.
+- Backend: só o script de publicação mudou; `npx vitest run` **200 testes
+  passaram** (12 do script). A API local foi iniciada apenas para o login de
+  teste e encerrada depois; nada do runtime do backend foi alterado.
+- Visual (screenshots no emulador): árvores no Jardim Dom Cabral em pé, fora dos
+  caminhos e prédios, escalas e giros variados, sem cobrir rótulos; carros
+  perpendiculares aos corredores dos estacionamentos; área esportiva alinhada ao
+  basemap (pista, campo, quadras, piscina). Prédios LOD1/LOD0 e footprints iguais
+  à Tarefa 4; materiais e cores sem mudança; sem flicker grave nas trocas de zoom.
+- Árvores somem abaixo de 16,8, carros abaixo de 17,0 e a área esportiva abaixo
+  de 15,5 (camadas por `minzoom`).
+- Perfil → Mapa → Perfil → Mapa (duas vezes): uma instalação por entrada,
+  downloads do cache, sem erros nem duplicação.
+- Falha simulada (dois caminhos inexistentes no manifesto, revertidos depois):
+  só aquelas variantes sumiram; prédios, demais árvores/carros e mapa seguiram,
+  sem aviso ao usuário e sem crash.
+- Sem `CAMPUS_MAP_DIAGNOSTICS`: nenhum painel e nenhum log `diag`; árvores e
+  props continuam.
+- `--profile` compila, mas o login de teste não existe nesse modo; as medições
+  foram feitas em debug (ver [renderizacao-3d.md](renderizacao-3d.md#performance-observada)).
+- Não validado: aparelho físico; FPS do Dart/GPU; zoom out por gesto via adb.
 
 ## Diagnóstico
 

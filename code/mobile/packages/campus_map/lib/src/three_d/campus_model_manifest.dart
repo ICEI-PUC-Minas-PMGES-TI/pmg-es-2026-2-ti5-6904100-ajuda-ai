@@ -1,13 +1,18 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../campus_snapshot.dart';
+import 'campus_environment.dart';
 
 enum CampusModelLod { lod0, lod1 }
 
 /// Manifesto dos GLBs do campus. Adaptado de `campus_chunks.json` (PUCMaps):
 /// mantém só o que o renderer usa. Os caminhos são relativos à versão.
+///
+/// `vegetation` e `props` são opcionais e isolados: uma seção ausente ou
+/// inválida vira `null` e os prédios continuam.
 class CampusModelManifest {
   CampusModelManifest._({
     required this.version,
@@ -17,6 +22,8 @@ class CampusModelManifest {
     required this.lod0,
     required this.buildings,
     required this.source,
+    this.vegetation,
+    this.props,
   });
 
   static const schemaVersion = 1;
@@ -102,6 +109,7 @@ class CampusModelManifest {
       throw const FormatException('Chunk LOD0 sem grupo LOD1.');
     }
 
+    final campus = _union([for (final model in lod1) model.bounds]);
     final source = json['source'];
     return CampusModelManifest._(
       version: version,
@@ -113,6 +121,8 @@ class CampusModelManifest {
       source: Map.unmodifiable(
         source is Map<String, dynamic> ? source : const <String, dynamic>{},
       ),
+      vegetation: _environment(json, 'vegetation', campus),
+      props: _environment(json, 'props', campus),
     );
   }
 
@@ -123,8 +133,33 @@ class CampusModelManifest {
   final List<CampusModel> lod0;
   final List<CampusModelBuilding> buildings;
   final Map<String, dynamic> source;
+  final CampusEnvironmentSet? vegetation;
+  final CampusEnvironmentSet? props;
 
   List<String> get buildingIds => [for (final b in buildings) b.id];
+
+  static CampusEnvironmentSet? _environment(
+    Map<String, dynamic> json,
+    String name,
+    CampusBounds campus,
+  ) {
+    if (!json.containsKey(name)) return null;
+    try {
+      return CampusEnvironmentSet.parse(name, json[name], campus: campus);
+    } on FormatException catch (error) {
+      if (kDebugMode || kProfileMode) {
+        debugPrint('[campus3d] $name desativado: ${error.message}');
+      }
+      return null;
+    }
+  }
+
+  static CampusBounds _union(List<CampusBounds> all) => CampusBounds(
+    west: all.map((b) => b.west).reduce((a, b) => a < b ? a : b),
+    south: all.map((b) => b.south).reduce((a, b) => a < b ? a : b),
+    east: all.map((b) => b.east).reduce((a, b) => a > b ? a : b),
+    north: all.map((b) => b.north).reduce((a, b) => a > b ? a : b),
+  );
 
   static List<CampusModel> _models(dynamic raw, CampusModelLod lod) {
     if (raw is! List || raw.isEmpty) {

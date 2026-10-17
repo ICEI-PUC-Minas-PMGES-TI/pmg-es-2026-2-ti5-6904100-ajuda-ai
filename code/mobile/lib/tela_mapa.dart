@@ -19,7 +19,11 @@ class MapaPage extends StatelessWidget {
             mapboxAccessToken: String.fromEnvironment('MAPBOX_ACCESS_TOKEN'),
             styleUri: String.fromEnvironment('MAPBOX_STYLE_URI'),
             mapAssetsBaseUrl: String.fromEnvironment('MAP_ASSETS_BASE_URL'),
-            features: CampusMapFeatures(enable3d: true),
+            features: CampusMapFeatures(
+              enable3d: true,
+              // Painel técnico só em build de medição; nunca para usuário comum.
+              diagnostics: bool.fromEnvironment('CAMPUS_MAP_DIAGNOSTICS'),
+            ),
           ),
         ),
       ),

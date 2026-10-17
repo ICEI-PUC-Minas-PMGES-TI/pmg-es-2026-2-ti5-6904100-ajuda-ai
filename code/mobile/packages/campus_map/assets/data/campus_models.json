@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026-09-30-r1",
+  "version": "2026-09-30-r2",
   "source": {
     "project": "PUCMaps",
     "manifest": "code/mobile/assets/campus/campus_chunks.json",
@@ -670,5 +670,219 @@
       "lod1": "g1",
       "wallColor": "#e7dac8"
     }
-  ]
+  ],
+  "vegetation": {
+    "source": {
+      "generator": "PUC_3D scripts/build_trees.py + scripts/place_trees.py",
+      "file": "code/mobile/assets/campus/vegetation/trees_pilot.geojson",
+      "sha256": "bf575793c7b4e891759f8a22b9fa6faadc08d52c0bd8be196f1512acce7373ae",
+      "area": "Jardim Dom Cabral"
+    },
+    "models": [
+      {
+        "id": "tree_round",
+        "kind": "tree",
+        "path": "models/vegetation/tree_round.glb",
+        "bytes": 21384,
+        "sha256": "33078eacd659c06c5aa4f8ed63ba0123f11eb26d76c0ce72fc3513d692d59be1"
+      },
+      {
+        "id": "tree_round_b",
+        "kind": "tree",
+        "path": "models/vegetation/tree_round_b.glb",
+        "bytes": 21400,
+        "sha256": "110ae00cdc45a7d4343183e8e95b07d164aeaa4d30089ad377a10f1dbc191acb"
+      },
+      {
+        "id": "tree_cone",
+        "kind": "tree",
+        "path": "models/vegetation/tree_cone.glb",
+        "bytes": 7956,
+        "sha256": "e844e7ef60429fc6a99651083aafe5c547891e119c7a7a6237fffc7c218b78bc"
+      },
+      {
+        "id": "tree_cone_b",
+        "kind": "tree",
+        "path": "models/vegetation/tree_cone_b.glb",
+        "bytes": 7948,
+        "sha256": "50a2385840ca5be0c4572aea7f9594440e8e34152f75e3fe78cf9eccc6c7adb4"
+      }
+    ],
+    "instances": [
+      {"id": "tree_00", "model": "tree_round", "position": [-43.99212632, -19.9233615], "scale": 0.94, "rotation": 275.2},
+      {"id": "tree_01", "model": "tree_cone", "position": [-43.99260057, -19.92432856], "scale": 0.98, "rotation": 116.8},
+      {"id": "tree_02", "model": "tree_cone_b", "position": [-43.99290706, -19.92361764], "scale": 1.076, "rotation": 261.6},
+      {"id": "tree_03", "model": "tree_round_b", "position": [-43.99225687, -19.92355847], "scale": 0.866, "rotation": 282.0},
+      {"id": "tree_04", "model": "tree_cone", "position": [-43.99290434, -19.92349221], "scale": 0.978, "rotation": 253.0},
+      {"id": "tree_05", "model": "tree_round", "position": [-43.99202177, -19.92332945], "scale": 1.061, "rotation": 229.1},
+      {"id": "tree_06", "model": "tree_round_b", "position": [-43.9927237, -19.92414067], "scale": 1.101, "rotation": 301.6},
+      {"id": "tree_07", "model": "tree_round", "position": [-43.99242823, -19.92291839], "scale": 0.95, "rotation": 305.9},
+      {"id": "tree_08", "model": "tree_cone_b", "position": [-43.99266598, -19.92354785], "scale": 0.916, "rotation": 300.7},
+      {"id": "tree_09", "model": "tree_cone", "position": [-43.99198621, -19.92344847], "scale": 0.911, "rotation": 315.1},
+      {"id": "tree_10", "model": "tree_round_b", "position": [-43.99225966, -19.92346251], "scale": 1.013, "rotation": 0.0},
+      {"id": "tree_11", "model": "tree_round", "position": [-43.99239033, -19.92398033], "scale": 1.008, "rotation": 228.6},
+      {"id": "tree_12", "model": "tree_round_b", "position": [-43.99283441, -19.92341493], "scale": 0.895, "rotation": 72.9},
+      {"id": "tree_13", "model": "tree_round", "position": [-43.99306851, -19.92372317], "scale": 1.091, "rotation": 136.0},
+      {"id": "tree_14", "model": "tree_round_b", "position": [-43.99293342, -19.92390712], "scale": 0.867, "rotation": 40.2},
+      {"id": "tree_15", "model": "tree_round", "position": [-43.99252405, -19.92320017], "scale": 0.98, "rotation": 43.8}
+    ]
+  },
+  "props": {
+    "source": {
+      "generator": "PUC_3D scripts/build_sports.py + build_cars.py + place_cars.py",
+      "files": {
+        "code/mobile/assets/campus/sports/campus_sports.json": "cecf059d789e13497ac1602ddcdf2076189382b11e3defae1e009c5b5f76377c",
+        "code/mobile/assets/campus/cars/cars.geojson": "871c93e421cff3f6f379265f5378a2d3469ed16141520532d49b166e28bd5b48"
+      },
+      "provider": "OpenStreetMap",
+      "license": "ODbL 1.0",
+      "attribution": "© OpenStreetMap contributors",
+      "vehicleOccupancy": 0.15
+    },
+    "models": [
+      {
+        "id": "campus_sports",
+        "kind": "sports",
+        "path": "models/props/campus_sports.glb",
+        "bytes": 58724,
+        "sha256": "99d1efcd8f992175c016345f83668e853c9542a257f1abe2a4591dae8822bdbf"
+      },
+      {
+        "id": "car_sedan_white",
+        "kind": "vehicle",
+        "path": "models/props/car_sedan_white.glb",
+        "bytes": 5012,
+        "sha256": "2a8b364b9cb6539caadc47af1a9a7720961d069eab0a6e43f5541d92b952bb8a"
+      },
+      {
+        "id": "car_sedan_silver",
+        "kind": "vehicle",
+        "path": "models/props/car_sedan_silver.glb",
+        "bytes": 5020,
+        "sha256": "bd3c30ebe3b7e5fc6e3c546fb5918de72b2924fa110b8b50ce5cd59e44c9ec47"
+      },
+      {
+        "id": "car_sedan_graphite",
+        "kind": "vehicle",
+        "path": "models/props/car_sedan_graphite.glb",
+        "bytes": 5028,
+        "sha256": "96813ecfa2975d951bcdf853d0279a7adc115658442bf0afb0e919c45f5f2081"
+      },
+      {
+        "id": "car_hatch_white",
+        "kind": "vehicle",
+        "path": "models/props/car_hatch_white.glb",
+        "bytes": 4812,
+        "sha256": "b77aa6dc1352b70f20b85496435c6e9fbe9e090d46ad53965c7a49f9ae12d4d7"
+      },
+      {
+        "id": "car_hatch_grey",
+        "kind": "vehicle",
+        "path": "models/props/car_hatch_grey.glb",
+        "bytes": 4816,
+        "sha256": "49023eb4f11cd32b6a7205c12c6097d8ee65c8fd3e2dbd6114170af8559b0479"
+      },
+      {
+        "id": "car_hatch_blue",
+        "kind": "vehicle",
+        "path": "models/props/car_hatch_blue.glb",
+        "bytes": 4812,
+        "sha256": "5e68173239fbdbc79f6de7561ca1ab760afb042778a47274252da51b30f5d83e"
+      },
+      {
+        "id": "car_hatch_red",
+        "kind": "vehicle",
+        "path": "models/props/car_hatch_red.glb",
+        "bytes": 4812,
+        "sha256": "de18fca7d36bf059bee833b5a383b826d01281ddc0f69a8d06c5b9dbf723e3d2"
+      }
+    ],
+    "instances": [
+      {"id": "campus_sports", "model": "campus_sports", "position": [-43.99085115, -19.92181405], "scale": 1, "rotation": 0},
+      {"id": "car_00", "model": "car_sedan_white", "position": [-43.99459137, -19.92470601], "scale": 1, "rotation": 217.4},
+      {"id": "car_01", "model": "car_hatch_white", "position": [-43.99490568, -19.92458772], "scale": 1, "rotation": 221.7},
+      {"id": "car_02", "model": "car_sedan_silver", "position": [-43.99457142, -19.92457555], "scale": 1, "rotation": 221.1},
+      {"id": "car_03", "model": "car_sedan_graphite", "position": [-43.99485994, -19.92469263], "scale": 1, "rotation": 37.8},
+      {"id": "car_04", "model": "car_sedan_white", "position": [-43.99495789, -19.9244245], "scale": 1, "rotation": 39.3},
+      {"id": "car_05", "model": "car_hatch_grey", "position": [-43.99500129, -19.92451264], "scale": 1, "rotation": 217.1},
+      {"id": "car_06", "model": "car_sedan_graphite", "position": [-43.99506909, -19.92452616], "scale": 1, "rotation": 40.7},
+      {"id": "car_07", "model": "car_sedan_silver", "position": [-43.99477512, -19.92488447], "scale": 1, "rotation": 219.1},
+      {"id": "car_08", "model": "car_sedan_white", "position": [-43.99490078, -19.92446984], "scale": 1, "rotation": 217.1},
+      {"id": "car_09", "model": "car_sedan_graphite", "position": [-43.99459673, -19.92482442], "scale": 1, "rotation": 38.9},
+      {"id": "car_10", "model": "car_sedan_silver", "position": [-43.99484821, -19.92482569], "scale": 1, "rotation": 217.5},
+      {"id": "car_11", "model": "car_hatch_red", "position": [-43.99502147, -19.92449887], "scale": 1, "rotation": 41.6},
+      {"id": "car_12", "model": "car_hatch_grey", "position": [-43.99463444, -19.92487021], "scale": 1, "rotation": 219.6},
+      {"id": "car_13", "model": "car_hatch_grey", "position": [-43.9948282, -19.92464661], "scale": 1, "rotation": 38.1},
+      {"id": "car_14", "model": "car_hatch_grey", "position": [-43.99497712, -19.92440961], "scale": 1, "rotation": 216.5},
+      {"id": "car_15", "model": "car_hatch_white", "position": [-43.99498304, -19.92452868], "scale": 1, "rotation": 40.4},
+      {"id": "car_16", "model": "car_hatch_blue", "position": [-43.99477932, -19.92440769], "scale": 1, "rotation": 40.3},
+      {"id": "car_17", "model": "car_sedan_silver", "position": [-43.99241405, -19.92513898], "scale": 1, "rotation": 135.0},
+      {"id": "car_18", "model": "car_sedan_graphite", "position": [-43.99185714, -19.92463671], "scale": 1, "rotation": 308.3},
+      {"id": "car_19", "model": "car_hatch_grey", "position": [-43.9924732, -19.92534275], "scale": 1, "rotation": 133.7},
+      {"id": "car_20", "model": "car_sedan_silver", "position": [-43.99235593, -19.92522121], "scale": 1, "rotation": 310.9},
+      {"id": "car_21", "model": "car_sedan_silver", "position": [-43.99214749, -19.92482061], "scale": 1, "rotation": 305.2},
+      {"id": "car_22", "model": "car_hatch_white", "position": [-43.99204601, -19.92470244], "scale": 1, "rotation": 127.5},
+      {"id": "car_23", "model": "car_hatch_blue", "position": [-43.9931123, -19.92498545], "scale": 1, "rotation": 265.5},
+      {"id": "car_24", "model": "car_hatch_blue", "position": [-43.99196682, -19.92461187], "scale": 1, "rotation": 311.0},
+      {"id": "car_25", "model": "car_sedan_graphite", "position": [-43.99215976, -19.92499087], "scale": 1, "rotation": 129.2},
+      {"id": "car_26", "model": "car_sedan_silver", "position": [-43.99234643, -19.92506141], "scale": 1, "rotation": 128.0},
+      {"id": "car_27", "model": "car_hatch_white", "position": [-43.9920769, -19.92473929], "scale": 1, "rotation": 309.2},
+      {"id": "car_28", "model": "car_hatch_blue", "position": [-43.99228475, -19.92498766], "scale": 1, "rotation": 128.5},
+      {"id": "car_29", "model": "car_sedan_graphite", "position": [-43.99158946, -19.9233699], "scale": 1, "rotation": 226.9},
+      {"id": "car_30", "model": "car_sedan_silver", "position": [-43.99141226, -19.92339913], "scale": 1, "rotation": 221.5},
+      {"id": "car_31", "model": "car_hatch_blue", "position": [-43.99132986, -19.92403086], "scale": 1, "rotation": 127.0},
+      {"id": "car_32", "model": "car_sedan_white", "position": [-43.99114119, -19.92366114], "scale": 1, "rotation": 306.9},
+      {"id": "car_33", "model": "car_hatch_grey", "position": [-43.99145448, -19.92402615], "scale": 1, "rotation": 311.9},
+      {"id": "car_34", "model": "car_hatch_grey", "position": [-43.99124991, -19.92394085], "scale": 1, "rotation": 308.2},
+      {"id": "car_35", "model": "car_sedan_silver", "position": [-43.99117197, -19.92369806], "scale": 1, "rotation": 310.7},
+      {"id": "car_36", "model": "car_hatch_grey", "position": [-43.99115751, -19.92367889], "scale": 1, "rotation": 311.9},
+      {"id": "car_37", "model": "car_sedan_graphite", "position": [-43.99133355, -19.92369652], "scale": 1, "rotation": 312.6},
+      {"id": "car_38", "model": "car_sedan_silver", "position": [-43.99135795, -19.92344745], "scale": 1, "rotation": 221.1},
+      {"id": "car_39", "model": "car_sedan_graphite", "position": [-43.99144547, -19.92349957], "scale": 1, "rotation": 45.1},
+      {"id": "car_40", "model": "car_sedan_graphite", "position": [-43.99384811, -19.92033423], "scale": 1, "rotation": 286.0},
+      {"id": "car_41", "model": "car_hatch_red", "position": [-43.9932645, -19.92189932], "scale": 1, "rotation": 116.8},
+      {"id": "car_42", "model": "car_hatch_white", "position": [-43.993215, -19.92181776], "scale": 1, "rotation": 299.8},
+      {"id": "car_43", "model": "car_hatch_blue", "position": [-43.99330629, -19.92166652], "scale": 1, "rotation": 101.0},
+      {"id": "car_44", "model": "car_hatch_grey", "position": [-43.99378791, -19.92170419], "scale": 1, "rotation": 319.6},
+      {"id": "car_45", "model": "car_sedan_silver", "position": [-43.99331583, -19.92141912], "scale": 1, "rotation": 77.4},
+      {"id": "car_46", "model": "car_sedan_white", "position": [-43.99376928, -19.92168864], "scale": 1, "rotation": 137.4},
+      {"id": "car_47", "model": "car_sedan_silver", "position": [-43.99399559, -19.92052949], "scale": 1, "rotation": 183.0},
+      {"id": "car_48", "model": "car_hatch_grey", "position": [-43.99362505, -19.92124708], "scale": 1, "rotation": 57.3},
+      {"id": "car_49", "model": "car_sedan_graphite", "position": [-43.99333208, -19.92198605], "scale": 1, "rotation": 136.5},
+      {"id": "car_50", "model": "car_sedan_silver", "position": [-43.99365319, -19.92120832], "scale": 1, "rotation": 57.5},
+      {"id": "car_51", "model": "car_hatch_white", "position": [-43.99403512, -19.92085022], "scale": 1, "rotation": 101.0},
+      {"id": "car_52", "model": "car_hatch_white", "position": [-43.99307924, -19.92184634], "scale": 1, "rotation": 115.3},
+      {"id": "car_53", "model": "car_sedan_graphite", "position": [-43.99310168, -19.92188831], "scale": 1, "rotation": 294.8},
+      {"id": "car_54", "model": "car_sedan_white", "position": [-43.99377075, -19.92213157], "scale": 1, "rotation": 333.9},
+      {"id": "car_55", "model": "car_sedan_graphite", "position": [-43.99401959, -19.92075732], "scale": 1, "rotation": 276.0},
+      {"id": "car_56", "model": "car_sedan_silver", "position": [-43.99312006, -19.92166863], "scale": 1, "rotation": 103.8},
+      {"id": "car_57", "model": "car_sedan_silver", "position": [-43.99327653, -19.92191989], "scale": 1, "rotation": 119.9},
+      {"id": "car_58", "model": "car_sedan_silver", "position": [-43.99303921, -19.92175581], "scale": 1, "rotation": 108.2},
+      {"id": "car_59", "model": "car_hatch_blue", "position": [-43.9933005, -19.92164362], "scale": 1, "rotation": 102.7},
+      {"id": "car_60", "model": "car_sedan_graphite", "position": [-43.99311376, -19.92164585], "scale": 1, "rotation": 279.6},
+      {"id": "car_61", "model": "car_sedan_graphite", "position": [-43.99387347, -19.92193655], "scale": 1, "rotation": 331.6},
+      {"id": "car_62", "model": "car_hatch_grey", "position": [-43.99316591, -19.92167172], "scale": 1, "rotation": 283.2},
+      {"id": "car_63", "model": "car_sedan_silver", "position": [-43.99363848, -19.92122729], "scale": 1, "rotation": 56.1},
+      {"id": "car_64", "model": "car_sedan_white", "position": [-43.99300518, -19.9215235], "scale": 1, "rotation": 272.4},
+      {"id": "car_65", "model": "car_sedan_silver", "position": [-43.99355555, -19.92137638], "scale": 1, "rotation": 70.8},
+      {"id": "car_66", "model": "car_sedan_graphite", "position": [-43.99411216, -19.92185765], "scale": 1, "rotation": 276.0},
+      {"id": "car_67", "model": "car_sedan_silver", "position": [-43.99304587, -19.92177847], "scale": 1, "rotation": 284.0},
+      {"id": "car_68", "model": "car_sedan_graphite", "position": [-43.9933502, -19.92200215], "scale": 1, "rotation": 316.7},
+      {"id": "car_69", "model": "car_hatch_blue", "position": [-43.99305217, -19.9259088], "scale": 1, "rotation": 309.9},
+      {"id": "car_70", "model": "car_sedan_white", "position": [-43.99313165, -19.92580917], "scale": 1, "rotation": 310.8},
+      {"id": "car_71", "model": "car_hatch_blue", "position": [-43.99274889, -19.92572282], "scale": 1, "rotation": 130.9},
+      {"id": "car_72", "model": "car_hatch_grey", "position": [-43.99279807, -19.92577582], "scale": 1, "rotation": 133.1},
+      {"id": "car_73", "model": "car_sedan_silver", "position": [-43.99298743, -19.92583744], "scale": 1, "rotation": 133.5},
+      {"id": "car_74", "model": "car_sedan_white", "position": [-43.99285563, -19.92569664], "scale": 1, "rotation": 313.9},
+      {"id": "car_75", "model": "car_sedan_silver", "position": [-43.99276521, -19.92574055], "scale": 1, "rotation": 129.7},
+      {"id": "car_76", "model": "car_sedan_silver", "position": [-43.99302053, -19.92587251], "scale": 1, "rotation": 129.5},
+      {"id": "car_77", "model": "car_sedan_silver", "position": [-43.99296117, -19.92595319], "scale": 1, "rotation": 130.0},
+      {"id": "car_78", "model": "car_sedan_white", "position": [-43.99279107, -19.92562513], "scale": 1, "rotation": 128.4},
+      {"id": "car_79", "model": "car_sedan_graphite", "position": [-43.99293746, -19.92578509], "scale": 1, "rotation": 311.6},
+      {"id": "car_80", "model": "car_sedan_graphite", "position": [-43.99315465, -19.92617889], "scale": 1, "rotation": 308.4},
+      {"id": "car_81", "model": "car_sedan_graphite", "position": [-43.99281334, -19.92579442], "scale": 1, "rotation": 313.3},
+      {"id": "car_82", "model": "car_hatch_grey", "position": [-43.99329071, -19.92598979], "scale": 1, "rotation": 312.5},
+      {"id": "car_83", "model": "car_sedan_silver", "position": [-43.99333685, -19.92608101], "scale": 1, "rotation": 40.7}
+    ]
+  }
 }

@@ -1,6 +1,6 @@
 # Mapa do campus — visão geral
 
-> Estado: ATUAL (mapa base, renderer 2D com snapshot e campus 3D remoto) + PLANEJADO (demais funcionalidades)
+> Estado: ATUAL (mapa base, renderer 2D com snapshot, campus 3D remoto, vegetação/props e diagnóstico) + PLANEJADO (demais funcionalidades)
 
 ## Objetivo da integração
 
@@ -12,8 +12,9 @@ A estratégia geral está detalhada em [origem-pucmaps.md](../origem-pucmaps.md)
 
 - Pacote Flutter interno `code/mobile/packages/campus_map`, consumido por path.
 - API pública: `CampusMapConfig`, `CampusMapFeatures`, `CampusMapDefaults` e
-  `CampusMapView(config: ...)`. As seis feature flags são apenas contrato futuro,
-  todas desligadas por padrão; não ativam implementações nesta fase.
+  `CampusMapView(config: ...)`. Na fase 1 as feature flags eram só contrato
+  futuro; hoje `enable3d`, `vegetation`, `props` e `diagnostics` têm efeito
+  (ver [setup-mobile.md](setup-mobile.md#configuração)).
 - `MapaPage` (`code/mobile/lib/tela_mapa.dart`) substitui o placeholder pelo mapa
   ocupando o corpo da tela em `SafeArea`, preservando a navegação inferior existente.
 - Mapbox Maps Flutter 2.31.0, token público externo por `MAPBOX_ACCESS_TOKEN`,
@@ -71,8 +72,25 @@ não há volumes, mesmo que a feature possua altura.
   estável do footprint. Materiais dos GLBs preservados; sem cor por zoom.
 - Câmera inicial com pitch 45° quando o 3D está ligado.
 - Sem base URL, ou com GLB indisponível, o 2D/extrusão continuam.
-- Vegetação, props, PucStops, picking, iluminação e diagnóstico: não migrados.
-  Ver [renderizacao-3d.md](renderizacao-3d.md) e [assets-pipeline.md](assets-pipeline.md).
+- PucStops, picking e iluminação: não migrados. Vegetação, props e diagnóstico:
+  Tarefa 5, abaixo. Ver [renderizacao-3d.md](renderizacao-3d.md) e
+  [assets-pipeline.md](assets-pipeline.md).
+
+## Implementação atual — ambiente 3D e diagnóstico (Tarefa 5)
+
+- 16 árvores (4 modelos) no Jardim Dom Cabral, área esportiva (quadras, piscina,
+  campo, pista) e 84 carros (7 modelos) nos estacionamentos, com as posições,
+  escalas e giros do pipeline do PUCMaps. 12 GLBs, 151.724 B.
+- Nova versão imutável `2026-09-30-r2` no Azure (prédios idênticos à r1, que foi
+  preservada). Vegetação e props são seções do mesmo manifesto.
+- `CampusEnvironmentController` (uma instância por seção) depois dos prédios;
+  falha de uma seção não afeta prédios, 2D nem a outra seção.
+- Flags `vegetation` e `props` (padrão ligadas com `enable3d`) e `diagnostics`
+  (padrão desligada; `CAMPUS_MAP_DIAGNOSTICS` no app).
+- Painel técnico só com `diagnostics`: draw calls, render, memória, FPS
+  aproximado, downloads, marcos de tempo e A/B. Medições em
+  [renderizacao-3d.md](renderizacao-3d.md#performance-observada).
+- Sem PucStop, totem, picking, iluminação especial, busca ou rotas.
 
 O status dos testes, do APK e da validação visual está em
 [setup-mobile.md](setup-mobile.md#validação-desta-execução).

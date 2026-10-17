@@ -22,6 +22,7 @@ class Campus3dController {
     required this.manifest,
     required this.resolver,
     required this.isActive,
+    this.onEvent,
   });
 
   /// Resolver só quando o 3D está ligado e a base pública é válida;
@@ -41,6 +42,9 @@ class Campus3dController {
   final CampusModelManifest manifest;
   final CampusAssetResolver resolver;
   final bool Function() isActive;
+
+  /// Marcos para o diagnóstico: `extrusions`, `lod1`, `lod0:<id>`, `error:<source>`.
+  final void Function(String event)? onEvent;
 
   StyleManager get _style => map.style;
 
@@ -71,6 +75,7 @@ class Campus3dController {
     if (!_alive) return;
     _installed = true;
     _log('extrusões prontas');
+    onEvent?.call('extrusions');
     await _updateForCamera();
   });
 
@@ -92,6 +97,7 @@ class Campus3dController {
       if (chunk.isEmpty || !_lod0Failed.add(chunk.first.id)) return;
     }
     _log('falha ao carregar $sourceId; extrusão mantida');
+    onEvent?.call('error:$sourceId');
     unawaited(_serial(_refreshPending));
   }
 
@@ -160,6 +166,7 @@ class Campus3dController {
       castShadows: false,
     );
     _log('LOD1 solicitado (${manifest.lod1.length} grupos)');
+    onEvent?.call('lod1');
     await Future<void>.delayed(Campus3dLod.modelSettleDelay);
     await _refreshPending();
   }
@@ -175,6 +182,7 @@ class Campus3dController {
       castShadows: true,
     );
     _log('chunk ${chunk.id} solicitado (${chunk.buildingIds.length} prédios)');
+    onEvent?.call('lod0:${chunk.id}');
     unawaited(
       Future<void>.delayed(
         Campus3dLod.modelSettleDelay,

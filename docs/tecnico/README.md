@@ -62,7 +62,7 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 |---|---|---|
 | 0 | Decisões e documentação | CONCLUÍDA |
 | 1 | Pacote Flutter `campus_map` + Mapbox base | IMPLEMENTADA E VALIDADA VISUALMENTE NO ANDROID |
-| 2 | Renderização 2D/3D + assets | 2D E 3D DE PRÉDIOS IMPLEMENTADOS E VALIDADOS NO EMULADOR ANDROID; VEGETAÇÃO/PROPS PENDENTES |
+| 2 | Renderização 2D/3D + assets | 2D, 3D DE PRÉDIOS, VEGETAÇÃO, PROPS E DIAGNÓSTICO IMPLEMENTADOS E VALIDADOS NO EMULADOR ANDROID; APARELHO FÍSICO PENDENTE |
 | 3 | Busca e localização (snapshot local) | NÃO INICIADO |
 | 4 | Banco geo (schema `mapa`) + PostGIS | NÃO INICIADO |
 | 5 | API de mapa no backend | NÃO INICIADO |
@@ -84,6 +84,9 @@ Fonte e transformações: [dados-geo.md](mapa/dados-geo.md).
 A etapa 3D adiciona LOD2 (extrusão), LOD1 e LOD0 com 16 GLBs de prédios servidos
 por HTTPS do container público `map-assets` (versão imutável `2026-09-30-r1`),
 configurados por `MAP_ASSETS_BASE_URL`; nenhum GLB fica no Git ou no APK.
+A etapa ambiental (Tarefa 5) adiciona 16 árvores, a área esportiva e 84 carros
+(12 GLBs, 151.724 B) na nova versão imutável `2026-09-30-r2` (a r1 foi
+preservada) e um painel técnico de medição atrás de `diagnostics`.
 Detalhes: [renderizacao-3d.md](mapa/renderizacao-3d.md) e
 [assets-pipeline.md](mapa/assets-pipeline.md).
 Comandos, evidências de validação e limitações: [setup-mobile.md](mapa/setup-mobile.md).
