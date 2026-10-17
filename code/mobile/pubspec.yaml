@@ -8,6 +8,8 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
+  campus_map:
+    path: packages/campus_map
   flutter:
     sdk: flutter
   flutter_localizations:

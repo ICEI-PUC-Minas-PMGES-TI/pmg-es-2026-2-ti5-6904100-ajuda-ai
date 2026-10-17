@@ -1,12 +1,38 @@
 # Mapa do campus — visão geral
 
-> Estado: PLANEJADO
+> Estado: ATUAL (mapa base da fase 1) + PLANEJADO (funcionalidades das fases 2+)
 
 ## Objetivo da integração
 
-Trazer o mapa do campus desenvolvido no projeto PUCMaps para dentro do Ajuda-aí, como uma funcionalidade integrada ao aplicativo principal (atualmente um placeholder "Mapa em breve" em `lib/tela_mapa.dart`), sem manter um segundo aplicativo, um segundo login ou um segundo backend.
+Trazer o mapa do campus desenvolvido no projeto PUCMaps para dentro do Ajuda-aí, como uma funcionalidade integrada ao aplicativo principal, sem manter um segundo aplicativo, um segundo login ou um segundo backend.
 
 A estratégia geral está detalhada em [origem-pucmaps.md](../origem-pucmaps.md) e nos ADRs em [decisoes/](../decisoes/). Este documento resume o que será aproveitado, o que será adaptado, e a sequência geral planejada.
+
+## Implementação atual — fase 1
+
+- Pacote Flutter interno `code/mobile/packages/campus_map`, consumido por path.
+- API pública: `CampusMapConfig`, `CampusMapFeatures`, `CampusMapDefaults` e
+  `CampusMapView(config: ...)`. As seis feature flags são apenas contrato futuro,
+  todas desligadas por padrão; não ativam implementações nesta fase.
+- `MapaPage` (`code/mobile/lib/tela_mapa.dart`) substitui o placeholder pelo mapa
+  ocupando o corpo da tela em `SafeArea`, preservando a navegação inferior existente.
+- Mapbox Maps Flutter 2.31.0, token público externo por `MAPBOX_ACCESS_TOKEN`,
+  estilo opcional por `MAPBOX_STYLE_URI` e fallback `MapboxStyles.STANDARD`.
+- Câmera aproximada: latitude `-19.924266`, longitude `-43.991491`, zoom `15.5`,
+  pitch `0`, bearing `0`. Referência pública da região de entrada do campus:
+  [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Entradapucminas.jpg).
+  É somente um enquadramento inicial a refinar na portabilidade do renderer;
+  não representa geometria nem localização exata de prédios/salas.
+- Token ausente/inválido apresenta mensagem controlada sem criar `MapWidget`.
+  Erros de carregamento exibem aviso genérico, sem detalhes do SDK; o mapa permanece
+  montado e o aviso desaparece quando o SDK sinaliza carregamento completo.
+- Attribution e logo mantidos nos padrões do SDK, sem desativação ou sobreposição
+  por controles do aplicativo. Não há localização do usuário.
+- O mapa base é anônimo: `apiBaseUrl` e `accessTokenProvider` são `null` na integração.
+  Não há GeoJSON, snapshot, GLB, renderer próprio, busca, rotas ou backend de mapa.
+
+O status dos testes, do APK e da validação visual está em
+[setup-mobile.md](setup-mobile.md#validação-desta-execução).
 
 ## O que será aproveitado
 

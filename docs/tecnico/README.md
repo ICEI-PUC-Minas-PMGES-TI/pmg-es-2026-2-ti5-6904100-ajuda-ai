@@ -60,8 +60,8 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 
 | Fase | Descrição | Estado |
 |---|---|---|
-| 0 | Decisões e documentação | EM ANDAMENTO |
-| 1 | Pacote Flutter `campus_map` + Mapbox base | NÃO INICIADO |
+| 0 | Decisões e documentação | CONCLUÍDA |
+| 1 | Pacote Flutter `campus_map` + Mapbox base | IMPLEMENTADA E VALIDADA VISUALMENTE NO ANDROID |
 | 2 | Renderização 2D/3D + assets | NÃO INICIADO |
 | 3 | Busca e localização (snapshot local) | NÃO INICIADO |
 | 4 | Banco geo (schema `mapa`) + PostGIS | NÃO INICIADO |
@@ -71,3 +71,9 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 | 8 | Ferramentas administrativas (inventário do admin Angular) | NÃO INICIADO |
 
 Esta tabela é atualizada conforme cada fase avança. Ela não substitui o changelog do repositório nem o histórico de commits.
+
+A fase 1 cria `code/mobile/packages/campus_map`, consumido por path pela `MapaPage`,
+com `mapbox_maps_flutter` 2.31.0, câmera inicial aproximada do campus, token externo
+(`MAPBOX_ACCESS_TOKEN`) e estilo externo opcional (`MAPBOX_STYLE_URI`, fallback
+Mapbox Standard). Não inclui dados próprios do campus nem recursos das fases 2+.
+Comandos, evidências de validação e limitações: [setup-mobile.md](mapa/setup-mobile.md).

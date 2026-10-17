@@ -1,140 +1,177 @@
 # Setup mobile — pacote campus_map
 
-> Estado: PLANEJADO, salvo onde marcado ATUAL. O pacote `campus_map` ainda não existe neste repositório — este documento descreve como o setup deve funcionar quando ele existir, já incorporando o conhecimento operacional obtido no projeto de origem (PUCMaps) em `RODANDO_MAPA_MOBILE_LOCAL.md`.
->
-> Este documento existe porque, no projeto de origem, fazer o mapa rodar localmente outra vez (depois que a infraestrutura de produção foi desligada) exigiu um trabalho operacional considerável. Esse conhecimento é preservado aqui, adaptado ao que de fato se aplica à arquitetura do Ajuda-aí — não copiado cegamente.
+> Estado: ATUAL para o mapa base da fase 1. Recursos de campus das fases 2+ continuam PLANEJADOS.
 
-## O que muda em relação ao PUCMaps de origem
+## Requisitos e escopo
 
-No projeto de origem, o mapa completo dependia de um backend próprio (NestJS + Postgres + Redis + Ministack/S3 local) que gerava e publicava um arquivo `campus-view.json` (GeoJSON do campus) consumido pelo app, além de um admin web em Angular para disparar esse processamento.
+- Flutter 3.47.0 / Dart 3.13.0, detectados nesta execução e compatíveis com o app.
+- Android SDK e emulador/aparelho Android com acesso à internet.
+- Token público Mapbox fornecido externamente; nunca colocar credenciais no source,
+  testes, documentação, logs ou arquivos versionados.
+- `campus_map` é um package Flutter interno em `code/mobile/packages/campus_map`,
+  consumido por path. Encapsula `mapbox_maps_flutter: 2.31.0` (versão exata).
+- O mapa base não depende de Docker, API local, sessão, banco ou login próprio.
+  Para chegar à aba Mapa pelo app, permanece o fluxo de entrada já existente.
 
-Na arquitetura-alvo do Ajuda-aí, a primeira fase do mapa **não tem esse pipeline**: os dados de prédios/áreas/salas são servidos por um **snapshot estático embutido no pacote `campus_map`** (ver [dados-geo.md](dados-geo.md#snapshot-local)), sem backend de mapa, sem Ministack, sem Redis, sem admin Angular. Por isso, boa parte do setup operacional do documento original (subir múltiplos containers, popular/promover uma versão de mapa, lidar com o bucket do Ministack perdendo o arquivo a cada reinício) é **LEGADO**: válida como relato do que o PUCMaps precisava, mas **não se aplica** a esta fase do Ajuda-aí. Essa parte volta a ser relevante, de forma adaptada, só quando uma fonte de dados remota (API do Ajuda-aí) for implementada — ver [dados-geo.md](dados-geo.md).
+Não há dados próprios do campus nesta fase: nenhum snapshot, GeoJSON, footprint,
+GLB, LOD, vegetação, props, picking, busca, localização, rota, PucStop ou backend.
+O snapshot local descrito em outros documentos pertence às etapas futuras.
 
-## Requisitos
+## Configuração
 
-- Flutter compatível com o mínimo já exigido pelo app do Ajuda-aí (`>=3.47.0`, conforme `code/mobile/pubspec.lock`). **Estado: ATUAL** (confirmado no repositório).
-- Android como plataforma inicial. **Estado: ATUAL** — o repositório do Ajuda-aí não possui pasta `ios/` hoje; suporte a iOS é decisão futura, fora do escopo desta etapa.
-- Emulador Android configurado (qualquer AVD compatível; o projeto de origem usava um AVD com nome próprio, que não é reaproveitado aqui).
-- Docker, apenas para o `postgres:16-alpine` já usado pelo backend do Ajuda-aí — **não** é necessário nenhum serviço adicional (Redis, bucket local, admin web) para esta fase do mapa, ao contrário do que o PUCMaps exigia.
+A `MapaPage` lê `String.fromEnvironment` no app principal e fornece
+`CampusMapConfig` ao `CampusMapView`:
 
-## Rede local no emulador Android: `10.0.2.2`
+- `MAPBOX_ACCESS_TOKEN`: obrigatório para carregar o mapa, deve ser token público
+  de runtime com prefixo `pk.`. Token vazio ou com outro prefixo gera estado
+  controlado e não monta o renderer. A validação local do prefixo não comprova
+  validade, permissões ou expiração na conta Mapbox.
+- `MAPBOX_STYLE_URI`: opcional. Ausente, vazio ou só com espaços usa
+  `CampusMapDefaults.styleUri`, que referencia `MapboxStyles.STANDARD`
+  (`mapbox://styles/mapbox/standard`). URI personalizada precisa ser acessível pelo
+  token fornecido. Falha remota de estilo gera aviso; não há retry próprio nem
+  troca silenciosa de estilo depois de uma falha remota.
+- `apiBaseUrl` e `accessTokenProvider`: `null`; reservados no contrato para uma
+  futura API autenticada do Ajuda-aí. Não são o token Mapbox.
+- `CampusMapFeatures`: `enable3d`, `routes`, `pucStops`, `events`, `canteens` e
+  `diagnostics`, todos `false`; ainda não ativam recursos.
 
-**Estado: ATUAL.** O emulador Android não enxerga `localhost` do computador host — `localhost`, dentro do emulador, é o próprio emulador. Para o app alcançar um backend rodando no computador (ex.: a API do Ajuda-aí em desenvolvimento), a URL precisa usar `10.0.2.2` em vez de `localhost`.
+O pacote inicializa pelo mecanismo oficial `MapboxOptions.setAccessToken`, antes
+de montar `MapWidget`, sem repetir a chamada a cada rebuild. Mudança de token ou
+estilo recria o mapa; não existe armazenamento global adicional do token no pacote.
+Logo e attribution permanecem habilitados com os padrões do SDK.
 
-Isso já é o padrão usado pelo próprio Ajuda-aí: `code/mobile/lib/services/api_config.dart` usa `10.0.2.2:3000` como default no Android (e `localhost` na Web). O pacote `campus_map`, quando tiver uma fonte de dados remota, deve seguir o mesmo padrão — não introduzir uma convenção de rede diferente da que o app principal já usa.
+## Execução
 
-Em aparelho físico via USB, `10.0.2.2` não existe; o caminho é redirecionar a porta do computador para o aparelho com `adb reverse` e usar `localhost` no app (ver seção "Aparelho físico via USB" abaixo).
-
-## Token do Mapbox
-
-- O token de acesso público do Mapbox (`pk.`) **nunca** é hardcoded no código-fonte nem commitado.
-- Ele deve ser fornecido por configuração externa, via `--dart-define` (ex.: `MAPBOX_ACCESS_TOKEN`), seguindo o mesmo padrão já usado pelo app do Ajuda-aí para outras credenciais de configuração (como as variáveis do login Microsoft).
-- Nunca usar um token `sk.` (secreto) no app mobile, e nunca colar o token em documentação, logs ou commits. Esta regra, herdada do projeto de origem, continua válida sem alteração.
-- É esperado que o Ajuda-aí crie, quando o pacote existir, um script auxiliar equivalente ao `run_local.ps1` do projeto de origem (que lê o token de um `.env` local, sem imprimi-lo, e monta os `--dart-define` do `flutter run`). Esse script ainda **não existe** neste repositório — é um item planejado, não uma ferramenta já disponível.
-
-## Style URI
-
-- A URL do estilo do Mapbox também é configurável externamente (ex.: `MAPBOX_STYLE_URI`), não fixa no código.
-- A conta Mapbox usada para hospedar o estilo não deve ser uma conta pessoal tratada como definitiva — isso é uma pendência de decisão de projeto, registrada em [origem-pucmaps.md](../origem-pucmaps.md#9-limitações-herdadas).
-
-## Cleartext HTTP no Android (a confirmar)
-
-> PLANEJADO / A VERIFICAR: enquanto o backend local do Ajuda-aí for servido por HTTP simples (sem HTTPS) durante o desenvolvimento, o Android em modo debug precisa de uma configuração de segurança de rede permitindo tráfego não criptografado para `localhost`, `10.0.2.2` e `127.0.0.1` (equivalente ao arquivo `network_security_config.xml` usado pelo PUCMaps). **Não está confirmado neste documento se o app do Ajuda-aí já possui esse arquivo** — isso deve ser verificado no código do app (`code/mobile/android/app/src/debug/res/xml/`) antes de assumir que a conexão HTTP local funciona sem ajuste.
-
-## Permissões de localização (futuras)
-
-> PLANEJADO: quando a funcionalidade de localização do usuário no mapa for implementada, o Android precisará das permissões de localização (`ACCESS_FINE_LOCATION`/`ACCESS_COARSE_LOCATION`) no `AndroidManifest.xml` do app, que hoje declara apenas `INTERNET`. Essa alteração não foi feita nesta etapa.
-
-## Execução do pacote (fluxo esperado)
-
-> PLANEJADO — a confirmar exatamente quando o pacote existir, mas o fluxo esperado, adaptado do projeto de origem, é:
-
-1. Abrir o emulador Android (`emulator -avd <nome-do-avd>` ou o Android Studio) e confirmar que o `adb devices` o reconhece como `device` (se aparecer `offline`, aguardar alguns segundos e tentar de novo).
-2. Rodar o app com os `--dart-define` necessários — no mínimo o token e o estilo do Mapbox; se o pacote já tiver uma fonte de dados remota configurada, também a URL base da API, usando `10.0.2.2` no Android.
-3. Se o instalador falhar por espaço insuficiente no emulador (`INSTALL_FAILED_INSUFFICIENT_STORAGE` — o APK de debug do Flutter costuma ser grande, da ordem de centenas de MB), rodar em modo `--profile` (menor) ou liberar espaço no AVD.
-
-Este documento não copia um script pronto do PUCMaps porque o script do projeto de origem (`run_local.ps1`) depende de variáveis e caminhos específicos daquele repositório; quando o pacote existir, um script equivalente deve ser escrito para o Ajuda-aí, não adaptado linha a linha do script antigo.
-
-## Limpando cache do app no emulador
-
-Técnica genérica, válida independentemente do projeto: se uma alteração de estilo/dados não aparecer, o Mapbox pode estar reaproveitando cache local.
-
-Fechar o app:
+Em PowerShell, a partir de `code/mobile`, com `MAPBOX_ACCESS_TOKEN` já definido
+no ambiente local da sessão (seu valor não deve ser impresso):
 
 ```powershell
-adb shell am force-stop br.pucminas.ajuda_ai
+flutter pub get
+flutter run -d emulator-5554 --dart-define="MAPBOX_ACCESS_TOKEN=$env:MAPBOX_ACCESS_TOKEN"
 ```
 
-Limpar dados/cache:
+Estilo customizado opcional, também definido no ambiente local:
 
 ```powershell
-adb shell pm clear br.pucminas.ajuda_ai
+flutter run -d emulator-5554 --dart-define="MAPBOX_ACCESS_TOKEN=$env:MAPBOX_ACCESS_TOKEN" --dart-define="MAPBOX_STYLE_URI=$env:MAPBOX_STYLE_URI"
 ```
 
-Depois, rodar o `flutter run` novamente. (`br.pucminas.ajuda_ai` é o `applicationId` já confirmado em `code/mobile/android/app/build.gradle.kts`; o projeto de origem usava `com.example.mobile`, que não se aplica aqui.)
+Alternativamente, use `flutter run --dart-define-from-file=<caminho-local.json>`
+com as mesmas chaves em um arquivo **fora do repositório**. Não versione esse
+arquivo. Não existe script auxiliar de leitura de `.env` nesta implementação.
+Escolha o ID efetivamente listado por `flutter devices` caso seja diferente.
+Depois de entrar pelo fluxo normal do Ajuda-aí, abra a aba Mapa.
 
-## Aparelho físico via USB
+Sem os defines, o app compila e a tela informa:
+“Mapa indisponível neste ambiente. Configure MAPBOX_ACCESS_TOKEN para carregar o mapa.”
+Alterar dart-defines exige nova execução/build; hot reload não atualiza os defines.
 
-> PLANEJADO: técnica genérica preservada do projeto de origem, útil quando um emulador não é suficiente (por exemplo, para medir performance real do 3D). Em um aparelho físico, `localhost` é o próprio aparelho e `10.0.2.2` não existe; o caminho é redirecionar a porta do computador para o aparelho com `adb reverse <porta> <porta>` e então usar `localhost` no app. Requer depuração USB ativa e o aparelho reconhecido como `device` em `adb devices`. O redirecionamento feito por `adb reverse` se perde quando o cabo é desconectado e precisa ser refeito. Se o aparelho já tiver uma build instalada de outra máquina, o Flutter pode reportar `INSTALL_FAILED_UPDATE_INCOMPATIBLE` e desinstalar a build anterior automaticamente (os dados do app anterior são apagados nesse processo) — isso é esperado, não um erro a investigar.
+## Android
 
-Para medir desempenho, usar sempre o modo `--profile` (o modo debug distorce métricas de FPS e memória).
+Inspecionado: `android/app/build.gradle.kts`, `android/build.gradle.kts`,
+`android/settings.gradle.kts`, `android/gradle.properties` e manifests.
 
-## Flags de build do campus 3D (planejadas)
+- `applicationId` / namespace: `br.pucminas.ajuda_ai`.
+- `minSdk = flutter.minSdkVersion`: 24 no SDK Flutter detectado.
+- `compileSdk` / `targetSdk`: 36, herdados do mesmo Flutter.
+- AGP 9.1.0, Gradle 9.4.1, Kotlin declarado 2.4.0, Java/JVM target 17.
+- `INTERNET` já existia no manifest principal; não foi duplicado.
+- Nenhuma permissão de localização adicionada.
+- Nenhuma mudança em `API_BASE_URL`, `10.0.2.2`, cleartext ou network security.
+- Nenhuma alteração nativa foi necessária: o plugin configura seu repositório
+  Maven de releases e o APK compilou. Nenhum secret/download token foi configurado
+  nesta execução; não houve erro de download que exigisse credencial extra.
 
-> PLANEJADO: o projeto de origem usava flags de build (`--dart-define`) para ligar funcionalidades de debug do campus 3D, todas desligadas por padrão. A tabela abaixo registra essas flags como candidatas a preservar no pacote `campus_map`; nenhuma delas existe ainda neste repositório.
+A referência oficial da versão é
+[Mapbox Maps Flutter 2.31.0](https://pub.dev/packages/mapbox_maps_flutter/versions/2.31.0).
+Não usar o token público de runtime como credencial de download.
 
-| Flag | Efeito pretendido | Observação |
-|---|---|---|
-| `CAMPUS_3D_DEBUG=true` | Ativa um painel de diagnóstico (FPS, tempo de render, draw calls, memória de GPU/RAM, LOD carregado) e logs identificáveis no logcat | Ver [renderizacao-3d.md](renderizacao-3d.md#diagnóstico) |
-| `CAMPUS_BUILDING_PICKING_ENABLED=true` | Habilitaria seleção de prédios no mapa 3D | **Conhecido como experimental e problemático no projeto de origem** (causava artefatos visuais nos prédios) — não deve ser reativado sem antes corrigir essa causa |
-| `CAMPUS_BUILDING_COLORS_ENABLED=true` | Coloriria por tipo os prédios renderizados por extrusão (sem modelo 3D próprio) | — |
+## Câmera e plataformas
 
-Quando o painel de diagnóstico existir, seus logs podem ser filtrados no Android com:
+`CampusMapDefaults` concentra a câmera aproximada: latitude `-19.924266`,
+longitude `-43.991491`, zoom `15.5`, pitch `0`, bearing `0`. A referência é a
+[localização pública de uma fotografia da entrada do campus](https://commons.wikimedia.org/wiki/File:Entradapucminas.jpg).
+O enquadramento deve ser refinado ao portar o renderer PUCMaps. Não são dados
+geográficos de prédios ou salas.
+
+A versão 2.31.0 do plugin suporta Android/iOS, sem Web/desktop. O widget mostra
+estado controlado nessas outras plataformas. O Ajuda-aí não possui pasta iOS;
+iOS não foi compilado ou validado nesta etapa.
+
+## Verificação local
+
+No app (`code/mobile`):
 
 ```powershell
-adb logcat | Select-String campus3d
+flutter analyze
+flutter test
+flutter build apk --debug
 ```
 
-## Diagnóstico (adaptado)
-
-As categorias abaixo são preservadas como estrutura de troubleshooting útil; as causas específicas do pipeline antigo (bucket do Ministack, `campus-view.json`) são removidas ou marcadas como não aplicáveis a esta fase.
-
-### App não conecta à API local
-
-- Confirmar que o backend do Ajuda-aí está rodando e respondendo (usar o endpoint de saúde/health já existente no backend do Ajuda-aí, não um endpoint do PUCMaps).
-- Confirmar que a URL usada pelo app está usando `10.0.2.2` no emulador Android, não `localhost`.
-
-### Mapa aparece preto ou em branco
-
-Causas possíveis, adaptadas do projeto de origem (apenas as genéricas, válidas independentemente do pipeline de dados):
-
-- App rodando sem o `--dart-define` do token/estilo do Mapbox.
-- Emulador tentando acessar `localhost` em vez de `10.0.2.2` (quando já houver fonte remota).
-- Cache antigo do Mapbox no app — limpar com `adb shell pm clear br.pucminas.ajuda_ai` e rodar novamente.
-
-> Removido do original: a causa "tiles/sprites não existem ou apontam para host errado" dependia do pipeline de tiles do Ministack, que não existe nesta fase do Ajuda-aí (o mapa usa o estilo hospedado diretamente no Mapbox, sem pipeline de tiles próprio).
-
-### Mapa aparece sem prédios/dados do campus
-
-> LEGADO / NÃO SE APLICA AINDA: no projeto de origem, esse sintoma geralmente indicava que o mapa não tinha sido gerado/promovido no pipeline do Ministack. Nesta fase do Ajuda-aí, os dados de prédios vêm de um snapshot estático embutido no pacote, então esse sintoma indicaria um problema no próprio snapshot (arquivo ausente ou mal formado), não um pipeline de geração. Quando uma fonte remota (API) existir, esta seção deve ser reescrita para refletir esse novo cenário.
-
-### ADB não reconhece o emulador
+No pacote (`code/mobile/packages/campus_map`):
 
 ```powershell
-adb devices
+flutter pub get
+flutter analyze
+flutter test
 ```
 
-Se vier vazio, abrir o emulador novamente e aguardar. Se aparecer `offline`, aguardar alguns segundos e tentar de novo. Técnica genérica, sem mudança em relação ao projeto de origem.
+Os widget tests com token ausente/inválido não inicializam o renderer nativo.
+Os testes cobrem flags, configuração, fallback, estados sem token e integração
+com a tela e navegação existente. Eles não comprovam carregamento remoto de tiles.
 
-## O que foi deixado de fora intencionalmente (LEGADO/OBSOLETO)
+## Validação desta execução
 
-Para que este documento não seja confundido com um guia do PUCMaps, fica registrado explicitamente o que **não** foi trazido do documento original, por não se aplicar à arquitetura desta fase do Ajuda-aí:
+Execução de 17/10/2026, branch `feat/integracao-mapa`.
 
-- Subir múltiplos serviços via `docker compose` (API própria, admin web Angular, progress streamer, Ministack/S3, Redis) — essa infraestrutura não é trazida (ver [ADR-0007](../decisoes/ADR-0007-admin-pucmaps.md) e [origem-pucmaps.md](../origem-pucmaps.md#6-componentes-descartados)).
-- Login padrão de um admin web e qualquer credencial de exemplo associada a ele.
-- Geração/promoção de uma "versão de mapa" via admin web ou script administrativo, e o comportamento do bucket local não persistir o `campus-view.json` entre reinícios — específico da infraestrutura antiga.
-- Hosts de produção do projeto de origem (desligados) e as tentativas alternativas de basemap (OSM direto, CARTO, Esri) usadas só enquanto aquela produção estava fora do ar.
-- Avisos de erro "esperado, mas não é erro" específicos do projeto de origem (ex.: inicialização do Firebase falhando, uma falha de teste específica daquele projeto) — não se aplicam ao código do Ajuda-aí, que não tem essas mesmas dependências.
-- Qualquer caminho de sistema de arquivos pessoal, nome de dispositivo físico específico, ou nome de pessoa.
+- Dependências por path resolvidas no app e no pacote com Mapbox 2.31.0, sem upgrade
+  amplo ou adaptação da versão solicitada.
+- `flutter analyze` do pacote: sem problemas.
+- `flutter analyze` do app: nenhum erro/aviso novo; permanece apenas o info
+  preexistente `unnecessary_import` em `test/historico_test.dart:3` (exit code 1).
+- `flutter test` do pacote: 6 testes passaram.
+- `flutter test` do app: 146 testes passaram, incluindo a integração da MapaPage.
+- `flutter build apk --debug`: sucesso, exit code 0, Gradle `assembleDebug` em
+  91,9 segundos. APK em `code/mobile/build/app/outputs/flutter-apk/app-debug.apk`.
+  Nenhuma mudança de Gradle, Manifest, Maven, minSdk ou Kotlin foi necessária.
+- Aviso do build: Flutter identifica uso de Kotlin Gradle Plugin em `file_picker`
+  e `mapbox_maps_flutter` e alerta sobre compatibilidade com versões futuras do
+  Flutter. Não impediu o build atual e não motivou upgrade fora do escopo.
+- Emulador detectado: `emulator-5554`, Android 15 / API 35, x64.
+- Na primeira execução sem token, `flutter run -d emulator-5554 --debug
+  --no-resident` instalou e abriu o app. Na validação visual subsequente foi usado
+  um token público fornecido pelo `.env` local autorizado do PUCMaps, lendo
+  `MAPBOX_PUBLIC_TOKEN` e passando seu valor em memória como `MAPBOX_ACCESS_TOKEN`.
+  Nenhum valor foi copiado para source, logs, documentação ou Git.
+- `MAPBOX_STYLE_URI` foi omitido. Mapbox Standard carregou visualmente na
+  `MapaPage`, com rótulos da PUC Minas Coração Eucarístico e região do campus,
+  sem tela branca/preta persistente. Logo visível e botão de attribution testado:
+  abriu o menu oficial com créditos Mapbox e OpenStreetMap.
+- Fluxo normal preservado: conta demo existente → Perfil → Mapa → Perfil → Mapa.
+  O mapa carregou novamente após recriação da tela; processo permaneceu ativo,
+  sem exceção fatal nos logs AndroidRuntime/Flutter verificados.
+- A primeira tentativa com token falhou por timeout de 60 segundos no estilo.
+  O mesmo token recebeu HTTP 200 ao consultar Standard pelo computador, enquanto
+  o emulador não resolvia `api.mapbox.com`. O problema de conectividade foi
+  resolvido reiniciando o mesmo AVD com cold boot e DNS explícito
+  (`-no-snapshot-load -dns-server 8.8.8.8,1.1.1.1`), preservando os dados do AVD.
+  Depois, resolução DNS e acesso ao Mapbox funcionaram. Nenhuma correção de código,
+  arquitetura ou configuração Android do projeto foi necessária.
+- Após remover o diagnóstico temporário: análise dos arquivos relevantes
+  (`flutter analyze lib/tela_mapa.dart test/mapa_test.dart packages/campus_map`)
+  sem problemas; os sete testes relacionados passaram novamente.
+- `git diff --check`: sem erros de whitespace. Busca no diff e nos arquivos novos
+  por `pk.`, `sk.`, `token`, `secret` e `password`: somente nomes, prefixos e
+  referências de configuração; nenhum segredo real introduzido.
 
-Essas informações continuam preservadas, para fins de referência histórica, no documento de origem do projeto PUCMaps — não são reproduzidas aqui por não se aplicarem a esta fase da integração.
+## Diagnóstico
+
+Token ausente ou inválido: conferir o dart-define de runtime e recompilar. Nunca
+usar secret token no app. Erro de carregamento: conferir conexão, acesso do token
+à conta/estilo e URI escolhida. A UI mostra mensagem genérica sem dados do SDK.
+Nenhum erro exige iniciar backend de mapa nesta fase.
+
+Sem prédios customizados do campus: comportamento esperado; os assets e dados
+próprios só entram nas próximas fases. O Mapbox Standard pode exibir conteúdo
+cartográfico próprio, independente das flags futuras de campus 3D.
