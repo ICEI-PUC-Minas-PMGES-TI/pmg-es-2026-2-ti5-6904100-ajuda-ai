@@ -47,6 +47,7 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 - [mapa/assets-pipeline.md](mapa/assets-pipeline.md)
 - [mapa/setup-mobile.md](mapa/setup-mobile.md)
 - [mapa/busca-localizacao.md](mapa/busca-localizacao.md)
+- [mapa/api.md](mapa/api.md)
 - [mapa/administracao.md](mapa/administracao.md)
 
 ## Gamificação
@@ -66,7 +67,7 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 | 2 | Renderização 2D/3D + assets | 2D, 3D DE PRÉDIOS, VEGETAÇÃO, PROPS E DIAGNÓSTICO IMPLEMENTADOS E VALIDADOS NO EMULADOR ANDROID; APARELHO FÍSICO PENDENTE |
 | 3 | Busca e localização (snapshot local) | IMPLEMENTADA; EVIDÊNCIAS E LIMITES EM busca-localizacao.md |
 | 4 | Banco geo (schema `mapa`) + PostGIS | IMPLEMENTADO E IMPORTADO NO BANCO LOCAL E NO SUPABASE |
-| 5 | API de mapa no backend | NÃO INICIADO |
+| 5 | API de mapa no backend | LEITURA E BUSCA REMOTA IMPLEMENTADAS (APP COM FALLBACK LOCAL); VALIDADAS NO EMULADOR |
 | 6 | Rotas (grafo + Dijkstra/A* sob demanda) | NÃO INICIADO |
 | 7 | XP central + PucStops | NÃO INICIADO |
 | 8 | Ferramentas administrativas (inventário do admin Angular) | NÃO INICIADO |
@@ -100,3 +101,7 @@ Supabase), cria o schema `mapa` e importa a versão
 `pucmaps-12` do PUCMaps: 101 prédios, 12 áreas, 653 nós e 1.654 arestas, sem
 inconsistências. Sem API nem rotas. Ver [banco/migrations.md](banco/migrations.md)
 e [mapa/dados-geo.md](mapa/dados-geo.md).
+A Tarefa 8 adiciona a API pública de leitura do mapa (versão ativa, prédios,
+áreas, salas e busca com `unaccent` e o mesmo ranking do app) e liga a busca do
+app a ela, com o snapshot local como fallback. Sem rotas. Ver
+[mapa/api.md](mapa/api.md).

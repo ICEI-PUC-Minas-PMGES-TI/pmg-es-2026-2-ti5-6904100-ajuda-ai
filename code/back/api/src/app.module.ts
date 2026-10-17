@@ -12,6 +12,7 @@ import { AvisosModule } from './avisos/avisos.module.js';
 import { CadastroModule } from './cadastro/cadastro.module.js';
 import { CoordenacaoModule } from './coordenacao/coordenacao.module.js';
 import { FormulariosModule } from './formularios/formularios.module.js';
+import { MapaModule } from './mapa/mapa.module.js';
 import { ParticipacoesModule } from './participacoes/participacoes.module.js';
 import { ProgramasModule } from './programas/programas.module.js';
 import { UsuariosModule } from './usuarios/usuarios.module.js';
@@ -69,6 +70,10 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
           ),
           schema: configuracao.get<string>('DB_SCHEMA', 'feed'),
           autoLoadEntities: true,
+          // Extensões só por migration: sem isto o TypeORM roda
+          // `CREATE EXTENSION postgis/uuid-ossp` ao conectar e instalaria o
+          // PostGIS em `public` (ver docs/tecnico/banco/migrations.md).
+          installExtensions: false,
           retryAttempts: 5,
           retryDelay: 2000,
         };
@@ -97,6 +102,7 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
     ProgramasModule,
     FormulariosModule,
     CoordenacaoModule,
+    MapaModule,
   ],
 })
 export class AppModule {}

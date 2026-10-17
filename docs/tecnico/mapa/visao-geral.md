@@ -1,6 +1,6 @@
 # Mapa do campus — visão geral
 
-> Estado: ATUAL (mapa base, renderer 2D com snapshot, campus 3D remoto, vegetação/props e diagnóstico) + PLANEJADO (demais funcionalidades)
+> Estado: ATUAL (mapa base, renderer 2D com snapshot, campus 3D remoto, vegetação/props, diagnóstico, banco geo e API de leitura com busca remota) + PLANEJADO (rotas e demais funcionalidades)
 
 ## Objetivo da integração
 
@@ -115,6 +115,18 @@ O status dos testes, do APK e da validação visual está em
 - Sem API pública, sem rotas, sem mudança no Flutter (o app segue no snapshot
   local). Ver [dados-geo.md](dados-geo.md) e
   [../banco/migrations.md](../banco/migrations.md).
+
+## Implementação atual — API do mapa e busca remota (Tarefa 8)
+
+- Backend: `MapaModule` com `GET /mapa/versao`, `/mapa/predios`,
+  `/mapa/predios/:id`, `/mapa/areas`, `/mapa/salas` e `/mapa/busca`; públicos,
+  só leitura, sempre a versão ativa, DTOs próprios, SQL parametrizado com
+  `unaccent`. Ver [api.md](api.md).
+- `AppModule` com `installExtensions: false`.
+- Flutter: a `MapaPage` injeta `MapaApiPlaceRepository` (HTTP existente do app)
+  no `campus_map`, que busca na API e cai no snapshot local se ela falhar;
+  mesmas chaves estáveis e mesmo foco.
+- Sem rotas, sem pgRouting, sem escrita/admin, sem mudança em 3D/Azure/migrations.
 
 ## O que será aproveitado
 

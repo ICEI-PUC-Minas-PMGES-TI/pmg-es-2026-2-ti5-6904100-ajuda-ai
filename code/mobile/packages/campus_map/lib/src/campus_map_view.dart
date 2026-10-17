@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 import 'campus_data_source.dart';
+import 'campus_fallback_place_repository.dart';
 import 'campus_map_config.dart';
 import 'campus_map_controller.dart';
 import 'campus_map_controls.dart';
@@ -30,6 +31,7 @@ class CampusMapView extends StatefulWidget {
     this.dataSource = const LocalCampusDataSource(),
     this.modelManifestSource = const LocalCampusModelManifestSource(),
     this.controller,
+    this.remotePlaceRepository,
   });
 
   final CampusMapConfig config;
@@ -38,6 +40,11 @@ class CampusMapView extends StatefulWidget {
 
   /// Opcional. Se fornecido, seu dono deve descartá-lo ao sair da tela.
   final CampusMapController? controller;
+
+  /// Busca preferida (ex.: API do app). Com ela, a busca do mapa usa
+  /// [FallbackCampusPlaceRepository]: remota primeiro, snapshot local se
+  /// falhar. Ignorada quando [controller] é fornecido.
+  final CampusPlaceRepository? remotePlaceRepository;
 
   @override
   State<CampusMapView> createState() => _CampusMapViewState();
@@ -76,12 +83,14 @@ class _CampusMapViewState extends State<CampusMapView>
   }
 
   void _createController() {
+    final local = LocalCampusPlaceRepository(loadSnapshot: _loadSnapshot);
+    final remote = widget.remotePlaceRepository;
     _controller =
         widget.controller ??
         CampusMapController(
-          placeRepository: LocalCampusPlaceRepository(
-            loadSnapshot: _loadSnapshot,
-          ),
+          placeRepository: remote == null
+              ? local
+              : FallbackCampusPlaceRepository(primary: remote, fallback: local),
         );
   }
 
@@ -188,7 +197,8 @@ class _CampusMapViewState extends State<CampusMapView>
     final oldFeatures = oldConfig.features;
     final features = config.features;
     if (oldWidget.controller != widget.controller ||
-        oldWidget.dataSource != widget.dataSource) {
+        oldWidget.dataSource != widget.dataSource ||
+        oldWidget.remotePlaceRepository != widget.remotePlaceRepository) {
       _controller.detach(this);
       if (oldWidget.controller == null) _controller.dispose();
       _createController();

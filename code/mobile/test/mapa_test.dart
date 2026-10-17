@@ -1,3 +1,4 @@
+import 'package:ajuda_ai/services/mapa_api.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/tela_mapa.dart';
 import 'package:ajuda_ai/widgets/app_bottom_navigation.dart';
@@ -21,6 +22,8 @@ void main() {
     // 3D ligado; a base pública vem só de MAP_ASSETS_BASE_URL (vazia no teste).
     expect(map.config.features.enable3d, isTrue);
     expect(map.config.mapAssetsBaseUrl, isEmpty);
+    // Busca remota pela API do app, com o snapshot local como fallback.
+    expect(map.remotePlaceRepository, isA<MapaApiPlaceRepository>());
     expect(find.textContaining('Mapa indisponível'), findsOneWidget);
     expect(find.text('Mapa em breve'), findsNothing);
     final navigation = tester.widget<AppBottomNavigation>(

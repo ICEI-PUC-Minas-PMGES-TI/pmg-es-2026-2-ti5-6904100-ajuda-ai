@@ -1,6 +1,8 @@
 # Busca local e localização no campus
 
-> Estado: ATUAL — implementação Android; evidências e limites ao final.
+> Estado: ATUAL — implementação Android; evidências e limites ao final. Desde a
+> Tarefa 8 a busca é remota pela [API do mapa](api.md), com este snapshot local
+> como fallback.
 
 ## Auditoria e escopo
 
@@ -55,10 +57,18 @@ Desempate: nome normalizado, código normalizado e ID estável.
 Limite: `LocalCampusPlaceRepository.resultLimit = 8`.
 Consulta vazia retorna `[]` sem carregar o índice. Sem favoritos/histórico.
 
-Para mudar a fonte, implementar `CampusPlaceRepository` com API e injetar em
-`CampusMapController(placeRepository: ...)`, fornecido à `CampusMapView`.
-A UI já ignora respostas atrasadas de consultas anteriores. Nenhuma fonte
-remota foi implementada. Salas dependem da futura API/schema geográfico.
+A UI ignora respostas atrasadas de consultas anteriores.
+
+### Fonte remota com fallback (Tarefa 8)
+
+`CampusMapView(remotePlaceRepository: ...)` liga a busca composta
+`FallbackCampusPlaceRepository`: a fonte injetada pelo app (`GET /mapa/busca`,
+`MapaApiPlaceRepository`) responde primeiro e, se falhar, este
+`LocalCampusPlaceRepository` responde. O pacote continua sem HTTP e sem URL.
+O backend aplica a mesma normalização e o mesmo ranking (com `unaccent` no
+Postgres) e devolve as mesmas chaves estáveis, então foco e resultado não
+dependem da origem. Áreas (12) entram na busca remota; salas, quando existirem
+na versão ativa. Detalhes, contrato e medições: [api.md](api.md).
 
 ## Controller e interface
 
@@ -157,9 +167,9 @@ Reprodução manual:
 ## Limites e próxima fase
 
 Sem salas, departamentos inferidos, favoritos, histórico, rotas, grafo,
-snapping, botão Ir ou ETA. Sem backend geo, PostGIS ou publicação Azure.
-Aparelho físico e iOS fora da validação atual. Próxima fase: schema/dados geo
-e fonte remota de lugares. Rotas continuam em tarefa própria.
+snapping, botão Ir ou ETA. Aparelho físico e iOS fora da validação atual.
+Banco geográfico (Tarefa 7) e busca remota com fallback (Tarefa 8) já existem;
+rotas continuam em tarefa própria.
 
 ## Evidências da execução — 17/10/2026
 
@@ -219,3 +229,19 @@ e fonte remota de lugares. Rotas continuam em tarefa própria.
 
 Capturas locais da sessão foram guardadas fora do repositório (busca, puck no
 campus e puck fora do campus). Não representam validação em aparelho físico.
+
+## Evidências da busca remota — Tarefa 8 (17/10/2026)
+
+`emulator-5554` (Android 15), API local (`node dist/main`, lendo o Supabase),
+app debug com `API_BASE_URL` padrão (`http://10.0.2.2:3000`):
+
+- “Biblioteca” → Biblioteca Padre Alberto Antoniazzi - P. 26 (código 26), log
+  `map search source=remote`; selecionar focou a câmera no prédio (3D/LOD0).
+- “planetario” (sem acento) → Planetário PUC Minas; “65” → Prédio 65; ambos
+  remotos.
+- API desligada: “Biblioteca” respondeu pelo snapshot
+  (`source=local-fallback`), sem mensagem de erro; o foco caiu exatamente no
+  mesmo enquadramento do remoto.
+- API religada: a busca seguinte voltou a `source=remote`, sem reiniciar o app.
+- Botão de localização, puck, árvores, carros, prédios 3D e atribuição do
+  Mapbox continuaram iguais; nenhum crash no logcat.

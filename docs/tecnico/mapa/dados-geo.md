@@ -7,7 +7,8 @@ Este documento descreve o snapshot usado pelo app Flutter e o banco geográfico
 do backend (schema `mapa`, [ADR-0005](../decisoes/ADR-0005-schema-mapa-postgis.md)).
 Migrations, PostGIS e procedimentos por ambiente:
 [banco/migrations.md](../banco/migrations.md). O app **continua** lendo o snapshot
-local; nenhuma API de mapa existe ainda.
+local como fallback; desde a Tarefa 8 a busca vem da [API do mapa](api.md),
+que lê a versão ativa deste schema.
 
 ## Banco geográfico (schema `mapa`)
 

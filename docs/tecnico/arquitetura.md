@@ -16,8 +16,11 @@ Confirmado em código nesta branch (`feat/integracao-mapa`).
 - Migrations: baseline de `feed` (reconhece bancos criados por `synchronize`),
   a incremental `UsuariosERequisitosPadrinho`, PostGIS/`unaccent` + schema
   `mapa` e tabelas de `mapa`. Ver [banco/migrations.md](banco/migrations.md).
-- Domínio de mapa: entidades em `src/mapa/entities` e importador em
-  `src/mapa/importacao` (CLI `npm run mapa:importar`); sem módulo HTTP.
+- Domínio de mapa: `MapaModule` (`src/mapa/`) com API pública de leitura
+  (`/mapa/versao`, `/mapa/predios`, `/mapa/areas`, `/mapa/salas`,
+  `/mapa/busca`; ver [mapa/api.md](mapa/api.md)), entidades em
+  `src/mapa/entities` e importador em `src/mapa/importacao`
+  (`npm run mapa:importar`). TypeORM runtime com `installExtensions: false`.
 - Autenticação: login Microsoft (Entra ID) verificado por JWKS remoto (`jose`), mais um modo demo controlado por `AUTH_DEMO_ENABLED`. Token da aplicação é JWT HS256 de 1 hora, sem refresh.
 - Armazenamento de arquivos: Azure Blob Storage (`@azure/storage-blob`), com containers públicos (`map-assets`, `restaurant-menus`) e privados (`profiles`, `feed`, `chat`).
 - Testes: Vitest + Supertest.
@@ -58,7 +61,7 @@ flowchart TB
 
     subgraph Backend[NestJS Ajuda-aí]
         Core[Módulos atuais\nauth, usuarios, participacoes, ...]
-        MapaMod[Módulo mapa\nPLANEJADO]
+        MapaMod[Módulo mapa\nATUAL: leitura e busca\nrotas PLANEJADO]
         XPMod[Módulo XP central\nPLANEJADO]
     end
 

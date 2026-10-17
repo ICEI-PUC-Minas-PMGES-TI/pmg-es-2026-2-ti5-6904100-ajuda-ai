@@ -1,21 +1,34 @@
 import 'package:campus_map/campus_map.dart';
 import 'package:flutter/material.dart';
 
+import 'services/mapa_api.dart';
 import 'sessao_usuario.dart';
 import 'tela_perfil.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
 
-class MapaPage extends StatelessWidget {
-  const MapaPage({super.key});
+class MapaPage extends StatefulWidget {
+  const MapaPage({super.key, this.placeRepository});
+
+  /// Busca remota; padrão: API do Ajuda-aí (`API_BASE_URL`). Testes injetam.
+  final CampusPlaceRepository? placeRepository;
+
+  @override
+  State<MapaPage> createState() => _MapaPageState();
+}
+
+class _MapaPageState extends State<MapaPage> {
+  // Uma instância por tela: o mapa só recria a busca se a instância mudar.
+  late final CampusPlaceRepository _placeRepository =
+      widget.placeRepository ?? MapaApiPlaceRepository();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: const SafeArea(
+      body: SafeArea(
         child: CampusMapView(
-          config: CampusMapConfig(
+          config: const CampusMapConfig(
             mapboxAccessToken: String.fromEnvironment('MAPBOX_ACCESS_TOKEN'),
             styleUri: String.fromEnvironment('MAPBOX_STYLE_URI'),
             mapAssetsBaseUrl: String.fromEnvironment('MAP_ASSETS_BASE_URL'),
@@ -25,6 +38,8 @@ class MapaPage extends StatelessWidget {
               diagnostics: bool.fromEnvironment('CAMPUS_MAP_DIAGNOSTICS'),
             ),
           ),
+          // Remota primeiro; o snapshot local do pacote cobre a API fora do ar.
+          remotePlaceRepository: _placeRepository,
         ),
       ),
       bottomNavigationBar: AppBottomNavigation(
