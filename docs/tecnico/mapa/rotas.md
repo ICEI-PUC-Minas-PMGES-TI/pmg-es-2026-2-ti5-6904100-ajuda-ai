@@ -95,7 +95,15 @@ e os dados do PUCMaps (docker `pucmaps-postgres`, versão 12), em leitura.
 | Prédio sem nó | nó com saída mais próximo do contorno, até **50 m**, a 1,4 m/s | `proximidade` |
 | Coordenada | aresta com geometria mais próxima até **30 m** (o raio do PUCMaps); no modo acessível, só arestas acessíveis. Segue para o fim da aresta e, se existir a aresta contrária, também para o início, com custo proporcional | `caminho` |
 | Coordenada sem caminho a 30 m, mas dentro de um prédio com nós | as entradas desse prédio | `entrada` |
-| Coordenada sem caminho a 30 m e fora de prédio | erro 422 `origem-fora` | — |
+| Coordenada sem caminho a 30 m e fora de prédio | erro 422 `origem-fora` (ou `destino-fora`) | — |
+
+Destino por coordenada (Tarefa 11, eventos/restaurantes/áreas) usa o mesmo
+encaixe, invertido: chega a um extremo da aresta e anda por ela até a
+projeção e daí ao ponto, respeitando o sentido (o extremo final só vale se
+existir a aresta contrária). Destino dentro do prédio de origem ou a menos de
+10 m da origem: 422 `mesmo-local`. Origem e destino encaixados na **mesma
+aresta**: a rota anda direto entre as duas projeções (sem ir até um nó e
+voltar); no sentido contrário só se a aresta de volta existir.
 
 Projeção do ponto na aresta em plano equirretangular local (erro desprezível
 na escala do campus). A geometria da resposta começa no ponto do usuário,
@@ -230,8 +238,10 @@ banco deste projeto, e já desatualizadas em relação ao próprio código de l�
 
 ## Limitações
 
-- Destino só prédio (sem áreas, salas ou coordenada); origem: posição atual
-  (no app) ou prédio (na API).
+- Destino prédio (por id) ou coordenada (eventos, restaurantes, áreas e
+  salas pela posição); origem: posição atual (no app) ou prédio (na API).
+  Área como polígono de chegada (entrar pela borda mais próxima) não é
+  modelada: usa-se o ponto da área.
 - Sem navegação passo a passo, recálculo ao andar, ETA dinâmico ou seguir o
   usuário.
 - Andares e acessibilidade interna dos prédios não modelados.

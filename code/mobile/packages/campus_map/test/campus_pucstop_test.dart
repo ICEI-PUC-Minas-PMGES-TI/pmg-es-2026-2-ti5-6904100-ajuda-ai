@@ -260,41 +260,38 @@ void main() {
       expect(controller.pucStop(_biblioteca.id), isNull);
     });
 
-    test(
-      'recarregar reflete a coordenação: criado aparece, movido muda, inativo some',
-      () async {
-        service.stops = [];
-        await controller.loadPucStops();
-        expect(controller.pucStops.value, isEmpty);
+    test('recarregar reflete a coordenação: criado aparece, movido muda, inativo some', () async {
+      service.stops = [];
+      await controller.loadPucStops();
+      expect(controller.pucStops.value, isEmpty);
 
-        // Criado pela coordenação.
-        service.stops = [_biblioteca];
-        await controller.reloadPucStops();
-        expect(controller.pucStops.value, [_biblioteca]);
+      // Criado pela coordenação.
+      service.stops = [_biblioteca];
+      await controller.reloadPucStops();
+      expect(controller.pucStops.value, [_biblioteca]);
 
-        // Reposicionado (mesmo id, outra posição e XP).
-        final movida = CampusPucStop(
-          id: _biblioteca.id,
-          name: _biblioteca.name,
-          longitude: -43.9935,
-          latitude: -19.9221,
-          radiusMeters: 30,
-          xp: 80,
-        );
-        service.stops = [movida, _medicina];
-        await controller.reloadPucStops();
-        expect(controller.pucStop(_biblioteca.id)?.longitude, -43.9935);
-        expect(controller.pucStop(_biblioteca.id)?.xp, 80);
+      // Reposicionado (mesmo id, outra posição e XP).
+      final movida = CampusPucStop(
+        id: _biblioteca.id,
+        name: _biblioteca.name,
+        longitude: -43.9935,
+        latitude: -19.9221,
+        radiusMeters: 30,
+        xp: 80,
+      );
+      service.stops = [movida, _medicina];
+      await controller.reloadPucStops();
+      expect(controller.pucStop(_biblioteca.id)?.longitude, -43.9935);
+      expect(controller.pucStop(_biblioteca.id)?.xp, 80);
 
-        // Card aberto num PucStop que a coordenação desativa: fecha.
-        controller.selectPucStop(_medicina.id);
-        service.stops = [movida];
-        await controller.reloadPucStops();
-        expect(controller.pucStop(_medicina.id), isNull);
-        expect(controller.selectedPucStop.value, isNull);
-        expect(service.listCalls, 4);
-      },
-    );
+      // Card aberto num PucStop que a coordenação desativa: fecha.
+      controller.selectPucStop(_medicina.id);
+      service.stops = [movida];
+      await controller.reloadPucStops();
+      expect(controller.pucStop(_medicina.id), isNull);
+      expect(controller.selectedPucStop.value, isNull);
+      expect(service.listCalls, 4);
+    });
 
     test('recarregar sem rede mantém a lista anterior', () async {
       await controller.loadPucStops();
@@ -303,15 +300,18 @@ void main() {
       expect(controller.pucStops.value, [_biblioteca, _medicina]);
     });
 
-    test('coleta funciona para PucStop criado depois de abrir o mapa', () async {
-      service.stops = [];
-      await controller.loadPucStops();
-      service.stops = [_biblioteca];
-      await controller.reloadPucStops();
-      final result = await controller.claimPucStop(_biblioteca.id);
-      expect(result.claim?.pucStopId, _biblioteca.id);
-      expect(controller.collectedPucStops.value, {_biblioteca.id});
-    });
+    test(
+      'coleta funciona para PucStop criado depois de abrir o mapa',
+      () async {
+        service.stops = [];
+        await controller.loadPucStops();
+        service.stops = [_biblioteca];
+        await controller.reloadPucStops();
+        final result = await controller.claimPucStop(_biblioteca.id);
+        expect(result.claim?.pucStopId, _biblioteca.id);
+        expect(controller.collectedPucStops.value, {_biblioteca.id});
+      },
+    );
 
     test('coletados indisponíveis não impedem a lista', () async {
       service.collectedError = Exception('401');
@@ -672,7 +672,7 @@ class _Routes implements CampusRouteService {
   @override
   Future<CampusRoute> route({
     required CampusUserLocation origin,
-    required String destinationId,
+    required CampusRouteTarget destination,
     required bool accessible,
   }) => throw const CampusRouteException(CampusRouteFailure.unavailable);
 }

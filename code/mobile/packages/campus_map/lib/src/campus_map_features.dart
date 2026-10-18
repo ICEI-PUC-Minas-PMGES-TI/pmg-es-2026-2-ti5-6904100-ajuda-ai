@@ -1,6 +1,6 @@
 /// Recursos opcionais do mapa. Implementados: [enable3d], [vegetation],
-/// [props], [pucStops] e [diagnostics]; as demais flags são contrato futuro e
-/// não ativam nada.
+/// [props], [pucStops], [events], [canteens] e [diagnostics]; [routes] é
+/// contrato futuro e não ativa nada (a rota depende só do serviço).
 class CampusMapFeatures {
   const CampusMapFeatures({
     this.enable3d = false,
@@ -28,7 +28,13 @@ class CampusMapFeatures {
   /// PucStops (pontos 2D sempre; totem 3D com [enable3d] e manifesto). Exige
   /// um `CampusPucStopService` na view.
   final bool pucStops;
+
+  /// Eventos ativos da coordenação (pontos 2D, lista e card). Exige um
+  /// `CampusContentService` na view.
   final bool events;
+
+  /// Restaurantes e cardápio do dia ("Onde comer"). Exige um
+  /// `CampusContentService` na view.
   final bool canteens;
 
   /// Painel técnico de medição (FPS do mapa, draw calls, memória, downloads,

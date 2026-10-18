@@ -47,7 +47,10 @@ export class CalcularRotaDto {
   @Type(() => PontaRotaDto)
   origem!: PontaRotaDto;
 
-  /** Nesta fase o destino é sempre um prédio (`id`). */
+  /**
+   * Prédio (`id`) ou coordenada: evento, restaurante ou área fora de prédio
+   * (encaixado no caminho mais próximo, como a origem).
+   */
   @IsDefined()
   @IsObject()
   @ValidateNested()

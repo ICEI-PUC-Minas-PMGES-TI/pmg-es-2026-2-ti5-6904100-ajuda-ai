@@ -1,3 +1,4 @@
+import 'package:ajuda_ai/services/campus_conteudo_api.dart';
 import 'package:ajuda_ai/services/mapa_api.dart';
 import 'package:ajuda_ai/services/pucstops_api.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
@@ -31,6 +32,11 @@ void main() {
     expect(map.config.features.pucStops, isTrue);
     expect(map.pucStopService, isA<MapaApiPucStopService>());
     expect(map.onPucStopClaimed, isNotNull);
+    // Eventos e "Onde comer" pela API pública; PDF do cardápio fora do app.
+    expect(map.config.features.events, isTrue);
+    expect(map.config.features.canteens, isTrue);
+    expect(map.contentService, isA<MapaApiCampusContentService>());
+    expect(map.openExternalUrl, isNotNull);
     expect(find.textContaining('Mapa indisponível'), findsOneWidget);
     expect(find.text('Mapa em breve'), findsNothing);
     final navigation = tester.widget<AppBottomNavigation>(

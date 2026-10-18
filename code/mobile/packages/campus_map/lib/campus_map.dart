@@ -14,6 +14,8 @@ export 'src/campus_map_controller.dart';
 export 'src/campus_map_controls.dart';
 export 'src/campus_route.dart';
 export 'src/campus_pucstop.dart';
+export 'src/campus_content.dart';
+export 'src/campus_content_format.dart';
 export 'src/three_d/campus_model_manifest.dart'
     show
         CampusModelManifestSource,

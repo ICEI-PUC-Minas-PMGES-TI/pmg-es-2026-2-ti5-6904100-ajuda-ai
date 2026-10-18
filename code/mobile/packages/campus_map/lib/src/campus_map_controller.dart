@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
+import 'campus_content.dart';
 import 'campus_location_service.dart';
 import 'campus_place.dart';
 import 'campus_place_repository.dart';
@@ -84,6 +87,21 @@ class CampusPucStopResult {
   final bool cancelled;
 }
 
+/// Estado de uma lista de conteúdo (eventos ou restaurantes) para a tela.
+enum CampusContentStatus {
+  /// Ainda não pedida.
+  idle,
+
+  /// Primeira carga em andamento (sem lista anterior).
+  loading,
+
+  /// Lista válida (pode ser vazia).
+  ready,
+
+  /// Falhou sem lista anterior: a tela oferece "Tentar novamente".
+  failed,
+}
+
 /// Um controller por tela. Não armazena posição nem estado global.
 class CampusMapController {
   CampusMapController({
@@ -91,6 +109,7 @@ class CampusMapController {
     CampusLocationService? locationService,
     this.routeService,
     this.pucStopService,
+    this.contentService,
   }) : placeRepository = placeRepository ?? LocalCampusPlaceRepository(),
        locationService = locationService ?? GeolocatorCampusLocationService();
 
@@ -112,11 +131,38 @@ class CampusMapController {
   /// PucStop tocado no mapa (abre o card); `null` fecha.
   final ValueNotifier<String?> selectedPucStop = ValueNotifier(null);
 
+  /// Sem serviço não há eventos nem restaurantes no mapa.
+  final CampusContentService? contentService;
+
+  /// Eventos ativos e restaurantes carregados por [loadContent].
+  final ValueNotifier<List<CampusEvent>> events = ValueNotifier(const []);
+  final ValueNotifier<List<CampusRestaurant>> restaurants = ValueNotifier(
+    const [],
+  );
+  final ValueNotifier<CampusContentStatus> eventsStatus = ValueNotifier(
+    CampusContentStatus.idle,
+  );
+  final ValueNotifier<CampusContentStatus> restaurantsStatus = ValueNotifier(
+    CampusContentStatus.idle,
+  );
+
+  /// Evento/restaurante aberto no card. Um card por vez: exclusivo com o do
+  /// PucStop (e a tela fecha a busca/rota ao abrir).
+  final ValueNotifier<CampusContent?> selectedContent = ValueNotifier(null);
+
+  /// Altura medida do card de evento/restaurante (0 = fechado ou ainda não
+  /// medido). A câmera reserva esse rodapé ao focar o local e ao enquadrar a
+  /// rota, para o ponto e o fim da rota não ficarem sob o card.
+  final ValueNotifier<double> contentCardHeight = ValueNotifier(0);
+
   CampusMapCamera? _camera;
   bool _disposed = false;
   Future<CampusLocationResult>? _locating;
   Future<void>? _loadingPucStops;
   Future<void>? _reloadingPucStops;
+  Future<void>? _loadingContent;
+  Future<void>? _reloadingContent;
+  int _contentRequest = 0;
   int _revision = 0;
   int _locationRequest = 0;
   int _routeRequest = 0;
@@ -192,10 +238,35 @@ class CampusMapController {
 
   bool get canRoute => routeService != null;
 
-  /// Rota a pé da posição atual até [placeId]. Um pedido novo, [clearRoute]
-  /// ou a saída da tela cancelam o anterior (resultado `cancelled`).
-  Future<CampusRouteResult> routeTo(
-    String placeId, {
+  /// Rota a pé da posição atual até o prédio [placeId]. Um pedido novo,
+  /// [clearRoute] ou a saída da tela cancelam o anterior (`cancelled`).
+  Future<CampusRouteResult> routeTo(String placeId, {bool accessible = false}) {
+    final CampusRouteTarget target;
+    try {
+      target = CampusRouteTarget.place(placeId);
+    } on ArgumentError {
+      // Id que o backend não aceita como prédio (ex.: UUID de área).
+      _routeRequest++;
+      return Future.value(
+        const CampusRouteResult.failed(
+          CampusRouteFailure.destinationUnavailable,
+        ),
+      );
+    }
+    return routeToTarget(target, accessible: accessible);
+  }
+
+  /// Rota até um lugar da busca: prédio pelo id; área e sala pelo centro.
+  Future<CampusRouteResult> routeToPlace(
+    CampusPlace place, {
+    bool accessible = false,
+  }) =>
+      routeToTarget(CampusRouteTarget.forPlace(place), accessible: accessible);
+
+  /// Rota até [destination] (prédio ou coordenada), com o mesmo cancelamento
+  /// de [routeTo].
+  Future<CampusRouteResult> routeToTarget(
+    CampusRouteTarget destination, {
     bool accessible = false,
   }) async {
     final service = routeService;
@@ -232,7 +303,7 @@ class CampusMapController {
     try {
       route = await service.route(
         origin: origin,
-        destinationId: placeId,
+        destination: destination,
         accessible: accessible,
       );
     } on CampusRouteException catch (erro) {
@@ -325,7 +396,144 @@ class CampusMapController {
   void selectPucStop(String? id) {
     if (_disposed) return;
     _pucStopRequest++;
+    // Um card por vez.
+    if (id != null) selectedContent.value = null;
     selectedPucStop.value = id;
+  }
+
+  bool get hasContent => contentService != null;
+
+  /// Item atual da lista (por tipo e id); `null` se saiu da lista.
+  CampusContent? content(CampusContentKind kind, String id) {
+    final List<CampusContent> items = switch (kind) {
+      CampusContentKind.event => events.value,
+      CampusContentKind.restaurant => restaurants.value,
+    };
+    for (final item in items) {
+      if (item.id == id) return item;
+    }
+    return null;
+  }
+
+  /// Abre (ou fecha, com `null`) o card de um evento/restaurante. Fecha o
+  /// card do PucStop.
+  void selectContent(CampusContent? item) {
+    if (_disposed) return;
+    if (item != null && selectedPucStop.value != null) selectPucStop(null);
+    if (item == null) contentCardHeight.value = 0;
+    selectedContent.value = item;
+  }
+
+  /// Uma vez por controller (nova tentativa só depois de falha). Falha não é
+  /// erro de mapa: sem rede o mapa segue sem eventos e restaurantes.
+  Future<void> loadContent() => _loadingContent ??= _loadContent();
+
+  /// Busca de novo (app voltou ao primeiro plano ou "Tentar novamente"):
+  /// evento criado/encerrado ou restaurante alterado pela coordenação
+  /// aparece, muda ou some sem reabrir o mapa. Falha mantém a lista anterior.
+  Future<void> reloadContent() {
+    if (_disposed || contentService == null) return Future.value();
+    return _reloadingContent ??= _loadingContent = _loadContent().whenComplete(
+      () => _reloadingContent = null,
+    );
+  }
+
+  Future<void> _loadContent() async {
+    final service = contentService;
+    if (service == null || _disposed) return;
+    final request = ++_contentRequest;
+    // Resposta de um pedido mais antigo não sobrescreve a de um mais novo.
+    bool stale() => _disposed || request != _contentRequest;
+    final results = await Future.wait([
+      _loadList(service.events, events, eventsStatus, stale),
+      _loadList(service.restaurants, restaurants, restaurantsStatus, stale),
+    ]);
+    if (stale()) return;
+    if (results.contains(false)) _loadingContent = null;
+    // Card aberto: troca pelo item novo, ou fecha se ele saiu da lista.
+    final selected = selectedContent.value;
+    if (selected != null) {
+      final current = content(selected.kind, selected.id);
+      if (current == null) {
+        selectContent(null);
+      } else if (!identical(current, selected)) {
+        selectedContent.value = current;
+      }
+    }
+  }
+
+  Future<bool> _loadList<T>(
+    Future<List<T>> Function() load,
+    ValueNotifier<List<T>> target,
+    ValueNotifier<CampusContentStatus> status,
+    bool Function() stale,
+  ) async {
+    if (status.value != CampusContentStatus.ready) {
+      status.value = CampusContentStatus.loading;
+    }
+    try {
+      final items = await load();
+      if (stale()) return true;
+      target.value = List.unmodifiable(items);
+      status.value = CampusContentStatus.ready;
+      return true;
+    } catch (_) {
+      if (stale()) return true;
+      if (status.value != CampusContentStatus.ready) {
+        status.value = CampusContentStatus.failed;
+      }
+      return false;
+    }
+  }
+
+  /// Leva a câmera até o item (sem posição: [ArgumentError]).
+  Future<void> focusContent(CampusContent item) async {
+    final camera = _camera;
+    if (_disposed || camera == null) {
+      throw StateError('Mapa ainda indisponível.');
+    }
+    final center = item.location?.center;
+    if (center == null) throw ArgumentError('Local sem posição no mapa.');
+    await camera.focus(
+      CampusPlace(id: item.id, name: item.title, center: center),
+    );
+  }
+
+  /// Rota até o local do item, pelo alvo informado pelo servidor.
+  Future<CampusRouteResult> routeToContent(
+    CampusContent item, {
+    bool accessible = false,
+  }) {
+    final target = item.location?.routeTarget;
+    if (target == null) {
+      _routeRequest++;
+      return Future.value(
+        const CampusRouteResult.failed(
+          CampusRouteFailure.destinationUnavailable,
+        ),
+      );
+    }
+    return routeToTarget(target, accessible: accessible);
+  }
+
+  /// Cardápio vigente hoje; `null` sem cardápio. Lança
+  /// [CampusContentException]. Restaurante desativado (`notFound`) recarrega
+  /// a lista, o que fecha o card.
+  Future<CampusMenu?> menuFor(String restaurantId) async {
+    final service = contentService;
+    if (_disposed || service == null) {
+      throw const CampusContentException(CampusContentFailure.offline);
+    }
+    try {
+      return await service.menu(restaurantId);
+    } on CampusContentException catch (erro) {
+      if (erro.failure == CampusContentFailure.notFound && !_disposed) {
+        unawaited(reloadContent());
+      }
+      rethrow;
+    } catch (_) {
+      throw const CampusContentException(CampusContentFailure.offline);
+    }
   }
 
   /// Uma leitura de GPS sob demanda (distância no card), sem mover a câmera
@@ -406,5 +614,11 @@ class CampusMapController {
     pucStops.dispose();
     collectedPucStops.dispose();
     selectedPucStop.dispose();
+    events.dispose();
+    restaurants.dispose();
+    eventsStatus.dispose();
+    restaurantsStatus.dispose();
+    selectedContent.dispose();
+    contentCardHeight.dispose();
   }
 }

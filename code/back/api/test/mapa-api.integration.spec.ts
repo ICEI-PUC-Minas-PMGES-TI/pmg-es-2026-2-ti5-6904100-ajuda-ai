@@ -451,6 +451,34 @@ describe.skipIf(!URL_TESTE)('API do mapa (PostGIS + unaccent reais)', () => {
     expect(sqls.join(' ')).not.toContain('19.92255');
   });
 
+  it('POST /mapa/rotas: destino por coordenada (cantina P16) no grafo real', async () => {
+    const { body } = await http()
+      .post('/mapa/rotas')
+      .send({
+        origem: { id: 'P26' },
+        destino: { latitude: -19.92260803, longitude: -43.99299141 },
+      })
+      .expect(200);
+    expect(body.destino).toMatchObject({
+      tipo: 'coordenada',
+      latitude: -19.92260803,
+      longitude: -43.99299141,
+    });
+    expect(['caminho', 'entrada']).toContain(body.destino.conexao);
+    expect(body.geometria.coordinates.at(-1)).toEqual([
+      -43.99299141, -19.92260803,
+    ]);
+    expect(body.distanciaMetros).toBeGreaterThan(100);
+    // Mesmo destino por prédio: distância da mesma ordem (entra pelo P16).
+    const porPredio = await http()
+      .post('/mapa/rotas')
+      .send({ origem: { id: 'P26' }, destino: { id: 'P16' } })
+      .expect(200);
+    expect(
+      Math.abs(porPredio.body.distanciaMetros - body.distanciaMetros),
+    ).toBeLessThan(120);
+  });
+
   it('POST /mapa/rotas: 400, 404 e 422', async () => {
     const post = (corpo: object) => http().post('/mapa/rotas').send(corpo);
     await post({ origem: { id: 'P26' } }).expect(400);
@@ -461,10 +489,12 @@ describe.skipIf(!URL_TESTE)('API do mapa (PostGIS + unaccent reais)', () => {
     await post({ origem: { id: 'P26' }, destino: { id: 'P26' }, x: 1 }).expect(
       400,
     );
-    await post({
+    // Destino por coordenada é aceito; longe de qualquer caminho, 422.
+    const destinoLonge = await post({
       origem: { id: 'P26' },
-      destino: { latitude: -19.92, longitude: -43.99 },
-    }).expect(400);
+      destino: { latitude: -19.932, longitude: -43.938 },
+    }).expect(422);
+    expect(destinoLonge.body.motivo).toBe('destino-fora');
     await post({ origem: { id: 'P999' }, destino: { id: 'P26' } }).expect(404);
     await post({
       origem: { id: 'P26' },

@@ -10,6 +10,7 @@ import {
 } from './config/seguranca.js';
 import { AvisosModule } from './avisos/avisos.module.js';
 import { CadastroModule } from './cadastro/cadastro.module.js';
+import { CampusModule } from './campus/campus.module.js';
 import { CoordenacaoModule } from './coordenacao/coordenacao.module.js';
 import { FormulariosModule } from './formularios/formularios.module.js';
 import { GamificacaoModule } from './gamificacao/gamificacao.module.js';
@@ -105,6 +106,7 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
     CoordenacaoModule,
     MapaModule,
     GamificacaoModule,
+    CampusModule,
   ],
 })
 export class AppModule {}

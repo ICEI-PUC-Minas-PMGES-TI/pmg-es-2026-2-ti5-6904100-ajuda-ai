@@ -1,7 +1,11 @@
 # API pública do mapa
 
-> Estado: ATUAL (Tarefas 8, 9 e 10). Somente leitura da versão ativa: dados,
+> Estado: ATUAL (Tarefas 8 a 11). Somente leitura da versão ativa: dados,
 > busca e rotas a pé (`POST /mapa/rotas`, que calcula sem gravar nada).
+> Eventos e restaurantes/cardápios (Tarefa 11) ficam no `CampusModule`:
+> leitura pública em `/mapa/eventos` e `/mapa/restaurantes`; administração em
+> `/coordenacao/eventos`, `/coordenacao/restaurantes` e
+> `/coordenacao/cardapios` (ver [eventos-cantinas.md](eventos-cantinas.md#api)).
 > PucStops (Tarefa 10) ficam no `GamificacaoModule`: leitura pública em
 > `/mapa/pucstops` e a única escrita ligada ao mapa, a coleta autenticada
 > (`POST /mapa/pucstops/:id/claim`). Criar/editar/desativar PucStops é só da
@@ -51,6 +55,11 @@ global (como o resto da API). Dados: schema `mapa`, versão `ativa`
 | `GET /mapa/pucstops/:id` | `PucStopDto` | 404 |
 | `POST /mapa/pucstops/:id/claim` (JWT) | `ColetaPucStopDto` (201) | 400; 401; 403; 404; 409 `ja-coletado`; 422 `fora-do-alcance`/`inativo`/`precisao-insuficiente` |
 | `GET /me/xp`, `GET /me/xp/movimentacoes`, `GET /me/pucstops` (JWT) | XP e coletas do próprio usuário | 400; 401; 403 |
+| `GET /mapa/eventos` | `EventoDto[]` (ativos que não acabaram, por início) | — |
+| `GET /mapa/eventos/:id` | `EventoDto` | 404 |
+| `GET /mapa/restaurantes` | `RestauranteDto[]` (ativos) | — |
+| `GET /mapa/restaurantes/:id` | `RestauranteDto` | 404 |
+| `GET /mapa/restaurantes/:id/cardapio?data=` | `{data, cardapio \| null}` | 400 data inválida; 404 |
 
 503: `{"message": "Mapa indisponível: nenhuma versão ativa.", ...}`. Erros
 seguem o formato padrão do Nest (`message`, `error`, `statusCode`).
@@ -121,7 +130,7 @@ que vai no corpo (fora da URL e de logs de acesso) e não é gravada.
 
 ```jsonc
 // POST /mapa/rotas — origem: { "id" } OU { "latitude", "longitude" };
-// destino: { "id" } de prédio; acessivel opcional (padrão false)
+// destino: { "id" } de prédio OU { "latitude", "longitude" }; acessivel opcional (padrão false)
 { "origem": { "latitude": -19.92255, "longitude": -43.99165 },
   "destino": { "id": "P26" }, "acessivel": false }
 
@@ -142,11 +151,14 @@ que vai no corpo (fora da URL e de logs de acesso) e não é gravada.
 
 - `conexao`: `entrada` (nós do prédio), `caminho` (encaixe numa aresta até
   30 m), `proximidade` (prédio sem nó próprio: nó mais próximo até 50 m).
-- `motivo` (422): `origem-fora`, `mesmo-local`, `sem-caminho`,
-  `predio-sem-conexao`.
+- `motivo` (422): `origem-fora`, `destino-fora`, `mesmo-local`,
+  `sem-caminho`, `predio-sem-conexao`.
 - 400: `id` e coordenada juntos ou nenhum; coordenada incompleta, fora de
-  ±90/±180 ou em texto; `id` fora de `[A-Za-z0-9_]{1,64}`; destino por
-  coordenada; `acessivel` não booleano; campo desconhecido.
+  ±90/±180 ou em texto; `id` fora de `[A-Za-z0-9_]{1,64}`; `acessivel` não
+  booleano; campo desconhecido.
+- Destino por coordenada (Tarefa 11): evento, restaurante, área ou ponto —
+  o app usa `local.rota` de `/mapa/eventos` e `/mapa/restaurantes`
+  ([eventos-cantinas.md](eventos-cantinas.md#rotas-até-o-local)).
 
 ## Cliente Flutter
 
@@ -215,7 +227,8 @@ em [rotas.md](rotas.md#medições-17102026).
 
 ## Limitações
 
-- O grafo não é exposto; rotas só até prédio; sem ETA dinâmico nem pgRouting
+- O grafo não é exposto; destino é prédio ou coordenada (área/sala pela
+  coordenada); sem ETA dinâmico nem pgRouting
   (ver [rotas.md](rotas.md#limitações)).
 - Sem salas reais; `/mapa/salas` existe para estabilizar o contrato.
 - A busca dispara a cada tecla (como antes); sem debounce. Com ~18 ms por busca

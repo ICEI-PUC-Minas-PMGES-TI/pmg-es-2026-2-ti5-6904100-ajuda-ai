@@ -1,8 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
+import 'campus_content.dart';
+import 'campus_content_widgets.dart';
 import 'campus_location_service.dart';
 import 'campus_map_controller.dart';
 import 'campus_place.dart';
@@ -15,11 +18,22 @@ class CampusMapControls extends StatefulWidget {
     super.key,
     required this.controller,
     this.onPucStopClaimed,
+    this.showEvents = true,
+    this.showRestaurants = true,
+    this.openExternalUrl,
   });
   final CampusMapController controller;
 
   /// Coleta confirmada pelo servidor (gancho para XP do app e som).
   final ValueChanged<CampusPucStopClaim>? onPucStopClaimed;
+
+  /// Atalhos "Eventos" e "Onde comer" (só com serviço de conteúdo).
+  final bool showEvents;
+  final bool showRestaurants;
+
+  /// Abre o cardápio em PDF fora do app; sem ele (ou se falhar) o link
+  /// aparece para copiar.
+  final Future<bool> Function(Uri url)? openExternalUrl;
 
   @override
   State<CampusMapControls> createState() => _CampusMapControlsState();
@@ -48,6 +62,11 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   _PucStopView _pucStop = const _PucStopView();
   int _pucStopRequest = 0;
 
+  /// Evento/restaurante no card (espelha `controller.selectedContent`).
+  CampusContent? _content;
+  bool _loadingMenu = false;
+  int _menuRequest = 0;
+
   @override
   void initState() {
     super.initState();
@@ -57,12 +76,14 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   void _listen(CampusMapController controller) {
     controller.selectedPucStop.addListener(_onPucStopSelected);
     controller.collectedPucStops.addListener(_onCollectedChanged);
+    controller.selectedContent.addListener(_onContentSelected);
   }
 
   void _unlisten(CampusMapController controller) {
     try {
       controller.selectedPucStop.removeListener(_onPucStopSelected);
       controller.collectedPucStops.removeListener(_onCollectedChanged);
+      controller.selectedContent.removeListener(_onContentSelected);
     } catch (_) {
       // Controller já descartado pelo dono.
     }
@@ -73,6 +94,7 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     _request++;
     _routeRequest++;
     _pucStopRequest++;
+    _menuRequest++;
     _unlisten(widget.controller);
     _text.dispose();
     _focus.dispose();
@@ -87,7 +109,10 @@ class _CampusMapControlsState extends State<CampusMapControls> {
       _listen(widget.controller);
       _request++;
       _pucStopRequest++;
+      _menuRequest++;
       _pucStopId = null;
+      _content = null;
+      _loadingMenu = false;
       _clear();
     }
   }
@@ -115,6 +140,117 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   }
 
   void _closePucStop() => widget.controller.selectPucStop(null);
+
+  void _onContentSelected() {
+    final item = widget.controller.selectedContent.value;
+    if (!mounted) return;
+    final previous = _content;
+    // Mesmo item atualizado pela recarga: só redesenha (rota continua).
+    if (item != null &&
+        previous != null &&
+        item.kind == previous.kind &&
+        item.id == previous.id) {
+      setState(() => _content = item);
+      return;
+    }
+    if (item == null && previous == null) return;
+    _menuRequest++;
+    // Um card por vez: trocar/fechar o item fecha a rota e a busca.
+    _request++;
+    _focus.unfocus();
+    _closeRoute();
+    setState(() {
+      _content = item;
+      _loadingMenu = false;
+      _expanded = false;
+    });
+  }
+
+  /// Altura do card de conteúdo na tela (para a câmera não esconder o local).
+  void _medirCardConteudo(double altura) {
+    if (!mounted || _content == null) return;
+    widget.controller.contentCardHeight.value = altura;
+  }
+
+  void _closeContent() => widget.controller.selectContent(null);
+
+  Future<void> _openList(CampusContentKind kind) async {
+    _focus.unfocus();
+    setState(() => _expanded = false);
+    final item = await showModalBottomSheet<CampusContent>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) =>
+          CampusContentSheet(controller: widget.controller, kind: kind),
+    );
+    if (!mounted || item == null) return;
+    // Item pode ter sido trocado por uma recarga enquanto a lista estava aberta.
+    final current = widget.controller.content(item.kind, item.id) ?? item;
+    widget.controller.selectContent(current);
+    if (current.location?.hasPosition == true) await _focusContent();
+  }
+
+  Future<void> _focusContent() async {
+    final item = _content;
+    if (item == null) return;
+    try {
+      await widget.controller.focusContent(item);
+    } catch (_) {
+      if (mounted) _message('Não foi possível focar o local. Tente novamente.');
+    }
+  }
+
+  Future<void> _openMenu() async {
+    final item = _content;
+    if (item is! CampusRestaurant || _loadingMenu) return;
+    final request = ++_menuRequest;
+    setState(() => _loadingMenu = true);
+    CampusMenu? menu;
+    CampusContentFailure? failure;
+    try {
+      menu = await widget.controller.menuFor(item.id);
+    } on CampusContentException catch (erro) {
+      failure = erro.failure;
+    } catch (_) {
+      failure = CampusContentFailure.offline;
+    }
+    if (!mounted || request != _menuRequest) return;
+    setState(() => _loadingMenu = false);
+    if (failure != null) {
+      _message(switch (failure) {
+        CampusContentFailure.notFound =>
+          'Este restaurante não está mais disponível.',
+        CampusContentFailure.offline =>
+          'Não foi possível carregar o cardápio. Verifique a conexão.',
+      });
+      return;
+    }
+    if (menu == null) {
+      _message('Sem cardápio publicado para hoje.');
+      return;
+    }
+    if (menu.isImage) {
+      await showDialog<void>(
+        context: context,
+        builder: (_) => CampusMenuImageViewer(restaurant: item, menu: menu!),
+      );
+      return;
+    }
+    // PDF: visualizador do aparelho; sem ele, o link para copiar.
+    var opened = false;
+    try {
+      opened = await widget.openExternalUrl?.call(menu.url) ?? false;
+    } catch (_) {
+      opened = false;
+    }
+    if (!mounted || opened) return;
+    final copied = await showDialog<bool>(
+      context: context,
+      builder: (_) => CampusMenuLinkDialog(menu: menu!),
+    );
+    if (mounted && copied == true) _message('Link copiado.');
+  }
 
   /// Uma leitura de GPS para mostrar a distância (dica de interface).
   Future<void> _measurePucStop() async {
@@ -244,6 +380,7 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     _focus.unfocus();
     _text.text = place.displayName;
     if (_pucStopId != null) _closePucStop();
+    if (_content != null) _closeContent();
     // Outro destino: a rota anterior não vale mais.
     _closeRoute();
     setState(() {
@@ -278,16 +415,20 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   }
 
   Future<void> _traceRoute() async {
+    final content = _content;
     final place = _selected;
-    if (place == null || _routing) return;
+    if ((content == null && place == null) || _routing) return;
     final request = ++_routeRequest;
     final accessible = _accessible;
     _focus.unfocus();
     setState(() => _routing = true);
-    final result = await widget.controller.routeTo(
-      place.id,
-      accessible: accessible,
-    );
+    // Prédio pelo id; área/sala da busca e conteúdo pela coordenada.
+    final result = content != null
+        ? await widget.controller.routeToContent(
+            content,
+            accessible: accessible,
+          )
+        : await widget.controller.routeToPlace(place!, accessible: accessible);
     if (!mounted || request != _routeRequest || result.cancelled) return;
     setState(() {
       _routing = false;
@@ -314,6 +455,8 @@ class _CampusMapControlsState extends State<CampusMapControls> {
             : 'Não há rota até este local.',
       CampusRouteFailure.destinationUnavailable =>
         'Este local ainda não tem rota disponível.',
+      CampusRouteFailure.destinationOutside =>
+        'Este local fica longe dos caminhos do campus.',
     });
   }
 
@@ -366,6 +509,37 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     }
   }
 
+  /// Atalhos leves sob a busca; somem enquanto há resultados abertos.
+  List<Widget> get _shortcuts {
+    if (!widget.controller.hasContent) return const [];
+    final colors = Theme.of(context).colorScheme;
+    Widget chip(String label, IconData icon, Key key, CampusContentKind kind) =>
+        ActionChip(
+          key: key,
+          avatar: Icon(icon, size: 18),
+          label: Text(label),
+          backgroundColor: colors.surface,
+          elevation: 2,
+          onPressed: () => _openList(kind),
+        );
+    return [
+      if (widget.showEvents)
+        chip(
+          'Eventos',
+          Icons.event,
+          const Key('campus-events-button'),
+          CampusContentKind.event,
+        ),
+      if (widget.showRestaurants)
+        chip(
+          'Onde comer',
+          Icons.restaurant,
+          const Key('campus-restaurants-button'),
+          CampusContentKind.restaurant,
+        ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -389,6 +563,28 @@ class _CampusMapControlsState extends State<CampusMapControls> {
               onClaim: _claimPucStop,
               onMeasure: _measurePucStop,
               onClose: _closePucStop,
+            ),
+          )
+        else if (_content case final item?)
+          Positioned(
+            left: 12,
+            right: 76, // Coluna do botão de localização.
+            bottom: 44,
+            child: _MedeAltura(
+              onAltura: _medirCardConteudo,
+              child: CampusContentCard(
+                item: item,
+                canRoute: widget.controller.canRoute,
+                route: _route,
+                routing: _routing,
+                accessible: _accessible,
+                loadingMenu: _loadingMenu,
+                onFocus: _focusContent,
+                onTrace: _traceRoute,
+                onAccessible: _setAccessible,
+                onMenu: _openMenu,
+                onClose: _closeContent,
+              ),
             ),
           )
         else if (_selected case final place? when widget.controller.canRoute)
@@ -447,6 +643,14 @@ class _CampusMapControlsState extends State<CampusMapControls> {
                   ),
                 ),
               ),
+              if (!_expanded && _shortcuts.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(spacing: 8, children: _shortcuts),
+                  ),
+                ),
               if (_expanded && !_searching)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
@@ -869,4 +1073,35 @@ String campusRouteSummary(CampusRoute route) {
       ? '${(meters / 10).round() * 10} m'
       : '${(meters / 1000).toStringAsFixed(1).replaceAll('.', ',')} km';
   return '$minutes min a pé · $distance';
+}
+
+/// Informa a altura do filho a cada layout que a muda (fora do layout).
+class _MedeAltura extends SingleChildRenderObjectWidget {
+  const _MedeAltura({required this.onAltura, required super.child});
+
+  final ValueChanged<double> onAltura;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderMedeAltura(onAltura);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderMedeAltura render) =>
+      render.onAltura = onAltura;
+}
+
+class _RenderMedeAltura extends RenderProxyBox {
+  _RenderMedeAltura(this.onAltura);
+
+  ValueChanged<double> onAltura;
+  double? _ultima;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    final altura = size.height;
+    if (altura == _ultima) return;
+    _ultima = altura;
+    WidgetsBinding.instance.addPostFrameCallback((_) => onAltura(altura));
+  }
 }

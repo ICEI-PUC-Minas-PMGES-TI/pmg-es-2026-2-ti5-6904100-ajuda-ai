@@ -9,8 +9,10 @@ import 'api_config.dart';
 /// `GET /mapa/predios/:id`). Sem login: são dados abertos do campus.
 ///
 /// Erro de rede ou de servidor é lançado: o `campus_map` então usa o
-/// snapshot local (`FallbackCampusPlaceRepository`). Os ids são as chaves
-/// estáveis do campus (`P01_R4751608`), as mesmas do snapshot.
+/// snapshot local (`FallbackCampusPlaceRepository`). Os ids de prédio são as
+/// chaves estáveis do campus (`P01_R4751608`), as mesmas do snapshot; área e
+/// sala têm id UUID e vão para a rota pela coordenada (o `tipo` vira
+/// [CampusPlace.kind]).
 class MapaApiPlaceRepository implements CampusPlaceRepository {
   MapaApiPlaceRepository({
     http.Client? client,
@@ -54,15 +56,26 @@ class MapaApiPlaceRepository implements CampusPlaceRepository {
         erroPadrao: 'Não foi possível carregar o local',
         timeout: timeout,
       );
-      return _lugar(decodificarJson(resposta));
+      // `/mapa/predios/:id` só devolve prédios (sem campo `tipo`).
+      return _lugar(
+        decodificarJson(resposta),
+        padrao: CampusPlaceKind.building,
+      );
     } on ApiException catch (erro) {
       if (erro.statusCode == 404) return null;
       rethrow;
     }
   }
 
-  /// Item fora do contrato é ignorado (não derruba a busca inteira).
-  static CampusPlace? _lugar(Object? item) {
+  static const _tipos = {
+    'predio': CampusPlaceKind.building,
+    'area': CampusPlaceKind.area,
+    'sala': CampusPlaceKind.room,
+  };
+
+  /// Item fora do contrato é ignorado (não derruba a busca inteira). Tipo
+  /// ausente ou desconhecido fica `null`: a rota decide pelo formato do id.
+  static CampusPlace? _lugar(Object? item, {CampusPlaceKind? padrao}) {
     if (item is! Map) return null;
     final id = item['id'];
     final latitude = item['latitude'];
@@ -74,6 +87,7 @@ class MapaApiPlaceRepository implements CampusPlaceRepository {
         name: item['nome'] as String?,
         code: item['codigo'] as String?,
         type: item['categoria'] as String?,
+        kind: _tipos[item['tipo']] ?? padrao,
         center: [longitude.toDouble(), latitude.toDouble()],
       );
     } on Object {
@@ -105,12 +119,23 @@ class MapaApiRouteService implements CampusRouteService {
     'mesmo-local': CampusRouteFailure.samePlace,
     'sem-caminho': CampusRouteFailure.noPath,
     'predio-sem-conexao': CampusRouteFailure.destinationUnavailable,
+    'destino-fora': CampusRouteFailure.destinationOutside,
   };
+
+  /// `destino` como o backend aceita: prédio por `id` ou coordenada.
+  static Map<String, Object> destinoJson(CampusRouteTarget destino) =>
+      switch (destino) {
+        CampusRoutePlace(:final id) => {'id': id},
+        CampusRouteCoordinate(:final latitude, :final longitude) => {
+          'latitude': latitude,
+          'longitude': longitude,
+        },
+      };
 
   @override
   Future<CampusRoute> route({
     required CampusUserLocation origin,
-    required String destinationId,
+    required CampusRouteTarget destination,
     required bool accessible,
   }) async {
     final http.Response resposta;
@@ -127,7 +152,7 @@ class MapaApiRouteService implements CampusRouteService {
                 'latitude': origin.latitude,
                 'longitude': origin.longitude,
               },
-              'destino': {'id': destinationId},
+              'destino': destinoJson(destination),
               'acessivel': accessible,
             }),
           )
@@ -156,7 +181,7 @@ class MapaApiRouteService implements CampusRouteService {
     if (!responseOk(status)) {
       throw const CampusRouteException(CampusRouteFailure.unavailable);
     }
-    final rota = _rota(corpo, destinationId);
+    final rota = _rota(corpo, destination.key);
     if (rota == null) {
       throw const CampusRouteException(CampusRouteFailure.unavailable);
     }

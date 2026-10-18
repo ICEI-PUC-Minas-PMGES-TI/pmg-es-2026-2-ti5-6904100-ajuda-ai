@@ -156,6 +156,22 @@ O status dos testes, do APK e da validação visual está em
 - XP real no perfil e na home. Ver [pucstops.md](pucstops.md) e
   [../gamificacao/xp.md](../gamificacao/xp.md).
 
+## Implementação atual — eventos, restaurantes e cardápios (Tarefa 11)
+
+- Inventário do admin Angular fechado ([administracao.md](administracao.md)):
+  PucStops, eventos e restaurantes/cardápios migrados para a web da
+  coordenação; versões/importação ficam no script; o resto foi substituído
+  ou descartado (sem app Angular paralelo).
+- `mapa.eventos`, `mapa.restaurantes`, `mapa.cardapios` (conteúdo da
+  coordenação, sem versão do mapa; local por prédio, área ou ponto). Nada
+  importado: o banco do PUCMaps estava vazio nesses domínios. Migration
+  aplicada no Supabase em 18/10/2026, com as tabelas vazias.
+- Cardápio é arquivo (imagem/PDF) com vigência no container
+  `restaurant-menus`, enviado pelo backend (sem SAS no front).
+- No app: listas de eventos e de onde comer, marcadores leves (sem GLB),
+  card com "Ver no mapa", "Traçar rota" (destino por prédio ou coordenada) e
+  "Ver cardápio". Ver [eventos-cantinas.md](eventos-cantinas.md).
+
 ## O que será aproveitado
 
 - Renderização de mapa via Mapbox, incluindo o estilo visual do campus.
@@ -163,7 +179,7 @@ O status dos testes, do APK e da validação visual está em
 - Busca de locais (prédios, salas, áreas).
 - Modelo de dados geoespacial: versões do mapa, prédios, salas, áreas, grafo de navegação (nós e arestas).
 - Cálculo de rotas, incluindo rota acessível, com snapping do ponto de origem/destino ao grafo.
-- Conceito de eventos e cantinas/cardápios, inicialmente como leitura.
+- Conceito de eventos e cantinas/cardápios (implementado na Tarefa 11, com administração pela coordenação).
 - Conceito de totens, reescrito como PucStops integrados ao XP central do Ajuda-aí.
 - Ferramentas de diagnóstico relevantes (ex.: painel de performance 3D), quando tiverem valor contínuo.
 

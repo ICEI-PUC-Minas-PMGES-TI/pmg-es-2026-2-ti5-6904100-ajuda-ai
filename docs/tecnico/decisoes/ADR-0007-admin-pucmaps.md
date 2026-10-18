@@ -1,6 +1,8 @@
 # ADR-0007 — Admin do PUCMaps
 
-> Estado: PLANEJADO (inventário inicial feito; nenhuma reimplementação realizada)
+> Estado: ACEITO E IMPLEMENTADO (inventário fechado na Tarefa 11; PucStops,
+> eventos e restaurantes/cardápios reimplementados no React da coordenação;
+> ver [mapa/administracao.md](../mapa/administracao.md))
 
 ## Contexto
 

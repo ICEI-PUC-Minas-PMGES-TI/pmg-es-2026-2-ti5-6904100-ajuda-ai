@@ -11,6 +11,8 @@ import type { ArestaGrafo, Grafo, PredioGrafo } from './grafo.js';
 
 /** Raio de encaixe de uma coordenada no grafo (mesmo valor do PUCMaps). */
 export const RAIO_ENCAIXE_M = 30;
+/** Origem e destino por coordenada mais perto que isto: já está no destino. */
+export const MESMO_LOCAL_M = 10;
 /**
  * Prédio sem nó próprio na origem (8 footprints só do OSM): usa o nó mais
  * próximo do contorno, até esta distância.
@@ -47,6 +49,7 @@ export interface RotaCalculada {
 export type FalhaRota =
   | 'predio-inexistente'
   | 'origem-fora'
+  | 'destino-fora'
   | 'predio-sem-conexao'
   | 'mesmo-local'
   | 'sem-caminho';
@@ -65,31 +68,78 @@ interface Encaixe {
   ponta: PontaResolvida;
   /** nó → custo até ele e trecho geométrico (da ponta até o nó). */
   nos: Map<string, { custo: Custo; trecho: Coordenada[] }>;
+  /** Coordenada encaixada numa aresta (para o caso das duas pontas na mesma). */
+  naAresta?: NaAresta;
+}
+
+interface NaAresta {
+  aresta: ArestaGrafo;
+  /** Aresta no sentido contrário (mesmos nós), se existir para o perfil. */
+  volta: ArestaGrafo | undefined;
+  proj: ReturnType<typeof projetarNaLinha>;
+  total: number;
 }
 
 export function calcularRota(
   grafo: Grafo,
   pedido: {
     origem: PontaRota;
-    destino: PontaRota & { tipo: 'predio' };
+    /** Prédio (`id`) ou coordenada (evento/restaurante fora de prédio). */
+    destino: PontaRota;
     acessivel: boolean;
   },
 ): RotaCalculada {
-  const destino = encaixarPredio(grafo, pedido.destino.predioId, 'destino');
+  const destino =
+    pedido.destino.tipo === 'predio'
+      ? encaixarPredio(grafo, pedido.destino.predioId, 'destino')
+      : encaixarCoordenada(
+          grafo,
+          pedido.destino.coordenada,
+          pedido.acessivel,
+          'destino',
+        );
   const origem =
     pedido.origem.tipo === 'predio'
       ? encaixarPredio(grafo, pedido.origem.predioId, 'origem')
-      : encaixarCoordenada(grafo, pedido.origem.coordenada, pedido.acessivel);
-  // Prédio de origem, ou coordenada dentro do prédio de destino.
+      : encaixarCoordenada(
+          grafo,
+          pedido.origem.coordenada,
+          pedido.acessivel,
+          'origem',
+        );
+  // Mesmo prédio (por id, ou coordenada dentro dele), ou duas coordenadas
+  // praticamente no mesmo ponto.
   if (
     origem.ponta.predio &&
-    origem.ponta.predio.id === destino.ponta.predio!.id
+    origem.ponta.predio.id === destino.ponta.predio?.id
   ) {
     throw new RotaImpossivel(
       'mesmo-local',
       'Origem e destino são o mesmo prédio.',
     );
   }
+  // Destino (coordenada) dentro do prédio de origem: já está lá.
+  const poligonoOrigem = origem.ponta.predio?.poligono;
+  if (
+    pedido.destino.tipo === 'coordenada' &&
+    poligonoOrigem &&
+    dentroDoPoligono(pedido.destino.coordenada, poligonoOrigem)
+  ) {
+    throw new RotaImpossivel(
+      'mesmo-local',
+      'O destino fica no mesmo prédio da origem.',
+    );
+  }
+  if (
+    pedido.origem.tipo === 'coordenada' &&
+    pedido.destino.tipo === 'coordenada' &&
+    distanciaMetros(pedido.origem.coordenada, pedido.destino.coordenada) <
+      MESMO_LOCAL_M
+  ) {
+    throw new RotaImpossivel('mesmo-local', 'Você já está no destino.');
+  }
+  const direta = mesmaAresta(origem, destino);
+  if (direta) return direta;
   const caminho = menorCaminho({
     grafo,
     origens: new Map([...origem.nos].map(([no, v]) => [no, v.custo])),
@@ -185,15 +235,17 @@ function encaixarPredio(
 
 /**
  * Coordenada → aresta mais próxima até [RAIO_ENCAIXE_M] (regra do PUCMaps),
- * partindo do ponto encaixado para os dois extremos dessa aresta com o custo
+ * ligando o ponto encaixado aos dois extremos dessa aresta com o custo
  * proporcional do trecho (o PUCMaps desenhava esse trecho mas não o somava).
- * Respeita a direção: um extremo só vale se houver aresta naquele sentido.
+ * Respeita a direção: na origem, um extremo só vale se der para andar do
+ * ponto até ele; no destino, se der para andar dele até o ponto.
  * Sem aresta próxima e dentro de um prédio: as entradas dele.
  */
 function encaixarCoordenada(
   grafo: Grafo,
   p: Coordenada,
   acessivel: boolean,
+  papel: 'origem' | 'destino',
 ): Encaixe {
   let melhor: {
     aresta: ArestaGrafo;
@@ -220,23 +272,43 @@ function encaixarCoordenada(
       tempo: proj.distancia / VELOCIDADE_MPS + base.tempo * fracao,
     });
     const nos = new Map<string, { custo: Custo; trecho: Coordenada[] }>();
-    // Para frente, pela própria aresta (origem → destino).
-    nos.set(aresta.destino, {
-      custo: ate(1 - proj.aoLongo / total, aresta),
-      trecho: [p, proj.ponto, ...linha.slice(proj.segmento + 1)],
-    });
-    // Para trás, só se existir a aresta no sentido contrário.
     const volta = (grafo.saidas.get(aresta.destino) ?? []).find(
       (e) => e.destino === aresta.origem && (!acessivel || e.acessivel),
     );
-    if (volta) {
-      const candidato = {
-        custo: ate(proj.aoLongo / total, volta),
-        trecho: [p, proj.ponto, ...linha.slice(0, proj.segmento + 1).reverse()],
-      };
-      const atual = nos.get(aresta.origem);
-      if (!atual || candidato.custo.tempo < atual.custo.tempo)
-        nos.set(aresta.origem, candidato);
+    const frente = linha.slice(proj.segmento + 1);
+    const tras = linha.slice(0, proj.segmento + 1);
+    if (papel === 'origem') {
+      // Ponto → extremo final, pela própria aresta (origem → destino).
+      nos.set(aresta.destino, {
+        custo: ate(1 - proj.aoLongo / total, aresta),
+        trecho: [p, proj.ponto, ...frente],
+      });
+      // Ponto → extremo inicial, só se existir a aresta no sentido contrário.
+      if (volta) {
+        const candidato = {
+          custo: ate(proj.aoLongo / total, volta),
+          trecho: [p, proj.ponto, ...tras.reverse()],
+        };
+        const atual = nos.get(aresta.origem);
+        if (!atual || candidato.custo.tempo < atual.custo.tempo)
+          nos.set(aresta.origem, candidato);
+      }
+    } else {
+      // Extremo inicial → ponto, pela própria aresta (origem → destino).
+      nos.set(aresta.origem, {
+        custo: ate(proj.aoLongo / total, aresta),
+        trecho: [...tras, proj.ponto, p],
+      });
+      // Extremo final → ponto, só se existir a aresta no sentido contrário.
+      if (volta) {
+        const candidato = {
+          custo: ate(1 - proj.aoLongo / total, volta),
+          trecho: [...frente.reverse(), proj.ponto, p],
+        };
+        const atual = nos.get(aresta.destino);
+        if (!atual || candidato.custo.tempo < atual.custo.tempo)
+          nos.set(aresta.destino, candidato);
+      }
     }
     return {
       ponta: {
@@ -246,6 +318,7 @@ function encaixarCoordenada(
         coordenada: p,
       },
       nos,
+      naAresta: { aresta, volta, proj, total },
     };
   }
   for (const predio of grafo.predios.values()) {
@@ -262,18 +335,68 @@ function encaixarCoordenada(
           coordenada: p,
         },
         nos: new Map(
-          predio.nos.map((no) => [
-            no,
-            { custo: zero(), trecho: [p, grafo.nos.get(no)!.coordenada] },
-          ]),
+          predio.nos.map((no) => {
+            const entrada = grafo.nos.get(no)!.coordenada;
+            return [
+              no,
+              {
+                custo: zero(),
+                trecho: papel === 'origem' ? [p, entrada] : [entrada, p],
+              },
+            ];
+          }),
         ),
       };
     }
   }
   throw new RotaImpossivel(
-    'origem-fora',
-    `A origem está a mais de ${RAIO_ENCAIXE_M} m de um caminho do campus.`,
+    papel === 'origem' ? 'origem-fora' : 'destino-fora',
+    `${papel === 'origem' ? 'A origem' : 'O destino'} está a mais de ${RAIO_ENCAIXE_M} m de um caminho do campus.`,
   );
+}
+
+/**
+ * Origem e destino por coordenada encaixados na mesma aresta: andar direto
+ * pela aresta entre as duas projeções, sem ir até um nó e voltar. Para trás
+ * só se existir a aresta no sentido contrário; senão, `null` (Dijkstra).
+ */
+function mesmaAresta(origem: Encaixe, destino: Encaixe): RotaCalculada | null {
+  const o = origem.naAresta;
+  const d = destino.naAresta;
+  if (!o || !d) return null;
+  const mesma =
+    o.aresta.id === d.aresta.id ||
+    (o.aresta.origem === d.aresta.destino &&
+      o.aresta.destino === d.aresta.origem);
+  if (!mesma) return null;
+  // Posição do destino na geometria da aresta encaixada pela origem.
+  const linha = o.aresta.geometria!;
+  const proj =
+    d.aresta.id === o.aresta.id ? d.proj : projetarNaLinha(d.proj.ponto, linha);
+  const paraFrente = proj.aoLongo >= o.proj.aoLongo;
+  const base = paraFrente ? o.aresta : o.volta;
+  if (!base) return null;
+  const fracao = Math.abs(proj.aoLongo - o.proj.aoLongo) / o.total;
+  const meio = paraFrente
+    ? linha.slice(o.proj.segmento + 1, proj.segmento + 1)
+    : linha.slice(proj.segmento + 1, o.proj.segmento + 1).reverse();
+  const reto = o.proj.distancia + d.proj.distancia;
+  return {
+    origem: origem.ponta,
+    destino: destino.ponta,
+    distancia: reto + base.distancia * fracao,
+    tempo: reto / VELOCIDADE_MPS + base.tempo * fracao,
+    geometria: semRepetidos([
+      origem.ponta.coordenada,
+      o.proj.ponto,
+      ...meio,
+      proj.ponto,
+      destino.ponta.coordenada,
+    ]),
+    nos: 0,
+    arestas: 1,
+    visitados: 0,
+  };
 }
 
 /** Trecho inicial + arestas na ordem (já orientadas origem→destino) + final. */
@@ -288,6 +411,11 @@ function montarGeometria(
     if (aresta.geometria) pontos.push(...aresta.geometria);
   }
   pontos.push(...fim);
+  return semRepetidos(pontos);
+}
+
+/** Remove pontos consecutivos iguais (junção de trechos). */
+function semRepetidos(pontos: Coordenada[]): Coordenada[] {
   const limpos: Coordenada[] = [];
   for (const ponto of pontos) {
     const ultimo = limpos.at(-1);

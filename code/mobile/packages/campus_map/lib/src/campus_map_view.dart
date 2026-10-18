@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
+import 'campus_content.dart';
+import 'campus_content_layer.dart';
 import 'campus_data_source.dart';
 import 'campus_fallback_place_repository.dart';
 import 'campus_map_config.dart';
@@ -39,6 +41,8 @@ class CampusMapView extends StatefulWidget {
     this.routeService,
     this.pucStopService,
     this.onPucStopClaimed,
+    this.contentService,
+    this.openExternalUrl,
   });
 
   final CampusMapConfig config;
@@ -63,6 +67,15 @@ class CampusMapView extends StatefulWidget {
 
   /// Coleta confirmada pelo servidor (ex.: atualizar o XP do app, tocar som).
   final ValueChanged<CampusPucStopClaim>? onPucStopClaimed;
+
+  /// Eventos, restaurantes e cardápios (ex.: API do app). Só vale com
+  /// `features.events`/`features.canteens`. Ignorado quando [controller] é
+  /// fornecido.
+  final CampusContentService? contentService;
+
+  /// Abre uma URL fora do app (cardápio em PDF). Devolve `false` se não
+  /// conseguiu; sem ele o card mostra o endereço para copiar.
+  final Future<bool> Function(Uri url)? openExternalUrl;
 
   @override
   State<CampusMapView> createState() => _CampusMapViewState();
@@ -98,6 +111,8 @@ class _CampusMapViewState extends State<CampusMapView>
   bool get _enable3d => widget.config.features.enable3d;
   CampusMapFeatures get _features => widget.config.features;
   bool get _pucStopsEnabled => _features.pucStops && _controller.hasPucStops;
+  bool get _contentEnabled =>
+      (_features.events || _features.canteens) && _controller.hasContent;
 
   @override
   void initState() {
@@ -118,9 +133,13 @@ class _CampusMapViewState extends State<CampusMapView>
               : FallbackCampusPlaceRepository(primary: remote, fallback: local),
           routeService: widget.routeService,
           pucStopService: widget.pucStopService,
+          contentService: widget.contentService,
         );
     _controller.pucStops.addListener(_refreshPucStops);
     _controller.collectedPucStops.addListener(_refreshPucStops);
+    _controller.events.addListener(_refreshContent);
+    _controller.restaurants.addListener(_refreshContent);
+    _controller.contentCardHeight.addListener(_refitRoute);
   }
 
   void _releaseController(CampusMapController controller, bool owned) {
@@ -130,6 +149,59 @@ class _CampusMapViewState extends State<CampusMapView>
     } else {
       controller.pucStops.removeListener(_refreshPucStops);
       controller.collectedPucStops.removeListener(_refreshPucStops);
+      controller.events.removeListener(_refreshContent);
+      controller.restaurants.removeListener(_refreshContent);
+      controller.contentCardHeight.removeListener(_refitRoute);
+    }
+  }
+
+  /// Eventos/restaurantes mudaram: só troca os dados da source.
+  void _refreshContent() {
+    final map = _map;
+    if (map == null || !_styleReady || !_contentEnabled) return;
+    final generation = _generation;
+    final revision = _styleRevision;
+    unawaited(
+      _showContent(
+        map,
+        () =>
+            mounted && generation == _generation && revision == _styleRevision,
+      ),
+    );
+  }
+
+  Future<void> _showContent(MapboxMap map, bool Function() isActive) async {
+    try {
+      await CampusContentLayer.show(
+        map.style,
+        _features.events ? _controller.events.value : const [],
+        _features.canteens ? _controller.restaurants.value : const [],
+        isActive: isActive,
+      );
+    } catch (_) {
+      // Conteúdo é opcional: falha aqui não vira aviso de mapa.
+    }
+  }
+
+  /// Toque num ponto de evento/restaurante (só nessas camadas): abre o card.
+  void _addContentInteractions(MapboxMap map) {
+    for (final layerId in CampusContentLayer.pickable) {
+      map.addInteraction(
+        TapInteraction(FeaturesetDescriptor(layerId: layerId), (feature, _) {
+          if (!mounted || !identical(map, _map)) return;
+          final id = feature.properties['id'];
+          final kind = switch (feature.properties['kind']) {
+            CampusContentLayer.event => CampusContentKind.event,
+            CampusContentLayer.restaurant => CampusContentKind.restaurant,
+            _ => null,
+          };
+          if (id is! String || kind == null) return;
+          if (_controller.content(kind, id) case final item?) {
+            _controller.selectContent(item);
+          }
+        }, radius: 12),
+        interactionID: layerId,
+      );
     }
   }
 
@@ -200,6 +272,7 @@ class _CampusMapViewState extends State<CampusMapView>
     } else if (_map != null && _styleReady) {
       _controller.attach(this);
       if (_pucStopsEnabled) unawaited(_controller.reloadPucStops());
+      if (_contentEnabled) unawaited(_controller.reloadContent());
     }
   }
 
@@ -219,7 +292,34 @@ class _CampusMapViewState extends State<CampusMapView>
     place.center[1],
     CampusMapDefaults.placeZoom,
     _enable3d ? CampusMapDefaults.pitch3d : CampusMapDefaults.pitch,
+    padding: MbxEdgeInsets(
+      top: 0,
+      left: 0,
+      bottom: _rodapeReservado(semCard: 0),
+      right: 0,
+    ),
   );
+
+  /// Rodapé coberto pelo card aberto. Card de evento/restaurante (até
+  /// [CampusMapDefaults.contentCardHeightFraction] da tela): a câmera centraliza
+  /// o local e enquadra a rota acima dele. Sem esse card, [semCard].
+  double _rodapeReservado({required double semCard}) {
+    if (_controller.selectedContent.value == null) return semCard;
+    final tela = MediaQuery.sizeOf(context).height;
+    final mapa = context.size?.height ?? tela;
+    // Altura medida do card; antes da 1ª medição, o máximo dele (estimativa).
+    final medida = _controller.contentCardHeight.value;
+    final card =
+        (medida > 0
+            ? medida + CampusMapDefaults.contentCardBottom
+            : tela * CampusMapDefaults.contentCardHeightFraction) +
+        CampusMapDefaults.contentCardMargin;
+    final maximo =
+        mapa -
+        CampusMapDefaults.routePaddingTop -
+        CampusMapDefaults.minVisibleMapHeight;
+    return card.clamp(semCard, maximo < semCard ? semCard : maximo);
+  }
 
   @override
   Future<void> showUser(CampusUserLocation location) async {
@@ -274,6 +374,37 @@ class _CampusMapViewState extends State<CampusMapView>
     if (!isActive()) return;
     await CampusRouteLayer.show(map.style, route, isActive: isActive);
     if (!isActive()) return;
+    await _fitRoute(map, route, isActive);
+  }
+
+  /// O card mudou de altura com a rota na tela (ex.: ganhou a linha com tempo
+  /// e distância): reenquadra para o fim da rota não ficar sob ele.
+  void _refitRoute() {
+    final map = _map;
+    final route = _route;
+    if (map == null || route == null || !_styleReady || !_foreground) return;
+    if (_controller.contentCardHeight.value <= 0) return;
+    final generation = _generation;
+    final revision = _styleRevision;
+    unawaited(
+      _fitRoute(
+        map,
+        route,
+        () =>
+            mounted &&
+            _foreground &&
+            identical(_route, route) &&
+            generation == _generation &&
+            revision == _styleRevision,
+      ).catchError((_) {}),
+    );
+  }
+
+  Future<void> _fitRoute(
+    MapboxMap map,
+    CampusRoute route,
+    bool Function() isActive,
+  ) async {
     final current = await map.getCameraState();
     if (!isActive()) return;
     // Mantém inclinação e rumo; o espaço reservado cobre busca e card.
@@ -282,13 +413,23 @@ class _CampusMapViewState extends State<CampusMapView>
         for (final c in route.coordinates)
           Point(coordinates: Position(c[0], c[1])),
       ],
-      CameraOptions(pitch: current.pitch, bearing: current.bearing),
-      MbxEdgeInsets(
-        top: CampusMapDefaults.routePaddingTop,
-        left: CampusMapDefaults.routePaddingSide,
-        bottom: CampusMapDefaults.routePaddingBottom,
-        right: CampusMapDefaults.routePaddingSide,
+      // O espaço reservado vai no padding da câmera (substitui o do foco
+      // anterior): o Mapbox devolve a câmera com ele e o centro desloca a rota
+      // para a área livre. No padding das coordenadas o rodapé assimétrico era
+      // ignorado no centro e o fim da rota ficava sob o card.
+      CameraOptions(
+        pitch: current.pitch,
+        bearing: current.bearing,
+        padding: MbxEdgeInsets(
+          top: CampusMapDefaults.routePaddingTop,
+          left: CampusMapDefaults.routePaddingSide,
+          bottom: _rodapeReservado(
+            semCard: CampusMapDefaults.routePaddingBottom,
+          ),
+          right: CampusMapDefaults.routePaddingSide,
+        ),
       ),
+      MbxEdgeInsets(top: 0, left: 0, bottom: 0, right: 0),
       CampusMapDefaults.routeMaxZoom,
       null,
     );
@@ -305,14 +446,20 @@ class _CampusMapViewState extends State<CampusMapView>
     final map = _map;
     if (map == null || !_styleReady) return;
     await CampusRouteLayer.clear(map.style);
+    // Remover camadas não redesenha o mapa parado: a linha seguia na tela
+    // (ao fechar o card) até o próximo movimento da câmera.
+    await map.triggerRepaint();
   }
 
+  /// [padding] sempre explícito: o padding da câmera fica no estado do mapa e
+  /// não pode vazar de um foco com card para o próximo movimento.
   Future<void> _flyTo(
     double longitude,
     double latitude,
     double zoom,
-    double pitch,
-  ) async {
+    double pitch, {
+    MbxEdgeInsets? padding,
+  }) async {
     final map = _map;
     if (map == null || !_styleReady || !_foreground) {
       throw StateError('Mapa indisponível.');
@@ -322,6 +469,7 @@ class _CampusMapViewState extends State<CampusMapView>
         center: Point(coordinates: Position(longitude, latitude)),
         zoom: zoom,
         pitch: pitch,
+        padding: padding ?? MbxEdgeInsets(top: 0, left: 0, bottom: 0, right: 0),
       ),
       MapAnimationOptions(duration: CampusMapDefaults.cameraDurationMs),
     );
@@ -338,7 +486,8 @@ class _CampusMapViewState extends State<CampusMapView>
         oldWidget.dataSource != widget.dataSource ||
         oldWidget.remotePlaceRepository != widget.remotePlaceRepository ||
         oldWidget.routeService != widget.routeService ||
-        oldWidget.pucStopService != widget.pucStopService) {
+        oldWidget.pucStopService != widget.pucStopService ||
+        oldWidget.contentService != widget.contentService) {
       _releaseController(_controller, oldWidget.controller == null);
       _createController();
       if (_map != null && _styleReady && _foreground) _controller.attach(this);
@@ -350,6 +499,8 @@ class _CampusMapViewState extends State<CampusMapView>
         oldFeatures.vegetation != features.vegetation ||
         oldFeatures.props != features.props ||
         oldFeatures.pucStops != features.pucStops ||
+        oldFeatures.events != features.events ||
+        oldFeatures.canteens != features.canteens ||
         oldFeatures.diagnostics != features.diagnostics ||
         oldWidget.dataSource != widget.dataSource ||
         oldWidget.modelManifestSource != widget.modelManifestSource) {
@@ -446,6 +597,10 @@ class _CampusMapViewState extends State<CampusMapView>
       if (_pucStopsEnabled && isActive()) {
         await _showPucStops(map, isActive);
         unawaited(_controller.loadPucStops());
+      }
+      if (_contentEnabled && isActive()) {
+        await _showContent(map, isActive);
+        unawaited(_controller.loadContent());
       }
       if (isActive() && _foreground) _controller.attach(this);
       if (isActive()) _diagnostics?.mark('2d pronto');
@@ -573,6 +728,9 @@ class _CampusMapViewState extends State<CampusMapView>
               _map = map;
               _diagnostics?.attach(map);
               if (_features.pucStops) _addPucStopInteractions(map);
+              if (_features.events || _features.canteens) {
+                _addContentInteractions(map);
+              }
               if (_styleReady) _renderCampus(generation, _styleRevision);
             },
             onStyleLoadedListener: (_) {
@@ -680,6 +838,9 @@ class _CampusMapViewState extends State<CampusMapView>
           CampusMapControls(
             controller: _controller,
             onPucStopClaimed: widget.onPucStopClaimed,
+            showEvents: _features.events,
+            showRestaurants: _features.canteens,
+            openExternalUrl: widget.openExternalUrl,
           ),
         ],
       ),

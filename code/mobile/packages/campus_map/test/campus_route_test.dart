@@ -17,6 +17,21 @@ final _icei = CampusPlace(
   code: '34',
   center: [-43.9919, -19.9237],
 );
+
+/// Área da busca remota (`tipo: 'area'`): id UUID, que o backend não aceita
+/// como prédio em `destino.id`.
+final _quadra = CampusPlace(
+  id: '5b1c9e2a-3d4f-4a6b-8c7d-9e0f1a2b3c4d',
+  name: 'Quadra Poliesportiva',
+  kind: CampusPlaceKind.area,
+  center: [-43.9925, -19.9229],
+);
+final _sala = CampusPlace(
+  id: '7a2b3c4d-5e6f-4a1b-9c8d-0e1f2a3b4c5d',
+  name: 'Sala 101',
+  kind: CampusPlaceKind.room,
+  center: [-43.9922, -19.9231],
+);
 const _location = CampusUserLocation(
   longitude: -43.99,
   latitude: -19.92,
@@ -138,6 +153,46 @@ void main() {
     await tester.pumpAndSettle();
     expect(card, findsNothing);
     expect(camera.cleared, antes + 1);
+  });
+
+  testWidgets('área e sala da busca: rota pela coordenada, nunca pelo UUID', (
+    tester,
+  ) async {
+    await mount(tester);
+    await select(tester, 'quadra');
+    await tester.tap(trace);
+    await tester.pumpAndSettle();
+    expect(routes.targets.single, isA<CampusRouteCoordinate>());
+    expect(
+      routes.targets.single,
+      CampusRouteTarget.coordinate(longitude: -43.9925, latitude: -19.9229),
+    );
+    expect(summary, findsOneWidget);
+    await select(tester, 'sala');
+    await tester.tap(trace);
+    await tester.pumpAndSettle();
+    expect(
+      routes.targets.last,
+      CampusRouteTarget.coordinate(longitude: -43.9922, latitude: -19.9231),
+    );
+    // Prédio continua pelo id.
+    await select(tester, 'biblioteca');
+    await tester.tap(trace);
+    await tester.pumpAndSettle();
+    expect(routes.targets.last, CampusRouteTarget.place('P26'));
+  });
+
+  testWidgets('destino longe dos caminhos: mensagem própria', (tester) async {
+    routes.failure = CampusRouteFailure.destinationOutside;
+    await mount(tester);
+    await select(tester, 'quadra');
+    await tester.tap(trace);
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Este local fica longe dos caminhos do campus.'),
+      findsOneWidget,
+    );
+    expect(camera.routes, isEmpty);
   });
 
   testWidgets('outro prédio apaga a rota anterior', (tester) async {
@@ -318,6 +373,58 @@ void main() {
     });
   });
 
+  group('CampusRouteTarget', () {
+    test('lugar da busca: prédio pelo id, área/sala pelo centro', () {
+      expect(
+        CampusRouteTarget.forPlace(_biblioteca),
+        CampusRouteTarget.place('P26'),
+      );
+      expect(
+        CampusRouteTarget.forPlace(_quadra),
+        CampusRouteTarget.coordinate(longitude: -43.9925, latitude: -19.9229),
+      );
+      expect(CampusRouteTarget.forPlace(_sala), isA<CampusRouteCoordinate>());
+      // Sem tipo (snapshot local/fonte antiga): UUID vai pela coordenada.
+      final semTipo = CampusPlace(
+        id: _quadra.id,
+        name: 'Quadra',
+        center: _quadra.center,
+      );
+      expect(CampusRouteTarget.forPlace(semTipo), isA<CampusRouteCoordinate>());
+      expect(
+        CampusRouteTarget.forPlace(
+          CampusPlace(id: 'P01_R4751608', name: 'P1', center: _icei.center),
+        ),
+        CampusRouteTarget.place('P01_R4751608'),
+      );
+    });
+
+    test('valida id de prédio e coordenada', () {
+      for (final criar in <CampusRouteTarget Function()>[
+        () => CampusRouteTarget.place(''),
+        () => CampusRouteTarget.place(_quadra.id),
+        () => CampusRouteTarget.place('a b'),
+        () => CampusRouteTarget.coordinate(longitude: 181, latitude: 0),
+        () => CampusRouteTarget.coordinate(longitude: 0, latitude: double.nan),
+      ]) {
+        expect(criar, throwsArgumentError);
+      }
+      expect(
+        CampusRouteTarget.coordinate(longitude: -43.99, latitude: -19.92).key,
+        '-19.92,-43.99',
+      );
+    });
+
+    test('controller: routeTo com UUID não chama o serviço', () async {
+      final r = await controller.routeTo(_quadra.id);
+      expect(r.failure, CampusRouteFailure.destinationUnavailable);
+      expect(routes.calls, isEmpty);
+      final porLugar = await controller.routeToPlace(_quadra);
+      expect(porLugar.route, isNotNull);
+      expect(routes.targets.single, isA<CampusRouteCoordinate>());
+    });
+  });
+
   test('CampusRoute valida a linha', () {
     expect(
       () => CampusRoute(
@@ -389,12 +496,14 @@ class _Repository implements CampusPlaceRepository {
   Future<List<CampusPlace>> search(String query) async => switch (query) {
     'biblioteca' => [_biblioteca],
     'icei' => [_icei],
+    'quadra' => [_quadra],
+    'sala' => [_sala],
     _ => [],
   };
 
   @override
   Future<CampusPlace?> findById(String id) async =>
-      [_biblioteca, _icei].where((p) => p.id == id).firstOrNull;
+      [_biblioteca, _icei, _quadra, _sala].where((p) => p.id == id).firstOrNull;
 }
 
 class _Location implements CampusLocationService {
@@ -417,6 +526,7 @@ class _Location implements CampusLocationService {
 
 class _Routes implements CampusRouteService {
   final calls = <(String, bool, CampusUserLocation)>[];
+  final targets = <CampusRouteTarget>[];
   CampusRouteFailure? failure;
   Object? error;
   Completer<CampusRoute>? pending;
@@ -424,14 +534,15 @@ class _Routes implements CampusRouteService {
   @override
   Future<CampusRoute> route({
     required CampusUserLocation origin,
-    required String destinationId,
+    required CampusRouteTarget destination,
     required bool accessible,
   }) async {
-    calls.add((destinationId, accessible, origin));
+    targets.add(destination);
+    calls.add((destination.key, accessible, origin));
     if (pending case final p?) return p.future;
     if (error case final e?) throw e;
     if (failure case final f?) throw CampusRouteException(f);
-    return _rota(destinationId, accessible: accessible);
+    return _rota(destination.key, accessible: accessible);
   }
 }
 

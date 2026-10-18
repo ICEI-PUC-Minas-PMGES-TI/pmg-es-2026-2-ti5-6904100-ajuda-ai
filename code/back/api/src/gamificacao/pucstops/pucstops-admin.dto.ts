@@ -11,6 +11,7 @@ import {
   Min,
 } from 'class-validator';
 import { NOME_PUCSTOP_MAX, RAIO_PUCSTOP, XP_PUCSTOP } from '../gamificacao.js';
+import type { RegiaoCampusDto } from '../../mapa/campus-limite.js';
 
 const NUMERO = { allowNaN: false, allowInfinity: false } as const;
 /** Pelo menos um caractere visível (nome só de espaços é recusado). */
@@ -112,10 +113,4 @@ export interface PucStopAdminDto {
 }
 
 /** `GET /coordenacao/pucstops/campus`: onde o servidor aceita um PucStop. */
-export interface CampusPucStopsDto {
-  /** Envoltória da versão ativa do mapa + margem (GeoJSON, SRID 4326). */
-  limite: { type: 'Polygon'; coordinates: number[][][] };
-  margemMetros: number;
-  bbox: { west: number; south: number; east: number; north: number };
-  centro: { latitude: number; longitude: number };
-}
+export type CampusPucStopsDto = RegiaoCampusDto;

@@ -194,12 +194,106 @@ describe('RotasService', () => {
       },
       { origem: {}, destino: { id: 'PB' } },
       { origem: { latitude: y(0) }, destino: { id: 'PB' } },
-      { origem: { id: 'PA' }, destino: { latitude: y(0), longitude: x(20) } },
+      { origem: { id: 'PA' }, destino: {} },
+      { origem: { id: 'PA' }, destino: { longitude: x(20) } },
+      {
+        origem: { id: 'PA' },
+        destino: { id: 'PB', latitude: y(0), longitude: x(20) },
+      },
     ]) {
       await expect(servico.calcular(pedido(corpo))).rejects.toBeInstanceOf(
         BadRequestException,
       );
     }
+  });
+
+  describe('destino por coordenada (evento, restaurante, área)', () => {
+    it('encaixa no caminho mais próximo e termina no ponto', async () => {
+      const r = await new RotasService(fonte().ds).calcular(
+        pedido({
+          origem: { id: 'PA' },
+          destino: { latitude: y(0.5), longitude: x(15) },
+        }),
+      );
+      expect(r.destino).toMatchObject({
+        tipo: 'coordenada',
+        id: null,
+        conexao: 'caminho',
+        latitude: y(0.5),
+        longitude: x(15),
+      });
+      // N1 → N2 pela aresta, metade da aresta N2→N3 e o trecho reto até o ponto.
+      expect(r.geometria.coordinates).toEqual([
+        [x(0), y(0)],
+        [x(10), y(0)],
+        [x(15), y(0)],
+        [x(15), y(0.5)],
+      ]);
+      expect(r.distanciaMetros).toBeGreaterThan(104.6 + 52.3);
+      expect(r.distanciaMetros).toBeLessThan(104.6 + 52.3 + 7);
+    });
+
+    it('origem e destino na mesma aresta: anda direto, sem ir a um nó e voltar', async () => {
+      const r = await new RotasService(fonte().ds).calcular(
+        pedido({
+          origem: { latitude: y(0.2), longitude: x(19) },
+          destino: { latitude: y(0.5), longitude: x(15) },
+        }),
+      );
+      expect(r.geometria.coordinates.at(-2)).toEqual([x(15), y(0)]);
+      expect(r.geometria.coordinates.at(-1)).toEqual([x(15), y(0.5)]);
+      expect(r.geometria.coordinates).toEqual([
+        [x(19), y(0.2)],
+        [x(19), y(0)],
+        [x(15), y(0)],
+        [x(15), y(0.5)],
+      ]);
+      // 4 unidades de aresta (41,8 m) + os dois trechos retos (~2 m + ~5,5 m).
+      expect(r.distanciaMetros).toBeGreaterThan(41.8);
+      expect(r.distanciaMetros).toBeLessThan(41.8 + 8);
+      expect(r.arestas).toBe(1);
+    });
+
+    it('longe de qualquer caminho: 422 destino-fora', async () => {
+      const erro = await new RotasService(fonte().ds)
+        .calcular(
+          pedido({
+            origem: { id: 'PA' },
+            destino: { latitude: y(900), longitude: x(900) },
+          }),
+        )
+        .catch((e: unknown) => e);
+      expect(erro).toBeInstanceOf(UnprocessableEntityException);
+      expect(
+        (erro as UnprocessableEntityException).getResponse(),
+      ).toMatchObject({ motivo: 'destino-fora' });
+    });
+
+    it('origem e destino a menos de 10 m: 422 mesmo-local', async () => {
+      const erro = await new RotasService(fonte().ds)
+        .calcular(
+          pedido({
+            origem: { latitude: y(0), longitude: x(15) },
+            destino: { latitude: y(0.3), longitude: x(15.2) },
+          }),
+        )
+        .catch((e: unknown) => e);
+      expect(
+        (erro as UnprocessableEntityException).getResponse(),
+      ).toMatchObject({ motivo: 'mesmo-local' });
+    });
+
+    it('coordenada de destino dentro do prédio de origem: mesmo-local', async () => {
+      const erro = await new RotasService(fonte().ds)
+        .calcular(
+          pedido({
+            origem: { id: 'PA' },
+            destino: { latitude: y(0), longitude: x(0.2) },
+          }),
+        )
+        .catch((e: unknown) => e);
+      expect(erro).toBeInstanceOf(UnprocessableEntityException);
+    });
   });
 
   it('não registra a coordenada do usuário em log', async () => {
@@ -225,9 +319,19 @@ describe('RotasService', () => {
           }),
         )
         .catch(() => undefined);
-      expect(mensagens.length).toBeGreaterThanOrEqual(3);
+      // Destino por coordenada também não vai para o log.
+      const dLat = y(0.512345);
+      const dLon = x(15.123456);
+      await servico.calcular(
+        pedido({
+          origem: { id: 'PA' },
+          destino: { latitude: dLat, longitude: dLon },
+        }),
+      );
+      expect(mensagens.length).toBeGreaterThanOrEqual(4);
       const tudo = mensagens.join('\n');
-      for (const n of [lat, lon, y(900), x(900)]) {
+      expect(tudo).toContain('destino=coordenada');
+      for (const n of [lat, lon, y(900), x(900), dLat, dLon]) {
         expect(tudo).not.toContain(String(n).slice(0, 7));
       }
     } finally {

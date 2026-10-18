@@ -296,4 +296,87 @@ export const api = {
   ativarPucStop(id) {
     return request(`/coordenacao/pucstops/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
   },
+
+  /* ===== Mapa do campus (seletores de local da coordenação) ===== */
+  /** Área do campus (limite, margem, bbox e centro) para eventos e restaurantes. */
+  campus() {
+    return request('/coordenacao/campus');
+  },
+  /** Prédios da versão ativa do mapa (público). */
+  predios() {
+    return request('/mapa/predios');
+  },
+  /** Áreas da versão ativa do mapa, com a geometria (público). */
+  areas() {
+    return request('/mapa/areas');
+  },
+
+  /* ===== Eventos do campus (coordenação; não dependem de programa/ciclo) ===== */
+  /** Todos os eventos, ativos e inativos, do início mais recente para o mais antigo. */
+  eventos() {
+    return request('/coordenacao/eventos');
+  },
+  evento(id) {
+    return request(`/coordenacao/eventos/${encodeURIComponent(id)}`);
+  },
+  /** `inicio`/`fim` em ISO 8601 com fuso; `local` com exatamente uma forma (predioId, areaId ou latitude+longitude). */
+  criarEvento(dados) {
+    return request('/coordenacao/eventos', { method: 'POST', body: dados });
+  },
+  /** Envie só os campos alterados; `local: null` remove o local. */
+  atualizarEvento(id, dados) {
+    return request(`/coordenacao/eventos/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  /** "Excluir" = desativação lógica: some do mapa dos alunos e pode ser reativado. */
+  desativarEvento(id) {
+    return request(`/coordenacao/eventos/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  ativarEvento(id) {
+    return request(`/coordenacao/eventos/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+
+  /* ===== Restaurantes e cantinas (coordenação) ===== */
+  restaurantes() {
+    return request('/coordenacao/restaurantes');
+  },
+  restaurante(id) {
+    return request(`/coordenacao/restaurantes/${encodeURIComponent(id)}`);
+  },
+  /** Prédios CAFETERIA do mapa ativo, com `cadastrado` quando já há restaurante neles. */
+  sugestoesRestaurantes() {
+    return request('/coordenacao/restaurantes/sugestoes');
+  },
+  criarRestaurante(dados) {
+    return request('/coordenacao/restaurantes', { method: 'POST', body: dados });
+  },
+  /** Envie só os campos alterados; o local não pode ser removido. */
+  atualizarRestaurante(id, dados) {
+    return request(`/coordenacao/restaurantes/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  desativarRestaurante(id) {
+    return request(`/coordenacao/restaurantes/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  ativarRestaurante(id) {
+    return request(`/coordenacao/restaurantes/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+  /** Cardápios do restaurante (arquivos públicos), da vigência mais recente para a mais antiga. */
+  cardapios(restauranteId) {
+    return request(`/coordenacao/restaurantes/${encodeURIComponent(restauranteId)}/cardapios`);
+  },
+  /**
+   * Envia o arquivo do cardápio (imagem ou PDF) em multipart. O servidor grava
+   * no armazenamento público; com `substitui`, remove o cardápio antigo depois.
+   */
+  enviarCardapio(restauranteId, { arquivo, validoDe, validoAte, substitui } = {}) {
+    const body = new FormData();
+    body.append('arquivo', arquivo);
+    body.append('validoDe', validoDe);
+    body.append('validoAte', validoAte);
+    if (substitui) body.append('substitui', substitui);
+    return request(`/coordenacao/restaurantes/${encodeURIComponent(restauranteId)}/cardapios`, { method: 'POST', body });
+  },
+  /** Remove o cardápio e o arquivo (definitivo). */
+  removerCardapio(id) {
+    return request(`/coordenacao/cardapios/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
 };

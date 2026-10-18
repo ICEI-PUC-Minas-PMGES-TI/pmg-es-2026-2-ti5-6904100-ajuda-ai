@@ -24,7 +24,8 @@ Confirmado em código nesta branch (`feat/integracao-mapa`).
   `src/mapa/entities` e importador em `src/mapa/importacao`
   (`npm run mapa:importar`). TypeORM runtime com `installExtensions: false`.
 - Autenticação: login Microsoft (Entra ID) verificado por JWKS remoto (`jose`), mais um modo demo controlado por `AUTH_DEMO_ENABLED`. Token da aplicação é JWT HS256 de 1 hora, sem refresh.
-- Armazenamento de arquivos: Azure Blob Storage (`@azure/storage-blob`), com containers públicos (`map-assets`, `restaurant-menus`) e privados (`profiles`, `feed`, `chat`).
+- Armazenamento de arquivos: Azure Blob Storage (`@azure/storage-blob`), com containers públicos (`map-assets`, `restaurant-menus`) e privados (`profiles`, `feed`, `chat`). Cardápios (imagem/PDF) entram no `restaurant-menus` por upload mediado pelo backend (sem SAS no front).
+- Conteúdo do campus (`src/campus`, Tarefa 11): eventos, restaurantes e cardápios no schema `mapa`, leitura pública em `/mapa/eventos` e `/mapa/restaurantes`, CRUD em `/coordenacao/...` ([mapa/eventos-cantinas.md](mapa/eventos-cantinas.md)).
 - Testes: Vitest + Supertest.
 
 ### Mobile — `code/mobile`

@@ -16,9 +16,11 @@ import CandidaturasPage from './pages/coordenacao/CandidaturasPage';
 import ConfiguracoesPage from './pages/coordenacao/ConfiguracoesPage';
 import CoordLayout from './pages/coordenacao/CoordLayout';
 import DashboardPage from './pages/coordenacao/DashboardPage';
+import EventosPage from './pages/coordenacao/EventosPage';
 import FormulariosPage from './pages/coordenacao/FormulariosPage';
 import ProgramasPage from './pages/coordenacao/ProgramasPage';
 import PucStopsPage from './pages/coordenacao/PucStopsPage';
+import RestaurantesPage from './pages/coordenacao/RestaurantesPage';
 import UsuariosPage from './pages/coordenacao/UsuariosPage';
 
 export default function App() {
@@ -48,6 +50,8 @@ export default function App() {
               <Route path="programas" element={<ProgramasPage />} />
               <Route path="formularios" element={<FormulariosPage />} />
               <Route path="pucstops" element={<PucStopsPage />} />
+              <Route path="eventos" element={<EventosPage />} />
+              <Route path="restaurantes" element={<RestaurantesPage />} />
               <Route path="configuracoes" element={<ConfiguracoesPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

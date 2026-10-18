@@ -401,6 +401,75 @@ Azure: nenhuma operação de escrita. Conferência só por download público
 (`publicar-assets-mapa.mjs --verificar`, sem credencial): r2 29/29 e r3 30/30
 (8.385.811 B) com tamanho e SHA-256 iguais aos manifestos.
 
+## Eventos, restaurantes e cardápios (Tarefa 11)
+
+> Estado: **APLICADA NO SUPABASE em 18/10/2026**, depois de preflight
+> somente leitura, backup validado e revisão humana; tabelas vazias. Também
+> aplicada no banco local (`ajuda-ai-postgres`, CLI rodando sem `.env`).
+
+Migration `1792298839015-EventosRestaurantesCardapios` (só `CREATE`):
+`mapa.eventos`, `mapa.restaurantes` e `mapa.cardapios` + 2 índices, com FKs
+que **apontam** para `usuarios.id` (`criado_por`, nulo) e de `cardapios` para
+`restaurantes`, todas RESTRICT. Nenhuma tabela existente alterada. Modelo e
+regras em [mapa/eventos-cantinas.md](../mapa/eventos-cantinas.md#banco).
+Testes: `test/campus.integration.spec.ts` (PostGIS real; `down` recusado com
+dados; up/down/up em banco vazio). O `down` não apaga arquivos de cardápio no
+Azure.
+
+### Aplicação no Supabase (Tarefa 11, 18/10/2026)
+
+Nenhum seed nem importação de conteúdo (o PUCMaps tinha 0 linhas nesses
+domínios).
+
+| # | Passo | Resultado |
+|---|---|---|
+| 1 | Preflight somente leitura (`default_transaction_read_only=on` no início e no fim; mesmo projeto das Tarefas 7 e 10) | 5 migrations executadas; pendente só `EventosRestaurantesCardapios1792298839015`; `mapa.eventos`/`restaurantes`/`cardapios`, os 2 índices e qualquer relação com esses nomes inexistentes; alvo das FKs (`feed.usuarios.id` integer) presente; versão ativa `pucmaps-12` |
+| 2 | Simulação (QueryRunner que só encaminha `SELECT`) | **5 comandos**: 3 `CREATE TABLE` e 2 `CREATE INDEX`, todos em `mapa`; nenhum `DROP`, `TRUNCATE`, `DELETE`, `UPDATE`, `ALTER`, `CASCADE`, `GRANT` ou `REVOKE`; `feed` só aparece como alvo de FK |
+| 3 | Backup pelo Session pooler (`pg_dump` 17.11, TLS `verify-full` com `certs/supabase-ca.crt`, URL só por variável de ambiente) | `feed-mapa-gamificacao.dump` (`-n feed -n mapa -n gamificacao -Fc`, 286.827 B) e `estrutura-completa.sql` (`--schema-only`, 541.696 B), fora do repositório |
+| 4 | Restauração em PostgreSQL 17.11 + PostGIS 3.5 descartável | sem erro; 18 tabelas de `feed`/`mapa`/`gamificacao` com contagem e md5 iguais; catálogo, colunas, índices, triggers e função iguais; container removido depois |
+| 5 | `npm run migration:show` | igual ao preflight |
+| 6 | `npm run migration:run` | uma transação: os mesmos 5 comandos da simulação (texto idêntico, conferido) + 1 `INSERT` em `feed.migrations`; `COMMIT` |
+| 7 | Pós-migration (somente leitura) | ver abaixo |
+
+**Nota da validação do backup:** 2 de 52 constraints (`ck_versoes_status` e
+`ck_xp_movimentacoes_tipo`, `IN (...)` em coluna varchar) saem com texto
+diferente depois do `pg_restore`: o PostgreSQL guarda
+`(ARRAY['a'::varchar, …])::text[]` e, ao reinterpretar a definição na
+restauração, empurra o cast para cada elemento (`ARRAY[('a'::varchar)::text, …]`).
+O arquivo do backup tem o texto idêntico ao do Supabase, e o comportamento é
+o mesmo (no banco restaurado, valores válidos aceitos e inválidos recusados,
+em transação desfeita). Não é divergência de dado nem de estrutura; vale para
+qualquer restauração desses dois CHECKs.
+
+Pós-migration:
+
+- `feed.migrations`: 6 executadas.
+- `mapa.eventos` (12 colunas), `mapa.restaurantes` (11) e `mapa.cardapios`
+  (9), **0 linhas** cada; `localizacao` em `geometry(Point,4326)`; 24
+  constraints (PK, CHECKs, `uq_cardapios_arquivo`, 4 FKs RESTRICT); índices
+  `idx_eventos_publicos` (parcial `WHERE ativo`), `idx_cardapios_vigencia` e
+  as PK/UNIQUE.
+- Acesso: `anon`, `authenticated` e `service_role` sem `USAGE` em `mapa` e
+  sem `SELECT`/`INSERT` nas tabelas novas; nenhum grant; nenhum privilégio
+  padrão global nem para `mapa`/`gamificacao`/`feed`. RLS desligado, como nas
+  outras tabelas de `mapa` (schema fora do PostgREST).
+- `GET /mapa/eventos` e `GET /mapa/restaurantes` (controllers reais, conexão
+  somente leitura): 200 `[]`; detalhe/cardápio de UUID inexistente: 404.
+- Azure: container `restaurant-menus` existe, leitura pública de blob, 0
+  blobs; nenhuma escrita.
+
+Assinaturas antes/depois (contagem · md5 do conteúdo ordenado, `COLLATE "C"`,
+`extra_float_digits = 1`):
+
+| Objeto | Antes | Depois |
+|---|---|---|
+| `feed.migrations` | 5 · `106e1b93…e664` | 6 · `56379808…cc05` (única mudança de dado) |
+| demais 31 tabelas de `feed`, `mapa`, `public`, `gamificacao` (inclusive `feed.usuarios` 6 · `7a27f7d2…f338`, `mapa.arestas_grafo` 1654 · `04194016…778f`, `mapa.pucstops` e `gamificacao.*` vazias) | — | iguais |
+| estrutura de `feed`, `public`, `gamificacao` (catálogo, colunas, constraints, índices, triggers, função) | — | iguais |
+| estrutura do `mapa` existente (sem as 3 tabelas novas) | 28 rel. · 62 col. · 34 constr. · 21 índ. | iguais |
+| `mapa` total | 28 · 62 · 34 · 21 | 37 · 94 · 58 · 27 (+3 tabelas, +6 índices, +32 colunas, +24 constraints) |
+| `USAGE`/grants para `anon`/`authenticated`/`service_role` | — | iguais (nenhum em `feed`/`mapa`/`gamificacao`) |
+
 ## PostGIS
 
 - **Supabase:** PostGIS 3.3.7 e unaccent 1.1 instalados pela migration no

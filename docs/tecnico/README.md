@@ -49,6 +49,7 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 - [mapa/busca-localizacao.md](mapa/busca-localizacao.md)
 - [mapa/api.md](mapa/api.md)
 - [mapa/administracao.md](mapa/administracao.md)
+- [infraestrutura/evolucao.md](infraestrutura/evolucao.md) — capacidades do PUCMaps que dependiam de infraestrutura própria (push, filas, Redis, SSE, pipeline OSM, CDN) e o gatilho para cada uma
 
 ## Gamificação
 
@@ -70,7 +71,7 @@ Ela é diferente da documentação em `docs/1..8.*.md`, que é a documentação 
 | 5 | API de mapa no backend | LEITURA E BUSCA REMOTA IMPLEMENTADAS (APP COM FALLBACK LOCAL); VALIDADAS NO EMULADOR |
 | 6 | Rotas (grafo + Dijkstra sob demanda) | IMPLEMENTADAS (NORMAL E ACESSÍVEL, ATÉ PRÉDIO); EQUIVALENTES AO pgRouting DO PUCMaps; VALIDADAS NO EMULADOR |
 | 7 | XP central + PucStops | IMPLEMENTADOS (XP global com ledger, geofence PostGIS, totem na r3, PucStops cadastrados pela coordenação via CRUD com seletor no mapa); TESTADOS COM POSTGIS REAL; E2E VISUAL NO EMULADOR FEITO ANTES DO CRUD (com os totens legados); MIGRATION APLICADA NO SUPABASE EM 18/10/2026, SEM PUCSTOPS INICIAIS |
-| 8 | Ferramentas administrativas (inventário do admin Angular) | NÃO INICIADO |
+| 8 | Ferramentas administrativas (inventário do admin Angular) | INVENTÁRIO FECHADO (mapa/administracao.md); EVENTOS, RESTAURANTES E CARDÁPIOS IMPLEMENTADOS (CRUD NA WEB DA COORDENAÇÃO, LEITURA NO APP, ROTA ATÉ O LOCAL); MIGRATION APLICADA NO SUPABASE EM 18/10/2026, TABELAS VAZIAS |
 
 Esta tabela é atualizada conforme cada fase avança. Ela não substitui o changelog do repositório nem o histórico de commits.
 

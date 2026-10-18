@@ -46,8 +46,54 @@ void main() {
       expect(lugar.code, '26');
       expect(lugar.type, 'LIBRARY');
       expect(lugar.center, [-43.9915, -19.9216]); // [lon, lat], como o snapshot
+      expect(lugar.kind, CampusPlaceKind.building);
     },
   );
+
+  test('busca mantém o tipo: área e sala (UUID) vão para a rota pela '
+      'coordenada', () async {
+    final api = MapaApiPlaceRepository(
+      client: MockClient(
+        (_) async => json([
+          biblioteca,
+          {
+            'id': '5b1c9e2a-3d4f-4a6b-8c7d-9e0f1a2b3c4d',
+            'tipo': 'area',
+            'nome': 'Quadra Poliesportiva',
+            'codigo': null,
+            'categoria': 'SPORTS',
+            'latitude': -19.9229,
+            'longitude': -43.9925,
+          },
+          {
+            'id': '7a2b3c4d-5e6f-4a1b-9c8d-0e1f2a3b4c5d',
+            'tipo': 'sala',
+            'nome': 'Sala 101',
+            'codigo': null,
+            'categoria': 'CLASSROOM',
+            'latitude': -19.9231,
+            'longitude': -43.9922,
+          },
+        ]),
+      ),
+    );
+    final lugares = await api.search('x');
+    expect(lugares.map((p) => p.kind), [
+      CampusPlaceKind.building,
+      CampusPlaceKind.area,
+      CampusPlaceKind.room,
+    ]);
+    expect(lugares.map(CampusRouteTarget.forPlace).toList(), [
+      CampusRouteTarget.place('P26'),
+      CampusRouteTarget.coordinate(longitude: -43.9925, latitude: -19.9229),
+      CampusRouteTarget.coordinate(longitude: -43.9922, latitude: -19.9231),
+    ]);
+    // O que vai em `destino` no POST: nunca o UUID como id de prédio.
+    expect(
+      MapaApiRouteService.destinoJson(CampusRouteTarget.forPlace(lugares[1])),
+      {'latitude': -19.9229, 'longitude': -43.9925},
+    );
+  });
 
   test('busca vazia não faz requisição', () async {
     var chamadas = 0;
@@ -104,6 +150,7 @@ void main() {
       }),
     );
     expect((await api.findById('P26'))!.id, 'P26');
+    expect((await api.findById('P26'))!.kind, CampusPlaceKind.building);
     expect(await api.findById('a b/c'), isNull);
     expect(pedidos.last, '/mapa/predios/a%20b%2Fc');
   });
@@ -162,7 +209,7 @@ void main() {
       );
       final r = await api.route(
         origin: origem,
-        destinationId: 'P26',
+        destination: CampusRouteTarget.place('P26'),
         accessible: true,
       );
       expect(pedido.method, 'POST');
@@ -182,10 +229,38 @@ void main() {
       expect(r.accessible, isTrue);
     });
 
+    test('destino por coordenada (área, evento, restaurante)', () async {
+      late http.Request pedido;
+      final api = MapaApiRouteService(
+        baseUrl: 'http://api.test',
+        client: MockClient((r) async {
+          pedido = r;
+          return json(rota);
+        }),
+      );
+      final r = await api.route(
+        origin: origem,
+        destination: CampusRouteTarget.coordinate(
+          longitude: -43.9925,
+          latitude: -19.9229,
+        ),
+        accessible: false,
+      );
+      expect(jsonDecode(pedido.body), {
+        'origem': {'latitude': -19.92255, 'longitude': -43.99165},
+        'destino': {'latitude': -19.9229, 'longitude': -43.9925},
+        'acessivel': false,
+      });
+      expect(r.destinationId, '-19.9229,-43.9925');
+    });
+
     Future<CampusRouteFailure> falha(MockClient client) async {
       try {
-        await MapaApiRouteService(client: client)
-            .route(origin: origem, destinationId: 'P26', accessible: false);
+        await MapaApiRouteService(client: client).route(
+          origin: origem,
+          destination: CampusRouteTarget.place('P26'),
+          accessible: false,
+        );
       } on CampusRouteException catch (e) {
         return e.failure;
       }
@@ -198,6 +273,7 @@ void main() {
         ('mesmo-local', CampusRouteFailure.samePlace),
         ('sem-caminho', CampusRouteFailure.noPath),
         ('predio-sem-conexao', CampusRouteFailure.destinationUnavailable),
+        ('destino-fora', CampusRouteFailure.destinationOutside),
         ('outro', CampusRouteFailure.unavailable),
       ]) {
         expect(
@@ -237,7 +313,11 @@ void main() {
         }),
       );
       await expectLater(
-        lenta.route(origin: origem, destinationId: 'P26', accessible: false),
+        lenta.route(
+          origin: origem,
+          destination: CampusRouteTarget.place('P26'),
+          accessible: false,
+        ),
         throwsA(
           isA<CampusRouteException>().having(
             (e) => e.failure,

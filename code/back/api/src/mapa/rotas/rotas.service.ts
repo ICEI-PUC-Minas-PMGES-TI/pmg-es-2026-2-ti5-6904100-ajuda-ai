@@ -46,9 +46,8 @@ export class RotasService {
   async calcular(pedido: CalcularRotaDto): Promise<RotaDto> {
     const origem = ponta(pedido.origem, 'origem');
     const destino = ponta(pedido.destino, 'destino');
-    if (destino.tipo !== 'predio') {
-      throw new BadRequestException('O destino deve ser um prédio (id).');
-    }
+    // Só o tipo de destino vai para o log (coordenada nunca é registrada).
+    const alvo = destino.tipo === 'predio' ? destino.predioId : 'coordenada';
     const acessivel = pedido.acessivel ?? false;
     const grafo = await this.grafoAtivo();
     const inicio = performance.now();
@@ -56,7 +55,7 @@ export class RotasService {
       const rota = calcularRota(grafo, { origem, destino, acessivel });
       const ms = performance.now() - inicio;
       this.logger.log(
-        `rota ${grafo.versao} destino=${destino.predioId} acessivel=${acessivel}: ` +
+        `rota ${grafo.versao} destino=${alvo} acessivel=${acessivel}: ` +
           `${Math.round(rota.distancia)} m, ${Math.round(rota.tempo)} s, ` +
           `${rota.visitados} nós visitados, ${ms.toFixed(1)} ms`,
       );
@@ -74,7 +73,7 @@ export class RotasService {
     } catch (erro) {
       if (!(erro instanceof RotaImpossivel)) throw erro;
       this.logger.log(
-        `sem rota ${grafo.versao} destino=${destino.predioId} acessivel=${acessivel}: ${erro.motivo}`,
+        `sem rota ${grafo.versao} destino=${alvo} acessivel=${acessivel}: ${erro.motivo}`,
       );
       if (erro.motivo === 'predio-inexistente')
         throw new NotFoundException(erro.message);
