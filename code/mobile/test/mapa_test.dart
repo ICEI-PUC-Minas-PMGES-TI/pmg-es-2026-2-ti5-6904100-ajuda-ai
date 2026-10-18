@@ -2,6 +2,8 @@ import 'package:ajuda_ai/services/campus_conteudo_api.dart';
 import 'package:ajuda_ai/services/mapa_api.dart';
 import 'package:ajuda_ai/services/pucstops_api.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
+import 'package:ajuda_ai/status_participacao.dart';
+import 'package:ajuda_ai/tela_home.dart';
 import 'package:ajuda_ai/tela_mapa.dart';
 import 'package:ajuda_ai/widgets/app_bottom_navigation.dart';
 import 'package:campus_map/campus_map.dart';
@@ -10,6 +12,17 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   tearDown(SessaoUsuario.atual.limpar);
+
+  testWidgets('participante consegue voltar do mapa para o início', (
+    tester,
+  ) async {
+    SessaoUsuario.atual.status = StatusParticipacao.apadrinhadoAtivo;
+    await tester.pumpWidget(const MaterialApp(home: MapaPage()));
+    await tester.tap(find.text('Início'));
+    await tester.pumpAndSettle();
+    expect(find.byType(HomePage), findsOneWidget);
+    expect(find.text('inicio: em breve!'), findsNothing);
+  });
 
   testWidgets('MapaPage integra mapa anônimo e preserva navegação inferior', (
     tester,

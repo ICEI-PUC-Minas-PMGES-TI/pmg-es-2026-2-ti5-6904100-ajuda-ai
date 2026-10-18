@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsDefined,
+  IsISO8601,
   IsObject,
   IsOptional,
   IsString,
@@ -40,11 +41,13 @@ export class CriarEventoDto {
   @IsDefined()
   @IsString()
   @Matches(DATA_HORA_COM_FUSO, COM_FUSO)
+  @IsISO8601({ strict: true })
   inicio!: string;
 
   @IsDefined()
   @IsString()
   @Matches(DATA_HORA_COM_FUSO, COM_FUSO)
+  @IsISO8601({ strict: true })
   fim!: string;
 
   @IsOptional()
@@ -60,25 +63,27 @@ export class CriarEventoDto {
 
 /** `PATCH /coordenacao/eventos/:id`: subconjunto; `local: null` remove o local. */
 export class AtualizarEventoDto {
-  @IsOptional()
+  @ValidateIf((o: AtualizarEventoDto) => o.titulo !== undefined)
   @IsString()
   @MaxLength(TITULO_EVENTO.max)
   @Matches(NAO_VAZIO, { message: 'titulo não pode ser vazio' })
   titulo?: string;
 
-  @IsOptional()
+  @ValidateIf((o: AtualizarEventoDto) => o.descricao !== undefined)
   @IsString()
   @MaxLength(DESCRICAO_MAX)
   descricao?: string;
 
-  @IsOptional()
+  @ValidateIf((o: AtualizarEventoDto) => o.inicio !== undefined)
   @IsString()
   @Matches(DATA_HORA_COM_FUSO, COM_FUSO)
+  @IsISO8601({ strict: true })
   inicio?: string;
 
-  @IsOptional()
+  @ValidateIf((o: AtualizarEventoDto) => o.fim !== undefined)
   @IsString()
   @Matches(DATA_HORA_COM_FUSO, COM_FUSO)
+  @IsISO8601({ strict: true })
   fim?: string;
 
   @ValidateIf((o: AtualizarEventoDto) => o.local !== null)

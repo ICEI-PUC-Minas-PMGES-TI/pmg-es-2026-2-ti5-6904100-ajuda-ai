@@ -135,6 +135,28 @@ void main() {
     expect(camera.routes.map((r) => r.accessible), [true, false]);
   });
 
+  testWidgets(
+    'voltar ao mapa após cancelar rota pendente permite tentar de novo',
+    (tester) async {
+      final pending = Completer<CampusRoute>();
+      routes.pending = pending;
+      await mount(tester);
+      await select(tester, 'biblioteca');
+      await tester.tap(trace);
+      await tester.pump();
+      controller.detach(camera);
+      controller.attach(camera);
+      routes.pending = null;
+      pending.complete(_rota('P26'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<FilledButton>(trace).onPressed, isNotNull);
+      await tester.tap(trace);
+      await tester.pumpAndSettle();
+      expect(summary, findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('limpar remove a linha e fecha o card', (tester) async {
     await mount(tester);
     await select(tester, 'biblioteca');

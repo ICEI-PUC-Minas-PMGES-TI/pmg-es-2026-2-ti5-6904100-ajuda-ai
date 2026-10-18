@@ -94,6 +94,16 @@ test('propaga recusas do servidor (422 motivo, 413, 400 em lista, 403)', async (
   await assert.rejects(() => client.api.restaurantes(), (e) => e.status === 403);
 });
 
+test('cardápios: conflito concorrente e resultado indeterminado preservam orientação do servidor', async () => {
+  capturar({ message: 'O cardápio foi alterado ou removido. Atualize a lista antes de substituir.', motivo: 'cardapio-alterado' }, 409);
+  await assert.rejects(() => client.api.enviarCardapio(ID, {
+    arquivo: new File(['%PDF-1.7'], 'menu.pdf'), validoDe: '2026-10-18', validoAte: '2026-10-19', substitui: CARDAPIO,
+  }), error => error.status === 409 && error.motivo === 'cardapio-alterado' && /Atualize a lista/.test(error.message));
+  capturar({ message: 'Não foi possível confirmar a remoção do cardápio. Recarregue a lista antes de repetir a operação.', motivo: 'resultado-indeterminado' }, 503);
+  await assert.rejects(() => client.api.removerCardapio(CARDAPIO),
+    error => error.status === 503 && error.motivo === 'resultado-indeterminado' && /Recarregue a lista/.test(error.message));
+});
+
 test('validarHorarios: formato, ordem, sobreposição e limite de faixas', () => {
   const faixa = (dia, abre, fecha) => ({ dia: String(dia), abre, fecha });
   assert.equal(rs.validarHorarios([]), '');

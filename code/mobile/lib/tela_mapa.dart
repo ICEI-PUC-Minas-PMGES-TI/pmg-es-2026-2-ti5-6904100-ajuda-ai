@@ -6,9 +6,9 @@ import 'services/campus_conteudo_api.dart';
 import 'services/mapa_api.dart';
 import 'services/pucstops_api.dart';
 import 'sessao_usuario.dart';
-import 'tela_perfil.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
+import 'widgets/navegacao_app.dart';
 
 class MapaPage extends StatefulWidget {
   const MapaPage({
@@ -100,20 +100,8 @@ class _MapaPageState extends State<MapaPage> {
       bottomNavigationBar: AppBottomNavigation(
         selected: AppDestination.mapa,
         destinations: SessaoUsuario.atual.destinos,
-        onSelected: (destination) {
-          if (destination == AppDestination.mapa) return;
-          if (destination == AppDestination.perfil) {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const ProfilePage()),
-            );
-            return;
-          }
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(
-              SnackBar(content: Text('${destination.name}: em breve!')),
-            );
-        },
+        onSelected: (destination) =>
+            navegarDestino(context, destination, atual: AppDestination.mapa),
       ),
     );
   }

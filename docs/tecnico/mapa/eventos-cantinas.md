@@ -80,13 +80,15 @@ A resposta tem URL pública, sem SAS ou segredo.
 
 Banco e storage não compartilham transação distribuída:
 
-- Envio grava o blob antes da linha; falha no banco tenta apagar o blob.
-  Se a compensação também falhar, o serviço registra o órfão para investigação.
-- Remoção apaga blob antes da linha. Falha de storage preserva a linha;
-  blob já ausente não impede a remoção. Falha posterior de banco exige
-  conferir a linha remanescente.
-- Substituição grava o novo antes de remover o anterior; uma falha de remoção
-  pode deixar ambos. Não se deve apagar o novo automaticamente sem conferir o banco.
+- Upload ocorre fora da transação. Substituição remove a linha antiga e insere
+  a nova na mesma transação; concorrência sobre o antigo retorna 409 ao perdedor.
+- Exclusão confirma o DELETE antes de apagar o blob. Cleanup pós-commit é
+  best-effort (até 3 s de espera): falha mantém o sucesso HTTP 201/200 e registra
+  `limpeza-pendente` com ID, chave e etapa, sem erro bruto/credencial.
+- Falha antes do commit tenta compensar o novo blob. Commit sem confirmação
+  preserva arquivos e retorna 503 `resultado-indeterminado`: conferir a lista.
+- Recuperação é operacional: conferir o estado no banco e repetir a exclusão
+  **somente de chaves sem referência**; blob já ausente conta como limpo.
 
 ## Clientes e rotas
 

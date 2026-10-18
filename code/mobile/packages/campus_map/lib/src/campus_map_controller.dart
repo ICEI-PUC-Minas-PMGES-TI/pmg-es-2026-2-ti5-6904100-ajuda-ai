@@ -370,23 +370,34 @@ class CampusMapController {
         .whenComplete(() => _reloadingPucStops = null);
   }
 
+  int _pucStopLoadRequest = 0;
+
   Future<void> _loadPucStops() async {
     final service = pucStopService;
     if (service == null || _disposed) return;
+    final request = ++_pucStopLoadRequest;
+    bool stale() => _disposed || request != _pucStopLoadRequest;
     try {
       final stops = await service.list();
-      if (_disposed) return;
+      if (stale()) return;
       pucStops.value = List.unmodifiable(stops);
       // Card aberto de um PucStop desativado/removido da lista: fecha.
       final selected = selectedPucStop.value;
       if (selected != null && pucStop(selected) == null) selectPucStop(null);
     } catch (_) {
-      _loadingPucStops = null;
+      if (!stale()) _loadingPucStops = null;
       return;
     }
     try {
       final ids = await service.collected();
-      if (!_disposed) collectedPucStops.value = Set.unmodifiable(ids);
+      if (!stale()) {
+        // Coletas são permanentes. Um GET iniciado antes do claim não pode
+        // apagar uma confirmação recebida enquanto a consulta estava pendente.
+        collectedPucStops.value = Set.unmodifiable({
+          ...collectedPucStops.value,
+          ...ids,
+        });
+      }
     } catch (_) {
       // Sem a lista de coletados o estado fica "disponível"; o servidor
       // continua barrando a segunda coleta (409).

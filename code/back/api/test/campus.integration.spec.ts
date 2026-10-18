@@ -10,6 +10,7 @@ import { resolve } from 'node:path';
 import {
   ConflictException,
   INestApplication,
+  Logger,
   NotFoundException,
   ValidationPipe,
 } from '@nestjs/common';
@@ -74,6 +75,9 @@ const PDF = Buffer.from('%PDF-1.7\nconteudo');
 class ArmazenamentoFalso {
   blobs = new Map<string, { dados: Buffer; tipo: string; cache?: string }>();
   falharExclusao = false;
+  falharEnvio = false;
+  antesDeEnviar?: () => Promise<void>;
+  erroExclusao = new Error('Azure fora do ar');
   async enviar(
     container: string,
     nome: string,
@@ -81,6 +85,8 @@ class ArmazenamentoFalso {
     tipo: string,
     opcoes: { cacheControl?: string } = {},
   ) {
+    if (this.falharEnvio) throw new Error('Upload indisponível');
+    await this.antesDeEnviar?.();
     const chave = `${container}/${nome}`;
     if (this.blobs.has(chave)) throw new ConflictException('já existe');
     this.blobs.set(chave, { dados, tipo, cache: opcoes.cacheControl });
@@ -92,7 +98,7 @@ class ArmazenamentoFalso {
     };
   }
   async excluir(container: string, nome: string) {
-    if (this.falharExclusao) throw new Error('Azure fora do ar');
+    if (this.falharExclusao) throw this.erroExclusao;
     if (!this.blobs.delete(`${container}/${nome}`))
       throw new NotFoundException('Blob não encontrado.');
   }
@@ -260,6 +266,26 @@ describe.skipIf(!URL_TESTE)(
           .expect(404);
         expect(await contar('eventos')).toBe(0);
         expect(await contar('restaurantes')).toBe(0);
+      });
+
+      it('recusa null indevido e data impossível na fronteira HTTP', async () => {
+        for (const campo of ['titulo', 'descricao', 'inicio', 'fim']) {
+          await comoCoord('patch', `/coordenacao/eventos/${INEXISTENTE}`)
+            .send({ [campo]: null })
+            .expect(400);
+        }
+        for (const campo of ['nome', 'descricao', 'local', 'horarios']) {
+          await comoCoord('patch', `/coordenacao/restaurantes/${INEXISTENTE}`)
+            .send({ [campo]: null })
+            .expect(400);
+        }
+        await comoCoord('post', '/coordenacao/eventos')
+          .send({
+            titulo: 'Data impossível',
+            inicio: '2026-02-30T10:00:00-03:00',
+            fim: '2026-03-03T10:00:00-03:00',
+          })
+          .expect(400);
       });
 
       it('região do campus para o seletor (mesma dos PucStops)', async () => {
@@ -847,7 +873,7 @@ describe.skipIf(!URL_TESTE)(
           expect(armazenamento.blobs.size).toBe(blobsAntes);
         });
 
-        it('remover apaga blob e linha; com o Azure fora, a linha fica (aponta para arquivo que existe)', async () => {
+        it('remoção confirma a linha antes do cleanup; falha do Azure deixa só órfão recuperável', async () => {
           const { body: lista } = await comoCoord(
             'get',
             `/coordenacao/restaurantes/${ids.p16}/cardapios`,
@@ -855,7 +881,8 @@ describe.skipIf(!URL_TESTE)(
           const alvo = lista[0];
           armazenamento.falharExclusao = true;
           await comoCoord('delete', `/coordenacao/cardapios/${alvo.id}`).expect(
-            500,
+            200,
+            { removido: true },
           );
           armazenamento.falharExclusao = false;
           expect(
@@ -865,13 +892,18 @@ describe.skipIf(!URL_TESTE)(
                 `/coordenacao/restaurantes/${ids.p16}/cardapios`,
               )
             ).body,
-          ).toHaveLength(lista.length);
-          await comoCoord('delete', `/coordenacao/cardapios/${alvo.id}`).expect(
-            200,
-            { removido: true },
+          ).toHaveLength(lista.length - 1);
+          const chaveOrfa = [...armazenamento.blobs.keys()].find((k) =>
+            k.includes(alvo.id),
           );
+          expect(chaveOrfa).toBeDefined();
           await comoCoord('delete', `/coordenacao/cardapios/${alvo.id}`).expect(
             404,
+          );
+          // Recuperação operacional: a linha já não existe; limpar o órfão.
+          await armazenamento.excluir(
+            'restaurant-menus',
+            chaveOrfa!.slice('restaurant-menus/'.length),
           );
           expect(
             [...armazenamento.blobs.keys()].some((k) => k.includes(alvo.id)),
@@ -884,7 +916,9 @@ describe.skipIf(!URL_TESTE)(
             dia(0),
             dia(0),
           ).expect(201);
-          armazenamento.blobs.clear();
+          armazenamento.blobs.delete(
+            `restaurant-menus/restaurantes/${ids.p16}/cardapios/${novo.id}.pdf`,
+          );
           await comoCoord('delete', `/coordenacao/cardapios/${novo.id}`).expect(
             200,
           );
@@ -926,6 +960,288 @@ describe.skipIf(!URL_TESTE)(
             ds.query(`DELETE FROM mapa.restaurantes WHERE id = $1`, [ids.p16]),
           ).rejects.toThrow(/fk_cardapios_restaurante/);
         });
+      });
+    });
+
+    describe('A02 — consistência banco/blob dos cardápios', () => {
+      let rid: string;
+      let antigo: { id: string; url: string };
+      const enviar = (substitui?: string, de = dia(0), ate = dia(2)) => {
+        let req = comoCoord(
+          'post',
+          `/coordenacao/restaurantes/${rid}/cardapios`,
+        )
+          .field('validoDe', de)
+          .field('validoAte', ate);
+        if (substitui) req = req.field('substitui', substitui);
+        return req.attach('arquivo', PNG, 'menu.png');
+      };
+      const linhas = async () =>
+        (await ds.query(
+          'SELECT id, arquivo, valido_de::text, valido_ate::text FROM mapa.cardapios WHERE restaurante_id = $1',
+          [rid],
+        )) as Array<{
+          id: string;
+          arquivo: string;
+          valido_de: string;
+          valido_ate: string;
+        }>;
+      const blobs = () =>
+        [...armazenamento.blobs.keys()].filter((k) => k.includes(`/${rid}/`));
+      const blobAntigo = () =>
+        `restaurant-menus/restaurantes/${rid}/cardapios/${antigo.id}.png`;
+
+      beforeEach(async () => {
+        const restaurante = await comoCoord('post', '/coordenacao/restaurantes')
+          .send({ nome: 'Cantina A02', local: { predioId: 'P16' } })
+          .expect(201);
+        rid = restaurante.body.id;
+        antigo = (await enviar().expect(201)).body;
+      });
+      afterEach(() => {
+        armazenamento.falharEnvio = false;
+        armazenamento.falharExclusao = false;
+        armazenamento.antesDeEnviar = undefined;
+        armazenamento.erroExclusao = new Error('Azure fora do ar');
+        vi.restoreAllMocks();
+      });
+
+      it('A: upload falha e mantém registro e arquivo antigos', async () => {
+        armazenamento.falharEnvio = true;
+        await enviar(antigo.id).expect(500);
+        expect((await linhas()).map((l) => l.id)).toEqual([antigo.id]);
+        expect(blobs()).toEqual([blobAntigo()]);
+      });
+
+      it('B: INSERT falha, reverte a troca e compensa o novo blob', async () => {
+        await ds.query(
+          `CREATE FUNCTION mapa.a02_falha_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'falha A02'; END $$`,
+        );
+        await ds.query(
+          `CREATE TRIGGER a02_falha_insert BEFORE INSERT ON mapa.cardapios FOR EACH ROW EXECUTE FUNCTION mapa.a02_falha_insert()`,
+        );
+        try {
+          await enviar(antigo.id).expect(500);
+        } finally {
+          await ds.query('DROP TRIGGER a02_falha_insert ON mapa.cardapios');
+          await ds.query('DROP FUNCTION mapa.a02_falha_insert()');
+        }
+        expect((await linhas()).map((l) => l.id)).toEqual([antigo.id]);
+        expect(blobs()).toEqual([blobAntigo()]);
+      });
+
+      it('C: troca completa mantém somente novo registro e novo arquivo', async () => {
+        const { body } = await enviar(antigo.id, dia(1), dia(4)).expect(201);
+        expect(await linhas()).toEqual([
+          expect.objectContaining({
+            id: body.id,
+            valido_de: dia(1),
+            valido_ate: dia(4),
+          }),
+        ]);
+        expect(blobs()).toHaveLength(1);
+        expect(blobs()[0]).toContain(body.id);
+        expect(armazenamento.blobs.has(blobAntigo())).toBe(false);
+      });
+
+      it('D: cleanup antigo falha sem falso erro ou referência antiga ativa', async () => {
+        const aviso = vi
+          .spyOn(Logger.prototype, 'warn')
+          .mockImplementation(() => {});
+        armazenamento.falharExclusao = true;
+        armazenamento.erroExclusao = new Error(
+          'sig=SENTINELA_SAS AccountKey=SENTINELA_CREDENCIAL',
+        );
+        const { body } = await enviar(antigo.id).expect(201);
+        expect((await linhas()).map((l) => l.id)).toEqual([body.id]);
+        expect(blobs()).toHaveLength(2);
+        const publico = await http()
+          .get(`/mapa/restaurantes/${rid}/cardapio`)
+          .expect(200);
+        expect(publico.body.cardapio.id).toBe(body.id);
+        expect(aviso).toHaveBeenCalledWith(
+          expect.stringContaining('limpeza-pendente'),
+        );
+        const logs = JSON.stringify(aviso.mock.calls);
+        expect(logs).toContain(antigo.id);
+        expect(logs).not.toContain('SENTINELA');
+        expect(JSON.stringify(body)).not.toContain('limpeza-pendente');
+      });
+
+      it('E: DELETE SQL falha sem apagar o arquivo original', async () => {
+        await ds.query(
+          `CREATE FUNCTION mapa.a02_falha_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'falha A02'; END $$`,
+        );
+        await ds.query(
+          `CREATE TRIGGER a02_falha_delete BEFORE DELETE ON mapa.cardapios FOR EACH ROW EXECUTE FUNCTION mapa.a02_falha_delete()`,
+        );
+        let status: number;
+        try {
+          status = (
+            await comoCoord('delete', `/coordenacao/cardapios/${antigo.id}`)
+          ).status;
+        } finally {
+          await ds.query('DROP TRIGGER a02_falha_delete ON mapa.cardapios');
+          await ds.query('DROP FUNCTION mapa.a02_falha_delete()');
+        }
+        expect((await linhas()).map((l) => l.id)).toEqual([antigo.id]);
+        expect(blobs()).toEqual([blobAntigo()]);
+        expect(status!).toBe(503);
+      });
+
+      it('F: exclusão concluída remove registro e arquivo', async () => {
+        await comoCoord('delete', `/coordenacao/cardapios/${antigo.id}`).expect(
+          200,
+          { removido: true },
+        );
+        expect(await linhas()).toEqual([]);
+        expect(blobs()).toEqual([]);
+      });
+
+      it('G: cleanup falha após exclusão sem ressuscitar linha nem retornar falso rollback', async () => {
+        const aviso = vi
+          .spyOn(Logger.prototype, 'warn')
+          .mockImplementation(() => {});
+        armazenamento.falharExclusao = true;
+        await comoCoord('delete', `/coordenacao/cardapios/${antigo.id}`).expect(
+          200,
+          { removido: true },
+        );
+        expect(await linhas()).toEqual([]);
+        expect(blobs()).toEqual([blobAntigo()]);
+        expect(aviso).toHaveBeenCalledWith(
+          expect.stringContaining('limpeza-pendente'),
+        );
+        await comoCoord('delete', `/coordenacao/cardapios/${antigo.id}`).expect(
+          404,
+        );
+      });
+
+      it('duas substituições concorrentes: uma vence e a outra não deixa um segundo registro', async () => {
+        let chegaram = 0;
+        let liberar!: () => void;
+        const barreira = new Promise<void>((resolve) => {
+          liberar = resolve;
+        });
+        armazenamento.antesDeEnviar = async () => {
+          if (++chegaram === 2) liberar();
+          await barreira;
+        };
+        const resultados = await Promise.all([
+          enviar(antigo.id, dia(1), dia(3)),
+          enviar(antigo.id, dia(4), dia(5)),
+        ]);
+        expect(resultados.map((r) => r.status).sort()).toEqual([201, 409]);
+        const vencedor = resultados.find((r) => r.status === 201)!.body;
+        expect(await linhas()).toEqual([
+          expect.objectContaining({
+            id: vencedor.id,
+            valido_de: vencedor.validoDe,
+            valido_ate: vencedor.validoAte,
+          }),
+        ]);
+        expect(blobs()).toHaveLength(1);
+        expect(blobs()[0]).toContain(vencedor.id);
+      });
+
+      it('exclusão durante upload faz a substituição perder sem publicar nem deixar seu blob', async () => {
+        let avisar!: () => void;
+        let liberar!: () => void;
+        const iniciou = new Promise<void>((resolve) => {
+          avisar = resolve;
+        });
+        const barreira = new Promise<void>((resolve) => {
+          liberar = resolve;
+        });
+        armazenamento.antesDeEnviar = async () => {
+          avisar();
+          await barreira;
+        };
+        const pedido = enviar(antigo.id).then((r) => r);
+        await iniciou;
+        try {
+          await comoCoord(
+            'delete',
+            `/coordenacao/cardapios/${antigo.id}`,
+          ).expect(200);
+        } finally {
+          liberar();
+        }
+        expect((await pedido).status).toBe(409);
+        expect(await linhas()).toEqual([]);
+        expect(blobs()).toEqual([]);
+      });
+
+      it('duas exclusões concorrentes não removem um cardápio vizinho', async () => {
+        const vizinho = (await enviar().expect(201)).body;
+        const resultados = await Promise.all([
+          comoCoord('delete', `/coordenacao/cardapios/${antigo.id}`),
+          comoCoord('delete', `/coordenacao/cardapios/${antigo.id}`),
+        ]);
+        expect(resultados.map((r) => r.status).sort()).toEqual([200, 404]);
+        expect((await linhas()).map((l) => l.id)).toEqual([vizinho.id]);
+        expect(blobs()).toHaveLength(1);
+        expect(blobs()[0]).toContain(vizinho.id);
+      });
+
+      it('falha da compensação preserva o antigo e registra o blob novo órfão sem segredo', async () => {
+        const aviso = vi
+          .spyOn(Logger.prototype, 'warn')
+          .mockImplementation(() => {});
+        await ds.query(
+          `CREATE FUNCTION mapa.a02_falha_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'falha A02'; END $$`,
+        );
+        await ds.query(
+          `CREATE TRIGGER a02_falha_insert BEFORE INSERT ON mapa.cardapios FOR EACH ROW EXECUTE FUNCTION mapa.a02_falha_insert()`,
+        );
+        armazenamento.falharExclusao = true;
+        armazenamento.erroExclusao = new Error(
+          'sig=SENTINELA_SAS AccountKey=SENTINELA_CREDENCIAL',
+        );
+        try {
+          await enviar(antigo.id).expect(500);
+        } finally {
+          await ds.query('DROP TRIGGER a02_falha_insert ON mapa.cardapios');
+          await ds.query('DROP FUNCTION mapa.a02_falha_insert()');
+        }
+        expect((await linhas()).map((l) => l.id)).toEqual([antigo.id]);
+        expect(armazenamento.blobs.has(blobAntigo())).toBe(true);
+        expect(blobs()).toHaveLength(2);
+        const logs = JSON.stringify(aviso.mock.calls);
+        expect(logs).toContain('etapa=compensacao');
+        expect(logs).not.toContain('SENTINELA');
+      });
+
+      it('commit efetuado com confirmação perdida preserva o novo blob e orienta conferir a lista', async () => {
+        const aviso = vi
+          .spyOn(Logger.prototype, 'warn')
+          .mockImplementation(() => {});
+        const criar = ds.createQueryRunner.bind(ds);
+        vi.spyOn(ds, 'createQueryRunner').mockImplementation((modo) => {
+          const qr = criar(modo);
+          const commit = qr.commitTransaction.bind(qr);
+          vi.spyOn(qr, 'commitTransaction').mockImplementationOnce(async () => {
+            await commit();
+            throw new Error('confirmação de commit perdida');
+          });
+          return qr;
+        });
+        const { body } = await enviar(antigo.id).expect(503);
+        expect(body.motivo).toBe('resultado-indeterminado');
+        expect(body.message).toContain('Recarregue a lista');
+        expect(JSON.stringify(body)).not.toMatch(
+          /SELECT|INSERT|stack|commit perdida/,
+        );
+        const atuais = await linhas();
+        expect(atuais).toHaveLength(1);
+        expect(atuais[0].id).not.toBe(antigo.id);
+        expect(
+          armazenamento.blobs.has(`restaurant-menus/${atuais[0].arquivo}`),
+        ).toBe(true);
+        expect(armazenamento.blobs.has(blobAntigo())).toBe(true);
+        expect(JSON.stringify(aviso.mock.calls)).toContain(
+          'etapa=persistencia-incerta',
+        );
       });
     });
 

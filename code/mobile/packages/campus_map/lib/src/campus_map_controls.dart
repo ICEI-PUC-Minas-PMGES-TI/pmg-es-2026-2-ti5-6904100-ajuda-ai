@@ -283,8 +283,9 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     final request = ++_pucStopRequest;
     setState(() => _pucStop = _pucStop.copyWith(claiming: true));
     final result = await widget.controller.claimPucStop(id);
-    if (!mounted || request != _pucStopRequest || result.cancelled) return;
+    if (!mounted || request != _pucStopRequest) return;
     setState(() => _pucStop = _pucStop.copyWith(claiming: false));
+    if (result.cancelled) return;
     if (result.claim case final claim?) {
       unawaited(HapticFeedback.mediumImpact());
       setState(
@@ -429,11 +430,12 @@ class _CampusMapControlsState extends State<CampusMapControls> {
             accessible: accessible,
           )
         : await widget.controller.routeToPlace(place!, accessible: accessible);
-    if (!mounted || request != _routeRequest || result.cancelled) return;
+    if (!mounted || request != _routeRequest) return;
     setState(() {
       _routing = false;
       if (result.route != null) _route = result.route;
     });
+    if (result.cancelled) return;
     if (result.route != null) return;
     // Falhou: a linha anterior (de outro modo) não pode ficar como se valesse.
     if (_route != null) {

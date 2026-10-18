@@ -9,6 +9,7 @@ import {
   IsUUID,
   Matches,
   MaxLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { DESCRICAO_MAX, NOME_RESTAURANTE } from '../campus.js';
@@ -51,24 +52,24 @@ export class CriarRestauranteDto {
 
 /** `PATCH /coordenacao/restaurantes/:id`: subconjunto (local não pode ser removido). */
 export class AtualizarRestauranteDto {
-  @IsOptional()
+  @ValidateIf((o: AtualizarRestauranteDto) => o.nome !== undefined)
   @IsString()
   @MaxLength(NOME_RESTAURANTE.max)
   @Matches(NAO_VAZIO, { message: 'nome não pode ser vazio' })
   nome?: string;
 
-  @IsOptional()
+  @ValidateIf((o: AtualizarRestauranteDto) => o.descricao !== undefined)
   @IsString()
   @MaxLength(DESCRICAO_MAX)
   descricao?: string;
 
-  @IsOptional()
+  @ValidateIf((o: AtualizarRestauranteDto) => o.local !== undefined)
   @IsObject()
   @ValidateNested()
   @Type(() => LocalEntradaDto)
   local?: LocalEntradaDto;
 
-  @IsOptional()
+  @ValidateIf((o: AtualizarRestauranteDto) => o.horarios !== undefined)
   @IsArray()
   horarios?: unknown[];
 }

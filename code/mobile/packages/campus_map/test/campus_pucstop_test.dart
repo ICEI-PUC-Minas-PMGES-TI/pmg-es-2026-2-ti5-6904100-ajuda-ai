@@ -241,6 +241,32 @@ void main() {
       expect(location.calls, 0);
     });
 
+    test('resposta antiga não ressuscita PucStop após recarga', () async {
+      final antiga = Completer<List<CampusPucStop>>();
+      service.pendingList = antiga;
+      final carga = controller.loadPucStops();
+      service.pendingList = null;
+      service.stops = [_biblioteca];
+      await controller.reloadPucStops();
+      antiga.complete([_biblioteca, _medicina]);
+      await carga;
+      expect(controller.pucStops.value, [_biblioteca]);
+    });
+
+    test(
+      'consulta iniciada antes da coleta não apaga a coleta confirmada',
+      () async {
+        final antigos = Completer<Set<String>>();
+        service.pendingCollected = antigos;
+        final carga = controller.loadPucStops();
+        await Future<void>.delayed(Duration.zero);
+        await controller.claimPucStop(_biblioteca.id);
+        antigos.complete({});
+        await carga;
+        expect(controller.collectedPucStops.value, {_biblioteca.id});
+      },
+    );
+
     test(
       'lista indisponível: mapa sem PucStops e nova tentativa depois',
       () async {
@@ -529,6 +555,32 @@ void main() {
       expect(controller.collectedPucStops.value, isEmpty);
     });
 
+    testWidgets('cancelar coleta pendente libera botão para nova tentativa', (
+      tester,
+    ) async {
+      service.pending = Completer();
+      await mount(tester);
+      await select(tester, _biblioteca);
+      await tester.tap(find.byKey(const Key('campus-pucstop-claim')));
+      await tester.pump();
+      // Detach ao ir para segundo plano invalida a operação, mas mantém o card.
+      final camera = _Camera();
+      controller.attach(camera);
+      controller.detach(camera);
+      service.pending!.completeError(
+        const CampusPucStopException(CampusPucStopFailure.offline),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Coletando…'), findsNothing);
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('campus-pucstop-claim')))
+            .onPressed,
+        isNotNull,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('indisponível no servidor: estado próprio, sem botão', (
       tester,
     ) async {
@@ -624,6 +676,8 @@ class _Location implements CampusLocationService {
 }
 
 class _PucStops implements CampusPucStopService {
+  Completer<List<CampusPucStop>>? pendingList;
+  Completer<Set<String>>? pendingCollected;
   Set<String> collectedIds = {};
   Object? listError;
   Object? collectedError;
@@ -643,12 +697,14 @@ class _PucStops implements CampusPucStopService {
   @override
   Future<List<CampusPucStop>> list() async {
     listCalls++;
+    if (pendingList case final p?) return p.future;
     if (listError case final e?) throw e;
     return stops;
   }
 
   @override
   Future<Set<String>> collected() async {
+    if (pendingCollected case final p?) return p.future;
     if (collectedError case final e?) throw e;
     return collectedIds;
   }
@@ -666,6 +722,17 @@ class _PucStops implements CampusPucStopService {
     }
     return _claim(pucStopId == _biblioteca.id ? _biblioteca : _medicina);
   }
+}
+
+class _Camera implements CampusMapCamera {
+  @override
+  Future<void> focus(CampusPlace place) async {}
+  @override
+  Future<void> showUser(CampusUserLocation location) async {}
+  @override
+  Future<void> showRoute(CampusRoute route) async {}
+  @override
+  Future<void> clearRoute() async {}
 }
 
 class _Routes implements CampusRouteService {

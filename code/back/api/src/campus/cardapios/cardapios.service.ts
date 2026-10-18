@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { SCHEMA_MAPA } from '../../mapa/postgis.js';
@@ -24,6 +26,8 @@ const CONTAINER = CONTAINERS.restaurantMenus;
 /** Nome do blob é único por cardápio (UUID): pode ficar em cache para sempre. */
 const CACHE_IMUTAVEL = 'public, max-age=31536000, immutable';
 const DIA_MS = 24 * 60 * 60 * 1000;
+/** Cleanup secundário não pode prender a resposta da operação já confirmada. */
+const TEMPO_LIMPEZA_MAX_MS = 3_000;
 
 interface LinhaCardapio {
   id: string;
@@ -55,9 +59,11 @@ function exigirData(valor: string, campo: string): Date {
  *
  * - envio: grava o blob (`If-None-Match: *`, nome único), depois a linha; se a
  *   linha falhar, tenta apagar o blob e registra falhas de compensação;
- * - remoção: apaga o blob, depois a linha (se o Azure falhar, a linha fica e
- *   continua apontando para um arquivo que existe);
- * - substituição: grava o novo e só então remove o antigo.
+ * - remoção: DELETE ... RETURNING confirma a remoção da linha antes do blob;
+ * - substituição: upload fora da transação; troca relacional atômica; cleanup
+ *   depois do commit. Falha de cleanup mantém o sucesso e registra o órfão.
+ * Commit sem confirmação preserva os arquivos para conferência, nunca os
+ * apaga presumindo rollback.
  */
 @Injectable()
 export class CardapiosService {
@@ -143,62 +149,140 @@ export class CardapiosService {
     const tipo = exigirArquivoCardapio(arquivo);
     const id = randomUUID();
     const nome = nomeBlobCardapio(restauranteId, id, tipo);
-    await this.storage.enviar(CONTAINER, nome, arquivo!, tipo, {
-      cacheControl: CACHE_IMUTAVEL,
-    });
     try {
-      await this.dataSource.query(
-        `INSERT INTO ${m}."cardapios" ("id", "restaurante_id", "valido_de", "valido_ate", "arquivo", "tipo_conteudo", "tamanho_bytes", "criado_por") ` +
-          `VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          id,
-          restauranteId,
-          vigencia.validoDe,
-          vigencia.validoAte,
-          nome,
-          tipo,
-          arquivo!.length,
-          criadoPor,
-        ],
-      );
+      await this.storage.enviar(CONTAINER, nome, arquivo!, tipo, {
+        cacheControl: CACHE_IMUTAVEL,
+      });
     } catch (erro) {
-      // Sem linha, o blob seria lixo: desfaz o envio.
-      await this.storage
-        .excluir(CONTAINER, nome)
-        .catch((e: unknown) =>
-          this.logger.error(`blob órfão ${nome}: ${String(e)}`),
-        );
+      // Uma falha de transporte também pode ocultar um upload concluído.
+      this.registrarPendente(id, nome, 'upload-nao-confirmado');
+      throw erro;
+    }
+    let respostaPreparada: CardapioDto | undefined;
+    let arquivoAntigo: string | undefined;
+    let salvo: CardapioDto;
+    try {
+      salvo = await this.dataSource.transaction(async (manager) => {
+        if (vigencia.substitui) {
+          // O DELETE obtém a trava de linha e disputa a troca sem TOCTOU.
+          // A remoção só fica visível junto do novo registro no commit.
+          const [antigo] = (await manager.query(
+            `WITH removido AS (DELETE FROM ${m}."cardapios" WHERE "id" = $1 AND "restaurante_id" = $2 RETURNING "arquivo") ` +
+              `SELECT "arquivo" FROM removido`,
+            [vigencia.substitui, restauranteId],
+          )) as Array<{ arquivo: string }>;
+          if (!antigo) {
+            throw new ConflictException({
+              message:
+                'O cardápio foi alterado ou removido. Atualize a lista antes de substituir.',
+              motivo: 'cardapio-alterado',
+              statusCode: 409,
+            });
+          }
+          arquivoAntigo = antigo.arquivo;
+        }
+        const [linha] = (await manager.query(
+          `INSERT INTO ${m}."cardapios" ("id", "restaurante_id", "valido_de", "valido_ate", "arquivo", "tipo_conteudo", "tamanho_bytes", "criado_por") ` +
+            `VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING ${this.colunas}`,
+          [
+            id,
+            restauranteId,
+            vigencia.validoDe,
+            vigencia.validoAte,
+            nome,
+            tipo,
+            arquivo!.length,
+            criadoPor,
+          ],
+        )) as LinhaCardapio[];
+        // urlPublica é cálculo local, sem chamada Azure. Prepara a resposta
+        // antes do commit para não depender de outro SELECT após persistir.
+        respostaPreparada = this.dto(linha);
+        return respostaPreparada;
+      });
+    } catch (erro) {
+      if (respostaPreparada) {
+        // O callback acabou: o erro pode ser do COMMIT/ack/release. Apagar
+        // o novo blob aqui poderia quebrar um registro já confirmado no banco.
+        this.registrarPendente(id, nome, 'persistencia-incerta');
+        throw new ServiceUnavailableException({
+          message:
+            'Não foi possível confirmar a gravação do cardápio. Recarregue a lista antes de repetir a operação.',
+          motivo: 'resultado-indeterminado',
+          statusCode: 503,
+        });
+      }
+      // O callback falhou antes de pedir commit: a troca foi abortada.
+      await this.limparBlob(id, nome, 'compensacao');
       throw erro;
     }
     this.logger.log(
       `cardápio enviado id=${id} restaurante=${restauranteId} tipo=${tipo}`,
     );
-    if (vigencia.substitui) await this.remover(vigencia.substitui);
-    const [linha] = (await this.dataSource.query(
-      `SELECT ${this.colunas} FROM ${m}."cardapios" WHERE "id" = $1`,
-      [id],
-    )) as LinhaCardapio[];
-    return this.dto(linha);
+    if (arquivoAntigo) {
+      await this.limparBlob(vigencia.substitui!, arquivoAntigo, 'substituicao');
+    }
+    return salvo;
   }
 
-  /** Remove arquivo e linha. Blob já ausente não impede remover a linha. */
+  /** Remove a referência antes do arquivo; cleanup não desfaz sucesso. */
   async remover(id: string): Promise<{ removido: true }> {
     exigirUuid(id, 'Cardápio');
-    const [linha] = (await this.dataSource.query(
-      `SELECT "arquivo" FROM ${m}."cardapios" WHERE "id" = $1`,
-      [id],
-    )) as Array<{ arquivo: string }>;
-    if (!linha) throw new NotFoundException('Cardápio não encontrado.');
+    let removidas: Array<{ arquivo: string }>;
     try {
-      await this.storage.excluir(CONTAINER, linha.arquivo);
-    } catch (erro) {
-      if (!(erro instanceof NotFoundException)) throw erro;
+      // Uma única instrução autocommit; só quem removeu a linha recebe a
+      // chave. Exclusões/trocas concorrentes não usam uma leitura obsoleta.
+      removidas = (await this.dataSource.query(
+        `WITH removido AS (DELETE FROM ${m}."cardapios" WHERE "id" = $1 RETURNING "arquivo") ` +
+          `SELECT "arquivo" FROM removido`,
+        [id],
+      )) as Array<{ arquivo: string }>;
+    } catch {
+      // Sem confirmação do DELETE, não tocar no blob (inclusive ack perdido).
+      this.logger.warn(`remocao-nao-confirmada cardapio=${id}`);
+      throw new ServiceUnavailableException({
+        message:
+          'Não foi possível confirmar a remoção do cardápio. Recarregue a lista antes de repetir a operação.',
+        motivo: 'resultado-indeterminado',
+        statusCode: 503,
+      });
     }
-    await this.dataSource.query(
-      `DELETE FROM ${m}."cardapios" WHERE "id" = $1`,
-      [id],
-    );
+    const [linha] = removidas;
+    if (!linha) throw new NotFoundException('Cardápio não encontrado.');
+    await this.limparBlob(id, linha.arquivo, 'exclusao');
     this.logger.log(`cardápio removido id=${id}`);
     return { removido: true };
+  }
+
+  private registrarPendente(id: string, nome: string, etapa: string): void {
+    // Só dados internos controlados: nunca erro bruto, URL/SAS ou credencial.
+    this.logger.warn(
+      `limpeza-pendente cardapio=${id} blob=${nome} etapa=${etapa}`,
+    );
+  }
+
+  private async limparBlob(
+    id: string,
+    nome: string,
+    etapa: string,
+  ): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.storage.excluir(CONTAINER, nome),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('cleanup excedeu o prazo')),
+            TEMPO_LIMPEZA_MAX_MS,
+          );
+        }),
+      ]);
+    } catch (erro) {
+      if (!(erro instanceof NotFoundException)) {
+        this.registrarPendente(id, nome, etapa);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
