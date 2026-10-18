@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'campus_content.dart';
 import 'campus_location_service.dart';
 import 'campus_place.dart';
+import 'campus_place_category.dart';
 import 'campus_place_repository.dart';
 import 'campus_pucstop.dart';
 import 'campus_route.dart';
@@ -114,6 +115,7 @@ enum CampusContentStatus {
 class CampusMapController {
   CampusMapController({
     CampusPlaceRepository? placeRepository,
+    this.placeCatalog,
     CampusLocationService? locationService,
     this.routeService,
     this.pucStopService,
@@ -124,6 +126,13 @@ class CampusMapController {
        _elapsed = elapsed ?? _monotonicClock();
 
   final CampusPlaceRepository placeRepository;
+  final CampusPlaceCatalog? placeCatalog;
+  late final CampusPlaceCatalog _catalog =
+      placeCatalog ??
+      switch (placeRepository) {
+        CampusPlaceCatalog catalog => catalog,
+        _ => LocalCampusPlaceRepository(),
+      };
   final CampusLocationService locationService;
 
   /// Sem serviço não há rota: o pacote não calcula rota local.
@@ -220,6 +229,24 @@ class CampusMapController {
   Future<List<CampusPlace>> search(String query) {
     if (_disposed) throw StateError('Controller descartado.');
     return placeRepository.search(query);
+  }
+
+  Future<List<CampusPlace>> placesInCategory(
+    CampusPlaceCategory category, {
+    String query = '',
+  }) {
+    if (_disposed) throw StateError('Controller descartado.');
+    return _catalog.inCategory(category, query: query);
+  }
+
+  /// A seleção já contém a âncora confirmada pela busca ou catálogo local.
+  /// Não depende de uma segunda consulta remota para focar o mesmo lugar.
+  Future<void> focusSelection(CampusPlace place) async {
+    final camera = _camera;
+    if (_disposed || camera == null) {
+      throw StateError('Mapa ainda indisponível.');
+    }
+    await camera.focus(place);
   }
 
   Future<void> focusPlace(String placeId) async {

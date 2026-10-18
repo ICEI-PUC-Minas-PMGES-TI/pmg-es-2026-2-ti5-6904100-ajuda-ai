@@ -17,9 +17,30 @@ Desempate local por nome, código e ID; a API também ordena por tipo de local.
 Consulta vazia não carrega/lista o campus; resultados têm limite.
 
 O índice local é montado uma vez por tela sobre footprints com nome ou código.
-Não infere aliases, salas ou categorias: código `26` não é alias `P26`.
+Não infere aliases ou salas: código `26` não é alias `P26`.
 Polígonos com código compartilhado continuam separados por ID.
 O ID da API de origem (`apiId`) não substitui o ID estável do footprint.
+
+## Categorias de locais permanentes
+
+O botão “Categorias de locais”, dentro da busca, abre quatro filtros:
+Prédios acadêmicos (`ACADEMIC`, `CLASSROOM`, `AUDITORIUM`), Laboratórios
+(`LAB`), Biblioteca (`LIBRARY`) e Esportes (`SPORTS`). O primeiro corresponde
+ao agrupamento “Salas de Aula” do PUCMaps: prédios de ensino e apoio, não salas
+individuais. A classificação herdada é ampla e não comprova uso exclusivo
+para aulas em cada prédio.
+
+`CampusPlaceCatalog` usa o índice local, com os tipos do snapshot, sem novas
+requisições ou inferência por nome. A lista mostra todos os locais compatíveis
+e pode ser filtrada por nome/código; o limite de oito sugestões da busca
+textual não corta categorias. IDs evitam duplicação; footprints diferentes
+com o mesmo código permanecem separados. A seleção usa o card e a rota normais
+do prédio, e seu foco não exige uma segunda consulta remota.
+
+Ao cancelar o painel, o texto da busca principal é preservado; ao voltar a
+digitar nele, a busca permanece global. Eventos e Onde comer mantêm seus
+atalhos e contratos próprios. Abrir/fechar o teclado recalcula os limites da
+câmera sem substituir o foco escolhido por um fit do campus inteiro.
 
 ## Fonte remota e fallback
 
@@ -55,7 +76,9 @@ abrir o mapa não pede acesso automaticamente.
 Leituras concorrentes compartilham a operação. Serviço desligado, negativa,
 negativa permanente, timeout e coordenada inválida produzem resultados tipados,
 com ações de configurações quando cabíveis.
-A implementação usa leitura pontual com timeout; não cria stream Geolocator.
+A implementação usa leitura pontual com timeout para essas ações. Durante
+uma rota ativa, o monitor de desvio usa stream Geolocator; é cancelado ao
+limpar a rota, sair, pausar ou trocar style. [Recálculo de rota](rotas.md).
 
 Android declara `INTERNET`, `ACCESS_COARSE_LOCATION` e `ACCESS_FINE_LOCATION`.
 Não solicita localização em background ou serviço foreground.
@@ -74,9 +97,30 @@ A versão Geolocator fixada no pacote evita conflitos conhecidos entre
 `package_info_plus`, `file_picker` e AGP/Kotlin integrado. Atualizá-la requer
 resolver a árvore do app e testar a plataforma, sem dependency overrides cegos.
 
-O bbox das construções orienta a câmera; não restringe a posição do GPS nem
-comprova que o usuário está dentro do campus.
 O snapshot local não modela navegação indoor. Rotas dependem da API.
+
+## Limites da câmera
+
+`CampusCameraPolicy` une o bbox das footprints ao bbox da origem `pucmaps-12`
+(`oeste=-43.9961`, `sul=-19.9265`, `leste=-43.9885`, `norte=-19.9176`),
+incluindo portões e grafo além das construções. Acrescenta 120 m para permitir
+foco nas bordas e contexto próximo. O centro da câmera permanece nessa área;
+a posição bruta do GPS e os destinos enviados à API não são recortados.
+Essa restrição visual não comprova presença no campus nem substitui geofence.
+
+O SDK recebe `CameraBoundsOptions`, máximo 22 e mínimo calculado por fit
+Mercator do campus em pixels lógicos, conforme viewport e padding disponível,
+com redução quando o fit nativo com perspectiva exige mais afastamento.
+O bbox nativo inclui overscan de enquadramento: sem ele, o SDK aumenta o zoom
+mínimo para fazer a viewport caber no bbox e corta o campus em telas estreitas.
+O listener de câmera limita o centro separadamente, inclusive para gestos.
+
+Ao mudar o tamanho da tela, a view recalcula os limites e enquadra o campus
+ou a rota ativa. Padding proporcional e a altura medida do card reservam
+espaço aos controles; rotas mantêm rumo/inclinação e usam o fit nativo.
+Em telas largas (largura mínima 600 pt e proporção mínima 1,5), os cards
+ocupam uma coluna de até 360 pt; o fit reserva essa coluna e mantém a rota
+ao lado. Nos demais formatos, permanece a reserva inferior medida.
 
 ## Verificação
 

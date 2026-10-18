@@ -1,14 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
+import 'campus_camera_policy.dart';
 import 'campus_content.dart';
 import 'campus_content_widgets.dart';
 import 'campus_location_service.dart';
 import 'campus_map_controller.dart';
 import 'campus_place.dart';
+import 'campus_place_category_sheet.dart';
 import 'campus_pucstop.dart';
 import 'campus_route.dart';
 
@@ -180,6 +183,26 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   }
 
   void _closeContent() => widget.controller.selectContent(null);
+
+  Future<void> _openCategories() async {
+    final controller = widget.controller;
+    _request++;
+    _focus.unfocus();
+    setState(() => _expanded = false);
+    final place = await showModalBottomSheet<CampusPlace>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: CampusPlaceCategorySheet(controller: controller),
+      ),
+    );
+    if (!mounted || controller != widget.controller || place == null) return;
+    await _select(place);
+  }
 
   Future<void> _openList(CampusContentKind kind) async {
     _focus.unfocus();
@@ -396,7 +419,7 @@ class _CampusMapControlsState extends State<CampusMapControls> {
       _selected = place;
     });
     try {
-      await widget.controller.focusPlace(place.id);
+      await widget.controller.focusSelection(place);
     } catch (_) {
       if (mounted) _message('Não foi possível focar o local. Tente novamente.');
     }
@@ -550,8 +573,14 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) =>
+        _buildControls(context, constraints.biggest),
+  );
+
+  Widget _buildControls(BuildContext context, Size size) {
     final colors = Theme.of(context).colorScheme;
+    final sideCardWidth = CampusCameraPolicy.sideCardWidth(size);
     final pucStop = _pucStopId == null
         ? null
         : widget.controller.pucStop(_pucStopId!);
@@ -560,7 +589,8 @@ class _CampusMapControlsState extends State<CampusMapControls> {
         if (pucStop != null)
           Positioned(
             left: 12,
-            right: 76, // Coluna do botão de localização.
+            right: sideCardWidth == null ? 76 : null,
+            width: sideCardWidth,
             bottom: 44,
             child: _PucStopCard(
               stop: pucStop,
@@ -577,7 +607,8 @@ class _CampusMapControlsState extends State<CampusMapControls> {
         else if (_content case final item?)
           Positioned(
             left: 12,
-            right: 76, // Coluna do botão de localização.
+            right: sideCardWidth == null ? 76 : null,
+            width: sideCardWidth,
             bottom: 44,
             child: _MedeAltura(
               onAltura: _medirCardConteudo,
@@ -599,7 +630,8 @@ class _CampusMapControlsState extends State<CampusMapControls> {
         else if (_selected case final place? when widget.controller.canRoute)
           Positioned(
             left: 12,
-            right: 76, // Coluna do botão de localização.
+            right: sideCardWidth == null ? 76 : null,
+            width: sideCardWidth,
             bottom: 44,
             child: _RouteCard(
               place: place,
@@ -639,10 +671,20 @@ class _CampusMapControlsState extends State<CampusMapControls> {
                     labelText: 'Buscar local no campus',
                     hintText: 'Nome ou código do prédio',
                     prefixIcon: const Icon(Icons.search),
-                    suffixIcon: IconButton(
-                      tooltip: 'Limpar busca',
-                      onPressed: _clear,
-                      icon: const Icon(Icons.close),
+                    suffixIcon: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'Categorias de locais',
+                          onPressed: _openCategories,
+                          icon: const Icon(Icons.filter_list),
+                        ),
+                        IconButton(
+                          tooltip: 'Limpar busca',
+                          onPressed: _clear,
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
                     ),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(

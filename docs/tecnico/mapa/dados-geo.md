@@ -138,6 +138,14 @@ Suas contagens de referência são 101 prédios, 12 áreas, nenhuma sala,
 653 nós e 1.654 arestas dirigidas. São propriedades desse arquivo, não
 uma afirmação sobre o conteúdo de produção.
 
+No catálogo da origem, “Salas de Aula” é um filtro de tipos de prédio
+(`ACADEMIC`, `CLASSROOM`, `AUDITORIUM`), não uma lista de salas individuais.
+Os seis registros `CAFETERIA` identificam locais físicos e já alimentam as
+[sugestões de restaurantes](eventos-cantinas.md) da coordenação. Não fornecem
+horários, cardápios ou comprovação de funcionamento atual. Nome/código não
+devem unir registros: `OSM_271050665` conserva nome “Prédio 31” e código “18”
+da fonte até validação cadastral, sem ser confundido com `P18`.
+
 O exportador `scripts/mapa/exportar-pucmaps.mjs` é mantido para reprodução:
 lê somente banco local PUCMaps, em transação de leitura, com `PUCMAPS_DB_*`.
 `npm run mapa:exportar-pucmaps -- --versao 12 --saida <arquivo.json>`
@@ -159,6 +167,16 @@ Transformações importantes:
 deriva das footprints e metadados de `campus_chunks.json` da origem:
 ID, nome/código, alturas e coordenadas são preservados; `osmId`, `apiId`
 e centro são unidos pelo ID exato, sem heurística por proximidade/nome.
+
+`properties.type` complementa esse snapshot com `predios.tipo` da exportação
+fixa `pucmaps-12.json`, unido pelo ID estável e conferido pelo `apiId`/`idOrigem`.
+`metadata.classificationSource` registra essa proveniência e os tipos incluídos.
+O enriquecimento local é restrito aos 58 prédios dos quatro filtros; os demais
+mantêm seus metadados anteriores, sem reclassificar áreas ou alterar a
+renderização. Nenhum prédio foi criado para os filtros. Os grupos contêm 53 acadêmicos, três
+laboratórios, uma biblioteca e um esportivo, sem sobreposição no snapshot.
+O importador original atribui um único tipo por prédio, pela primeira regra
+compatível; o cliente não amplia as categorias usando palavras do nome.
 
 Organização de chunks, materiais e métricas de GLB não pertencem ao GeoJSON.
 O manifesto 3D mantém vínculo e cor de parede; não duplica a geometria.

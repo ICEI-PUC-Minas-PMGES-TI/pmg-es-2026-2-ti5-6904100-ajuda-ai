@@ -1,5 +1,6 @@
 import 'campus_data_source.dart';
 import 'campus_place.dart';
+import 'campus_place_category.dart';
 import 'campus_snapshot.dart';
 
 abstract interface class CampusPlaceRepository {
@@ -32,7 +33,8 @@ String normalizeCampusQuery(String text) {
 
 /// Índice por tela, criado uma vez a partir da mesma fonte usada no renderer.
 /// Uma futura implementação HTTP só precisa cumprir CampusPlaceRepository.
-class LocalCampusPlaceRepository implements CampusPlaceRepository {
+class LocalCampusPlaceRepository
+    implements CampusPlaceRepository, CampusPlaceCatalog {
   LocalCampusPlaceRepository({
     CampusDataSource dataSource = const LocalCampusDataSource(),
     Future<CampusSnapshot> Function()? loadSnapshot,
@@ -59,6 +61,9 @@ class LocalCampusPlaceRepository implements CampusPlaceRepository {
                 code: feature.code,
                 type: feature.type,
                 apiId: feature.properties['apiId'] as String?,
+                kind: feature.isArea
+                    ? CampusPlaceKind.area
+                    : CampusPlaceKind.building,
                 center: feature.center!,
               ),
             ),
@@ -94,6 +99,38 @@ class LocalCampusPlaceRepository implements CampusPlaceRepository {
       return order;
     });
     return List.unmodifiable(matches.take(resultLimit).map((m) => m.$2.place));
+  }
+
+  /// Catálogo completo; o limite de sugestões textuais não corta a categoria.
+  @override
+  Future<List<CampusPlace>> inCategory(
+    CampusPlaceCategory category, {
+    String query = '',
+  }) async {
+    final normalized = normalizeCampusQuery(query);
+    final places = <String, CampusPlace>{};
+    for (final item in await _places()) {
+      if (category.contains(item.place) &&
+          (normalized.isEmpty || item.rank(normalized) != null)) {
+        places[item.place.id] = item.place;
+      }
+    }
+    final results = places.values.toList()
+      ..sort((a, b) {
+        final aNumber = int.tryParse(a.code ?? '');
+        final bNumber = int.tryParse(b.code ?? '');
+        if (aNumber == null && bNumber != null) return 1;
+        if (aNumber != null && bNumber == null) return -1;
+        if (aNumber != null && bNumber != null && aNumber != bNumber) {
+          return aNumber.compareTo(bNumber);
+        }
+        final code = (a.code ?? '').compareTo(b.code ?? '');
+        if (code != 0) return code;
+        final name = normalizeCampusQuery(a.displayName)
+            .compareTo(normalizeCampusQuery(b.displayName));
+        return name != 0 ? name : a.id.compareTo(b.id);
+      });
+    return List.unmodifiable(results);
   }
 }
 

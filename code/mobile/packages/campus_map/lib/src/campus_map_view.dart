@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' hide Size;
 
 import 'campus_content.dart';
+import 'campus_camera_policy.dart';
 import 'campus_content_layer.dart';
 import 'campus_data_source.dart';
 import 'campus_fallback_place_repository.dart';
@@ -18,6 +20,7 @@ import 'campus_pucstop.dart';
 import 'campus_pucstop_layer.dart';
 import 'campus_map_defaults.dart';
 import 'campus_map_features.dart';
+import 'campus_map_lighting.dart';
 import 'campus_map_renderer.dart';
 import 'campus_route.dart';
 import 'campus_route_layer.dart';
@@ -43,6 +46,7 @@ class CampusMapView extends StatefulWidget {
     this.onPucStopClaimed,
     this.contentService,
     this.openExternalUrl,
+    this.localTime,
   });
 
   final CampusMapConfig config;
@@ -77,6 +81,9 @@ class CampusMapView extends StatefulWidget {
   /// conseguiu; sem ele o card mostra o endereço para copiar.
   final Future<bool> Function(Uri url)? openExternalUrl;
 
+  /// Relógio local injetável para validação; padrão: relógio do aparelho.
+  final DateTime Function()? localTime;
+
   @override
   State<CampusMapView> createState() => _CampusMapViewState();
 }
@@ -101,6 +108,13 @@ class _CampusMapViewState extends State<CampusMapView>
   Future<CampusSnapshot>? _snapshot;
   Future<CampusModelManifest>? _modelManifest;
   Timer? _cameraSettle;
+  CampusMapLighting? _lighting;
+  CampusCameraPolicy? _cameraPolicy;
+  Size _viewport = Size.zero;
+  double _keyboardInset = 0;
+  bool _initialCameraApplied = false;
+  bool _correctingCenter = false;
+  Future<void> _boundsQueue = Future.value();
 
   /// Rota desenhada no momento; redesenhada se o style recarregar.
   CampusRoute? _route;
@@ -139,6 +153,7 @@ class _CampusMapViewState extends State<CampusMapView>
           placeRepository: remote == null
               ? local
               : FallbackCampusPlaceRepository(primary: remote, fallback: local),
+          placeCatalog: local,
           routeService: widget.routeService,
           pucStopService: widget.pucStopService,
           contentService: widget.contentService,
@@ -275,10 +290,12 @@ class _CampusMapViewState extends State<CampusMapView>
     if (state == AppLifecycleState.inactive) return;
     _foreground = state == AppLifecycleState.resumed;
     if (!_foreground) {
+      _lighting?.pause();
       _controller.detach(this);
       _route = _controller.activeRoute.value;
       unawaited(_disablePuck(_map));
     } else if (_map != null && _styleReady) {
+      unawaited(_lighting?.resume());
       _controller.attach(this);
       // Uma pintura interrompida ao pausar pode ter removido a linha antiga.
       // Retoma a rota confirmada, nunca o candidato de uma resposta cancelada.
@@ -298,6 +315,136 @@ class _CampusMapViewState extends State<CampusMapView>
     }
   }
 
+  MbxEdgeInsets get _routePadding => CampusCameraPolicy.routePadding(
+    _viewport,
+    bottom: _rodapeReservado(semCard: CampusMapDefaults.routePaddingBottom),
+    sideCard: true,
+  );
+
+  Future<void> _applyCameraBounds() {
+    final map = _map;
+    final policy = _cameraPolicy;
+    final size = _viewport;
+    final generation = _generation;
+    final revision = _styleRevision;
+    final padding = _route == null
+        ? CampusCameraPolicy.overviewPadding(size)
+        : _routePadding;
+    final work = _boundsQueue.then((_) async {
+      if (map == null ||
+          policy == null ||
+          size.isEmpty ||
+          !mounted ||
+          !_foreground ||
+          generation != _generation ||
+          revision != _styleRevision) {
+        return;
+      }
+      // O fit Mercator é o teto inicial. A perspectiva do SDK pode exigir
+      // mais afastamento para não cortar os cantos em telas estreitas.
+      final current = _route == null ? null : await map.getCameraState();
+      final fit = await map.cameraForCoordinatesPadding(
+        policy.corners,
+        CameraOptions(
+          pitch: current?.pitch ?? (_enable3d ? CampusMapDefaults.pitch3d : 0),
+          bearing: current?.bearing ?? 0,
+          padding: padding,
+        ),
+        MbxEdgeInsets(top: 0, left: 0, bottom: 0, right: 0),
+        null,
+        null,
+      );
+      if (!mounted ||
+          !_foreground ||
+          generation != _generation ||
+          revision != _styleRevision) {
+        return;
+      }
+      final minimum = math.min(
+        policy.minZoom(size, padding),
+        fit.zoom ?? CampusCameraPolicy.maxZoom,
+      );
+      await map.setBounds(
+        CameraBoundsOptions(
+          bounds: policy.mapBounds(size, minimum),
+          minZoom: minimum,
+          maxZoom: CampusCameraPolicy.maxZoom,
+        ),
+      );
+    });
+    _boundsQueue = work.catchError((_) {});
+    return work;
+  }
+
+  /// O bbox nativo inclui overscan para caber a viewport inclinada/com cards.
+  /// Restringir o centro separadamente evita liberar esse espaço para passeio.
+  void _constrainCenter(CameraState state) {
+    final map = _map;
+    final policy = _cameraPolicy;
+    if (_correctingCenter || map == null || policy == null || !_foreground) {
+      return;
+    }
+    final p = state.center.coordinates;
+    final point = policy.constrain([p.lng.toDouble(), p.lat.toDouble()]);
+    if ((point[0] - p.lng).abs() < 1e-7 && (point[1] - p.lat).abs() < 1e-7) {
+      return;
+    }
+    _correctingCenter = true;
+    unawaited(
+      map
+          .setCamera(
+            CameraOptions(
+              center: Point(coordinates: Position(point[0], point[1])),
+            ),
+          )
+          .catchError((_) {})
+          .whenComplete(() => _correctingCenter = false),
+    );
+  }
+
+  Future<void> _fitCampus(MapboxMap map, bool Function() isActive) async {
+    final policy = _cameraPolicy;
+    if (policy == null || _viewport.isEmpty) return;
+    final padding = CampusCameraPolicy.overviewPadding(_viewport);
+    final camera = await map.cameraForCoordinatesPadding(
+      policy.corners,
+      CameraOptions(
+        pitch: _enable3d ? CampusMapDefaults.pitch3d : 0,
+        bearing: 0,
+        padding: padding,
+      ),
+      MbxEdgeInsets(top: 0, left: 0, bottom: 0, right: 0),
+      null,
+      null,
+    );
+    if (!isActive()) return;
+    await map.setCamera(camera);
+  }
+
+  Future<void> _refreshCameraLayout({bool refitCampus = true}) async {
+    final map = _map;
+    final generation = _generation;
+    final revision = _styleRevision;
+    if (map == null || !_styleReady || !_foreground) return;
+    bool active() =>
+        mounted &&
+        generation == _generation &&
+        revision == _styleRevision &&
+        _foreground;
+    try {
+      await _applyCameraBounds();
+      if (!active()) return;
+      final route = _route;
+      if (route == null) {
+        if (refitCampus) await _fitCampus(map, active);
+      } else {
+        await _fitRoute(map, route, () => active() && identical(route, _route));
+      }
+    } catch (_) {
+      // Resize pode coincidir com descarte/recriação do style.
+    }
+  }
+
   Future<void> _disablePuck(MapboxMap? map) async {
     try {
       await map?.location.updateSettings(
@@ -314,12 +461,14 @@ class _CampusMapViewState extends State<CampusMapView>
     place.center[1],
     CampusMapDefaults.placeZoom,
     _enable3d ? CampusMapDefaults.pitch3d : CampusMapDefaults.pitch,
-    padding: MbxEdgeInsets(
-      top: 0,
-      left: 0,
-      bottom: _rodapeReservado(semCard: 0),
-      right: 0,
-    ),
+    padding: CampusCameraPolicy.sideCardWidth(_viewport) != null
+        ? _routePadding
+        : MbxEdgeInsets(
+            top: 0,
+            left: 0,
+            bottom: _rodapeReservado(semCard: 0),
+            right: 0,
+          ),
   );
 
   /// Rodapé coberto pelo card aberto. Card de evento/restaurante (até
@@ -434,6 +583,8 @@ class _CampusMapViewState extends State<CampusMapView>
     CampusRoute route,
     bool Function() isActive,
   ) async {
+    await _applyCameraBounds();
+    if (!isActive()) return;
     final current = await map.getCameraState();
     if (!isActive()) return;
     // Mantém inclinação e rumo; o espaço reservado cobre busca e card.
@@ -449,14 +600,7 @@ class _CampusMapViewState extends State<CampusMapView>
       CameraOptions(
         pitch: current.pitch,
         bearing: current.bearing,
-        padding: MbxEdgeInsets(
-          top: CampusMapDefaults.routePaddingTop,
-          left: CampusMapDefaults.routePaddingSide,
-          bottom: _rodapeReservado(
-            semCard: CampusMapDefaults.routePaddingBottom,
-          ),
-          right: CampusMapDefaults.routePaddingSide,
-        ),
+        padding: _routePadding,
       ),
       MbxEdgeInsets(top: 0, left: 0, bottom: 0, right: 0),
       CampusMapDefaults.routeMaxZoom,
@@ -471,13 +615,20 @@ class _CampusMapViewState extends State<CampusMapView>
 
   @override
   Future<void> clearRoute() async {
+    final request = _controller.routeRevision;
     _route = null;
     final map = _map;
     if (map == null || !_styleReady) return;
+    await _applyCameraBounds();
+    if (request != _controller.routeRevision || _route != null) return;
     final generation = _generation;
     final revision = _styleRevision;
     await _paintRoute(() async {
-      if (mounted && generation == _generation && revision == _styleRevision) {
+      if (mounted &&
+          generation == _generation &&
+          revision == _styleRevision &&
+          request == _controller.routeRevision &&
+          _route == null) {
         await CampusRouteLayer.clear(map.style);
       }
     });
@@ -499,9 +650,12 @@ class _CampusMapViewState extends State<CampusMapView>
     if (map == null || !_styleReady || !_foreground) {
       throw StateError('Mapa indisponível.');
     }
+    final point =
+        _cameraPolicy?.constrain([longitude, latitude]) ??
+        [longitude, latitude];
     await map.flyTo(
       CameraOptions(
-        center: Point(coordinates: Position(longitude, latitude)),
+        center: Point(coordinates: Position(point[0], point[1])),
         zoom: zoom,
         pitch: pitch,
         padding: padding ?? MbxEdgeInsets(top: 0, left: 0, bottom: 0, right: 0),
@@ -517,6 +671,13 @@ class _CampusMapViewState extends State<CampusMapView>
     final config = widget.config;
     final oldFeatures = oldConfig.features;
     final features = config.features;
+    if (oldWidget.localTime != widget.localTime) {
+      _lighting?.dispose();
+      _lighting = null;
+      if (_map != null && _styleReady) {
+        unawaited(_renderCampus(_generation, _styleRevision));
+      }
+    }
     if (oldWidget.controller != widget.controller ||
         oldWidget.dataSource != widget.dataSource ||
         oldWidget.remotePlaceRepository != widget.remotePlaceRepository ||
@@ -547,6 +708,7 @@ class _CampusMapViewState extends State<CampusMapView>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _lighting?.dispose();
     _releaseController(_controller, widget.controller == null);
     unawaited(_disablePuck(_map));
     _cameraSettle?.cancel();
@@ -568,6 +730,10 @@ class _CampusMapViewState extends State<CampusMapView>
   }
 
   void _configure() {
+    _lighting?.dispose();
+    _lighting = null;
+    _cameraPolicy = null;
+    _initialCameraApplied = false;
     _controller.detach(this);
     unawaited(_disablePuck(_map));
     _loadError = false;
@@ -623,6 +789,20 @@ class _CampusMapViewState extends State<CampusMapView>
       // Parsing uma vez por tela, só depois do style ficar pronto.
       final snapshot = await _loadSnapshot();
       if (!isActive()) return;
+      final lighting = _lighting ??= CampusMapLighting(
+        map.style,
+        now: widget.localTime,
+        isActive: () => isActive() && _foreground,
+      );
+      await lighting.refresh();
+      if (!isActive()) return;
+      _cameraPolicy = CampusCameraPolicy(snapshot);
+      await _applyCameraBounds();
+      if (!isActive()) return;
+      if (!_initialCameraApplied) {
+        _initialCameraApplied = true;
+        if (_route == null) await _fitCampus(map, isActive);
+      }
       await renderer.render(snapshot, isActive: isActive);
       // Style novo apaga sources: a rota em exibição volta a ser desenhada.
       if (_route case final route? when isActive()) {
@@ -756,135 +936,158 @@ class _CampusMapViewState extends State<CampusMapView>
         : _models3dUnavailable
         ? 'Prédios 3D indisponíveis neste ambiente.'
         : null;
-    return SizedBox.expand(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          MapWidget(
-            key: ValueKey(generation),
-            styleUri: widget.config.effectiveStyleUri,
-            onMapCreated: (map) {
-              if (!mounted || generation != _generation) return;
-              _map = map;
-              _diagnostics?.attach(map);
-              if (_features.pucStops) _addPucStopInteractions(map);
-              if (_features.events || _features.canteens) {
-                _addContentInteractions(map);
-              }
-              if (_styleReady) _renderCampus(generation, _styleRevision);
-            },
-            onStyleLoadedListener: (_) {
-              if (!mounted || generation != _generation) return;
-              _styleReady = true;
-              _controller.detach(this);
-              _route = _controller.activeRoute.value;
-              unawaited(_disablePuck(_map));
-              _styleRevision++;
-              _renderer = null;
-              _totemUrl = null;
-              _diagnostics?.mark('style carregado');
-              // Um novo style descarta sources/layers; o 3D recomeça nele.
-              _dispose3d();
-              _renderCampus(generation, _styleRevision);
-            },
-            // Não usa `idle`: com um GLB indisponível o Mapbox não volta a
-            // ficar ocioso. A câmera parada por um instante basta.
-            onCameraChangeListener: (_) {
-              if (_campus3d == null) return;
-              _cameraSettle?.cancel();
-              _cameraSettle = Timer(Campus3dLod.cameraSettle, () {
-                if (!mounted || generation != _generation) return;
-                _campus3d?.onCameraIdle();
-              });
-            },
-            viewport: CameraViewportState(
-              center: Point(
-                coordinates: Position(
-                  CampusMapDefaults.longitude,
-                  CampusMapDefaults.latitude,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = constraints.biggest;
+        if (size != _viewport) {
+          final inset = MediaQuery.viewInsetsOf(context).bottom;
+          final keyboardChanged = inset != _keyboardInset;
+          _keyboardInset = inset;
+          _viewport = size;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            // Fechar o teclado após uma seleção não pode trocar seu foco
+            // por um novo fit de campus. Rotação continua reenquadrando.
+            if (mounted) {
+              unawaited(_refreshCameraLayout(refitCampus: !keyboardChanged));
+            }
+          });
+        }
+        return SizedBox.expand(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              MapWidget(
+                key: ValueKey(generation),
+                styleUri: widget.config.effectiveStyleUri,
+                onMapCreated: (map) {
+                  if (!mounted || generation != _generation) return;
+                  _map = map;
+                  _diagnostics?.attach(map);
+                  if (_features.pucStops) _addPucStopInteractions(map);
+                  if (_features.events || _features.canteens) {
+                    _addContentInteractions(map);
+                  }
+                  if (_styleReady) _renderCampus(generation, _styleRevision);
+                },
+                onStyleLoadedListener: (_) {
+                  if (!mounted || generation != _generation) return;
+                  _styleReady = true;
+                  _lighting?.dispose();
+                  _lighting = null;
+                  _controller.detach(this);
+                  _route = _controller.activeRoute.value;
+                  unawaited(_disablePuck(_map));
+                  _styleRevision++;
+                  _renderer = null;
+                  _totemUrl = null;
+                  _diagnostics?.mark('style carregado');
+                  // Um novo style descarta sources/layers; o 3D recomeça nele.
+                  _dispose3d();
+                  _renderCampus(generation, _styleRevision);
+                },
+                // Não usa `idle`: com um GLB indisponível o Mapbox não volta a
+                // ficar ocioso. A câmera parada por um instante basta.
+                onCameraChangeListener: (event) {
+                  if (!mounted || generation != _generation) return;
+                  _constrainCenter(event.cameraState);
+                  if (_campus3d == null) return;
+                  _cameraSettle?.cancel();
+                  _cameraSettle = Timer(Campus3dLod.cameraSettle, () {
+                    if (!mounted || generation != _generation) return;
+                    _campus3d?.onCameraIdle();
+                  });
+                },
+                viewport: CameraViewportState(
+                  center: Point(
+                    coordinates: Position(
+                      CampusMapDefaults.longitude,
+                      CampusMapDefaults.latitude,
+                    ),
+                  ),
+                  zoom: CampusMapDefaults.zoom,
+                  pitch: _enable3d
+                      ? CampusMapDefaults.pitch3d
+                      : CampusMapDefaults.pitch,
+                  bearing: CampusMapDefaults.bearing,
                 ),
-              ),
-              zoom: CampusMapDefaults.zoom,
-              pitch: _enable3d
-                  ? CampusMapDefaults.pitch3d
-                  : CampusMapDefaults.pitch,
-              bearing: CampusMapDefaults.bearing,
-            ),
-            onMapLoadErrorListener: (event) {
-              if (!mounted || generation != _generation) return;
-              // Totem indisponível: some só ele; os pontos 2D ficam.
-              if (_totemUrl case final url? when event.message.contains(url)) {
-                _totemUrl = null;
-                final map = _map;
-                if (map != null) {
-                  unawaited(
-                    CampusPucStopLayer.removeTotem(map.style)
-                        .catchError((_) {}),
+                onMapLoadErrorListener: (event) {
+                  if (!mounted || generation != _generation) return;
+                  // Totem indisponível: some só ele; os pontos 2D ficam.
+                  if (_totemUrl case final url?
+                      when event.message.contains(url)) {
+                    _totemUrl = null;
+                    final map = _map;
+                    if (map != null) {
+                      unawaited(
+                        CampusPucStopLayer.removeTotem(map.style)
+                            .catchError((_) {}),
+                      );
+                    }
+                    return;
+                  }
+                  // Ambiente é decorativo: falha nele não vira aviso de mapa.
+                  final environment = _environment.where(
+                    (e) => e.owns(event.sourceId, event.message),
                   );
-                }
-                return;
-              }
-              // Ambiente é decorativo: falha nele não vira aviso de mapa.
-              final environment = _environment.where(
-                (e) => e.owns(event.sourceId, event.message),
-              );
-              if (environment.isNotEmpty) {
-                environment.first.onLoadError();
-                return;
-              }
-              // Falha de um GLB: só aquela região volta à extrusão.
-              if (Campus3dLayerIds.owns(event.sourceId)) {
-                _campus3d?.onSourceError(event.sourceId!);
-                return;
-              }
-              if (_loadError) return;
-              // Não exibir/logar mensagens do SDK: podem conter URLs e tokens.
-              setState(() => _loadError = true);
-            },
-            onMapLoadedListener: (_) {
-              if (!mounted || generation != _generation) return;
-              _diagnostics?.mark('mapa: loaded');
-              if (!_loadError) return;
-              setState(() => _loadError = false);
-            },
-            // Só no modo diagnóstico: sem custo por frame para o usuário comum.
-            onRenderFrameFinishedListener: _diagnostics == null
-                ? null
-                : (event) => _diagnostics?.onFrame(event),
-            onResourceRequestListener: _diagnostics == null
-                ? null
-                : (event) => _diagnostics?.onResource(event),
-          ),
-          if (_diagnostics case final diagnostics?)
-            // No topo: logo e atribuição do Mapbox (rodapé) continuam visíveis.
-            Positioned(
-              left: 8,
-              top: 90,
-              right: 8,
-              child: Campus3dDiagnosticsPanel(diagnostics: diagnostics),
-            ),
-          if (notice != null)
-            Positioned(
-              bottom: 110,
-              left: 0,
-              right: 0,
-              child: Material(
-                color: Theme.of(context).colorScheme.surface,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(notice, textAlign: TextAlign.center),
-                ),
+                  if (environment.isNotEmpty) {
+                    environment.first.onLoadError();
+                    return;
+                  }
+                  // Falha de um GLB: só aquela região volta à extrusão.
+                  if (Campus3dLayerIds.owns(event.sourceId)) {
+                    _campus3d?.onSourceError(event.sourceId!);
+                    return;
+                  }
+                  if (_loadError) return;
+                  // Não exibir/logar mensagens do SDK: podem conter URLs e tokens.
+                  setState(() => _loadError = true);
+                },
+                onMapLoadedListener: (_) {
+                  if (!mounted || generation != _generation) return;
+                  _diagnostics?.mark('mapa: loaded');
+                  if (!_loadError) return;
+                  setState(() => _loadError = false);
+                },
+                // Só no modo diagnóstico: sem custo por frame para o usuário comum.
+                onRenderFrameFinishedListener: _diagnostics == null
+                    ? null
+                    : (event) => _diagnostics?.onFrame(event),
+                onResourceRequestListener: _diagnostics == null
+                    ? null
+                    : (event) => _diagnostics?.onResource(event),
               ),
-            ),
-          CampusMapControls(
-            controller: _controller,
-            onPucStopClaimed: widget.onPucStopClaimed,
-            showEvents: _features.events,
-            showRestaurants: _features.canteens,
-            openExternalUrl: widget.openExternalUrl,
+              if (_diagnostics case final diagnostics?)
+                // No topo: logo e atribuição do Mapbox (rodapé) continuam visíveis.
+                Positioned(
+                  left: 8,
+                  top: 90,
+                  right: 8,
+                  child: Campus3dDiagnosticsPanel(diagnostics: diagnostics),
+                ),
+              if (notice != null)
+                Positioned(
+                  bottom: 110,
+                  left: 0,
+                  right: 0,
+                  child: Material(
+                    color: Theme.of(context).colorScheme.surface,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(notice, textAlign: TextAlign.center),
+                    ),
+                  ),
+                ),
+              CampusMapControls(
+                controller: _controller,
+                onPucStopClaimed: widget.onPucStopClaimed,
+                showEvents: _features.events,
+                showRestaurants: _features.canteens,
+                openExternalUrl: widget.openExternalUrl,
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

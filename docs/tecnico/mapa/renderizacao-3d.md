@@ -20,6 +20,21 @@ A atualização de LOD usa câmera estável com debounce, em vez de depender de
 `onMapIdle`: um GLB indisponível pode impedir esse evento no SDK.
 Limiares e atrasos têm fonte única em `Campus3dLod`.
 
+## Iluminação e contexto externo
+
+O Mapbox Standard recebe `lightPreset` pelo import `basemap`, usando o relógio
+local do aparelho: `dawn` de 05:30 a 09:00, `day` de 09:00 a 15:00, `dusk`
+de 15:00 a 18:40 e `night` nos demais horários. São as faixas do PUCMaps,
+não um cálculo de nascer/pôr do sol. `CampusMapLighting` reaplica ao retomar
+o app e verifica a próxima transição, com intervalo máximo de um minuto para
+perceber mudanças de relógio/fuso. O timer para ao pausar ou descartar o style.
+Styles sem o import Standard continuam utilizáveis sem essa configuração.
+
+`show3dObjects=false` remove o volume externo do Standard e mantém o contexto
+2D. GLBs/extrusões próprios do campus, materiais, token e atribuição não mudam.
+Não há override de brilho das janelas dos GLBs. Os limites da câmera são
+descritos em [busca e localização](busca-localizacao.md#limites-da-câmera).
+
 ## LOD (níveis de detalhe)
 
 - **LOD2:** extrusão pelas alturas e bases das footprints.
@@ -30,6 +45,8 @@ Limiares e atrasos têm fonte única em `Campus3dLod`.
 LOD1/LOD0 têm pré-carga antes de sua faixa visível. Chunks são espaçados para
 distribuir trabalho de carregamento. As faixas de zoom evitam sobreposição
 normal entre os LODs.
+
+As transições permanecem em 16,5 (LOD2 → LOD1) e 17,8 (LOD1 → LOD0).
 
 Extrusões pendentes cobrem modelos ainda não pedidos ou falhos.
 A remoção após o pedido usa um atraso heurístico, **não** uma confirmação de
