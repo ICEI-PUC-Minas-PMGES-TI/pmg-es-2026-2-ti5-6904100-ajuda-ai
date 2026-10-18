@@ -33,7 +33,7 @@ void main() {
     expect(find.text('Marina Souza'), findsNothing);
     expect(find.text('Central de Carreiras'), findsNothing);
     expect(find.text('Mapa'), findsOneWidget);
-    expect(find.text('Missões'), findsOneWidget);
+    expect(find.text('Missões'), findsNothing);
     expect(find.text('Perfil'), findsOneWidget);
     expect(find.text('Camila Duarte'), findsNothing);
     expect(tester.takeException(), isNull);

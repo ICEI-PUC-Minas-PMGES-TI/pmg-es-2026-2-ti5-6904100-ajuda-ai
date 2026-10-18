@@ -1,3 +1,5 @@
+import 'helpers/api_falsa.dart';
+
 import 'package:ajuda_ai/dados_cadastro.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/tela_mapa.dart';
@@ -16,6 +18,13 @@ DadosCadastro _dados({required int periodo}) => DadosCadastro(
 );
 
 void main() {
+  setUp(() {
+    ApiFalsa().instalar();
+    SessaoUsuario.atual.definirIdentidade(
+      nome: 'Camila Duarte',
+      email: 'camila@pucminas.edu.br',
+    );
+  });
   tearDown(SessaoUsuario.atual.limpar);
 
   testWidgets('explorar abre o mapa só com Mapa e Perfil', (tester) async {
@@ -55,6 +64,7 @@ void main() {
     );
 
     await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
+    await tester.pumpAndSettle();
 
     expect(find.text('Quero ser apadrinhado'), findsOneWidget);
     expect(find.text('Quero ser padrinho'), findsNothing);
@@ -73,6 +83,7 @@ void main() {
     );
 
     await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
+    await tester.pumpAndSettle();
 
     expect(find.text('Quero ser padrinho'), findsOneWidget);
     expect(find.text('Quero ser apadrinhado'), findsNothing);

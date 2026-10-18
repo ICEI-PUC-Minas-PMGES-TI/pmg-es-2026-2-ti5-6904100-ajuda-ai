@@ -12,7 +12,7 @@ export function dataCurta(iso) {
 }
 
 export function badgeClass(status, papel) {
-  if (papel === 'padrinho') return 'aprovada';
+  if (papel === 'padrinho' || status === 'aprovado') return 'aprovada';
   if (status === 'pendente') return 'nova';
   if (status === 'em_analise') return 'analise';
   if (status === 'nao_aprovado') return 'rejeitada';
@@ -25,6 +25,7 @@ export const ROTULO_SITUACAO_COORD = {
   candidatura_pendente: 'Candidatura nova',
   candidatura_em_analise: 'Candidatura em análise',
   candidatura_rejeitada: 'Candidatura rejeitada',
+  candidatura_aprovada_aguardando_matching: 'Aprovado aguardando matching',
   padrinho_ativo: 'Padrinho ativo',
   apadrinhado_pendente: 'Cadastro aguardando aprovação',
   apadrinhado_rejeitado: 'Cadastro rejeitado',

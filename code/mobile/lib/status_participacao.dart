@@ -2,6 +2,8 @@
 enum StatusParticipacao {
   nenhuma,
   explorar,
+  padrinhoPendente,
+  padrinhoAguardandoMatching,
   padrinhoEmAnalise,
   padrinhoAtivo,
   padrinhoRejeitado,
@@ -16,7 +18,9 @@ extension StatusParticipacaoRotulo on StatusParticipacao {
   String get titulo => switch (this) {
     StatusParticipacao.nenhuma => 'Sem participação',
     StatusParticipacao.explorar => 'Explorando o campus',
-    StatusParticipacao.padrinhoEmAnalise => 'Candidatura de padrinho',
+    StatusParticipacao.padrinhoPendente => 'Candidatura recebida',
+    StatusParticipacao.padrinhoAguardandoMatching => 'Candidatura aprovada',
+    StatusParticipacao.padrinhoEmAnalise => 'Candidatura em análise',
     StatusParticipacao.padrinhoAtivo => 'Padrinho ativo',
     StatusParticipacao.padrinhoRejeitado => 'Candidatura não aprovada',
     StatusParticipacao.apadrinhadoPendente => 'Cadastro em análise',
@@ -27,6 +31,9 @@ extension StatusParticipacaoRotulo on StatusParticipacao {
   };
 
   String get selo => switch (this) {
+    StatusParticipacao.padrinhoPendente => 'Recebida',
+    StatusParticipacao.padrinhoAguardandoMatching =>
+      'Aguardando definição do seu grupo',
     StatusParticipacao.padrinhoEmAnalise => 'Em análise',
     StatusParticipacao.padrinhoAtivo => 'Ativo',
     StatusParticipacao.padrinhoRejeitado => 'Não aprovada',
@@ -44,17 +51,12 @@ extension StatusParticipacaoRotulo on StatusParticipacao {
       this != StatusParticipacao.nenhuma && this != StatusParticipacao.explorar;
 }
 
-/// Converte a `situacao` de `GET /participacoes/situacao` no estado do app.
-///
-/// `candidatura_pendente` e `candidatura_em_analise` viram o mesmo estado
-/// ([StatusParticipacao.padrinhoEmAnalise]): para o aluno, as duas significam
-/// "aguardando a coordenação". A diferença fina fica em
-/// `SessaoUsuario.situacao` e aparece na tela de status da candidatura.
-///
-/// Devolve `null` para `nenhuma` (o app decide se mantém o estado local).
-StatusParticipacao? statusDaSituacao(String situacao) => switch (situacao) {
-  'candidatura_pendente' ||
+/// A situação da API é a única autoridade para participação.
+StatusParticipacao statusDaSituacao(String situacao) => switch (situacao) {
+  'candidatura_pendente' => StatusParticipacao.padrinhoPendente,
   'candidatura_em_analise' => StatusParticipacao.padrinhoEmAnalise,
+  'candidatura_aprovada_aguardando_matching' =>
+    StatusParticipacao.padrinhoAguardandoMatching,
   'candidatura_rejeitada' => StatusParticipacao.padrinhoRejeitado,
   'padrinho_ativo' => StatusParticipacao.padrinhoAtivo,
   'apadrinhado_pendente' => StatusParticipacao.apadrinhadoPendente,
@@ -62,5 +64,19 @@ StatusParticipacao? statusDaSituacao(String situacao) => switch (situacao) {
   'apadrinhado_aguardando' => StatusParticipacao.apadrinhadoAguardandoMatch,
   'apadrinhado_ativo' => StatusParticipacao.apadrinhadoAtivo,
   'concluido' => StatusParticipacao.concluido,
-  _ => null,
+  _ => StatusParticipacao.nenhuma,
 };
+
+extension PermissoesParticipacao on StatusParticipacao {
+  bool get ativo =>
+      this == StatusParticipacao.padrinhoAtivo ||
+      this == StatusParticipacao.apadrinhadoAtivo;
+  bool get candidatura => const {
+    StatusParticipacao.padrinhoPendente,
+    StatusParticipacao.padrinhoEmAnalise,
+    StatusParticipacao.padrinhoRejeitado,
+    StatusParticipacao.padrinhoAguardandoMatching,
+  }.contains(this);
+  bool get semInscricao =>
+      this == StatusParticipacao.nenhuma || this == StatusParticipacao.explorar;
+}

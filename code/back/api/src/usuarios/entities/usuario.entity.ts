@@ -6,8 +6,10 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-/** Modalidade escolhida pelo aluno no cadastro. */
+/** Papéis contextuais possíveis nas participações. */
 export type TipoParticipacao = 'padrinho' | 'apadrinhado';
+/** Campo legado de compatibilidade da conta; nunca autoriza participação. */
+export type IntencaoParticipacao = TipoParticipacao | 'nenhuma';
 
 /** Situação do cadastro na análise da coordenação. */
 export type StatusCadastro = 'pendente' | 'aprovado' | 'rejeitado';
@@ -54,7 +56,7 @@ export class UsuarioEntity {
   interesses!: string[] | null;
 
   @Column({ name: 'tipo_participacao', type: 'varchar', length: 20 })
-  tipoParticipacao!: TipoParticipacao;
+  tipoParticipacao!: IntencaoParticipacao;
 
   @Column({
     name: 'status_cadastro',

@@ -1,17 +1,14 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Link, NavLink, Navigate, Outlet, useLocation, useSearchParams } from 'react-router-dom';
-import { api } from '../../api/client';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Link, NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { api, getAlunoSession, clearAlunoSession, programaAluno, selecionarProgramaAluno } from '../../api/client';
+import {escolherCiclo, resolverAluno} from '../../auth/resolverAluno';
 import {
   aplicarAparencia,
-  emailDaUrl,
   iniciaisDe,
   lerPreferencias,
-  lerSessaoAluno,
-  nomeDoEmail,
-  salvarSessaoAluno,
 } from '../../auth/sessaoAluno';
 import Icon from '../../components/Icon';
-import { formatarData, papelDaSituacao } from './util';
+import { formatarData } from './util';
 
 const VISTOS_KEY = 'ajudaai.aluno.avisosVistos';
 
@@ -33,120 +30,65 @@ function gravarVistos(ids) {
   }
 }
 
-/** Sessão do aluno, trocando de identidade quando chega `?email=` diferente. */
-function resolverSessao(searchParams) {
-  const atual = lerSessaoAluno();
-  const emailUrl = emailDaUrl(searchParams);
-  if (emailUrl && emailUrl !== atual?.email) {
-    return salvarSessaoAluno({ email: emailUrl, perfil: null, escolha: null, respostas: null });
-  }
-  return atual;
-}
-
 export default function AlunoLayout() {
-  const [params] = useSearchParams();
   const location = useLocation();
-  const [sessao, setSessao] = useState(() => resolverSessao(params));
+  const [sessao, setSessao] = useState(() => getAlunoSession());
+  const [perfil, setPerfil] = useState({nome: '', interesses: []});
   const [situacao, setSituacao] = useState(null);
+  const [programas, setProgramas] = useState([]);
+  const [codigo, setCodigo] = useState(programaAluno);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
   const [menuAberto, setMenuAberto] = useState(false);
+  const consultaAtual = useRef(0);
   const email = sessao?.email || '';
-
-  useEffect(() => {
-    aplicarAparencia();
-    const anterior = document.title;
-    document.title = 'Área do aluno | Ajuda-aí';
-    return () => {
-      document.title = anterior;
-    };
-  }, []);
-
-  useEffect(() => {
-    const nova = emailDaUrl(params);
-    if (nova && nova !== sessao?.email) setSessao(resolverSessao(params));
-  }, [params, sessao?.email]);
-
   const recarregar = useCallback(async () => {
     if (!email) return;
-    setCarregando(true);
-    setErro('');
+    const consulta = ++consultaAtual.current;
+    setCarregando(true); setErro(''); setSituacao(null);
     try {
-      // Sessão do aluno cadastrado (login demo no lugar do Microsoft). Sem
-      // cadastro (ex.: "apenas explorar"), segue identificado pelo e-mail.
-      await api.entrarAluno(email).catch(() => false);
-      setSituacao(await api.situacao(email));
-    } catch (error) {
-      setErro(error.message || 'Não foi possível carregar sua situação no programa.');
-    } finally {
-      setCarregando(false);
-    }
-  }, [email]);
-
-  useEffect(() => {
-    recarregar();
-  }, [recarregar]);
-
-  useEffect(() => {
-    setMenuAberto(false);
-  }, [location.pathname]);
-
-  const atualizarSessao = useCallback((parcial) => {
-    setSessao((atual) => salvarSessaoAluno({ ...atual, ...parcial }));
-  }, []);
-
-  const perfil = useMemo(() => {
-    const respostas = situacao?.registro?.respostas || sessao?.respostas || {};
-    const salvo = sessao?.perfil || {};
-    const doServidor = situacao?.perfil || {};
-    const cursoServidor = doServidor.curso === 'Curso não informado' ? '' : doServidor.curso;
-    return {
-      nome: salvo.nome || respostas.nome || doServidor.nome || nomeDoEmail(email),
-      curso: salvo.curso || respostas.curso || cursoServidor || '',
-      periodo: salvo.periodo ?? respostas.periodo ?? doServidor.periodo ?? null,
-      turno: salvo.turno || respostas.turno || '',
-      interesses: (salvo.interesses?.length ? salvo.interesses : respostas.interesses) || doServidor.interesses || [],
-    };
-  }, [sessao, situacao, email]);
-
-  if (!sessao) return <Navigate to="/" replace />;
-
-  const papel = papelDaSituacao(situacao?.situacao) || (situacao?.registro?.papel === 'apadrinhado' ? 'apadrinhado' : situacao?.registro ? 'padrinho' : null);
-  const ehPadrinho = situacao?.situacao === 'padrinho_ativo';
-
+      const [p, ciclos] = await Promise.all([api.perfilAluno(), api.programasAluno()]);
+      if (consulta !== consultaAtual.current) return;
+      setPerfil(p); setProgramas(ciclos);
+      const alvo = codigo || escolherCiclo(ciclos);
+      selecionarProgramaAluno(alvo); setCodigo(alvo);
+      if (alvo || ciclos.length === 0) {
+        const retorno = await api.situacao(email, alvo);
+        if (consulta === consultaAtual.current) setSituacao(retorno);
+      }
+    } catch (e) {
+      if (consulta !== consultaAtual.current) return;
+      setErro(e.message);
+      if (e.status === 401) {clearAlunoSession(); setSessao(null);}
+    } finally {if (consulta === consultaAtual.current) setCarregando(false);}
+  }, [email, codigo]);
+  useEffect(() => { aplicarAparencia(); recarregar(); return () => {consultaAtual.current++;}; }, [recarregar, location.pathname]);
+  useEffect(() => {setMenuAberto(false);}, [location.pathname]);
+  const resolucao = resolverAluno(perfil, situacao, programas.find(p => p.codigo === codigo));
+  if (!sessao) return <Navigate to="/login" replace />;
+  if (sessao.onboardingToken) return <Navigate to="/" replace />;
+  if (!carregando && !erro && !resolucao.completo) return <Navigate to="/" replace />;
+  const papel = resolucao.candidatura || resolucao.estado === 'padrinho_ativo' ? 'padrinho' : resolucao.estado?.startsWith('apadrinhado') ? 'apadrinhado' : null;
   const nav = [
-    { to: '/aluno/perfil', label: 'Meu perfil', icon: 'home' },
-    { to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard' },
-    { to: '/aluno/padrinho', label: ehPadrinho ? 'Meus apadrinhados' : 'Meu padrinho', icon: 'users' },
-    { to: '/aluno/historico', label: 'Histórico', icon: 'history' },
-    { to: '/aluno/configuracoes', label: 'Configurações', icon: 'settings' },
+    {to: '/aluno/perfil', label: 'Meu perfil', icon: 'home'},
+    ...(resolucao.candidatura ? [{to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard'}] : []),
+    ...(resolucao.ativo ? [{to: '/aluno/padrinho', label: papel === 'padrinho' ? 'Meus apadrinhados' : 'Meu padrinho', icon: 'users'}] : []),
+    {to: '/aluno/historico', label: 'Histórico', icon: 'history'},
+    {to: '/aluno/configuracoes', label: 'Configurações', icon: 'settings'},
   ];
-
-  const contexto = { email, sessao, perfil, situacao, carregando, erro, recarregar, atualizarSessao, papel };
-
-  return (
-    <div className="aluno-shell">
-      <AlunoTopbar
-        nome={perfil.nome}
-        email={email}
-        pronto={Boolean(situacao) || !carregando}
-        publico={papel === 'apadrinhado' ? 'apadrinhados' : papel === 'padrinho' ? 'padrinhos' : undefined}
-        menuAberto={menuAberto}
-        onMenu={() => setMenuAberto((v) => !v)}
-      />
-      <div className="aluno-body">
-        <aside className="aluno-sidebar" aria-label="Menu do aluno">
-          <AlunoNav itens={nav} />
-          <SidebarArt />
-        </aside>
-        {menuAberto && <AlunoDrawer itens={nav} onFechar={() => setMenuAberto(false)} />}
-        <main className="aluno-content" id="conteudo">
-          <AvisoCadastro cadastro={situacao?.cadastro} />
-          <Outlet context={contexto} />
-        </main>
-      </div>
-    </div>
-  );
+  const contexto = {email, sessao, perfil, situacao, carregando, erro, recarregar, papel, resolucao, programa: codigo,
+    atualizarSessao: parcial => setSessao(atual => ({...atual, ...parcial}))};
+  return <div className="aluno-shell">
+    <AlunoTopbar nome={perfil.nome} email={email} pronto={!carregando} publico={resolucao.ativo ? `${papel}s` : undefined} menuAberto={menuAberto} onMenu={() => setMenuAberto(v => !v)} />
+    <div className="aluno-body"><aside className="aluno-sidebar"><AlunoNav itens={nav}/><SidebarArt/></aside>
+    {menuAberto && <AlunoDrawer itens={nav} onFechar={() => setMenuAberto(false)}/>}
+    <main className="aluno-content" id="conteudo">
+      <label>Ciclo <select value={codigo} disabled={carregando} onChange={e => {consultaAtual.current++; setCarregando(true); setSituacao(null); selecionarProgramaAluno(e.target.value); setCodigo(e.target.value);}}>
+        <option value="">Selecione o ciclo</option>{programas.map(p => <option key={p.codigo} value={p.codigo}>{p.titulo}</option>)}
+      </select></label>
+      {erro ? <div role="alert">{erro}<button onClick={recarregar}>Tentar novamente</button></div>
+        : carregando ? <p role="status">Carregando perfil e situação…</p> : <Outlet context={contexto}/>}
+    </main></div></div>;
 }
 
 const ROTULO_TIPO = { padrinho: 'padrinho', apadrinhado: 'apadrinhado' };
@@ -342,7 +284,7 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu }) {
               <span className="account-email">{email}</span>
               <Link to="/aluno/perfil" onClick={() => setContaAberta(false)}><Icon name="person" size={16} /> Meu perfil</Link>
               <Link to="/aluno/configuracoes" onClick={() => setContaAberta(false)}><Icon name="settings" size={16} /> Configurações</Link>
-              <Link to="/login" onClick={() => setContaAberta(false)}><Icon name="lock" size={16} /> Área da coordenação</Link>
+              <Link to="/login" onClick={() => {clearAlunoSession(); setContaAberta(false);}}><Icon name="lock" size={16} /> Sair da conta</Link>
             </div>
           )}
         </div>

@@ -1,5 +1,5 @@
 import { Logger, Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BlobServiceClient } from '@azure/storage-blob';
 import { AzureBlobStorageService } from './azure-blob-storage.service.js';
 import {
@@ -13,6 +13,7 @@ import {
 } from './azure-storage.config.js';
 
 @Module({
+  imports: [ConfigModule],
   providers: [
     {
       provide: AzureBlobStorageService,

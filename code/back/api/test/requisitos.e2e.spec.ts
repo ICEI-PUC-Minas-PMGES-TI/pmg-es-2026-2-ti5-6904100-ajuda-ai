@@ -13,7 +13,10 @@ import { ParticipacoesService } from '../src/participacoes/participacoes.service
 import { ProgramaEntity } from '../src/programas/entities/programa.entity.js';
 import { ProgramasService } from '../src/programas/programas.service.js';
 import { UsuarioEntity } from '../src/usuarios/entities/usuario.entity.js';
-import { repositorioEmMemoria } from './helpers/repositorio-memoria.js';
+import {
+  repositorioEmMemoria,
+  conectarRepositorios,
+} from './helpers/repositorio-memoria.js';
 
 /** Regras de período × requisitos do ciclo, pela API (sem frontend). */
 describe('Período e requisitos de padrinho (e2e)', () => {
@@ -23,6 +26,13 @@ describe('Período e requisitos de padrinho (e2e)', () => {
 
   beforeEach(async () => {
     participacoes = [];
+    const repos = conectarRepositorios({
+      UsuarioEntity: repositorioEmMemoria<UsuarioEntity>([]),
+      ParticipacaoEntity:
+        repositorioEmMemoria<ParticipacaoEntity>(participacoes),
+      ProgramaEntity: repositorioEmMemoria<ProgramaEntity>(),
+      FormularioEntity: repositorioEmMemoria<FormularioEntity>(),
+    });
     const modulo = await Test.createTestingModule({
       imports: [
         AuthModule,
@@ -32,19 +42,37 @@ describe('Período e requisitos de padrinho (e2e)', () => {
       ],
     })
       .overrideProvider(getRepositoryToken(UsuarioEntity))
-      .useValue(repositorioEmMemoria<UsuarioEntity>())
+      .useValue(repos.UsuarioEntity)
       .overrideProvider(getRepositoryToken(ParticipacaoEntity))
-      .useValue(repositorioEmMemoria(participacoes))
+      .useValue(repos.ParticipacaoEntity)
       .overrideProvider(getRepositoryToken(ProgramaEntity))
-      .useValue(repositorioEmMemoria<ProgramaEntity>())
+      .useValue(repos.ProgramaEntity)
       .overrideProvider(getRepositoryToken(FormularioEntity))
-      .useValue(repositorioEmMemoria<FormularioEntity>())
+      .useValue(repos.FormularioEntity)
       .compile();
     app = modulo.createNestApplication();
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
     );
     await app.init();
+    const programas = await repos.ProgramaEntity.find();
+    for (const programa of programas) {
+      Object.assign(programa, {
+        etapaAtual: 'inscricoes',
+        inscricoesAbertas: true,
+        inscricoesInicio: '2000-01-01',
+        inscricoesFim: '2099-12-31',
+      });
+      await repos.ProgramaEntity.save(programa);
+      await repos.FormularioEntity.save(
+        repos.FormularioEntity.create({
+          programa: programa.codigo,
+          tipo: 'padrinho',
+          publicado: true,
+          perguntas: [],
+        }),
+      );
+    }
     // ciclo de teste com requisitos configurados pela coordenação
     await app.get(ProgramasService).atualizar(ciclo, {
       requisitosPadrinho: [{ descricao: 'Cálculo I' }, { descricao: 'AED I' }],
@@ -75,7 +103,15 @@ describe('Período e requisitos de padrinho (e2e)', () => {
     curso: 'SI',
     periodo,
     tipoParticipacao: tipo,
-    respostas: requisitos ? { requisitos } : {},
+    respostas: {
+      motivacao: 'Quero apoiar novos alunos.',
+      areas: ['Projetos'],
+      disponibilidade: ['Noite'],
+      genero: 'Prefiro não informar',
+      bolsistaProuni: false,
+      deOutraCidade: false,
+      ...(requisitos ? { requisitos } : {}),
+    },
   });
   const todos = [
     { id: 'calculo-i', cumpre: true },
@@ -87,27 +123,25 @@ describe('Período e requisitos de padrinho (e2e)', () => {
   });
 
   it('2. 1º + PADRINHO → 400 (mesmo declarando os requisitos)', async () => {
-    const r = await postCadastro(corpo('padrinho', 1, todos))
-      .expect(400);
+    const r = await postCadastro(corpo('padrinho', 1, todos)).expect(400);
     expect(r.body.message).toMatch(/1º período/);
   });
 
   it('3/5. 2º e 3º+ + APADRINHADO → 400', async () => {
     for (const periodo of [2, 3, 8]) {
-      await postCadastro(corpo('apadrinhado', periodo))
-        .expect(400);
+      await postCadastro(corpo('apadrinhado', periodo)).expect(400);
     }
   });
 
   it('4/6. 2º e 3º+ + PADRINHO → entram na validação dos requisitos', async () => {
     for (const periodo of [2, 3, 8]) {
-      const sem = await postCadastro(corpo('padrinho', periodo))
-        .expect(400);
+      const sem = await postCadastro(corpo('padrinho', periodo)).expect(400);
       expect(sem.body.message).toMatch(/é preciso cumprir: Cálculo I; AED I/);
 
-      const com = await postCadastro(corpo('padrinho', periodo, todos))
-        .expect(201);
-      expect(com.body.usuario.statusCadastro).toBe('pendente');
+      const com = await postCadastro(corpo('padrinho', periodo, todos)).expect(
+        201,
+      );
+      expect(com.body.usuario.statusCadastro).toBe('aprovado');
       expect(com.body.participacao).toMatchObject({
         papel: 'candidato',
         status: 'pendente',
@@ -117,12 +151,11 @@ describe('Período e requisitos de padrinho (e2e)', () => {
 
   it('B. declara que NÃO cumpre um requisito → 400', async () => {
     const r = await postCadastro(
-        corpo('padrinho', 3, [
-          { id: 'calculo-i', cumpre: false },
-          { id: 'aed-i', cumpre: true },
-        ]),
-      )
-      .expect(400);
+      corpo('padrinho', 3, [
+        { id: 'calculo-i', cumpre: false },
+        { id: 'aed-i', cumpre: true },
+      ]),
+    ).expect(400);
     expect(r.body.message).toMatch(/Cálculo I/);
     expect(r.body.message).not.toMatch(/AED I/);
     expect(participacoes).toHaveLength(0);

@@ -193,6 +193,8 @@
 .program-card { padding: 18px; border: 1px solid var(--border); border-radius: 18px; background: #fff; box-shadow: 0 4px 14px rgba(36, 23, 131, .04); }
 .program-card.focus { border-color: #b9adf5; box-shadow: 0 8px 22px rgba(74, 52, 207, .1); }
 .program-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.program-overflow summary { cursor: pointer; color: var(--primary, #5b3cc4); font-weight: 700; }
+.program-overflow[open] { display: flex; flex-direction: column; gap: 8px; }
 .program-card-head h2 { margin: 0 0 8px; color: var(--ink); font-family: Poppins, Inter, sans-serif; font-size: 1.15rem; font-weight: 800; }
 .program-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
 .program-totals div { padding: 10px 12px; border-radius: 12px; background: #f8f7fd; }

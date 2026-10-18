@@ -20,13 +20,7 @@ class ResultadoCadastro {
   final CicloParticipacao participacao;
 }
 
-/// Rotas do aluno. A identidade vem do token do aluno ([accessToken], obtido
-/// no cadastro ou no login demo); com token, `x-user-id` NÃO é enviado e o
-/// backend usa só o token. Sem token (ex.: "apenas explorar"), as leituras
-/// seguem no modo antigo, com o e-mail em `x-user-id`.
-///
-/// Erros: [ApiIndisponivelException] quando o backend não responde e
-/// [ApiException] quando ele responde com erro.
+/// Rotas autenticadas do aluno; a identidade é sempre validada pelo JWT.
 class ParticipacoesApi {
   ParticipacoesApi({http.Client? client, this.baseUrl = apiBaseUrl})
     : _client = client ?? http.Client();
@@ -34,22 +28,20 @@ class ParticipacoesApi {
   final http.Client _client;
   final String baseUrl;
 
-  /// JWT do aluno (cadastro/login). Null → modo antigo por `x-user-id`.
+  /// JWT de acesso emitido pela API.
   String? accessToken;
+  String? programa;
 
   Map<String, String> _headers(String? usuarioId, {bool json = false}) => {
     'accept': 'application/json',
     if (json) 'content-type': 'application/json',
-    if (accessToken != null)
-      'authorization': 'Bearer $accessToken'
-    else
-      'x-user-id': ?usuarioId,
+    if (accessToken != null) 'authorization': 'Bearer $accessToken',
   };
 
   /// Cadastro no programa (`POST /cadastro`). O backend valida as regras
   /// (inclusive período × modalidade), cria o usuário PENDENTE + a inscrição
   /// do ciclo e devolve a sessão; o token passa a ser usado nas próximas
-  /// chamadas. Reenviar com o mesmo e-mail atualiza enquanto estiver pendente.
+  /// chamadas. Respostas enviadas são imutáveis; duplicação é recusada pela API.
   Future<ResultadoCadastro> cadastrar({
     String? autorizacao,
     required String nome,
@@ -77,6 +69,7 @@ class ParticipacoesApi {
           'periodo': periodo,
           if (turno != null && turno.isNotEmpty) 'turno': turno,
           if (interesses.isNotEmpty) 'interesses': interesses,
+          'programa': ?programa,
           'tipoParticipacao': tipoParticipacao,
           'respostas': ?respostas,
         }),
@@ -97,6 +90,66 @@ class ParticipacoesApi {
         Map<String, dynamic>.from(participacao),
       ),
     );
+  }
+
+  Future<Map<String, dynamic>> perfil() => _json('/me');
+
+  Future<Map<String, dynamic>> salvarPerfil(
+    Map<String, dynamic> dados, {
+    String? onboarding,
+  }) async {
+    final resultado = await _json(
+      onboarding != null ? '/cadastro/perfil' : '/me',
+      method: onboarding != null ? 'PUT' : 'PATCH',
+      dados: dados,
+      token: onboarding,
+    );
+    return resultado;
+  }
+
+  Future<List<Map<String, dynamic>>> programas() async {
+    final r = await executarRequisicao(
+      () => _client.get(
+        Uri.parse('$baseUrl/participacoes/programas'),
+        headers: _headers(null),
+      ),
+      erroPadrao: 'Falha ao carregar ciclos',
+    );
+    return (decodificarJson(r) as List)
+        .map((p) => Map<String, dynamic>.from(p as Map))
+        .toList();
+  }
+
+  Future<String?> foto() async => (await _json('/me/foto'))['url'] as String?;
+
+  Future<String?> enviarFoto(List<int> bytes) async {
+    final request = http.MultipartRequest('PUT', Uri.parse('$baseUrl/me/foto'))
+      ..headers.addAll(_headers(null))
+      ..files.add(
+        http.MultipartFile.fromBytes('foto', bytes, filename: 'perfil.img'),
+      );
+    final r = await executarRequisicao(
+      () async => http.Response.fromStream(await _client.send(request)),
+      erroPadrao: 'Falha ao salvar foto',
+    );
+    return (decodificarJson(r) as Map)['url'] as String?;
+  }
+
+  Future<Map<String, dynamic>> _json(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? dados,
+    String? token,
+  }) async {
+    final request = http.Request(method, Uri.parse('$baseUrl$path'))
+      ..headers.addAll(_headers(null, json: dados != null));
+    if (token != null) request.headers['authorization'] = 'Bearer $token';
+    if (dados != null) request.body = jsonEncode(dados);
+    final r = await executarRequisicao(
+      () async => http.Response.fromStream(await _client.send(request)),
+      erroPadrao: 'Não foi possível carregar/salvar o perfil',
+    );
+    return Map<String, dynamic>.from(decodificarJson(r) as Map);
   }
 
   /// Login demo do aluno já cadastrado (no lugar do login Microsoft).
@@ -149,7 +202,7 @@ class ParticipacoesApi {
     final resposta = await executarRequisicao(
       () => _client.get(
         Uri.parse('$baseUrl/participacoes/situacao')
-            .replace(queryParameters: {'usuarioId': usuarioId}),
+            .replace(queryParameters: {'programa': ?programa}),
         headers: _headers(usuarioId),
       ),
       erroPadrao: 'Falha ao carregar sua situação no programa',
@@ -166,7 +219,8 @@ class ParticipacoesApi {
   Future<Formulario> formulario(String tipo) async {
     final resposta = await executarRequisicao(
       () => _client.get(
-        Uri.parse('$baseUrl/formularios/$tipo'),
+        Uri.parse('$baseUrl/formularios/$tipo')
+            .replace(queryParameters: {'programa': ?programa}),
         headers: _headers(null),
       ),
       erroPadrao: 'Falha ao carregar o formulário',
@@ -175,7 +229,9 @@ class ParticipacoesApi {
     if (corpo is! Map) {
       return Formulario(tipo: tipo, publicado: false, perguntas: const []);
     }
-    return Formulario.fromJson(Map<String, dynamic>.from(corpo));
+    final formulario = Formulario.fromJson(Map<String, dynamic>.from(corpo));
+    if (formulario.publicado) formulario.exigirTiposSuportados();
+    return formulario;
   }
 
   /// Avisos/comunicados para `padrinhos` ou `apadrinhados`.

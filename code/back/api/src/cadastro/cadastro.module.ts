@@ -1,3 +1,5 @@
+import { FormulariosModule } from '../formularios/formularios.module.js';
+import { StorageModule } from '../storage/storage.module.js';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { ParticipacoesModule } from '../participacoes/participacoes.module.js';
@@ -11,7 +13,14 @@ import {
 import { CadastroService } from './cadastro.service.js';
 
 @Module({
-  imports: [AuthModule, UsuariosModule, ParticipacoesModule, ProgramasModule],
+  imports: [
+    FormulariosModule,
+    StorageModule,
+    AuthModule,
+    UsuariosModule,
+    ParticipacoesModule,
+    ProgramasModule,
+  ],
   controllers: [
     CadastroController,
     MeController,

@@ -1,3 +1,6 @@
+import { FormulariosService } from '../formularios/formularios.service.js';
+import { FormularioEntity } from '../formularios/entities/formulario.entity.js';
+import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import {
   BadRequestException,
   ConflictException,
@@ -5,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { AuthService } from '../auth/auth.service.js';
 import { buscarCoordenadorPorEmail } from '../dados/dados.js';
-import type {
+import {
   ParticipacaoEntity,
   RequisitoRespondido,
   RespostasCadastro,
@@ -56,21 +59,7 @@ type DadosValidados = Required<
 
 export const PERIODO_MAXIMO = 12;
 
-const ROTULO_TIPO: Record<TipoParticipacao, string> = {
-  padrinho: 'padrinho',
-  apadrinhado: 'apadrinhado',
-};
-
-/**
- * Cadastro do aluno no programa (identidade + modalidade) e sua análise pela
- * coordenação.
- *
- * Cadastro × participação: o cadastro (tabela `usuarios`) é aprovado uma vez;
- * a participação (tabela `participacoes`) é a inscrição em cada ciclo. No
- * primeiro envio os dois nascem juntos e uma única decisão da coordenação
- * resolve ambos — aprovar o cadastro aprova a candidatura/inscrição do ciclo
- * e vice-versa (ver `refletirDecisaoDaCandidatura`).
- */
+/** Perfil pertence à conta; inscrições, respostas e decisões pertencem ao ciclo. */
 @Injectable()
 export class CadastroService {
   constructor(
@@ -232,111 +221,114 @@ export class CadastroService {
   }
 
   /**
-   * Cria (ou atualiza, enquanto pendente) o cadastro e a inscrição do ciclo.
-   * O usuário nasce PENDENTE: cadastro não é aprovação.
+   * Submete inscrição imutável após validar ciclo, formulário e requisitos.
+   * Cria o perfil se necessário por compatibilidade com POST /cadastro.
    */
   async registrar(
     dados: DadosCadastro,
   ): Promise<{ usuario: UsuarioEntity; participacao: ParticipacaoEntity }> {
     const d = CadastroService.validar(dados);
-    let usuario = await this.usuariosService.buscarPorEmail(d.email);
-    if (usuario) this.verificarPodeEnviar(usuario, d.tipoParticipacao);
-    // O ciclo precisa existir ANTES de gravar o usuário (padrinho e
-    // apadrinhado): sem isso ficaria um cadastro pendente sem participação.
-    await this.participacoesService.exigirCiclo(
-      d.programa ?? ParticipacoesService.programaAtual(),
-    );
-
-    // Requisitos do ciclo valem só para padrinho; o apadrinhado não os responde.
-    const {
-      requisitos: _ignorado,
-      declaraPreRequisitos: _legado,
-      ...demais
-    } = d.respostas;
-    const requisitos =
-      d.tipoParticipacao === 'padrinho'
-        ? await this.avaliarRequisitosPadrinho(d.programa, d.respostas)
-        : undefined;
-
-    usuario ??= this.usuariosService.criar({
-      email: d.email,
-      tipoParticipacao: d.tipoParticipacao,
-      statusCadastro: 'pendente',
-      motivoRejeicao: null,
-      analisadoEm: null,
-      analisadoPor: null,
+    const ciclo = await this.programasService.resolverInscricao(d.programa);
+    return this.usuariosService.transacao(async (manager) => {
+      const programas = manager.getRepository(ProgramaEntity);
+      const bloqueado = await programas.findOne({
+        where: { codigo: ciclo.codigo },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!bloqueado) throw new BadRequestException('Ciclo não cadastrado.');
+      const programasService = new ProgramasService(programas);
+      programasService.validarInscricoes(bloqueado);
+      const participacoes = new ParticipacoesService(
+        manager.getRepository(ParticipacaoEntity),
+        programas,
+      );
+      if (await participacoes.registroPrincipal(d.email, ciclo.codigo)) {
+        throw new ConflictException(
+          'Já existe inscrição neste ciclo. Respostas submetidas não podem ser editadas.',
+        );
+      }
+      const formularios = new FormulariosService(
+        manager.getRepository(FormularioEntity),
+        programasService,
+      );
+      const formulario =
+        d.tipoParticipacao === 'padrinho'
+          ? await formularios.validarRespostasPadrinho(
+              ciclo.codigo,
+              d.respostas.extras,
+            )
+          : undefined;
+      const requisitos =
+        d.tipoParticipacao === 'padrinho'
+          ? await this.avaliarRequisitosPadrinho(ciclo.codigo, d.respostas)
+          : undefined;
+      if (d.tipoParticipacao === 'padrinho') {
+        const respostas = d.respostas;
+        if (
+          typeof respostas.motivacao !== 'string' ||
+          !respostas.motivacao.trim() ||
+          respostas.motivacao.length > 500 ||
+          !Array.isArray(respostas.areas) ||
+          !respostas.areas.length ||
+          respostas.areas.some((v) => typeof v !== 'string' || !v.trim()) ||
+          !Array.isArray(respostas.disponibilidade) ||
+          !respostas.disponibilidade.length ||
+          respostas.disponibilidade.some(
+            (v) => typeof v !== 'string' || !v.trim(),
+          ) ||
+          typeof respostas.genero !== 'string' ||
+          !respostas.genero.trim() ||
+          typeof respostas.bolsistaProuni !== 'boolean' ||
+          typeof respostas.deOutraCidade !== 'boolean'
+        ) {
+          throw new BadRequestException(
+            'Preencha motivação, áreas de apoio, disponibilidade, gênero, ProUni e cidade.',
+          );
+        }
+      }
+      const usuarios = manager.getRepository(UsuarioEntity);
+      let usuario = await usuarios.findOne({ where: { email: d.email } });
+      // A candidatura é uma fotografia; não atualiza um perfil já persistido.
+      usuario ??= await usuarios.save(
+        usuarios.create({
+          email: d.email,
+          nome: d.nome,
+          curso: d.curso,
+          periodo: d.periodo,
+          turno: d.turno,
+          interesses: d.interesses,
+          tipoParticipacao: 'nenhuma',
+          statusCadastro: 'aprovado',
+          motivoRejeicao: null,
+          analisadoEm: null,
+          analisadoPor: null,
+        }),
+      );
+      const respostas: RespostasCadastro = {
+        ...d.respostas,
+        nome: d.nome,
+        curso: d.curso,
+        periodo: d.periodo,
+        turno: d.turno ?? undefined,
+        interesses: d.interesses,
+        requisitos,
+      };
+      delete respostas._servidor;
+      const participacao =
+        d.tipoParticipacao === 'padrinho'
+          ? await participacoes.registrarCandidaturaPadrinho({
+              usuarioId: d.email,
+              programa: ciclo.codigo,
+              respostas,
+              metadados: formulario ? { formulario } : undefined,
+            })
+          : await participacoes.cadastrarApadrinhado({
+              usuarioId: d.email,
+              programa: ciclo.codigo,
+              respostas,
+            });
+      return { usuario, participacao };
     });
-    usuario.nome = d.nome;
-    usuario.curso = d.curso;
-    usuario.periodo = d.periodo;
-    usuario.turno = d.turno;
-    usuario.interesses = d.interesses.length ? d.interesses : null;
-    usuario = await this.usuariosService.salvar(usuario);
-
-    // Perfil junto das respostas: é o que a coordenação vê na análise.
-    const respostas: RespostasCadastro = {
-      ...demais,
-      ...(requisitos ? { requisitos } : {}),
-      nome: d.nome,
-      curso: d.curso,
-      periodo: d.periodo,
-      ...(d.turno ? { turno: d.turno } : {}),
-      ...(d.interesses.length ? { interesses: d.interesses } : {}),
-    };
-    const participacao =
-      d.tipoParticipacao === 'padrinho'
-        ? await this.participacoesService.registrarCandidaturaPadrinho({
-            usuarioId: d.email,
-            programa: d.programa,
-            respostas,
-          })
-        : await this.participacoesService.cadastrarApadrinhado({
-            usuarioId: d.email,
-            programa: d.programa,
-            respostas,
-            statusInicial:
-              usuario.statusCadastro === 'aprovado'
-                ? 'em_andamento'
-                : 'pendente',
-          });
-
-    return { usuario, participacao };
-  }
-
-  /**
-   * Política de reenvio para quem já tem cadastro. Hoje:
-   * - REJEITADO → 409 (não reenvia);
-   * - APROVADO como apadrinhado pedindo PADRINHO → permitido (transição de
-   *   modalidade num novo ciclo; o período ≥ 2 e os requisitos do ciclo já
-   *   foram/serão validados). Nasce uma candidatura PENDENTE; o cadastro
-   *   global continua APROVADO;
-   * - outra troca de modalidade → 409;
-   * - PENDENTE/APROVADO da mesma modalidade → atualiza dados/inscrição.
-   *
-   * Ponto único de extensão para um futuro "corrigir dados e reenviar para
-   * análise": bastaria, no ramo REJEITADO, devolver o cadastro a PENDENTE
-   * (limpando motivo/analisadoEm/analisadoPor) e reabrir a participação do
-   * ciclo — a modelagem (status + motivo + analisadoEm/Por) já comporta isso.
-   */
-  private verificarPodeEnviar(usuario: UsuarioEntity, tipo: TipoParticipacao) {
-    if (usuario.statusCadastro === 'rejeitado') {
-      throw new ConflictException(
-        `Seu cadastro não foi aprovado pela coordenação${
-          usuario.motivoRejeicao ? `: ${usuario.motivoRejeicao}` : '.'
-        } Procure a coordenação do programa para uma nova análise.`,
-      );
-    }
-    const transicaoParaPadrinho =
-      usuario.statusCadastro === 'aprovado' &&
-      usuario.tipoParticipacao === 'apadrinhado' &&
-      tipo === 'padrinho';
-    if (usuario.tipoParticipacao !== tipo && !transicaoParaPadrinho) {
-      throw new ConflictException(
-        `Você já está cadastrado(a) como ${ROTULO_TIPO[usuario.tipoParticipacao]}${
-          usuario.statusCadastro === 'pendente' ? ' (aguardando análise)' : ''
-        }. Não é possível trocar de modalidade pelo cadastro.`,
-      );
-    }
   }
 
   /** POST /cadastro: registra e já devolve a sessão do aluno. */
@@ -354,14 +346,19 @@ export class CadastroService {
   }
 
   /** Vínculos reais do aluno aprovado no ciclo atual (padrinho ↔ grupo). */
-  async vinculosDe(email: string) {
-    const programa = ParticipacoesService.programaAtual();
+  async vinculosDe(email: string, programa?: string) {
+    if (!programa) throw new BadRequestException('Informe o programa.');
     const registro = await this.participacoesService.registroPrincipal(
       email,
       programa,
     );
     const grupo = registro?.grupo?.trim();
-    if (!registro || !grupo) return [];
+    if (
+      !registro ||
+      !grupo ||
+      !(await this.participacoesService.temVinculoValido(registro))
+    )
+      return [];
     if (registro.papel === 'apadrinhado') {
       const padrinho = await this.participacoesService.buscarPadrinhoDoGrupo(
         programa,
@@ -381,40 +378,70 @@ export class CadastroService {
 
   /* ===================== Coordenação ===================== */
 
-  async listar(status?: string) {
-    const filtro = this.validarFiltroStatus(status);
-    const usuarios = await this.usuariosService.listar(filtro);
-    const participacoes = await this.participacoesService.listarPorUsuarios(
-      usuarios.map((u) => u.email),
-    );
-    return usuarios.map((usuario) => {
-      const participacao = this.participacaoDoCadastro(usuario, participacoes);
-      return {
-        ...serializarUsuario(usuario),
-        iniciais: iniciaisDe(usuario.nome),
-        participacao: participacao
-          ? {
-              id: participacao.id,
-              programa: participacao.programa,
-              papel: participacao.papel,
-              status: participacao.status,
-              grupo: participacao.grupo ?? null,
-            }
-          : null,
-      };
-    });
+  private statusDoCiclo(participacao: ParticipacaoEntity): StatusCadastro {
+    return participacao.status === 'nao_aprovado'
+      ? 'rejeitado'
+      : ['pendente', 'em_analise'].includes(participacao.status)
+        ? 'pendente'
+        : 'aprovado';
   }
 
-  async detalhar(id: number) {
+  async listar(status?: string, programa?: string) {
+    const filtro = this.validarFiltroStatus(status);
+    const ciclo = await this.programasService.resolverConsulta(programa);
+    if (!ciclo) return [];
+    const usuarios = await this.usuariosService.listar();
+    const participacoes = await this.participacoesService.listarPorPrograma({
+      programa: ciclo.codigo,
+    });
+    return participacoes
+      .filter((p) => !filtro || this.statusDoCiclo(p) === filtro)
+      .map((participacao) => {
+        const usuario = usuarios.find(
+          (u) => u.email === participacao.usuarioId,
+        );
+        return {
+          ...(usuario
+            ? serializarUsuario(usuario)
+            : { email: participacao.usuarioId }),
+          statusCadastro: this.statusDoCiclo(participacao),
+          tipoParticipacao:
+            participacao.papel === 'candidato'
+              ? 'padrinho'
+              : participacao.papel,
+          iniciais: iniciaisDe(
+            usuario?.nome ?? participacao.respostas?.nome ?? '',
+          ),
+          participacao: serializarParticipacao(participacao),
+        };
+      });
+  }
+
+  async detalhar(id: number, programa?: string) {
     const usuario = await this.usuariosService.buscarPorId(id);
     const participacoes = await this.participacoesService.listarPorUsuario(
       usuario.email,
     );
-    const participacao = this.participacaoDoCadastro(usuario, participacoes);
+    const participacao = this.participacaoDoCadastro(
+      usuario,
+      participacoes,
+      programa,
+    );
     return {
       ...serializarUsuario(usuario),
       iniciais: iniciaisDe(usuario.nome),
-      analisadoPor: usuario.analisadoPor ?? null,
+      statusCadastro: participacao
+        ? this.statusDoCiclo(participacao)
+        : 'aprovado',
+      tipoParticipacao:
+        participacao?.papel === 'candidato'
+          ? 'padrinho'
+          : (participacao?.papel ?? 'nenhuma'),
+      motivoRejeicao:
+        participacao?.status === 'nao_aprovado'
+          ? (participacao.respostas?._servidor?.decisao?.justificativa ?? null)
+          : null,
+      analisadoPor: participacao?.respostas?._servidor?.decisao?.por ?? null,
       participacao: participacao ? serializarParticipacao(participacao) : null,
       respostas: participacao?.respostas ?? {},
       historico: participacoes
@@ -428,125 +455,70 @@ export class CadastroService {
     };
   }
 
-  /** Aprova o cadastro e a inscrição do ciclo que veio com ele. */
-  async aprovar(id: number, coordenador: string) {
+  /** Compatibilidade da coordenação: decide a inscrição do ciclo, sem alterar a conta. */
+  async aprovar(id: number, coordenador: string, programa?: string) {
     const usuario = await this.usuariosService.buscarPorId(id);
-    if (usuario.statusCadastro !== 'aprovado') {
-      const participacao = this.participacaoDoCadastro(
-        usuario,
-        await this.participacoesService.listarPorUsuario(usuario.email),
-      );
-      if (participacao) {
-        await this.participacoesService.aprovarCandidatura(participacao.id);
-      }
-      this.registrarDecisao(usuario, 'aprovado', coordenador);
-      await this.usuariosService.salvar(usuario);
-    }
-    return this.detalhar(id);
-  }
-
-  /** Rejeita um cadastro pendente (com motivo opcional, visível ao aluno). */
-  async rejeitar(id: number, motivo: string | undefined, coordenador: string) {
-    const usuario = await this.usuariosService.buscarPorId(id);
-    if (usuario.statusCadastro === 'aprovado') {
-      throw new BadRequestException(
-        'Este cadastro já foi aprovado e não pode ser rejeitado.',
-      );
-    }
-    if (usuario.statusCadastro === 'pendente') {
-      const participacao = this.participacaoDoCadastro(
-        usuario,
-        await this.participacoesService.listarPorUsuario(usuario.email),
-      );
-      if (
-        participacao &&
-        (participacao.papel === 'candidato' ||
-          participacao.papel === 'apadrinhado')
-      ) {
-        await this.participacoesService.rejeitarCandidaturaPorId(
-          participacao.id,
-        );
-      }
-      this.registrarDecisao(usuario, 'rejeitado', coordenador);
-      const texto = motivo?.trim() ?? '';
-      usuario.motivoRejeicao = texto ? texto.slice(0, 500) : null;
-      await this.usuariosService.salvar(usuario);
-    }
-    return this.detalhar(id);
-  }
-
-  /**
-   * Decisão tomada na tela de Candidaturas (por participação). Só vale para o
-   * INGRESSO INICIAL: se o cadastro global ainda está PENDENTE e esta é a
-   * inscrição que veio com ele, o cadastro recebe a mesma decisão (sem
-   * aprovação dupla). Depois que o cadastro foi decidido, aprovações e
-   * rejeições de ciclos seguintes afetam só `participacoes`.
-   */
-  async refletirDecisaoDaCandidatura(
-    participacao: ParticipacaoEntity,
-    decisao: 'aprovado' | 'rejeitado',
-    coordenador?: string,
-  ) {
-    const usuario = await this.usuariosService.buscarPorEmail(
-      participacao.usuarioId,
-    );
-    if (!usuario) return;
-    // Cadastro já aprovado: decisões de ciclos seguintes ficam só na
-    // participação. Única exceção: a candidatura de padrinho APROVADA de um
-    // ex-apadrinhado atualiza a modalidade atual (sem mexer em status/datas
-    // do cadastro nem no histórico de participações).
-    if (usuario.statusCadastro === 'aprovado') {
-      if (
-        decisao === 'aprovado' &&
-        participacao.papel === 'padrinho' &&
-        usuario.tipoParticipacao === 'apadrinhado'
-      ) {
-        usuario.tipoParticipacao = 'padrinho';
-        await this.usuariosService.salvar(usuario);
-      }
-      return;
-    }
-    if (usuario.statusCadastro !== 'pendente') return;
-    const doCadastro = this.participacaoDoCadastro(
+    const participacao = this.participacaoDoCadastro(
       usuario,
       await this.participacoesService.listarPorUsuario(usuario.email),
+      programa,
     );
-    if (doCadastro?.id !== participacao.id) return;
-    this.registrarDecisao(usuario, decisao, coordenador ?? null);
-    await this.usuariosService.salvar(usuario);
+    if (!participacao)
+      throw new BadRequestException(
+        'Conta sem candidatura. Selecione uma participação.',
+      );
+    await this.participacoesService.aprovarCandidatura(
+      participacao.id,
+      coordenador,
+    );
+    return this.detalhar(id, participacao.programa);
   }
 
-  private registrarDecisao(
-    usuario: UsuarioEntity,
-    status: StatusCadastro,
-    coordenador: string | null,
+  async rejeitar(
+    id: number,
+    motivo: string | undefined,
+    coordenador: string,
+    programa?: string,
   ) {
-    usuario.statusCadastro = status;
-    usuario.analisadoEm = new Date();
-    usuario.analisadoPor = coordenador;
-    if (status === 'aprovado') usuario.motivoRejeicao = null;
+    const usuario = await this.usuariosService.buscarPorId(id);
+    const participacao = this.participacaoDoCadastro(
+      usuario,
+      await this.participacoesService.listarPorUsuario(usuario.email),
+      programa,
+    );
+    if (!participacao)
+      throw new BadRequestException(
+        'Conta sem candidatura. Selecione uma participação.',
+      );
+    await this.participacoesService.rejeitarCandidaturaPorId(
+      participacao.id,
+      motivo,
+      coordenador,
+    );
+    return this.detalhar(id, participacao.programa);
   }
 
-  /** Inscrição mais recente da modalidade do cadastro. */
+  /** Compatibilidade: decisões de ciclo nunca alteram a conta global. */
+  async refletirDecisaoDaCandidatura(
+    _participacao: ParticipacaoEntity,
+    _decisao: 'aprovado' | 'rejeitado',
+    _coordenador?: string,
+  ) {}
+
   private participacaoDoCadastro(
     usuario: UsuarioEntity,
     participacoes: ParticipacaoEntity[],
+    programa?: string,
   ): ParticipacaoEntity | null {
-    const papeis =
-      usuario.tipoParticipacao === 'padrinho'
-        ? ['candidato', 'padrinho']
-        : ['apadrinhado'];
-    return (
-      participacoes
-        .filter(
-          (p) => p.usuarioId === usuario.email && papeis.includes(p.papel),
-        )
-        .sort(
-          (a, b) =>
-            b.programa.localeCompare(a.programa) ||
-            new Date(b.criadoEm).getTime() - new Date(a.criadoEm).getTime(),
-        )[0] ?? null
+    const registros = participacoes.filter(
+      (p) =>
+        p.usuarioId === usuario.email && (!programa || p.programa === programa),
     );
+    if (registros.length > 1)
+      throw new BadRequestException(
+        'Mais de uma participação: informe o programa ou decida pelo ID da participação.',
+      );
+    return registros[0] ?? null;
   }
 
   private validarFiltroStatus(status?: string): StatusCadastro | undefined {

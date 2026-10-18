@@ -52,6 +52,7 @@ class CoordenacaoApi {
         'POST' => _client.post(uri, headers: headers, body: body),
         'PATCH' => _client.patch(uri, headers: headers, body: body),
         'PUT' => _client.put(uri, headers: headers, body: body),
+        'DELETE' => _client.delete(uri, headers: headers, body: body),
         _ => _client.get(uri, headers: headers),
       },
       erroPadrao: erro,
@@ -120,38 +121,50 @@ class CoordenacaoApi {
     ),
   );
 
-  Future<Map<String, dynamic>> rejeitarCandidatura(int id) async => _mapa(
+  Future<Map<String, dynamic>> rejeitarCandidatura(
+    int id, {
+    String? justificativa,
+  }) async => _mapa(
     await _enviar(
       'POST',
       '/coordenacao/candidaturas/$id/rejeitar',
+      corpo: {'justificativa': justificativa},
       erro: 'Falha ao rejeitar a candidatura',
     ),
   );
 
   /// Solicitações de cadastro (`status` = pendente | aprovado | rejeitado;
   /// null = todos). Mesmos endpoints do web.
-  Future<List<Map<String, dynamic>>> cadastros({String? status}) async =>
-      _lista(
-        await _enviar(
-          'GET',
-          '/coordenacao/cadastros',
-          query: {'status': status},
-          erro: 'Falha ao carregar os cadastros',
-        ),
-      );
-
-  Future<Map<String, dynamic>> cadastro(int id) async => _mapa(
+  Future<List<Map<String, dynamic>>> cadastros({
+    String? status,
+    String? programa,
+  }) async => _lista(
     await _enviar(
       'GET',
-      '/coordenacao/cadastros/$id',
-      erro: 'Falha ao carregar o cadastro',
+      '/coordenacao/cadastros',
+      query: {'status': status, 'programa': programa},
+      erro: 'Falha ao carregar os cadastros',
     ),
   );
 
-  Future<Map<String, dynamic>> aprovarCadastro(int id) async => _mapa(
+  Future<Map<String, dynamic>> cadastro(int id, {String? programa}) async =>
+      _mapa(
+        await _enviar(
+          'GET',
+          '/coordenacao/cadastros/$id',
+          query: {'programa': programa},
+          erro: 'Falha ao carregar o cadastro',
+        ),
+      );
+
+  Future<Map<String, dynamic>> aprovarCadastro(
+    int id, {
+    String? programa,
+  }) async => _mapa(
     await _enviar(
       'POST',
       '/coordenacao/cadastros/$id/aprovar',
+      query: {'programa': programa},
       erro: 'Falha ao aprovar o cadastro',
     ),
   );
@@ -160,10 +173,12 @@ class CoordenacaoApi {
   Future<Map<String, dynamic>> rejeitarCadastro(
     int id, {
     String? motivo,
+    String? programa,
   }) async => _mapa(
     await _enviar(
       'POST',
       '/coordenacao/cadastros/$id/rejeitar',
+      query: {'programa': programa},
       corpo: {if (motivo != null && motivo.isNotEmpty) 'motivo': motivo},
       erro: 'Falha ao rejeitar o cadastro',
     ),
@@ -174,11 +189,12 @@ class CoordenacaoApi {
   Future<Map<String, dynamic>> acoesEmMassa({
     required List<int> ids,
     required String acao,
+    String? justificativa,
   }) async => _mapa(
     await _enviar(
       'POST',
       '/coordenacao/candidaturas/acoes',
-      corpo: {'ids': ids, 'acao': acao},
+      corpo: {'ids': ids, 'acao': acao, 'justificativa': ?justificativa},
       erro: 'Falha ao aplicar a ação',
     ),
   );
@@ -216,11 +232,24 @@ class CoordenacaoApi {
     ),
   );
 
-  Future<Map<String, dynamic>> criarPrograma([String? codigo]) async => _mapa(
+  Future<void> excluirPrograma(String codigo, String confirmacao) async {
+    await _enviar(
+      'DELETE',
+      '/coordenacao/programas',
+      query: {'codigo': codigo},
+      corpo: {'confirmacao': confirmacao},
+      erro: 'Não foi possível excluir o programa',
+    );
+  }
+
+  Future<Map<String, dynamic>> criarPrograma(
+    String? codigo, [
+    Map<String, dynamic>? configuracao,
+  ]) async => _mapa(
     await _enviar(
       'POST',
       '/coordenacao/programas',
-      corpo: {'codigo': ?codigo},
+      corpo: {'codigo': ?codigo, ...?configuracao},
       erro: 'Falha ao abrir ciclo',
     ),
   );

@@ -22,10 +22,16 @@ const _filtros = <(String?, String)>[
 /// Solicitações de cadastro (padrinhos e apadrinhados) — mesmos endpoints do
 /// web: `GET /coordenacao/cadastros`, `.../:id`, `.../aprovar`, `.../rejeitar`.
 class TelaCadastrosCoord extends StatefulWidget {
-  const TelaCadastrosCoord({super.key, required this.api, this.status});
+  const TelaCadastrosCoord({
+    super.key,
+    required this.api,
+    this.status,
+    this.programa,
+  });
 
   final CoordenacaoApi api;
   final String? status;
+  final String? programa;
 
   @override
   State<TelaCadastrosCoord> createState() => _TelaCadastrosCoordState();
@@ -48,7 +54,10 @@ class _TelaCadastrosCoordState extends State<TelaCadastrosCoord> {
       _erro = null;
     });
     try {
-      final lista = await widget.api.cadastros(status: _status);
+      final lista = await widget.api.cadastros(
+        status: _status,
+        programa: widget.programa,
+      );
       if (mounted) setState(() => _itens = lista);
     } catch (erro) {
       if (mounted) setState(() => _erro = mensagemDeErro(erro));
@@ -60,6 +69,7 @@ class _TelaCadastrosCoordState extends State<TelaCadastrosCoord> {
       MaterialPageRoute(
         builder: (_) => TelaDetalheCadastroCoord(
           api: widget.api,
+          programa: widget.programa,
           id: (item['id'] as num).toInt(),
         ),
       ),
@@ -193,10 +203,12 @@ class TelaDetalheCadastroCoord extends StatefulWidget {
     super.key,
     required this.api,
     required this.id,
+    this.programa,
   });
 
   final CoordenacaoApi api;
   final int id;
+  final String? programa;
 
   @override
   State<TelaDetalheCadastroCoord> createState() =>
@@ -217,7 +229,10 @@ class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
 
   Future<void> _carregar() async {
     try {
-      final dados = await widget.api.cadastro(widget.id);
+      final dados = await widget.api.cadastro(
+        widget.id,
+        programa: widget.programa,
+      );
       if (mounted) setState(() => _detalhe = dados);
     } catch (erro) {
       if (mounted) setState(() => _erro = mensagemDeErro(erro));
@@ -272,7 +287,11 @@ class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
     );
     if (confirmado != true) return;
     await _decidir(
-      () => widget.api.rejeitarCadastro(widget.id, motivo: motivo.text.trim()),
+      () => widget.api.rejeitarCadastro(
+        widget.id,
+        motivo: motivo.text.trim(),
+        programa: widget.programa,
+      ),
     );
   }
 
@@ -404,7 +423,10 @@ class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
                           onPressed: _processando
                               ? null
                               : () => _decidir(
-                                  () => widget.api.aprovarCadastro(widget.id),
+                                  () => widget.api.aprovarCadastro(
+                                    widget.id,
+                                    programa: widget.programa,
+                                  ),
                                 ),
                           icon: const Icon(Icons.check),
                           label: Text(

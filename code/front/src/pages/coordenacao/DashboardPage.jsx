@@ -92,14 +92,11 @@ export default function DashboardPage() {
     navigate(`/coordenacao/${destino}?${query.toString()}`);
   }
 
-  async function abrirNovoCiclo() {
+  function abrirNovoCiclo() {
     if (dados?.acoes && dados.acoes.podeAbrirNovoCiclo === false) return;
-    try {
-      const criado = await api.criarPrograma();
-      setParams({ programa: criado.codigo });
-    } catch (error) {
-      setErro(error.message || 'Não foi possível abrir o novo ciclo.');
-    }
+    const query = new URLSearchParams({ novo: '1' });
+    if (programaParam) query.set('programa', programaParam);
+    navigate(`/coordenacao/programas?${query.toString()}`);
   }
 
   if (carregando && !dados) {

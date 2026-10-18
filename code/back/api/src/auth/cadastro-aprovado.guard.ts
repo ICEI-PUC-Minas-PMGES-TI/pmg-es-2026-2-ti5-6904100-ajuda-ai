@@ -1,3 +1,7 @@
+import { ParticipacoesService } from '../participacoes/participacoes.service.js';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import {
   CanActivate,
   ExecutionContext,
@@ -23,16 +27,14 @@ export interface ParticipanteRequest extends AuthenticatedRequest {
   usuario: UsuarioEntity;
 }
 
-/**
- * Libera apenas alunos com cadastro APROVADO. Use depois do JwtAuthGuard.
- * O status é lido do banco a cada requisição (não do token), então uma
- * aprovação/rejeição vale imediatamente.
- */
+/** Permissões derivam exclusivamente de participação com vínculo válido no ciclo informado. */
 @Injectable()
 export class CadastroAprovadoGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly usuariosService: UsuariosService,
+    @InjectRepository(ParticipacaoEntity)
+    private readonly participacoes: Repository<ParticipacaoEntity>,
   ) {}
 
   async canActivate(contexto: ExecutionContext): Promise<boolean> {
@@ -47,26 +49,39 @@ export class CadastroAprovadoGuard implements CanActivate {
         'Recurso exclusivo de alunos cadastrados no programa.',
       );
     }
-    if (usuario.statusCadastro === 'pendente') {
+    const programa =
+      typeof requisicao.query.programa === 'string'
+        ? requisicao.query.programa.trim()
+        : '';
+    if (!programa)
       throw new ForbiddenException(
-        'Seu cadastro ainda está aguardando a análise da coordenação.',
+        'Informe o programa para verificar participação com vínculo confirmado.',
       );
-    }
-    if (usuario.statusCadastro === 'rejeitado') {
-      throw new ForbiddenException(
-        'Seu cadastro não foi aprovado pela coordenação.',
-      );
-    }
-
+    const registros = await this.participacoes.find({
+      where: { usuarioId: usuario.email, programa, status: 'em_andamento' },
+    });
     const tipos = this.reflector.getAllAndOverride<TipoParticipacao[]>(
       TIPOS_PARTICIPACAO_KEY,
       [contexto.getHandler(), contexto.getClass()],
     );
-    if (tipos?.length && !tipos.includes(usuario.tipoParticipacao)) {
-      throw new ForbiddenException(
-        `Recurso exclusivo para ${tipos.join(' ou ')}.`,
-      );
+    let ativo = false;
+    for (const registro of registros) {
+      if (
+        !registro.grupo?.trim() ||
+        !['padrinho', 'apadrinhado'].includes(registro.papel)
+      )
+        continue;
+      if (tipos?.length && !tipos.includes(registro.papel as TipoParticipacao))
+        continue;
+      const grupo = await this.participacoes.find({
+        where: { programa, grupo: registro.grupo },
+      });
+      if (ParticipacoesService.vinculoValido(registro, grupo)) ativo = true;
     }
+    if (!ativo)
+      throw new ForbiddenException(
+        'Recurso exclusivo de participação ativa com vínculo confirmado neste ciclo.',
+      );
 
     requisicao.usuario = usuario;
     return true;

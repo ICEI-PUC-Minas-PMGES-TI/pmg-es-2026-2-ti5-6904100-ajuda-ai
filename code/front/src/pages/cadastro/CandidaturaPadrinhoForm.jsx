@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api } from '../../api/client';
 import Icon from '../../components/Icon';
 import MultiSelect from '../../components/MultiSelect';
@@ -30,18 +30,16 @@ function estadoInicial(inicial) {
   };
 }
 
-/**
- * Candidatura de padrinho (passo 2 de 3). Também usada em "Editar candidatura":
- * o backend atualiza as respostas enquanto a candidatura está pendente/em análise.
- */
-export default function CandidaturaPadrinhoForm({ email, perfil, inicial, modo = 'novo', onVoltar, onEnviado }) {
-  const perguntas = useFormularioPublico('padrinho');
-  const { requisitos, erro: erroRequisitos } = useRequisitosPadrinho();
+/** Formulário em rascunho, revisão e confirmação explícita. */
+export default function CandidaturaPadrinhoForm({ email, perfil, inicial, programa, onVoltar, onEnviado }) {
+  const { perguntas, erro: erroFormulario, carregando } = useFormularioPublico('padrinho', programa);
+  const { requisitos, erro: erroRequisitos } = useRequisitosPadrinho(programa);
   const [form, setForm] = useState(() => estadoInicial(inicial));
   const [erros, setErros] = useState({});
   const [enviando, setEnviando] = useState(false);
   const [erroEnvio, setErroEnvio] = useState('');
-  const editar = modo === 'editar';
+  const [revisao, setRevisao] = useState(null);
+  const trava = useRef(false);
 
   function atualizar(chave, valor) {
     setForm((atual) => ({ ...atual, [chave]: valor }));
@@ -62,6 +60,8 @@ export default function CandidaturaPadrinhoForm({ email, perfil, inicial, modo =
 
   async function enviar(event) {
     event.preventDefault();
+    if (carregando || requisitos === null) {setErroEnvio('Aguarde o carregamento do formulário e dos requisitos.'); return;}
+    if (erroFormulario) { setErroEnvio(erroFormulario); return; }
     const errosExtras = validarExtras(perguntas, form.extras);
     // Ajuda visual: o backend é quem recusa requisitos obrigatórios não cumpridos.
     const faltando = (requisitos || []).filter((q) => q.obrigatorio && !form.requisitos[q.id]);
@@ -100,27 +100,26 @@ export default function CandidaturaPadrinhoForm({ email, perfil, inicial, modo =
     delete respostas.declaraPreRequisitos;
     Object.keys(respostas).forEach((chave) => respostas[chave] === undefined && delete respostas[chave]);
 
-    setEnviando(true);
-    setErroEnvio('');
-    try {
-      // Primeiro envio = cadastro (fica PENDENTE); na edição, só as respostas.
-      const registro = editar
-        ? await api.enviarCandidaturaPadrinho(email, respostas)
-        : (await api.cadastrar({ ...dadosDoPerfil(perfil), email, tipoParticipacao: 'padrinho', respostas })).participacao;
-      onEnviado?.(registro, respostas);
-    } catch (error) {
-      setErroEnvio(error.message || 'Não foi possível enviar sua candidatura. Tente novamente.');
-    } finally {
-      setEnviando(false);
-    }
+    setErroEnvio(''); setRevisao(respostas);
   }
+
+  async function confirmar() {
+    if (trava.current || !revisao) return;
+    trava.current = true; setEnviando(true); setErroEnvio('');
+    try {
+      const registro = (await api.cadastrar({...dadosDoPerfil(perfil), email, programa, tipoParticipacao: 'padrinho', respostas: revisao})).participacao;
+      onEnviado?.(registro, revisao);
+    } catch(e) {setErroEnvio(e.message || 'Não foi possível enviar a candidatura.');}
+    finally {trava.current = false; setEnviando(false);}
+  }
+  if (revisao) return <RevisaoPadrinho revisao={revisao} perfil={perfil} email={email} programa={programa} requisitos={requisitos} perguntas={perguntas} form={form} enviando={enviando} erroEnvio={erroEnvio} onVoltar={() => setRevisao(null)} confirmar={confirmar}/>;
 
   return (
     <form onSubmit={enviar} noValidate className="padrinho-form">
       <StepHeading
-        step={editar ? null : 2}
-        title={editar ? 'Editar candidatura' : 'Candidatura de padrinho'}
-        subtitle={editar ? 'Atualize suas respostas. A coordenação verá a versão mais recente.' : 'Conte um pouco sobre você e por que deseja ser padrinho no Ajuda-aí.'}
+        step={2}
+        title="Candidatura de padrinho"
+        subtitle="Conte um pouco sobre você e por que deseja ser padrinho no Ajuda-aí."
         onBack={onVoltar}
       />
 
@@ -166,6 +165,7 @@ export default function CandidaturaPadrinhoForm({ email, perfil, inicial, modo =
         </Field>
       </div>
 
+      {erroFormulario && <p className="form-error" role="alert">{erroFormulario}</p>}
       <PerguntasAdicionais perguntas={perguntas} valores={form.extras} erros={erros.extras || {}} onChange={atualizarExtra} descricao="Perguntas definidas pela coordenação do programa." />
 
       {requisitos?.length > 0 && (
@@ -188,9 +188,23 @@ export default function CandidaturaPadrinhoForm({ email, perfil, inicial, modo =
       )}
 
       {erroEnvio && <p className="form-error" role="alert"><Icon name="alert" size={16} /> {erroEnvio}</p>}
-      <button className="primary-button" type="submit" disabled={enviando} aria-busy={enviando}>
-        {enviando ? 'Enviando…' : editar ? 'Salvar alterações' : 'Enviar candidatura'} <Icon name="arrow" size={18} />
+      <button className="primary-button" type="submit" disabled={enviando || carregando || requisitos === null || Boolean(erroFormulario)} aria-busy={enviando}>
+        {enviando ? 'Enviando…' : 'Revisar candidatura'} <Icon name="arrow" size={18} />
       </button>
     </form>
   );
+}
+
+export function RevisaoPadrinho({revisao, perfil, email, programa, requisitos, perguntas, form, enviando, erroEnvio, onVoltar, confirmar}) {
+  return <section className="padrinho-form"><h1>Revise sua candidatura</h1>
+    <p>Ciclo: {programa}</p><p>{perfil.nome} · {email}</p><p>{perfil.curso} · {perfil.periodo}º período · {perfil.turno}</p>
+    <dl>{Object.entries({motivacao:'Motivação', experiencias:'Experiências', areas:'Áreas de apoio', disponibilidade:'Disponibilidade', genero:'Gênero', bolsistaProuni:'ProUni', deOutraCidade:'Outra cidade'}).map(([chave, rotulo]) => <div key={chave}><dt>{rotulo}</dt><dd>{Array.isArray(revisao[chave]) ? revisao[chave].join(', ') : typeof revisao[chave] === 'boolean' ? revisao[chave] ? 'Sim' : 'Não' : revisao[chave] || 'Não informado'}</dd></div>)}
+    {perguntas.map(p => <div key={p.id}><dt>{p.enunciado}</dt><dd>{Array.isArray(revisao.extras[p.id]) ? revisao.extras[p.id].join(', ') : revisao.extras[p.id] || 'Não informado'}</dd></div>)}</dl>
+    <h2>Requisitos</h2><ul>{(requisitos || []).map(r => <li key={r.id}>{r.descricao}: {form.requisitos[r.id] ? 'Declaro que cumpro' : 'Não declarado'}</li>)}</ul>
+    <p>O envio não representa aprovação. A coordenação fará a análise acadêmica.</p>
+    {erroEnvio && <p role="alert">{erroEnvio}</p>}
+    <button disabled={enviando} onClick={onVoltar}>Voltar e editar</button>
+    <button className="primary-button" disabled={enviando} onClick={confirmar}>{enviando ? 'Enviando…' : 'Confirmar envio'}</button>
+  </section>;
+
 }

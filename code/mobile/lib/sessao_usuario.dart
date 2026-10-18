@@ -50,8 +50,12 @@ class SessaoUsuario {
   DadosCadastro? dados;
   IdentidadeAutenticada? identidade;
 
-  /// JWT curto que só autoriza o POST /cadastro. Não acessa o restante da API.
+  /// JWT curto para completar o perfil; não acessa consultas de participação.
   String? onboardingToken;
+  String? fotoUrl;
+  int _versaoConta = 0;
+  bool inscricoesDisponiveis = false;
+  List<Map<String, dynamic>> programas = const [];
   Participacao? participacao;
   StatusParticipacao status = StatusParticipacao.nenhuma;
   DateTime? candidaturaEnviadaEm;
@@ -75,7 +79,7 @@ class SessaoUsuario {
 
   /// Nome vindo da autenticação ou, depois, do cadastro em andamento.
   String? get nomeExibicao {
-    final autenticado = identidade?.nome.trim();
+    final autenticado = dados?.nome.trim() ?? identidade?.nome.trim();
     if (autenticado != null && autenticado.isNotEmpty) return autenticado;
     final informado = dados?.nome.trim();
     if (informado != null && informado.isNotEmpty) return informado;
@@ -97,6 +101,7 @@ class SessaoUsuario {
     required String email,
     required String token,
   }) {
+    _limparConta();
     definirIdentidade(nome: nome, email: email);
     onboardingToken = token;
     _api.accessToken = null;
@@ -111,6 +116,7 @@ class SessaoUsuario {
     String? turno,
     List<String>? interesses,
   }) {
+    _limparConta();
     definirIdentidade(nome: nome, email: email);
     onboardingToken = null;
     _api.accessToken = accessToken;
@@ -126,10 +132,9 @@ class SessaoUsuario {
     }
   }
 
-  bool get ehExplorar => status == StatusParticipacao.explorar;
+  bool get ehExplorar => status.semInscricao;
 
-  bool get ehPadrinhoEmAnalise =>
-      status == StatusParticipacao.padrinhoEmAnalise;
+  bool get ehPadrinhoEmAnalise => status.candidatura;
 
   bool get ehPadrinhoAtivo => status == StatusParticipacao.padrinhoAtivo;
 
@@ -142,7 +147,9 @@ class SessaoUsuario {
   CadastroSituacao? get cadastro => situacao?.cadastro;
 
   /// Motivo informado pela coordenação ao rejeitar o cadastro, se houver.
-  String? get motivoRejeicao => cadastro?.motivoRejeicao;
+  String? get motivoRejeicao =>
+      (registro?['decisao'] as Map?)?['justificativa'] as String? ??
+      cadastro?.motivoRejeicao;
 
   int get periodo => dados?.periodo ?? 1;
 
@@ -156,7 +163,7 @@ class SessaoUsuario {
 
   List<EtapaPrograma> get etapas => situacao?.programa?.etapas ?? const [];
 
-  String get programaAtual => situacao?.programa?.codigo ?? '2026/2';
+  String get programaAtual => _api.programa ?? situacao?.programa?.codigo ?? '';
 
   /// Identificador usado nas APIs de participação (e-mail preferencial).
   String get usuarioIdHistorico => _idDe(dados);
@@ -165,22 +172,124 @@ class SessaoUsuario {
       (dados?.email.trim().isNotEmpty == true ? dados!.email.trim() : 'anonimo')
           .toLowerCase();
 
-  List<AppDestination> get destinos => ehExplorar
-      ? const [AppDestination.mapa, AppDestination.perfil]
-      : AppDestination.values;
+  List<AppDestination> get destinos => status.ativo
+      ? AppDestination.values
+      : const [AppDestination.mapa, AppDestination.perfil];
 
   bool get podeCandidatarPadrinho =>
-      periodo > 1 &&
-      status != StatusParticipacao.padrinhoEmAnalise &&
-      status != StatusParticipacao.padrinhoAtivo;
-
+      periodo > 1 && status.semInscricao && inscricoesDisponiveis;
   bool get podeCandidatarApadrinhado =>
-      periodo == 1 &&
-      inscricoesApadrinhamentoAbertas &&
-      status != StatusParticipacao.apadrinhadoAtivo &&
-      status != StatusParticipacao.apadrinhadoAguardandoMatch &&
-      status != StatusParticipacao.apadrinhadoPendente &&
-      status != StatusParticipacao.apadrinhadoRejeitado;
+      periodo == 1 && status.semInscricao && inscricoesDisponiveis;
+  bool get perfilCompleto =>
+      dados != null &&
+      dados!.nome.trim().isNotEmpty &&
+      dados!.curso.trim().isNotEmpty &&
+      dados!.curso != 'Curso não informado' &&
+      dados!.periodo > 0;
+
+  void _limparConta() {
+    _versaoConta++;
+    dados = null;
+    participacao = null;
+    status = StatusParticipacao.nenhuma;
+    situacao = null;
+    candidaturaEnviadaEm = null;
+    historicoParticipacoes = const [];
+    fotoUrl = null;
+    programas = const [];
+    inscricoesDisponiveis = false;
+    _api.programa = null;
+    preferencias
+      ..clear()
+      ..addAll(preferenciasPadrao);
+  }
+
+  void _aplicarPerfil(Map<String, dynamic> perfil) {
+    dados = DadosCadastro(
+      nome: '${perfil['nome'] ?? identidade?.nome ?? ''}',
+      email: identidade!.email,
+      curso: '${perfil['curso'] ?? ''}',
+      periodo: (perfil['periodo'] as num?)?.toInt() ?? 0,
+      turno: '${perfil['turno'] ?? ''}',
+      interesses: (perfil['interesses'] as List? ?? [])
+          .whereType<String>()
+          .toList(),
+    );
+  }
+
+  Future<void> carregarPerfil() async {
+    final versao = _versaoConta;
+    final perfil = await _api.perfil();
+    if (versao == _versaoConta) _aplicarPerfil(perfil);
+  }
+
+  Future<void> salvarPerfil(DadosCadastro perfil) async {
+    final versao = _versaoConta;
+    final onboarding = onboardingToken;
+    final resposta = await _api.salvarPerfil({
+      'nome': perfil.nome,
+      'curso': perfil.curso,
+      'periodo': perfil.periodo,
+      'turno': perfil.turno,
+      'interesses': perfil.interesses,
+    }, onboarding: onboarding);
+    if (versao != _versaoConta) {
+      throw const ApiException('A conta mudou. Entre novamente.');
+    }
+    if (onboarding != null) {
+      _api.accessToken = resposta['accessToken'] as String;
+      _aplicarPerfil(Map<String, dynamic>.from(resposta['usuario'] as Map));
+    } else {
+      _aplicarPerfil(resposta);
+    }
+    onboardingToken = null;
+  }
+
+  Future<void> carregarContexto() async {
+    status = StatusParticipacao.nenhuma;
+    situacao = null;
+    participacao = null;
+    candidaturaEnviadaEm = null;
+    inscricoesDisponiveis = false;
+    final versao = _versaoConta;
+    await carregarPerfil();
+    if (versao != _versaoConta) throw const ApiException('A conta mudou.');
+    final ciclos = await _api.programas();
+    if (versao != _versaoConta) throw const ApiException('A conta mudou.');
+    programas = ciclos;
+    final atuais = programas.where((p) => p['atual'] == true).toList();
+    if (_api.programa == null && atuais.length == 1) {
+      _api.programa = atuais.single['codigo'] as String;
+    }
+    if (_api.programa == null && programas.length == 1) {
+      _api.programa = programas.single['codigo'] as String;
+    }
+    if (_api.programa != null || programas.isEmpty) {
+      if (!await sincronizarSituacao()) {
+        throw const ApiException(
+          'Não foi possível consultar sua situação. Tente novamente.',
+        );
+      }
+    }
+    inscricoesDisponiveis = programas.any(
+      (p) => p['codigo'] == _api.programa && p['inscricoesDisponiveis'] == true,
+    );
+  }
+
+  Future<void> selecionarPrograma(String codigo) async {
+    status = StatusParticipacao.nenhuma;
+    situacao = null;
+    participacao = null;
+    candidaturaEnviadaEm = null;
+    inscricoesDisponiveis = false;
+    _api.programa = codigo;
+    if (!await sincronizarSituacao()) {
+      throw const ApiException('Falha ao consultar o ciclo.');
+    }
+    inscricoesDisponiveis = programas.any(
+      (p) => p['codigo'] == codigo && p['inscricoesDisponiveis'] == true,
+    );
+  }
 
   void definir({
     required DadosCadastro dadosCadastro,
@@ -228,7 +337,7 @@ class SessaoUsuario {
     atualizarHistorico([ciclo, ...filtrado]);
   }
 
-  /// Envia (ou reenvia, em "Editar candidatura") o cadastro como padrinho
+  /// Envia a candidatura após a revisão; o backend impede duplicação.
   /// via `POST /cadastro`. O cadastro fica PENDENTE até a coordenação decidir.
   /// Lança [ApiException] se o backend recusar (ex.: 1º período) e
   /// [ApiIndisponivelException] sem conexão — em ambos, nada muda localmente.
@@ -248,10 +357,15 @@ class SessaoUsuario {
     definir(
       dadosCadastro: daSessao,
       escolha: Participacao.padrinho,
-      statusParticipacao: StatusParticipacao.padrinhoEmAnalise,
+      statusParticipacao: switch (ciclo.status) {
+        StatusCiclo.emAnalise => StatusParticipacao.padrinhoEmAnalise,
+        StatusCiclo.aprovado => StatusParticipacao.padrinhoAguardandoMatching,
+        _ => StatusParticipacao.padrinhoPendente,
+      },
       enviadaEm: enviadaEm ?? (jaEnviada ? null : DateTime.now()),
     );
     _registrarNoHistorico(ciclo);
+    await sincronizarSituacao();
   }
 
   /// Envia o cadastro do apadrinhado (Revise suas informações → Enviar).
@@ -275,6 +389,7 @@ class SessaoUsuario {
       enviadaEm: DateTime.now(),
     );
     _registrarNoHistorico(ciclo);
+    await sincronizarSituacao();
   }
 
   /// O e-mail enviado é o da identidade autenticada, nunca um padrão da tela.
@@ -303,6 +418,7 @@ class SessaoUsuario {
         'Conclua o login Microsoft antes de enviar o cadastro.',
       );
     }
+    final versao = _versaoConta;
     final resultado = await _api.cadastrar(
       autorizacao: token,
       nome: dadosCadastro.nome,
@@ -314,49 +430,51 @@ class SessaoUsuario {
       tipoParticipacao: tipo,
       respostas: respostas,
     );
+    if (versao != _versaoConta) {
+      throw const ApiException('A conta mudou durante o envio.');
+    }
     onboardingToken = null;
     return resultado.participacao;
   }
 
-  /// Garante o token do aluno já cadastrado (login demo por e-mail, no lugar
-  /// do Microsoft). Sem cadastro, segue sem token.
-  Future<void> _garantirToken() async {
-    if (_api.accessToken != null || dados == null) return;
-    try {
-      await _api.entrar(usuarioIdHistorico);
-    } catch (_) {
-      // sem rede: a sincronização abaixo também vai falhar e é tratada lá
-    }
-  }
-
-  /// Busca a situação real no backend e atualiza o estado da sessão.
-  ///
-  /// Tolerante a falhas: sem dados de cadastro, sem rede ou com erro, mantém o
-  /// estado local e devolve `false`. Se o backend disser `nenhuma` mas houver
-  /// um envio feito offline nesta sessão, o estado local é preservado.
+  /// Falha de consulta remove permissões de atividade até nova confirmação.
   Future<bool> sincronizarSituacao() async {
-    if (dados == null) return false;
-    await _garantirToken();
+    if (_api.accessToken == null) return false;
+    final versao = _versaoConta;
+    final ciclo = _api.programa;
     try {
       final resposta = await _api.situacao(usuarioIdHistorico);
+      if (versao != _versaoConta || ciclo != _api.programa) return false;
       situacao = resposta;
-      final novo = statusDaSituacao(resposta.situacao);
-      if (novo != null) {
-        status = novo;
-        participacao = switch (novo) {
-          StatusParticipacao.padrinhoEmAnalise ||
-          StatusParticipacao.padrinhoAtivo ||
-          StatusParticipacao.padrinhoRejeitado => Participacao.padrinho,
-          StatusParticipacao.apadrinhadoPendente ||
-          StatusParticipacao.apadrinhadoRejeitado ||
-          StatusParticipacao.apadrinhadoAguardandoMatch ||
-          StatusParticipacao.apadrinhadoAtivo => Participacao.apadrinhado,
-          _ => participacao,
-        };
-        candidaturaEnviadaEm = resposta.criadoEm ?? candidaturaEnviadaEm;
+      status = statusDaSituacao(resposta.situacao);
+      participacao =
+          status.candidatura || status == StatusParticipacao.padrinhoAtivo
+          ? Participacao.padrinho
+          : resposta.situacao.startsWith('apadrinhado')
+          ? Participacao.apadrinhado
+          : null;
+      if (status.semInscricao && dados != null) {
+        final perfil = dados!;
+        dados = DadosCadastro(
+          nome: perfil.nome,
+          email: perfil.email,
+          curso: perfil.curso,
+          periodo: perfil.periodo,
+          turno: perfil.turno,
+          interesses: perfil.interesses,
+        );
+      } else if (status.candidatura && resposta.respostas != null) {
+        dados = dados?.comRespostas(resposta.respostas!, padrinho: true);
       }
+      candidaturaEnviadaEm = resposta.criadoEm;
       return true;
     } catch (_) {
+      if (versao != _versaoConta || ciclo != _api.programa) return false;
+      status = StatusParticipacao.nenhuma;
+      situacao = null;
+      participacao = null;
+      candidaturaEnviadaEm = null;
+      inscricoesDisponiveis = false;
       return false;
     }
   }
@@ -372,8 +490,18 @@ class SessaoUsuario {
       return formulario.perguntas
           .where((pergunta) => pergunta.enunciado.trim().isNotEmpty)
           .toList();
+    } on FormularioNaoSuportado {
+      rethrow;
+    } on ApiException catch (erro) {
+      if (erro.statusCode == 400 &&
+          erro.mensagem.toLowerCase().contains(
+            'tipo de pergunta não suportado',
+          )) {
+        throw FormularioNaoSuportado(erro.mensagem);
+      }
+      rethrow;
     } catch (_) {
-      return const [];
+      rethrow;
     }
   }
 
@@ -392,24 +520,15 @@ class SessaoUsuario {
     String? grupo,
     int? apadrinhados,
   }) async {
-    try {
-      final ciclo = await _api.confirmarIngresso(
-        usuarioId: usuarioIdHistorico,
-        papel: papel,
-        programa: programa,
-        grupo: grupo,
-        apadrinhados: apadrinhados,
+    if (!await sincronizarSituacao() || !status.ativo) {
+      throw const ApiException(
+        'A participação ativa depende de vínculo confirmado pela coordenação.',
       );
-      _registrarNoHistorico(ciclo);
-    } catch (_) {
-      // Sem backend disponível, só atualiza o status da sessão.
     }
-    status = papel == 'padrinho'
-        ? StatusParticipacao.padrinhoAtivo
-        : StatusParticipacao.apadrinhadoAtivo;
   }
 
   void limpar() {
+    _limparConta();
     dados = null;
     identidade = null;
     onboardingToken = null;

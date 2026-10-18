@@ -33,6 +33,7 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
   const [obsSalvas, setObsSalvas] = useState(false);
   const [acao, setAcao] = useState('');
   const [erroAcao, setErroAcao] = useState('');
+  const [justificativa, setJustificativa] = useState('');
   const [confirmarRejeicao, setConfirmarRejeicao] = useState(false);
   const [perguntas, setPerguntas] = useState({});
   const statusId = useId();
@@ -108,7 +109,7 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
 
   const r = detalhe.respostas || {};
   const ehApadrinhado = detalhe.papel === 'apadrinhado';
-  const aprovada = detalhe.papel === 'padrinho';
+  const aprovada = detalhe.status === 'aprovado' || detalhe.papel === 'padrinho';
   const rejeitada = detalhe.status === 'nao_aprovado';
   const decidida = aprovada || rejeitada;
   const extras = r.extras || {};
@@ -230,7 +231,7 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
                   <Icon name="refresh" size={17} /> {acao === 'revisao' ? 'Enviando…' : 'Solicitar revisão'}
                 </button>
               </div>
-              {decidida && <p className="detail-muted small">{aprovada ? 'Candidatura aprovada: o candidato já é padrinho neste ciclo.' : 'Candidatura rejeitada neste ciclo.'}</p>}
+              {decidida && <p className="detail-muted small">{aprovada ? detalhe.status === 'aprovado' ? 'Candidatura aprovada. Aguardando matching; atividade depende do vínculo confirmado.' : 'Vínculo confirmado neste ciclo.' : 'Candidatura rejeitada neste ciclo.'}</p>}
             </section>
           )}
 
@@ -270,16 +271,17 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
               <button
                 type="button"
                 className="danger-button"
+                disabled={!justificativa.trim() || Boolean(acao)}
                 onClick={() => {
                   setConfirmarRejeicao(false);
-                  executar('rejeitar', () => api.rejeitarCandidatura(id), `Candidatura de ${detalhe.nome} rejeitada.`);
+                  executar('rejeitar', () => api.rejeitarCandidatura(id, justificativa.trim()), `Candidatura de ${detalhe.nome} rejeitada.`);
                 }}
               >
                 Rejeitar
               </button>
             </>
           )}
-        />
+        ><label>Justificativa visível ao candidato<textarea required maxLength={1000} value={justificativa} onChange={e => setJustificativa(e.target.value)}/></label></Modal>
       )}
     </article>
   );

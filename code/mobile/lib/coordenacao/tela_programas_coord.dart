@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/coordenacao_api.dart';
 import '../theme/colors.dart';
 import 'componentes_coord.dart';
+import 'configurar_programa.dart';
 
 /// Semestre pela data (mesma regra do backend: jan–jun = /1, jul–dez = /2).
 String codigoCicloDaData([DateTime? data]) {
@@ -35,14 +36,22 @@ class TelaProgramasCoord extends StatefulWidget {
     super.key,
     required this.api,
     this.pendencia,
+    this.iniciarNovo = false,
     this.onProgramaCriado,
+    this.onProgramaSelecionado,
+    this.onProgramaExcluido,
   });
 
   final CoordenacaoApi api;
 
   /// `grupos` | `prazo` — vindo dos pontos de atenção do dashboard.
   final String? pendencia;
+
+  /// Abre o fluxo de novo ciclo assim que a lista carrega.
+  final bool iniciarNovo;
   final ValueChanged<String>? onProgramaCriado;
+  final ValueChanged<String>? onProgramaSelecionado;
+  final ValueChanged<String>? onProgramaExcluido;
 
   @override
   State<TelaProgramasCoord> createState() => _TelaProgramasCoordState();
@@ -53,10 +62,16 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
   bool _carregando = true;
   String? _erro;
 
+  bool _novoAgendado = false;
+
   @override
   void initState() {
     super.initState();
-    _carregar();
+    _carregar().then((_) {
+      if (!mounted || !widget.iniciarNovo || _novoAgendado) return;
+      _novoAgendado = true;
+      _novoCiclo();
+    });
   }
 
   Future<void> _carregar() async {
@@ -94,30 +109,70 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
       ),
     );
     if (escolhido == null || !mounted) return;
-    try {
-      final criado = await widget.api.criarPrograma(escolhido);
-      if (!mounted) return;
-      final codigo = criado['codigo'] as String?;
-      mostrarMensagemCoord(context, 'Ciclo ${codigo ?? ''} aberto.');
-      if (codigo != null) widget.onProgramaCriado?.call(codigo);
-      await _carregar();
-    } catch (erro) {
-      if (mounted) mostrarMensagemCoord(context, mensagemDeErro(erro));
-    }
-  }
-
-  Future<void> _editar(Map<String, dynamic> programa) async {
-    final salvo = await showModalBottomSheet<bool>(
+    final anterior = _programas.cast<Map<String, dynamic>?>().firstWhere(
+      (p) => (p?['requisitosPadrinho'] as List?)?.isNotEmpty == true,
+      orElse: () => null,
+    );
+    final requisitos = ((anterior?['requisitosPadrinho'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((r) => Map<String, dynamic>.from(r))
+        .toList();
+    final salvo = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: Colors.white,
-      builder: (_) => _EditorPrograma(api: widget.api, programa: programa),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => ConfigurarPrograma(
+        api: widget.api,
+        novo: true,
+        programa: {
+          'codigo': escolhido,
+          'etapaAtual': 'inscricoes',
+          'datas': sugestaoCronograma(escolhido),
+          'requisitosPadrinho': requisitos,
+          'vagasApadrinhados': 80,
+          'gruposPrevistos': 25,
+        },
+      ),
     );
-    if (salvo == true && mounted) {
+    if (salvo == null || !mounted) return;
+    final codigo = '${salvo['codigo'] ?? escolhido}';
+    mostrarMensagemCoord(context, 'Ciclo $codigo aberto.');
+    widget.onProgramaCriado?.call(codigo);
+    await _carregar();
+  }
+
+  Future<void> _editar(Map<String, dynamic> programa) async {
+    final salvo = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => ConfigurarPrograma(api: widget.api, programa: programa),
+    );
+    if (salvo != null && mounted) {
       mostrarMensagemCoord(context, 'Programa atualizado.');
       await _carregar();
     }
+  }
+
+  Future<void> _excluir(Map<String, dynamic> programa) async {
+    final codigo = programa['codigo'] as String;
+    final excluido = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _ExcluirProgramaDialog(api: widget.api, codigo: codigo),
+    );
+    if (!mounted || excluido != true) return;
+    mostrarMensagemCoord(context, 'Programa $codigo excluído.');
+    widget.onProgramaExcluido?.call(codigo);
+    await _carregar();
   }
 
   @override
@@ -194,6 +249,15 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
                   _CardPrograma(
                     programa: programa,
                     onEditar: () => _editar(programa),
+                    onExcluir: () => _excluir(programa),
+                    onAdministrar: widget.onProgramaSelecionado == null
+                        ? null
+                        : () {
+                            widget.onProgramaSelecionado!(
+                              programa['codigo'] as String,
+                            );
+                            Navigator.of(context).pop();
+                          },
                   ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -216,10 +280,17 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
 }
 
 class _CardPrograma extends StatelessWidget {
-  const _CardPrograma({required this.programa, required this.onEditar});
+  const _CardPrograma({
+    required this.programa,
+    required this.onEditar,
+    required this.onExcluir,
+    this.onAdministrar,
+  });
 
   final Map<String, dynamic> programa;
   final VoidCallback onEditar;
+  final VoidCallback onExcluir;
+  final VoidCallback? onAdministrar;
 
   @override
   Widget build(BuildContext context) {
@@ -350,7 +421,7 @@ class _CardPrograma extends StatelessWidget {
               ],
             ),
           const Text(
-            'A edição dos requisitos é feita no painel web (Programas).',
+            'Os requisitos valem somente para este ciclo.',
             style: TextStyle(fontSize: 11, color: corTextoSecundarioCoord),
           ),
           const SizedBox(height: 12),
@@ -402,131 +473,34 @@ class _CardPrograma extends StatelessWidget {
                 ),
               ),
           ],
-          if (programa['encerrado'] != true)
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: onEditar,
-                icon: const Icon(Icons.edit_outlined, size: 18),
-                label: const Text('Editar etapa e inscrições'),
-              ),
+          if (onAdministrar != null)
+            TextButton.icon(
+              onPressed: onAdministrar,
+              icon: const Icon(Icons.dashboard_outlined),
+              label: const Text('Administrar este programa'),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EditorPrograma extends StatefulWidget {
-  const _EditorPrograma({required this.api, required this.programa});
-
-  final CoordenacaoApi api;
-  final Map<String, dynamic> programa;
-
-  @override
-  State<_EditorPrograma> createState() => _EditorProgramaState();
-}
-
-class _EditorProgramaState extends State<_EditorPrograma> {
-  late String? _etapa = widget.programa['etapaAtual'] as String?;
-  late bool _inscricoes = widget.programa['inscricoesAbertas'] == true;
-  late bool _matching = widget.programa['matchingPendente'] == true;
-  bool _salvando = false;
-
-  static const _etapasPadrao = {
-    'inscricoes': 'Inscrições abertas',
-    'analise': 'Análise de candidaturas',
-    'formacao': 'Formação dos grupos',
-    'andamento': 'Programa em andamento',
-    'encerramento': 'Encerramento',
-  };
-
-  Map<String, String> get _etapas {
-    final lista = (widget.programa['etapas'] as List? ?? const [])
-        .whereType<Map>();
-    final mapa = {
-      for (final etapa in lista) '${etapa['id']}': '${etapa['titulo']}',
-    };
-    return mapa.isEmpty ? _etapasPadrao : mapa;
-  }
-
-  Future<void> _salvar() async {
-    setState(() => _salvando = true);
-    try {
-      await widget.api.atualizarPrograma('${widget.programa['codigo']}', {
-        'etapaAtual': ?_etapa,
-        'inscricoesAbertas': _inscricoes,
-        'matchingPendente': _matching,
-      });
-      if (mounted) Navigator.pop(context, true);
-    } catch (erro) {
-      if (!mounted) return;
-      setState(() => _salvando = false);
-      mostrarMensagemCoord(context, mensagemDeErro(erro));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final etapas = _etapas;
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          0,
-          20,
-          20 + MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Editar ${widget.programa['titulo'] ?? widget.programa['codigo']}',
-              style: const TextStyle(
-                fontFamily: 'Poppins',
-                fontWeight: FontWeight.w800,
-                fontSize: 18,
-              ),
-            ),
-            const SizedBox(height: 14),
-            DropdownButtonFormField<String>(
-              initialValue: etapas.containsKey(_etapa) ? _etapa : null,
-              decoration: const InputDecoration(
-                labelText: 'Etapa atual',
-                border: OutlineInputBorder(),
-              ),
-              items: [
-                for (final MapEntry(:key, :value) in etapas.entries)
-                  DropdownMenuItem(value: key, child: Text(value)),
+          Align(
+            alignment: Alignment.centerRight,
+            child: PopupMenuButton<String>(
+              tooltip: 'Mais ações do programa',
+              onSelected: (_) => onExcluir(),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'excluir',
+                  child: Text('Excluir programa'),
+                ),
               ],
-              onChanged: (valor) => setState(() => _etapa = valor),
             ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              value: _inscricoes,
-              activeTrackColor: AppColors.primary,
-              title: const Text('Inscrições abertas'),
-              onChanged: (valor) => setState(() => _inscricoes = valor),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onEditar,
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              label: const Text('Configurar programa'),
             ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              value: _matching,
-              activeTrackColor: AppColors.primary,
-              title: const Text('Matching pendente'),
-              onChanged: (valor) => setState(() => _matching = valor),
-            ),
-            const SizedBox(height: 8),
-            FilledButton(
-              onPressed: _salvando ? null : _salvar,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                minimumSize: const Size.fromHeight(48),
-              ),
-              child: Text(_salvando ? 'Salvando...' : 'Salvar'),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -623,8 +597,83 @@ class _DialogoNovoCicloState extends State<_DialogoNovoCiclo> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancelar'),
         ),
-        FilledButton(onPressed: _confirmar, child: const Text('Abrir ciclo')),
+        FilledButton(
+          onPressed: _confirmar,
+          child: const Text('Revisar cronograma'),
+        ),
       ],
     );
   }
+}
+
+class _ExcluirProgramaDialog extends StatefulWidget {
+  const _ExcluirProgramaDialog({required this.api, required this.codigo});
+  final CoordenacaoApi api;
+  final String codigo;
+  @override
+  State<_ExcluirProgramaDialog> createState() => _ExcluirProgramaDialogState();
+}
+
+class _ExcluirProgramaDialogState extends State<_ExcluirProgramaDialog> {
+  String _confirmacao = '';
+  bool _excluindo = false;
+  String? _erro;
+  Future<void> _excluir() async {
+    if (_excluindo || _confirmacao != 'COORDENADOR') return;
+    setState(() {
+      _excluindo = true;
+      _erro = null;
+    });
+    try {
+      await widget.api.excluirPrograma(widget.codigo, _confirmacao);
+      if (mounted) Navigator.pop(context, true);
+    } catch (erro) {
+      if (mounted) {
+        setState(() {
+          _excluindo = false;
+          _erro = mensagemDeErro(erro);
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_excluindo,
+    child: AlertDialog(
+      title: Text('Excluir programa ${widget.codigo}?'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'A operação é permanente. Programas com candidaturas, participações, histórico, formulários ou comunicados não podem ser excluídos. Nesses casos, encerre o programa.',
+            ),
+            TextField(
+              enabled: !_excluindo,
+              decoration: const InputDecoration(
+                labelText: 'Digite COORDENADOR para confirmar',
+              ),
+              onChanged: (valor) => setState(() => _confirmacao = valor),
+            ),
+            if (_erro != null)
+              Text(_erro!, style: const TextStyle(color: Colors.red)),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _excluindo ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+          onPressed: _excluindo || _confirmacao != 'COORDENADOR'
+              ? null
+              : _excluir,
+          child: Text(_excluindo ? 'Excluindo…' : 'Excluir definitivamente'),
+        ),
+      ],
+    ),
+  );
 }

@@ -27,6 +27,16 @@ Future<void> _tocar(WidgetTester tester, Finder alvo) async {
   );
   await tester.tap(alvo);
   await tester.pumpAndSettle();
+  if (find.text('Revise sua candidatura').evaluate().isNotEmpty) {
+    expect(SessaoUsuario.atual.status, isNot(StatusParticipacao.padrinhoAtivo));
+    await tester.scrollUntilVisible(
+      find.text('Confirmar envio'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Confirmar envio'));
+    await tester.pumpAndSettle();
+  }
 }
 
 Future<void> _escolher<T>(
@@ -85,6 +95,7 @@ void main() {
   tearDown(SessaoUsuario.atual.limpar);
 
   testWidgets('participacao abre candidatura de padrinho', (tester) async {
+    SessaoUsuario.atual.dados = _dados();
     await tester.pumpWidget(
       MaterialApp(home: ParticipacaoPage(dados: _dados())),
     );
@@ -113,7 +124,54 @@ void main() {
       find.text(CadastroPadrinhoPage.textoDeclaracao(_aed)),
       findsOneWidget,
     );
-    expect(find.text('Enviar candidatura'), findsOneWidget);
+    expect(find.text('Revisar candidatura'), findsOneWidget);
+  });
+
+  testWidgets('revisão permite voltar, editar e confirmar apenas uma vez', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(600, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(home: CadastroPadrinhoPage(dados: _dados())),
+    );
+    await _preencherCandidatura(tester);
+    await tester.scrollUntilVisible(
+      find.text('Revisar candidatura'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Revisar candidatura'));
+    await tester.pumpAndSettle();
+    expect(find.text('Revise sua candidatura'), findsOneWidget);
+    expect(api.posts('/cadastro'), isEmpty);
+    await _tocar(tester, find.text('Voltar e editar'));
+    await tester.enterText(find.byType(TextField).first, 'Motivação revisada');
+    await tester.scrollUntilVisible(
+      find.text('Revisar candidatura'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Revisar candidatura'));
+    await tester.pumpAndSettle();
+    expect(find.text('Motivação revisada'), findsOneWidget);
+    expect(api.posts('/cadastro'), isEmpty);
+    await tester.scrollUntilVisible(
+      find.text('Confirmar envio'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Confirmar envio'));
+    await tester.tap(find.text('Confirmar envio'));
+    await tester.pumpAndSettle();
+    expect(api.posts('/cadastro'), hasLength(1));
+    expect(
+      (api.corpo(api.posts('/cadastro').single)['respostas']
+          as Map)['motivacao'],
+      'Motivação revisada',
+    );
+    expect(find.byType(CandidaturaEnviadaPage), findsOneWidget);
   });
 
   testWidgets('validacao destaca campos obrigatorios', (tester) async {
@@ -121,7 +179,7 @@ void main() {
       MaterialApp(home: CadastroPadrinhoPage(dados: _dados())),
     );
 
-    await _tocar(tester, find.text('Enviar candidatura'));
+    await _tocar(tester, find.text('Revisar candidatura'));
 
     expect(find.text('Conte por que você quer ser padrinho.'), findsOneWidget);
     expect(
@@ -148,7 +206,7 @@ void main() {
     );
 
     await _preencherCandidatura(tester, declarar: false);
-    await _tocar(tester, find.text('Enviar candidatura'));
+    await _tocar(tester, find.text('Revisar candidatura'));
 
     expect(find.byType(CandidaturaEnviadaPage), findsNothing);
     expect(
@@ -158,7 +216,7 @@ void main() {
     expect(api.posts('/cadastro'), isEmpty);
 
     await _marcarDeclaracao(tester);
-    await _tocar(tester, find.text('Enviar candidatura'));
+    await _tocar(tester, find.text('Revisar candidatura'));
 
     expect(find.byType(CandidaturaEnviadaPage), findsOneWidget);
     final envio = api.posts('/cadastro').single;
@@ -190,11 +248,11 @@ void main() {
     );
 
     await _preencherCandidatura(tester);
-    await _tocar(tester, find.text('Enviar candidatura'));
+    await _tocar(tester, find.text('Revisar candidatura'));
 
     expect(find.byType(CandidaturaEnviadaPage), findsNothing);
     expect(find.textContaining('Inscrições encerradas.'), findsOneWidget);
-    expect(find.text('Tentar novamente'), findsOneWidget);
+    expect(find.text('Confirmar envio'), findsOneWidget);
     expect(SessaoUsuario.atual.status, StatusParticipacao.nenhuma);
   });
 
@@ -213,27 +271,20 @@ void main() {
               opcoes: ['Colegas', 'Professores'],
               obrigatoria: true,
             ),
-            PerguntaFormulario(
-              id: 'portfolio',
-              enunciado: 'Portfólio',
-              tipo: TipoPergunta.upload,
-              obrigatoria: true,
-            ),
           ],
         ),
       ),
     );
 
     expect(find.text('Perguntas adicionais'), findsOneWidget);
-    expect(find.text('Envio de arquivo em breve'), findsOneWidget);
 
     await _preencherCandidatura(tester);
-    await _tocar(tester, find.text('Enviar candidatura'));
+    await _tocar(tester, find.text('Revisar candidatura'));
     expect(find.text('Responda esta pergunta para continuar.'), findsOneWidget);
     expect(api.posts('/cadastro'), isEmpty);
 
     await _escolher<String>(tester, 'Selecione uma opção', 'Professores');
-    await _tocar(tester, find.text('Enviar candidatura'));
+    await _tocar(tester, find.text('Revisar candidatura'));
 
     expect(find.byType(CandidaturaEnviadaPage), findsOneWidget);
     final respostas =
@@ -241,6 +292,65 @@ void main() {
             as Map<String, dynamic>;
     expect(respostas['extras'], {'como-conheceu': 'Professores'});
   });
+
+  for (final tipo in ['upload', 'file', 'attachment', 'outro']) {
+    testWidgets(
+      'formulário legado $tipo não permite candidatura mesmo opcional',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: CadastroPadrinhoPage(
+              dados: _dados(),
+              requisitos: const [],
+              perguntasAdicionais: [
+                PerguntaFormulario.fromJson({
+                  'id': 'legado',
+                  'enunciado': 'Pergunta antiga',
+                  'tipo': tipo,
+                  'obrigatoria': false,
+                }),
+              ],
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(mensagemFormularioNaoSuportado), findsOneWidget);
+        await _tocar(tester, find.text('Revisar candidatura'));
+        expect(api.posts('/cadastro'), isEmpty);
+        expect(find.byType(CandidaturaEnviadaPage), findsNothing);
+      },
+    );
+  }
+
+  testWidgets(
+    'erro de tipo não suportado recebido da API é mostrado e bloqueia envio',
+    (tester) async {
+      api = ApiFalsa(
+        formularios: {
+          'padrinho': {
+            'tipo': 'padrinho',
+            'publicado': true,
+            'perguntas': [
+              {
+                'id': 'antiga',
+                'tipo': 'upload',
+                'enunciado': 'Pergunta antiga',
+              },
+            ],
+          },
+        },
+      ).instalar();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CadastroPadrinhoPage(dados: _dados(), requisitos: const []),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(mensagemFormularioNaoSuportado), findsOneWidget);
+      await _tocar(tester, find.text('Revisar candidatura'));
+      expect(api.posts('/cadastro'), isEmpty);
+    },
+  );
 
   testWidgets('envio completo abre tela de candidatura enviada', (
     tester,
@@ -250,7 +360,7 @@ void main() {
     );
 
     await _preencherCandidatura(tester);
-    await _tocar(tester, find.text('Enviar candidatura'));
+    await _tocar(tester, find.text('Revisar candidatura'));
 
     expect(find.byType(CandidaturaEnviadaPage), findsOneWidget);
     expect(find.text('Candidatura enviada!'), findsOneWidget);
@@ -258,7 +368,7 @@ void main() {
     expect(find.text('Ir para meu perfil'), findsOneWidget);
     expect(find.text('Cadastro concluído!'), findsNothing);
     expect(SessaoUsuario.atual.participacao, Participacao.padrinho);
-    expect(SessaoUsuario.atual.status, StatusParticipacao.padrinhoEmAnalise);
+    expect(SessaoUsuario.atual.status, StatusParticipacao.padrinhoPendente);
   });
 
   testWidgets('ir para perfil mostra candidatura em analise', (tester) async {
@@ -267,12 +377,12 @@ void main() {
     );
 
     await _preencherCandidatura(tester);
-    await _tocar(tester, find.text('Enviar candidatura'));
+    await _tocar(tester, find.text('Revisar candidatura'));
     await _tocar(tester, find.text('Ir para meu perfil'));
 
     expect(find.byType(ProfilePage), findsOneWidget);
-    expect(find.text('Candidatura de padrinho'), findsOneWidget);
-    expect(find.text('Em análise'), findsOneWidget);
+    expect(find.text('Candidatura recebida'), findsOneWidget);
+    expect(find.text('Recebida'), findsOneWidget);
     expect(find.text('Padrinho ativo'), findsNothing);
     expect(find.text('Apadrinhado ativo'), findsNothing);
   });
@@ -297,7 +407,7 @@ void main() {
     // só o obrigatório é exigido; o desejável segue como "não cumpre"
     await _tocar(tester, find.text('Declaro que cumpro: Fundamentos de SI'));
     await _preencherCandidatura(tester, declarar: false);
-    await _tocar(tester, find.text('Enviar candidatura'));
+    await _tocar(tester, find.text('Revisar candidatura'));
 
     expect(find.byType(CandidaturaEnviadaPage), findsOneWidget);
     final respostas =
@@ -321,7 +431,7 @@ void main() {
       findsOneWidget,
     );
     await _preencherCandidatura(tester, declarar: false);
-    await _tocar(tester, find.text('Enviar candidatura'));
+    await _tocar(tester, find.text('Revisar candidatura'));
     expect(find.byType(CandidaturaEnviadaPage), findsOneWidget);
   });
 
@@ -342,7 +452,7 @@ void main() {
       ),
     );
     await _preencherCandidatura(tester);
-    await _tocar(tester, find.text('Enviar candidatura'));
+    await _tocar(tester, find.text('Revisar candidatura'));
 
     expect(find.byType(CandidaturaEnviadaPage), findsNothing);
     expect(

@@ -1,4 +1,4 @@
-export type Perfil = 'apadrinhado' | 'padrinho' | 'coordenador';
+export type Perfil = 'apadrinhado' | 'padrinho' | 'coordenador' | 'nenhuma';
 
 export interface Usuario {
   id: number;

@@ -92,6 +92,46 @@ export class AzureBlobStorageService {
     };
   }
 
+  /** Substituição atômica de um único blob privado, sem apagar a foto anterior primeiro. */
+  async substituirFotoPerfil(blobName: string, dados: Buffer): Promise<void> {
+    if (!/^usuarios\/[1-9][0-9]*\/avatar\.img$/.test(blobName))
+      throw new BadRequestException('Chave de perfil inválida.');
+    if (
+      !Buffer.isBuffer(dados) ||
+      !dados.length ||
+      dados.length > 5 * 1024 * 1024
+    )
+      throw new BadRequestException('Foto excede 5 MB ou está vazia.');
+    const png = dados
+      .subarray(0, 8)
+      .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const jpeg = dados[0] === 255 && dados[1] === 216 && dados[2] === 255;
+    const webp =
+      dados.toString('ascii', 0, 4) === 'RIFF' &&
+      dados.toString('ascii', 8, 12) === 'WEBP';
+    if (!png && !jpeg && !webp)
+      throw new BadRequestException(
+        'Formato de foto inválido. Use PNG, JPEG ou WebP.',
+      );
+    const cliente = await this.garantirContainer('profiles');
+    try {
+      await cliente
+        .getBlockBlobClient(validarNomeBlob(blobName))
+        .uploadData(dados, {
+          blobHTTPHeaders: {
+            blobContentType: png
+              ? 'image/png'
+              : jpeg
+                ? 'image/jpeg'
+                : 'image/webp',
+            blobCacheControl: 'private, no-cache',
+          },
+        });
+    } catch (erro) {
+      this.propagar(erro, 'substituir foto de perfil');
+    }
+  }
+
   async excluir(
     container: ContainerArmazenamento,
     blobName: string,

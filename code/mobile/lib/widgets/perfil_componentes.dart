@@ -97,6 +97,19 @@ class CardSituacaoPerfil extends StatelessWidget {
     final grupo = sessao.grupo;
 
     return switch (sessao.status) {
+      StatusParticipacao.padrinhoPendente ||
+      StatusParticipacao.padrinhoAguardandoMatching => CardStatusPerfil(
+        titulo: sessao.status.titulo,
+        selo: sessao.status.selo,
+        icone: Icons.fact_check_outlined,
+        descricao: sessao.status == StatusParticipacao.padrinhoPendente
+            ? 'Recebemos sua candidatura. Aguarde a análise da coordenação.'
+            : 'Aguardando definição do seu grupo. As atividades serão liberadas após o vínculo confirmado.',
+        corSelo: AppColors.primary,
+        fundoSelo: AppColors.lavender,
+        infos: [infoPrograma],
+        acao: _link('Acompanhar status', onAcompanharStatus),
+      ),
       StatusParticipacao.padrinhoEmAnalise => CardStatusPerfil(
         titulo: 'Candidatura de padrinho',
         selo: 'Em análise',
@@ -151,12 +164,7 @@ class CardSituacaoPerfil extends StatelessWidget {
                   '${sessao.motivoRejeicao}',
         corSelo: const Color(0xFFB45309),
         fundoSelo: const Color(0xFFFFF7ED),
-        acao: Wrap(
-          children: [
-            _link('Ver opções', onCandidatarPadrinho),
-            _link('Ver status', onAcompanharStatus),
-          ],
-        ),
+        acao: Wrap(children: [_link('Ver status', onAcompanharStatus)]),
       ),
       StatusParticipacao.apadrinhadoAtivo => CardStatusPerfil(
         titulo: 'Apadrinhado ativo',
@@ -602,9 +610,7 @@ class SecaoJornada extends StatelessWidget {
     final ProgramaSituacao? programa = sessao.situacao?.programa;
     final status = sessao.status;
     final ehPadrinho =
-        status == StatusParticipacao.padrinhoAtivo ||
-        status == StatusParticipacao.padrinhoEmAnalise ||
-        status == StatusParticipacao.padrinhoRejeitado;
+        status == StatusParticipacao.padrinhoAtivo || status.candidatura;
     final enviada = sessao.candidaturaEnviadaEm;
 
     final tiles = <(IconData, Color, Color, String, String)>[

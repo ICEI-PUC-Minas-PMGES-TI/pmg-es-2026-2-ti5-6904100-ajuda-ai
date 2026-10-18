@@ -1,12 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '../../api/client';
+import { api, getAlunoSession, programaAluno, selecionarProgramaAluno } from '../../api/client';
+import { escolherCiclo, resolverAluno } from '../../auth/resolverAluno';
 import {
-  EMAIL_PADRAO,
-  emailDaUrl,
   iniciaisDe,
-  lerSessaoAluno,
-  nomeDoEmail,
   periodoNumero,
   salvarSessaoAluno,
 } from '../../auth/sessaoAluno';
@@ -25,6 +22,7 @@ const ROTULOS_SITUACAO = {
   candidatura_pendente: 'candidatura a padrinho enviada',
   candidatura_em_analise: 'candidatura a padrinho em análise',
   candidatura_rejeitada: 'candidatura a padrinho não aprovada',
+  candidatura_aprovada_aguardando_matching: 'candidatura aprovada aguardando matching',
   padrinho_ativo: 'padrinho ativo',
   apadrinhado_pendente: 'cadastro de apadrinhado aguardando aprovação',
   apadrinhado_rejeitado: 'cadastro de apadrinhado não aprovado',
@@ -35,12 +33,11 @@ const ROTULOS_SITUACAO = {
 
 function perfilInicial(email, sessao) {
   const salvo = sessao?.email === email ? sessao.perfil : null;
-  const padrao = email === EMAIL_PADRAO;
   return {
-    name: salvo?.nome || (padrao ? 'Fernanda Soares' : nomeDoEmail(email)),
+    name: sessao?.nome || '',
     email,
     course: salvo?.curso || CURSOS[0],
-    period: salvo?.periodo ? `${salvo.periodo}º período` : padrao ? '6º período' : '1º período',
+    period: salvo?.periodo ? `${salvo.periodo}º período` : '1º período',
     shift: salvo?.turno || 'Noite',
     interests: salvo?.interesses || ['Tecnologia', 'Inovação', 'Projetos'],
     gender: '',
@@ -78,23 +75,26 @@ export default function CadastroPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const mostrarToast = useToast();
-  const [sessao] = useState(() => lerSessaoAluno());
-  const emailUrl = emailDaUrl(params);
-  const email = emailUrl || sessao?.email || EMAIL_PADRAO;
-  const refazer = params.has('refazer');
+  const [sessao] = useState(() => getAlunoSession());
+  const email = sessao?.email || '';
   const passoUrl = params.get('passo');
-  const deveRedirecionar = Boolean(sessao) && !refazer && !passoUrl && (!emailUrl || emailUrl === sessao.email);
 
   const [step, setStep] = useState(() => (passoUrl === 'escolha' && sessao?.perfil && sessao.email === email ? 'escolha' : 'perfil'));
   const [profile, setProfile] = useState(() => perfilInicial(email, sessao));
   const [escolha, setEscolha] = useState(() => opcaoPadrao(periodoNumero(perfilInicial(email, sessao).period) || 1));
   const [photo, setPhoto] = useState('');
+  const [arquivoFoto, setArquivoFoto] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+  const [programas, setProgramas] = useState([]);
+  const [programa, setPrograma] = useState(programaAluno);
   const [errors, setErrors] = useState({});
+  const envioEmCurso = useRef(false);
   const [enviando, setEnviando] = useState(false);
   const [erroEnvio, setErroEnvio] = useState('');
   const [existente, setExistente] = useState(null);
-  const perguntasApadrinhado = useFormularioPublico('apadrinhado');
+  const { perguntas: perguntasApadrinhado, erro: erroFormulario, carregando: carregandoFormulario } = useFormularioPublico('apadrinhado', programa);
 
+  useEffect(() => () => {if (photo.startsWith('blob:')) URL.revokeObjectURL(photo);}, [photo]);
   const periodo = periodoNumero(profile.period) || 1;
 
   useEffect(() => {
@@ -102,23 +102,33 @@ export default function CadastroPage() {
   }, [step]);
 
   useEffect(() => {
-    if (deveRedirecionar) return undefined;
     let ativo = true;
-    api.situacao(email)
-      .then((dados) => {
-        if (ativo && dados?.situacao && dados.situacao !== 'nenhuma') setExistente(dados);
-      })
-      .catch(() => {});
-    return () => {
-      ativo = false;
-    };
-  }, [email, deveRedirecionar]);
+    async function carregar() {
+      try {
+        if (!sessao) return;
+        if (sessao.onboardingToken) {setProfile(p => ({...p, name: sessao.nome || '', email})); return;}
+        const perfil = await api.perfilAluno();
+        if (!ativo) return;
+        setProfile(p => ({...p, name: perfil.nome, email, course: perfil.curso || CURSOS[0],
+          period: `${perfil.periodo || 1}º período`, shift: perfil.turno || 'Noite', interests: perfil.interesses || []}));
+        const ciclos = await api.programasAluno(); if (!ativo) return;
+        setProgramas(ciclos);
+        const codigo = programa || escolherCiclo(ciclos); setPrograma(codigo); selecionarProgramaAluno(codigo);
+        const dados = codigo || ciclos.length === 0 ? await api.situacao(email, codigo) : null;
+        if (!ativo) return;
+        setExistente(dados);
+        if (!passoUrl && resolverAluno(perfil, dados, ciclos.find(p => p.codigo === codigo)).completo) navigate('/aluno/perfil', {replace: true});
+        else if (passoUrl === 'escolha') setStep('escolha');
+      } catch(e) {if(ativo) setErroEnvio(e.message);}
+      finally {if(ativo) setCarregando(false);}
+    }
+    carregar(); return () => {ativo = false;};
+  }, [email]);
 
   const initials = useMemo(() => iniciaisDe(profile.name), [profile.name]);
 
-  if (deveRedirecionar) {
-    return <Navigate to="/aluno/perfil" replace />;
-  }
+  if (!sessao) return <Navigate to="/login" replace />;
+  if (carregando) return <p role="status">Carregando perfil…</p>;
 
   function update(key, value) {
     setProfile((current) => ({ ...current, [key]: value }));
@@ -145,12 +155,21 @@ export default function CadastroPage() {
     navigate('/aluno/perfil');
   }
 
-  function nextFromProfile(event) {
+  async function nextFromProfile(event) {
+    if (enviando) return;
     event.preventDefault();
     if (!profile.name.trim()) {
       setErrors({ name: true });
       return;
     }
+    setEnviando(true); setErroEnvio('');
+    try {
+      await api.completarPerfil(perfilParaSessao(profile));
+      if (arquivoFoto) {try {await api.salvarFoto(arquivoFoto);} catch(e) {mostrarToast(`Perfil salvo. Foto não enviada: ${e.message}`);}}
+      const ciclos = await api.programasAluno(); setProgramas(ciclos);
+      const codigo = programa || escolherCiclo(ciclos); setPrograma(codigo); selecionarProgramaAluno(codigo);
+      setExistente(codigo || ciclos.length === 0 ? await api.situacao(email, codigo) : null);
+    } catch(e) {setErroEnvio(e.message); return;} finally {setEnviando(false);}
     setErrors({});
     if (!escolha || bloqueioDaOpcao(escolha, periodo)) setEscolha(opcaoPadrao(periodo));
     setStep('escolha');
@@ -163,12 +182,16 @@ export default function CadastroPage() {
       navigate('/aluno/perfil');
       return;
     }
+    const r = resolverAluno(perfilParaSessao(profile), existente, programas.find(p => p.codigo === programa));
+    if (!(escolha === 'padrinho' ? r.podePadrinho : r.podeApadrinhado)) {setErroEnvio('Inscrição indisponível neste ciclo. Consulte sua situação e o calendário.'); return;}
     setErrors({});
     setStep(escolha === 'padrinho' ? 'padrinho' : 'apadrinhado');
   }
 
   function nextFromDetails(event) {
     event.preventDefault();
+    if (carregandoFormulario) {setErroEnvio('Aguarde o carregamento do formulário.'); return;}
+    if (erroFormulario) { setErroEnvio(erroFormulario); return; }
     const errosExtras = validarExtras(perguntasApadrinhado, profile.extras);
     const nextErrors = {
       gender: !profile.gender,
@@ -190,6 +213,8 @@ export default function CadastroPage() {
   }
 
   async function submitRegistration() {
+    if (envioEmCurso.current) return;
+    if (erroFormulario) { setErroEnvio(erroFormulario); return; }
     const perfil = perfilParaSessao(profile);
     const respostas = {
       ...perfil,
@@ -202,16 +227,18 @@ export default function CadastroPage() {
       outrasInformacoes: profile.additionalInfo.trim(),
       extras: limparExtras(perguntasApadrinhado, profile.extras),
     };
+    envioEmCurso.current = true;
     setEnviando(true);
     setErroEnvio('');
     try {
       // Cria a solicitação de cadastro (PENDENTE) e a sessão do aluno.
-      await api.cadastrar({ ...perfil, email, tipoParticipacao: 'apadrinhado', respostas });
+      await api.cadastrar({ ...perfil, email, programa, tipoParticipacao: 'apadrinhado', respostas });
       salvarSessao('apadrinhado', respostas);
       setStep('sucesso');
     } catch (error) {
       setErroEnvio(error.message || 'Não foi possível enviar seu cadastro. Tente novamente.');
     } finally {
+      envioEmCurso.current = false;
       setEnviando(false);
     }
   }
@@ -238,6 +265,11 @@ export default function CadastroPage() {
     return (
       <div className="app-shell">
         {header}
+        <label>Ciclo <select value={programa} onChange={async e => {
+          const codigo = e.target.value; setPrograma(codigo); selecionarProgramaAluno(codigo); setExistente(null); setErroEnvio('');
+          try {setExistente(await api.situacao(email, codigo));} catch(e) {setErroEnvio(e.message);}
+        }}><option value="">Selecione o ciclo</option>{programas.map(p => <option key={p.codigo} value={p.codigo}>{p.titulo}</option>)}</select></label>
+        {erroEnvio && <p role="alert">{erroEnvio}</p>}
         <EscolhaStep periodo={periodo} escolha={escolha} onEscolher={setEscolha} onContinuar={continuarEscolha} onVoltar={() => setStep('perfil')} />
       </div>
     );
@@ -276,6 +308,7 @@ export default function CadastroPage() {
       <div className="signup-layout">
         <SidePanel variant={step === 'perfil' ? 'profile' : 'connections'} />
         <main className="form-stage">
+          {erroEnvio && <p role="alert">{erroEnvio}</p>}
           <section className={`form-card ${step !== 'perfil' ? 'details-card' : ''}`}>
             {step === 'perfil' && (
               <PerfilStep
@@ -284,11 +317,12 @@ export default function CadastroPage() {
                 errors={errors}
                 onUpdate={update}
                 onToggle={toggleList}
-                onPhoto={setPhoto}
+                onPhoto={(url, file) => {setPhoto(url); setArquivoFoto(file);}}
                 onContinue={nextFromProfile}
                 aviso={avisoExistente}
               />
             )}
+            {step === 'apadrinhado' && erroFormulario && <p className="form-error" role="alert">{erroFormulario}</p>}
             {step === 'apadrinhado' && (
               <ApadrinhadoStep
                 profile={profile}
@@ -304,6 +338,7 @@ export default function CadastroPage() {
             {step === 'padrinho' && (
               <CandidaturaPadrinhoForm
                 email={email}
+                programa={programa}
                 perfil={perfilParaSessao(profile)}
                 onVoltar={() => setStep('escolha')}
                 onEnviado={candidaturaEnviada}

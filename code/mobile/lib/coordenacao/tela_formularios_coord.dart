@@ -67,6 +67,7 @@ class _PerguntaEditavel {
     : id = pergunta.id,
       enunciado = TextEditingController(text: pergunta.enunciado),
       tipo = pergunta.tipo,
+      tipoOriginal = pergunta.tipoOriginal,
       opcoes = [
         for (final opcao in pergunta.opcoes) TextEditingController(text: opcao),
       ],
@@ -75,6 +76,7 @@ class _PerguntaEditavel {
   final String id;
   final TextEditingController enunciado;
   TipoPergunta tipo;
+  final String? tipoOriginal;
   final List<TextEditingController> opcoes;
   bool obrigatoria;
 
@@ -82,6 +84,7 @@ class _PerguntaEditavel {
     id: id,
     enunciado: enunciado.text.trim(),
     tipo: tipo,
+    tipoOriginal: tipo.suportado ? null : tipoOriginal,
     opcoes: tipo.temOpcoes
         ? [
             for (final opcao in opcoes)
@@ -189,6 +192,13 @@ class _EditorFormularioCoordState extends State<EditorFormularioCoord>
 
   Future<void> _salvar() async {
     if (_salvando) return;
+    if (_modelo.any((p) => !p.tipo.suportado)) {
+      mostrarMensagemCoord(
+        context,
+        'Tipo não suportado: remova ou substitua a pergunta antes de salvar ou publicar.',
+      );
+      return;
+    }
     setState(() => _salvando = true);
     try {
       final salvo = await widget.api.salvarFormulario(
@@ -498,7 +508,9 @@ class _CardPergunta extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<TipoPergunta>(
-                      initialValue: pergunta.tipo,
+                      initialValue: pergunta.tipo.suportado
+                          ? pergunta.tipo
+                          : null,
                       isExpanded: true,
                       decoration: InputDecoration(
                         labelText: 'Tipo de resposta',
@@ -507,7 +519,7 @@ class _CardPergunta extends StatelessWidget {
                         enabledBorder: borda,
                       ),
                       items: [
-                        for (final tipo in TipoPergunta.values)
+                        for (final tipo in TipoPergunta.suportados)
                           DropdownMenuItem(
                             value: tipo,
                             child: Text(tipo.rotulo),
@@ -571,16 +583,11 @@ class _CardPergunta extends StatelessWidget {
                         label: const Text('Adicionar opção'),
                       ),
                     ],
-                    if (pergunta.tipo == TipoPergunta.upload)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8),
+                    if (!pergunta.tipo.suportado)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
                         child: Text(
-                          'O aluno verá "Envio de arquivo em breve" (upload ainda '
-                          'não disponível).',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: corTextoSecundarioCoord,
-                          ),
+                          'Tipo não suportado (${pergunta.tipoOriginal ?? "desconhecido"}). Remova ou substitua esta pergunta.',
                         ),
                       ),
                   ],

@@ -29,7 +29,7 @@ function Chips({ itens, vazio = 'Não informado' }) {
 }
 
 /** Dados enviados no cadastro + decisão da coordenação (aprovar/rejeitar). */
-export default function CadastroDetalhe({ id, onFechar, onDecidido }) {
+export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [acao, setAcao] = useState('');
@@ -41,11 +41,11 @@ export default function CadastroDetalhe({ id, onFechar, onDecidido }) {
   const carregar = useCallback(async () => {
     setErro('');
     try {
-      setDetalhe(await api.cadastroCoordenacao(id));
+      setDetalhe(await api.cadastroCoordenacao(id, programa));
     } catch (error) {
       setErro(error.message || 'Não foi possível carregar o cadastro.');
     }
-  }, [id]);
+  }, [id, programa]);
 
   useEffect(() => {
     carregar();
@@ -152,7 +152,7 @@ export default function CadastroDetalhe({ id, onFechar, onDecidido }) {
             <h3><Icon name="chart" size={17} /> Decisão da coordenação</h3>
             {pendente ? (
               <div className="decision-buttons">
-                <button type="button" className="decision approve" disabled={Boolean(acao)} onClick={() => decidir('aprovar', () => api.aprovarCadastro(id), `Cadastro de ${detalhe.nome} aprovado.`)}>
+                <button type="button" className="decision approve" disabled={Boolean(acao)} onClick={() => decidir('aprovar', () => api.aprovarCadastro(id, programa), `Cadastro de ${detalhe.nome} aprovado.`)}>
                   <Icon name="check" size={17} /> {acao === 'aprovar' ? 'Aprovando…' : 'Aprovar cadastro'}
                 </button>
                 <button type="button" className="decision reject" disabled={Boolean(acao)} onClick={() => setRejeitando(true)}>
@@ -169,7 +169,7 @@ export default function CadastroDetalhe({ id, onFechar, onDecidido }) {
                 {!aprovado && detalhe.motivoRejeicao && <p className="detail-muted">Motivo informado ao aluno: {detalhe.motivoRejeicao}</p>}
                 {!aprovado && (
                   <div className="decision-buttons">
-                    <button type="button" className="decision approve" disabled={Boolean(acao)} onClick={() => decidir('aprovar', () => api.aprovarCadastro(id), `Cadastro de ${detalhe.nome} aprovado.`)}>
+                    <button type="button" className="decision approve" disabled={Boolean(acao)} onClick={() => decidir('aprovar', () => api.aprovarCadastro(id, programa), `Cadastro de ${detalhe.nome} aprovado.`)}>
                       <Icon name="check" size={17} /> {acao === 'aprovar' ? 'Aprovando…' : 'Rever e aprovar'}
                     </button>
                   </div>
@@ -199,7 +199,7 @@ export default function CadastroDetalhe({ id, onFechar, onDecidido }) {
                 className="danger-button"
                 onClick={() => {
                   setRejeitando(false);
-                  decidir('rejeitar', () => api.rejeitarCadastro(id, motivo.trim()), `Cadastro de ${detalhe.nome} rejeitado.`);
+                  decidir('rejeitar', () => api.rejeitarCadastro(id, motivo.trim(), programa), `Cadastro de ${detalhe.nome} rejeitado.`);
                 }}
               >
                 Rejeitar

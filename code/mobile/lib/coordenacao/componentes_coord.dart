@@ -354,7 +354,16 @@ class _SeletorPadrinho extends StatefulWidget {
 
 class _SeletorPadrinhoState extends State<_SeletorPadrinho> {
   late final Future<List<Map<String, dynamic>>> _padrinhos = widget.api
-      .usuarios(programa: widget.programa, papel: 'padrinho');
+      .usuarios(programa: widget.programa)
+      .then(
+        (usuarios) => usuarios
+            .where(
+              (u) =>
+                  u['situacao'] == 'candidatura_aprovada_aguardando_matching' ||
+                  u['situacao'] == 'padrinho_ativo',
+            )
+            .toList(),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -435,4 +444,37 @@ class _SeletorPadrinhoState extends State<_SeletorPadrinho> {
       ),
     );
   }
+}
+
+Future<String?> solicitarJustificativaCoord(BuildContext context) async {
+  var justificativa = '';
+  final resultado = await showDialog<String>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: const Text('Justificativa da rejeição'),
+        content: TextField(
+          maxLength: 1000,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Justificativa visível ao candidato',
+          ),
+          onChanged: (valor) => setState(() => justificativa = valor),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: justificativa.trim().isEmpty
+                ? null
+                : () => Navigator.pop(context, justificativa.trim()),
+            child: const Text('Rejeitar'),
+          ),
+        ],
+      ),
+    ),
+  );
+  return resultado;
 }

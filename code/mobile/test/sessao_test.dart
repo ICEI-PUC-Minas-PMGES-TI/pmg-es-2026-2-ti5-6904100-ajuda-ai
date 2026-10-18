@@ -65,10 +65,10 @@ void main() {
   });
 
   test('situação do backend vira o status do app', () {
-    expect(statusDaSituacao('nenhuma'), isNull);
+    expect(statusDaSituacao('nenhuma'), StatusParticipacao.nenhuma);
     expect(
       statusDaSituacao('candidatura_pendente'),
-      StatusParticipacao.padrinhoEmAnalise,
+      StatusParticipacao.padrinhoPendente,
     );
     expect(
       statusDaSituacao('candidatura_em_analise'),
@@ -111,7 +111,8 @@ void main() {
     // sem cadastro (login demo 401) → leitura no modo antigo, por e-mail
     final pedido = api.requisicoes.last;
     expect(pedido.url.path, '/participacoes/situacao');
-    expect(pedido.url.queryParameters['usuarioId'], 'camila@pucminas.edu.br');
+    expect(pedido.headers['authorization'], 'Bearer ${ApiFalsa.token}');
+    expect(pedido.url.queryParameters.containsKey('usuarioId'), isFalse);
     expect(sessao.status, StatusParticipacao.apadrinhadoAtivo);
     expect(sessao.participacao, Participacao.apadrinhado);
     expect(sessao.padrinho?.nome, 'Thiago Moreira');
@@ -120,13 +121,14 @@ void main() {
     expect(sessao.situacao?.programa?.codigo, '2026/2');
   });
 
-  test('"nenhuma" no backend não apaga escolha local de explorar', () async {
+  test('nenhuma no backend limpa escolha anterior', () async {
     ApiFalsa(situacao: _situacao('nenhuma')).instalar();
     final sessao = SessaoUsuario.atual
       ..definir(dadosCadastro: _dados, escolha: Participacao.explorar);
 
     expect(await sessao.sincronizarSituacao(), isTrue);
-    expect(sessao.status, StatusParticipacao.explorar);
+    expect(sessao.status, StatusParticipacao.nenhuma);
+    expect(sessao.participacao, isNull);
   });
 
   test('candidatura rejeitada no backend atualiza o status', () async {
@@ -230,7 +232,7 @@ void main() {
 
     // aluno já cadastrado: login demo devolve o token antes de ler a situação
     await sessao.sincronizarSituacao();
-    expect(api.posts('/auth/login-demo'), hasLength(1));
+    expect(api.posts('/auth/login-demo'), isEmpty);
     expect(
       api.requisicoes.last.headers['authorization'],
       'Bearer ${ApiFalsa.token}',
@@ -287,13 +289,16 @@ void main() {
     expect(sessao.podeCandidatarPadrinho, isFalse);
     // aluno atualiza o período no perfil (tela Perfil → editar)
     sessao.dados = sessao.dados!.copyWith(periodo: 2);
+    api.situacao = _situacao('nenhuma');
+    await sessao.sincronizarSituacao();
+    sessao.inscricoesDisponiveis = true;
     expect(sessao.podeCandidatarPadrinho, isTrue);
     await sessao.registrarCandidaturaPadrinho(dadosCadastro: noSegundo);
 
     final envio = api.corpo(api.posts('/cadastro').single);
     expect(envio['tipoParticipacao'], 'padrinho');
     expect(envio['periodo'], 2);
-    expect(sessao.status, StatusParticipacao.padrinhoEmAnalise);
+    expect(sessao.status, StatusParticipacao.padrinhoPendente);
 
     // coordenação rejeita a candidatura do ciclo: cadastro global intacto
     api.situacao = {

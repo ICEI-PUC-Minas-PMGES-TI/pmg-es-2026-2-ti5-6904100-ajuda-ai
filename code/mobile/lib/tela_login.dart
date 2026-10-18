@@ -8,7 +8,8 @@ import 'services/auth_api.dart';
 import 'services/microsoft_auth.dart';
 import 'sessao_usuario.dart';
 import 'tela_cadastro.dart';
-import 'tela_home.dart';
+import 'tela_entrada_aluno.dart';
+import 'services/participacoes_api.dart';
 import 'theme/colors.dart';
 import 'usuarios_demo.dart';
 import 'widgets/campus_photo.dart';
@@ -60,6 +61,11 @@ class _LoginPageState extends State<LoginPage> {
       final idToken = await obter();
       final api = AuthApi(client: widget.client, baseUrl: widget.baseUrl);
       final resultado = await api.loginMicrosoft(idToken);
+      {
+        SessaoUsuario.atual.configurarApi(
+          ParticipacoesApi(client: widget.client, baseUrl: api.baseUrl),
+        );
+      }
       if (!mounted) return;
 
       if (resultado.ehOnboarding) {
@@ -97,8 +103,13 @@ class _LoginPageState extends State<LoginPage> {
           perfil['perfil'] == 'coordenador' || sessao.ehCoordenador;
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute<void>(
-          builder: (_) =>
-              coordenador ? const TelaCoordenacao() : const HomePage(),
+          builder: (_) => coordenador
+              ? TelaCoordenacao(
+                  sessaoAutenticada: sessao,
+                  client: widget.client,
+                  baseUrl: api.baseUrl,
+                )
+              : const EntradaAlunoPage(),
         ),
         (_) => false,
       );
@@ -128,7 +139,9 @@ class _LoginPageState extends State<LoginPage> {
     } catch (erro) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(erro.toString().replaceFirst('Exception: ', ''))),
+        SnackBar(
+          content: Text(erro.toString().replaceFirst('Exception: ', '')),
+        ),
       );
     } finally {
       if (mounted) setState(() => _entrando = false);
@@ -249,12 +262,19 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final api = AuthApi(client: widget.client, baseUrl: widget.baseUrl);
       final sessao = await api.loginDemo(usuario.email);
+      SessaoUsuario.atual.limpar();
+      {
+        SessaoUsuario.atual.configurarApi(
+          ParticipacoesApi(client: widget.client, baseUrl: api.baseUrl),
+        );
+      }
       if (!mounted) return;
       if (sessao.ehCoordenador) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute<void>(
             builder: (_) => TelaCoordenacao(
               emailDemo: usuario.email,
+              sessaoAutenticada: sessao,
               client: widget.client,
               baseUrl: api.baseUrl,
             ),
@@ -275,7 +295,7 @@ class _LoginPageState extends State<LoginPage> {
             .toList(),
       );
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute<void>(builder: (_) => const HomePage()),
+        MaterialPageRoute<void>(builder: (_) => const EntradaAlunoPage()),
         (_) => false,
       );
     } catch (erro) {

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { Repository } from 'typeorm';
 import { seedDemoHabilitado } from '../config/seguranca.js';
 import { AVISOS } from '../dados/dados.js';
@@ -67,14 +68,27 @@ export class AvisosService implements OnModuleInit {
     const publico = PUBLICOS.includes(corpo.publico as PublicoAviso)
       ? (corpo.publico as PublicoAviso)
       : 'todos';
-    const salvo = await this.avisos.save(
-      this.avisos.create({
-        titulo: titulo.slice(0, 120),
-        descricao: descricao.slice(0, 2000),
-        publico,
-        programa: corpo.programa?.trim() || null,
-      }),
-    );
+    const programa = corpo.programa?.trim() || null;
+    const salvo = await this.avisos.manager.transaction(async (manager) => {
+      if (programa) {
+        const ciclo = await manager
+          .getRepository(ProgramaEntity)
+          .findOne({
+            where: { codigo: programa },
+            lock: { mode: 'pessimistic_write' },
+          });
+        if (!ciclo) throw new BadRequestException('Ciclo não cadastrado.');
+      }
+      const repo = manager.getRepository(AvisoEntity);
+      return repo.save(
+        repo.create({
+          titulo: titulo.slice(0, 120),
+          descricao: descricao.slice(0, 2000),
+          publico,
+          programa,
+        }),
+      );
+    });
     return {
       id: salvo.id,
       titulo: salvo.titulo,

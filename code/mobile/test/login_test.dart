@@ -13,8 +13,56 @@ import 'package:ajuda_ai/main.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/tela_cadastro.dart';
 import 'package:ajuda_ai/tela_home.dart';
+import 'package:ajuda_ai/tela_perfil.dart';
 import 'package:ajuda_ai/tela_login.dart';
 import 'package:ajuda_ai/widgets/campos_cadastro.dart';
+
+String _encode(Object? value) => jsonEncode(value).replaceAllMapped(
+  RegExp(r'[^\x00-\x7f]'),
+  (m) => '\\u${m[0]!.codeUnitAt(0).toRadixString(16).padLeft(4, '0')}',
+);
+
+http.Response? _consultaAluno(http.Request request) {
+  if (request.method != 'GET') return null;
+  final sessao = SessaoUsuario.atual;
+  if (request.url.path == '/participacoes/programas') {
+    return http.Response(
+      _encode([
+        {
+          'codigo': '2026/2',
+          'titulo': 'Programa 2026/2',
+          'atual': true,
+          'inscricoesDisponiveis': true,
+        },
+      ]),
+      200,
+    );
+  }
+  if (request.url.path == '/participacoes/situacao') {
+    return http.Response(
+      _encode({
+        'situacao': 'nenhuma',
+        'programa': {'codigo': '2026/2', 'titulo': 'Programa 2026/2'},
+        'registro': null,
+      }),
+      200,
+    );
+  }
+  if (request.url.path == '/me/foto') return http.Response('{"url":null}', 200);
+  if (request.url.path == '/me' && sessao.identidade != null) {
+    return http.Response(
+      _encode({
+        'nome': sessao.identidade!.nome,
+        'email': sessao.identidade!.email,
+        'curso': 'Sistemas de Informação',
+        'periodo': 3,
+        'interesses': [],
+      }),
+      200,
+    );
+  }
+  return null;
+}
 
 void main() {
   testWidgets('o botão Microsoft não abre o cadastro nem usa a Camila', (
@@ -108,9 +156,11 @@ void main() {
   ) async {
     addTearDown(SessaoUsuario.atual.limpar);
     final client = MockClient((request) async {
+      final consulta = _consultaAluno(request);
+      if (consulta != null) return consulta;
       if (request.url.path == '/auth/login') {
         return http.Response(
-          jsonEncode({
+          _encode({
             'situacao': 'autenticado',
             'accessToken': 'jwt-normal',
             'usuario': {
@@ -126,7 +176,7 @@ void main() {
       }
       if (request.url.path == '/me') {
         return http.Response(
-          jsonEncode({
+          _encode({
             'nome': 'Ana Souza',
             'email': 'ana.souza@pucminas.edu.br',
             'perfil': 'apadrinhado',
@@ -152,9 +202,9 @@ void main() {
     await tester.tap(find.text('Entrar com a Microsoft'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(HomePage), findsOneWidget);
+    expect(find.byType(ProfilePage), findsOneWidget);
     expect(find.byType(CadastroPage), findsNothing);
-    expect(find.text('Olá, Ana!'), findsOneWidget);
+    expect(find.text('Ana Souza'), findsWidgets);
     expect(find.text('Camila Duarte'), findsNothing);
     expect(SessaoUsuario.atual.accessToken, 'jwt-normal');
     expect(SessaoUsuario.atual.onboardingToken, isNull);
@@ -165,9 +215,11 @@ void main() {
   ) async {
     addTearDown(SessaoUsuario.atual.limpar);
     final client = MockClient((request) async {
+      final consulta = _consultaAluno(request);
+      if (consulta != null) return consulta;
       expect(jsonDecode(request.body)['idToken'], 'id-token-microsoft');
       return http.Response(
-        jsonEncode({
+        _encode({
           'situacao': 'onboarding',
           'onboardingToken': 'onboarding-curto',
           'identidade': {
@@ -224,12 +276,14 @@ void main() {
     addTearDown(SessaoUsuario.atual.limpar);
     final caminhos = <String>[];
     final client = MockClient((request) async {
+      final consulta = _consultaAluno(request);
+      if (consulta != null) return consulta;
       caminhos.add(request.url.path);
       final corpo = jsonDecode(request.body) as Map<String, dynamic>;
       expect(corpo.containsKey('idToken'), isFalse);
       expect(corpo['email'], 'camila@pucminas.edu.br');
       return http.Response(
-        jsonEncode({
+        _encode({
           'situacao': 'autenticado',
           'accessToken': 'jwt-camila',
           'usuario': {
@@ -263,10 +317,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(caminhos, ['/auth/login-demo']);
-    expect(find.byType(HomePage), findsOneWidget);
+    expect(find.byType(ProfilePage), findsOneWidget);
     expect(find.byType(CadastroPage), findsNothing);
     expect(find.byType(TelaCoordenacao), findsNothing);
-    expect(find.text('Olá, Camila!'), findsOneWidget);
+    expect(find.text('Camila Duarte'), findsWidgets);
     expect(SessaoUsuario.atual.accessToken, 'jwt-camila');
     expect(SessaoUsuario.atual.identidade?.email, 'camila@pucminas.edu.br');
   });
@@ -274,9 +328,11 @@ void main() {
   testWidgets('padrinho demo abre a home do aluno', (tester) async {
     addTearDown(SessaoUsuario.atual.limpar);
     final client = MockClient((request) async {
+      final consulta = _consultaAluno(request);
+      if (consulta != null) return consulta;
       expect(request.url.path, '/auth/login-demo');
       return http.Response(
-        jsonEncode({
+        _encode({
           'accessToken': 'jwt-thiago',
           'usuario': {
             'nome': 'Thiago Moreira',
@@ -299,9 +355,9 @@ void main() {
     await tester.tap(find.text('Thiago Moreira'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(HomePage), findsOneWidget);
+    expect(find.byType(ProfilePage), findsOneWidget);
     expect(find.byType(TelaCoordenacao), findsNothing);
-    expect(find.text('Olá, Thiago!'), findsOneWidget);
+    expect(find.text('Thiago Moreira'), findsWidgets);
     expect(SessaoUsuario.atual.accessToken, 'jwt-thiago');
   });
 
@@ -312,9 +368,11 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(SessaoUsuario.atual.limpar);
     final client = MockClient((request) async {
+      final consulta = _consultaAluno(request);
+      if (consulta != null) return consulta;
       if (request.url.path == '/auth/login-demo') {
         return http.Response(
-          jsonEncode({
+          _encode({
             'accessToken': 'jwt-renata',
             'usuario': {
               'nome': 'Renata Martins',
@@ -362,11 +420,13 @@ void main() {
     );
 
     final client = MockClient((request) async {
+      final consulta = _consultaAluno(request);
+      if (consulta != null) return consulta;
       if (request.url.path == '/auth/login-demo') {
         final email = (jsonDecode(request.body) as Map)['email'];
         final renata = email == 'renata@pucminas.edu.br';
         return http.Response(
-          jsonEncode({
+          _encode({
             'accessToken': renata ? 'jwt-renata' : 'jwt-thiago',
             'usuario': {
               'nome': renata ? 'Renata Martins' : 'Thiago Moreira',
@@ -416,14 +476,16 @@ void main() {
     await tester.tap(find.text('Thiago Moreira'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(HomePage), findsOneWidget);
+    expect(find.byType(ProfilePage), findsOneWidget);
     expect(find.byType(TelaCoordenacao), findsNothing);
-    expect(find.text('Olá, Thiago!'), findsOneWidget);
+    expect(find.text('Thiago Moreira'), findsWidgets);
     expect(SessaoUsuario.atual.accessToken, 'jwt-thiago');
   });
 
   testWidgets('falha de rede do demo mostra mensagem amigável', (tester) async {
     final client = MockClient((request) async {
+      final consulta = _consultaAluno(request);
+      if (consulta != null) return consulta;
       throw TimeoutException('after 0:00:04.000000');
     });
     addTearDown(client.close);

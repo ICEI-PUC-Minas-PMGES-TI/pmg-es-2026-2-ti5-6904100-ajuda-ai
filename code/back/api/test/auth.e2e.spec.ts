@@ -1,3 +1,4 @@
+import { FormularioEntity } from '../src/formularios/entities/formulario.entity.js';
 import {
   INestApplication,
   UnauthorizedException,
@@ -12,21 +13,30 @@ import { CadastroModule } from '../src/cadastro/cadastro.module.js';
 import { ParticipacaoEntity } from '../src/participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../src/programas/entities/programa.entity.js';
 import { UsuarioEntity } from '../src/usuarios/entities/usuario.entity.js';
-import { repositorioEmMemoria } from './helpers/repositorio-memoria.js';
+import {
+  repositorioEmMemoria,
+  conectarRepositorios,
+} from './helpers/repositorio-memoria.js';
 
 describe('Autenticação (e2e)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
+    const repos = conectarRepositorios({
+      UsuarioEntity: repositorioEmMemoria<UsuarioEntity>([]),
+      ParticipacaoEntity: repositorioEmMemoria<ParticipacaoEntity>([]),
+      ProgramaEntity: repositorioEmMemoria<ProgramaEntity>(),
+      FormularioEntity: repositorioEmMemoria<FormularioEntity>(),
+    });
     const modulo = await Test.createTestingModule({
       imports: [AuthModule, CadastroModule],
     })
       .overrideProvider(getRepositoryToken(UsuarioEntity))
-      .useValue(repositorioEmMemoria<UsuarioEntity>())
+      .useValue(repos.UsuarioEntity)
       .overrideProvider(getRepositoryToken(ParticipacaoEntity))
-      .useValue(repositorioEmMemoria<ParticipacaoEntity>())
+      .useValue(repos.ParticipacaoEntity)
       .overrideProvider(getRepositoryToken(ProgramaEntity))
-      .useValue(repositorioEmMemoria<ProgramaEntity>())
+      .useValue(repos.ProgramaEntity)
       .overrideProvider(MicrosoftTokenVerifier)
       .useValue({
         verificar: vi.fn().mockResolvedValue({
@@ -35,6 +45,8 @@ describe('Autenticação (e2e)', () => {
           name: 'Camila Duarte',
         }),
       })
+      .overrideProvider(getRepositoryToken(FormularioEntity))
+      .useValue(repos.FormularioEntity)
       .compile();
 
     app = modulo.createNestApplication();
