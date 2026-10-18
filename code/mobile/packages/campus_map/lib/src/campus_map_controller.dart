@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
@@ -8,6 +9,12 @@ import 'campus_place.dart';
 import 'campus_place_repository.dart';
 import 'campus_pucstop.dart';
 import 'campus_route.dart';
+import 'campus_route_deviation.dart';
+
+Duration Function() _monotonicClock() {
+  final clock = Stopwatch()..start();
+  return () => clock.elapsed;
+}
 
 /// Ponte pequena para a câmera; permite testar sem a engine nativa.
 abstract interface class CampusMapCamera {
@@ -102,7 +109,8 @@ enum CampusContentStatus {
   failed,
 }
 
-/// Um controller por tela. Não armazena posição nem estado global.
+/// Um controller por tela, sem histórico de localização nem estado global.
+/// A confirmação de desvio usa uma amostra efêmera, descartada ao parar.
 class CampusMapController {
   CampusMapController({
     CampusPlaceRepository? placeRepository,
@@ -110,14 +118,33 @@ class CampusMapController {
     this.routeService,
     this.pucStopService,
     this.contentService,
+    Duration Function()? elapsed,
   }) : placeRepository = placeRepository ?? LocalCampusPlaceRepository(),
-       locationService = locationService ?? GeolocatorCampusLocationService();
+       locationService = locationService ?? GeolocatorCampusLocationService(),
+       _elapsed = elapsed ?? _monotonicClock();
 
   final CampusPlaceRepository placeRepository;
   final CampusLocationService locationService;
 
   /// Sem serviço não há rota: o pacote não calcula rota local.
   final CampusRouteService? routeService;
+
+  /// Rota confirmada, inclusive depois de recálculo; sem histórico GPS.
+  final ValueNotifier<CampusRoute?> activeRoute = ValueNotifier(null);
+  final Duration Function() _elapsed;
+  CampusRouteTarget? _routeTarget;
+  bool _routeAccessible = false;
+  StreamSubscription<CampusUserLocation>? _routePositions;
+  int _positionGeneration = 0;
+  int? _automaticRequest;
+  Duration _nextAutomatic = Duration.zero;
+  Duration? _lastPositionCheck;
+  Duration? _outsideSince;
+  Duration? _lastOutside;
+  CampusUserLocation? _outsideStart;
+
+  /// A view usa a revisão para invalidar pintura nativa já em andamento.
+  int get routeRevision => _routeRequest;
 
   /// Sem serviço não há PucStops no mapa.
   final CampusPucStopService? pucStopService;
@@ -175,6 +202,7 @@ class CampusMapController {
       throw StateError('Use um controller por mapa.');
     }
     _camera = camera;
+    _startRouteMonitoring();
   }
 
   void detach(CampusMapCamera camera) {
@@ -185,6 +213,8 @@ class CampusMapController {
     _routeRequest++;
     _pucStopRequest++;
     _locating = null;
+    _stopRouteMonitoring();
+    _automaticRequest = null;
   }
 
   Future<List<CampusPlace>> search(String query) {
@@ -247,6 +277,9 @@ class CampusMapController {
     } on ArgumentError {
       // Id que o backend não aceita como prédio (ex.: UUID de área).
       _routeRequest++;
+      _routeTarget = null;
+      _automaticRequest = null;
+      _stopRouteMonitoring();
       return Future.value(
         const CampusRouteResult.failed(
           CampusRouteFailure.destinationUnavailable,
@@ -269,6 +302,9 @@ class CampusMapController {
     CampusRouteTarget destination, {
     bool accessible = false,
   }) async {
+    _stopRouteMonitoring();
+    _routeTarget = null;
+    _automaticRequest = null;
     final service = routeService;
     final camera = _camera;
     final revision = _revision;
@@ -325,17 +361,25 @@ class CampusMapController {
               CampusLocationStatus.mapUnavailable,
             );
     }
-    // Limpa se o pedido foi cancelado enquanto a linha era desenhada.
-    if (stale()) {
-      if (identical(_camera, camera)) await _clear(camera);
-      return const CampusRouteResult.cancelled();
-    }
+    // Clear/detach já invalidam a pintura. Uma resposta antiga não pode
+    // limpar a linha de um pedido mais novo que acabou de ser mostrado.
+    if (stale()) return const CampusRouteResult.cancelled();
+    _routeTarget = destination;
+    _routeAccessible = accessible;
+    activeRoute.value = route;
+    _nextAutomatic = _elapsed();
+    _startRouteMonitoring();
     return CampusRouteResult.shown(route);
   }
 
   /// Remove a linha e cancela um cálculo em andamento.
   Future<void> clearRoute() async {
+    if (_disposed) return;
     _routeRequest++;
+    _routeTarget = null;
+    _automaticRequest = null;
+    _stopRouteMonitoring();
+    activeRoute.value = null;
     final camera = _camera;
     if (camera != null) await _clear(camera);
   }
@@ -345,6 +389,164 @@ class CampusMapController {
       await camera.clearRoute();
     } catch (_) {
       // Style descartado: a linha já não existe.
+    }
+  }
+
+  void _resetDeviation() {
+    _outsideStart = null;
+    _outsideSince = null;
+    _lastOutside = null;
+  }
+
+  void _stopRouteMonitoring() {
+    _positionGeneration++;
+    final subscription = _routePositions;
+    _routePositions = null;
+    if (subscription != null) {
+      unawaited(subscription.cancel().catchError((_) {}));
+    }
+    _resetDeviation();
+    _lastPositionCheck = null;
+  }
+
+  void _startRouteMonitoring() {
+    final updates = switch (locationService) {
+      CampusLocationUpdates service => service,
+      _ => null,
+    };
+    if (_disposed ||
+        _camera == null ||
+        activeRoute.value == null ||
+        _routeTarget == null ||
+        _routePositions != null ||
+        updates == null) {
+      return;
+    }
+    final generation = ++_positionGeneration;
+    try {
+      _routePositions = updates.watch().listen(
+        (location) {
+          if (!_disposed && generation == _positionGeneration) {
+            _checkRouteDeviation(location);
+          }
+        },
+        onError: (Object _) {
+          if (!_disposed && generation == _positionGeneration) {
+            _resetDeviation();
+          }
+        },
+        onDone: () {
+          if (!_disposed && generation == _positionGeneration) {
+            _routePositions = null;
+            _resetDeviation();
+          }
+        },
+      );
+    } catch (_) {
+      _resetDeviation();
+    }
+  }
+
+  void _checkRouteDeviation(CampusUserLocation location) {
+    final route = activeRoute.value;
+    if (_camera == null ||
+        route == null ||
+        _routeTarget == null ||
+        _automaticRequest != null) {
+      return;
+    }
+    // Leitura aproximada não permite distinguir um desvio no campus.
+    if (!location.isValid || location.accuracy > 25) {
+      _resetDeviation();
+      return;
+    }
+    final now = _elapsed();
+    if (_lastPositionCheck case final last?
+        when now - last < const Duration(seconds: 2)) {
+      return;
+    }
+    _lastPositionCheck = now;
+    if (now < _nextAutomatic) {
+      _resetDeviation();
+      return;
+    }
+    final tolerance = math.max(25.0, location.accuracy * 1.5);
+    if (campusDistanceToRoute(location, route) <= tolerance) {
+      _resetDeviation();
+      return;
+    }
+    if (_outsideStart == null ||
+        (_lastOutside != null &&
+            now - _lastOutside! > const Duration(seconds: 30))) {
+      _outsideStart = location;
+      _outsideSince = now;
+      _lastOutside = now;
+      return;
+    }
+    _lastOutside = now;
+    final movement = math.max(
+      8.0,
+      (location.accuracy + _outsideStart!.accuracy) / 2,
+    );
+    if (now - _outsideSince! < const Duration(seconds: 5) ||
+        campusLocationDisplacement(_outsideStart!, location) < movement) {
+      return;
+    }
+    _resetDeviation();
+    unawaited(_recalculateRoute(location));
+  }
+
+  Future<void> _recalculateRoute(CampusUserLocation origin) async {
+    final destination = _routeTarget;
+    final previous = activeRoute.value;
+    final service = routeService;
+    final camera = _camera;
+    if (destination == null ||
+        previous == null ||
+        service == null ||
+        camera == null) {
+      return;
+    }
+    final accessible = _routeAccessible;
+    final revision = _revision;
+    final request = ++_routeRequest;
+    _automaticRequest = request;
+    _nextAutomatic = _elapsed() + const Duration(seconds: 30);
+    bool stale() =>
+        _disposed || revision != _revision || request != _routeRequest;
+    var drawing = false;
+    var succeeded = false;
+    try {
+      final route = await service
+          .route(
+            origin: origin,
+            destination: destination,
+            accessible: accessible,
+          )
+          .timeout(const Duration(seconds: 10));
+      if (stale()) return;
+      if (route.destinationId != destination.key ||
+          route.accessible != accessible) {
+        throw StateError('Resposta de rota incompatível com o pedido.');
+      }
+      drawing = true;
+      await camera.showRoute(route).timeout(const Duration(seconds: 5));
+      if (stale()) return;
+      activeRoute.value = route;
+      succeeded = true;
+    } catch (_) {
+      // Sem snackbar automático. Falha conserva destino, perfil e rota.
+      if (!stale() && drawing) {
+        try {
+          await camera.showRoute(previous).timeout(const Duration(seconds: 5));
+        } catch (_) {}
+      }
+    } finally {
+      if (!stale()) {
+        _nextAutomatic = _elapsed() + Duration(seconds: succeeded ? 30 : 60);
+        _resetDeviation();
+      }
+      if (_automaticRequest == request) _automaticRequest = null;
     }
   }
 
@@ -518,6 +720,9 @@ class CampusMapController {
     final target = item.location?.routeTarget;
     if (target == null) {
       _routeRequest++;
+      _routeTarget = null;
+      _automaticRequest = null;
+      _stopRouteMonitoring();
       return Future.value(
         const CampusRouteResult.failed(
           CampusRouteFailure.destinationUnavailable,
@@ -618,6 +823,7 @@ class CampusMapController {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _stopRouteMonitoring();
     _revision++;
     _routeRequest++;
     _pucStopRequest++;
@@ -631,5 +837,6 @@ class CampusMapController {
     restaurantsStatus.dispose();
     selectedContent.dispose();
     contentCardHeight.dispose();
+    activeRoute.dispose();
   }
 }

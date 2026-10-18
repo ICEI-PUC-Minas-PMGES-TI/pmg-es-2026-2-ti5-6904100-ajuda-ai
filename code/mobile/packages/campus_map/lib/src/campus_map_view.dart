@@ -104,6 +104,14 @@ class _CampusMapViewState extends State<CampusMapView>
 
   /// Rota desenhada no momento; redesenhada se o style recarregar.
   CampusRoute? _route;
+  Future<void> _routePaint = Future.value();
+
+  /// Serializa mutações da mesma source; cada operação revalida a geração.
+  Future<void> _paintRoute(Future<void> Function() operation) {
+    final result = _routePaint.then((_) => operation());
+    _routePaint = result.catchError((_) {});
+    return result;
+  }
 
   /// URL do totem instalado neste style (para reconhecer a falha do GLB).
   String? _totemUrl;
@@ -268,11 +276,25 @@ class _CampusMapViewState extends State<CampusMapView>
     _foreground = state == AppLifecycleState.resumed;
     if (!_foreground) {
       _controller.detach(this);
+      _route = _controller.activeRoute.value;
       unawaited(_disablePuck(_map));
     } else if (_map != null && _styleReady) {
       _controller.attach(this);
+      // Uma pintura interrompida ao pausar pode ter removido a linha antiga.
+      // Retoma a rota confirmada, nunca o candidato de uma resposta cancelada.
+      unawaited(_restoreConfirmedRoute());
       if (_pucStopsEnabled) unawaited(_controller.reloadPucStops());
       if (_contentEnabled) unawaited(_controller.reloadContent());
+    }
+  }
+
+  Future<void> _restoreConfirmedRoute() async {
+    final route = _controller.activeRoute.value;
+    if (route == null) return;
+    try {
+      await showRoute(route);
+    } catch (_) {
+      // Falha de renderização não apaga a rota confirmada no controller.
     }
   }
 
@@ -345,8 +367,8 @@ class _CampusMapViewState extends State<CampusMapView>
     );
   }
 
-  /// O SDK usa seu provedor nativo para o puck; Geolocator só obtém a
-  /// posição de centralização. Sem marcador manual nem câmera seguindo GPS.
+  /// O SDK usa seu provedor nativo para o puck; Geolocator fornece a origem
+  /// e confirma desvio. Sem marcador manual nem câmera seguindo cada leitura.
   Future<void> _enablePuck(MapboxMap map) => map.location.updateSettings(
     LocationComponentSettings(
       enabled: true,
@@ -361,6 +383,7 @@ class _CampusMapViewState extends State<CampusMapView>
     final map = _map;
     final generation = _generation;
     final revision = _styleRevision;
+    final request = _controller.routeRevision;
     if (map == null || !_foreground || !_styleReady) {
       throw StateError('Mapa indisponível.');
     }
@@ -368,11 +391,17 @@ class _CampusMapViewState extends State<CampusMapView>
         mounted &&
         _foreground &&
         generation == _generation &&
-        revision == _styleRevision;
+        revision == _styleRevision &&
+        request == _controller.routeRevision &&
+        identical(_route, route);
     _route = route;
     await _enablePuck(map);
     if (!isActive()) return;
-    await CampusRouteLayer.show(map.style, route, isActive: isActive);
+    await _paintRoute(() async {
+      if (isActive()) {
+        await CampusRouteLayer.show(map.style, route, isActive: isActive);
+      }
+    });
     if (!isActive()) return;
     await _fitRoute(map, route, isActive);
   }
@@ -445,7 +474,13 @@ class _CampusMapViewState extends State<CampusMapView>
     _route = null;
     final map = _map;
     if (map == null || !_styleReady) return;
-    await CampusRouteLayer.clear(map.style);
+    final generation = _generation;
+    final revision = _styleRevision;
+    await _paintRoute(() async {
+      if (mounted && generation == _generation && revision == _styleRevision) {
+        await CampusRouteLayer.clear(map.style);
+      }
+    });
     // Remover camadas não redesenha o mapa parado: a linha seguia na tela
     // (ao fechar o card) até o próximo movimento da câmera.
     await map.triggerRepaint();
@@ -591,7 +626,12 @@ class _CampusMapViewState extends State<CampusMapView>
       await renderer.render(snapshot, isActive: isActive);
       // Style novo apaga sources: a rota em exibição volta a ser desenhada.
       if (_route case final route? when isActive()) {
-        await CampusRouteLayer.show(map.style, route, isActive: isActive);
+        await _paintRoute(() async {
+          bool current() => isActive() && identical(_route, route);
+          if (current()) {
+            await CampusRouteLayer.show(map.style, route, isActive: current);
+          }
+        });
       }
       // Pontos 2D (source criada mesmo vazia; os dados chegam depois).
       if (_pucStopsEnabled && isActive()) {
@@ -737,6 +777,7 @@ class _CampusMapViewState extends State<CampusMapView>
               if (!mounted || generation != _generation) return;
               _styleReady = true;
               _controller.detach(this);
+              _route = _controller.activeRoute.value;
               unawaited(_disablePuck(_map));
               _styleRevision++;
               _renderer = null;

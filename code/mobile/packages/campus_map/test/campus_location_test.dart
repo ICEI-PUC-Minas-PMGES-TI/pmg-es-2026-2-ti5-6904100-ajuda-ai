@@ -11,6 +11,27 @@ void main() {
     platform = _Platform();
     service = GeolocatorCampusLocationService(platform: platform);
   });
+  tearDown(() => platform.positions.close());
+
+  test(
+    'rota ativa monitora posições; fechar a rota encerra a assinatura',
+    () async {
+      final controller = CampusMapController(
+        locationService: service,
+        routeService: _Routes(),
+      );
+      final camera = _Camera();
+      controller.attach(camera);
+      addTearDown(controller.dispose);
+      expect(platform.positions.hasListener, isFalse);
+      await controller.routeTo('P26');
+      await Future<void>.delayed(Duration.zero);
+      expect(platform.positions.hasListener, isTrue);
+      await controller.clearRoute();
+      await Future<void>.delayed(Duration.zero);
+      expect(platform.positions.hasListener, isFalse);
+    },
+  );
 
   test('serviço desligado não pede permissão nem posição', () async {
     platform.enabled = false;
@@ -101,9 +122,74 @@ void main() {
     expect((await service.locate()).status, CampusLocationStatus.error);
     expect(platform.calls, ['service', 'check']);
   });
+
+  test('watch não pede permissão negada nem assina o GPS', () async {
+    platform.permission = LocationPermission.denied;
+    expect(await service.watch().toList(), isEmpty);
+    expect(platform.calls, ['service', 'check']);
+    expect(platform.positions.hasListener, isFalse);
+  });
+
+  test(
+    'cancelar durante check de permissão impede assinatura tardia',
+    () async {
+      final pending = Completer<LocationPermission>();
+      platform.checking = pending;
+      final subscription = service.watch().listen((_) {});
+      await Future<void>.delayed(Duration.zero);
+      await subscription.cancel();
+      pending.complete(LocationPermission.whileInUse);
+      await Future<void>.delayed(Duration.zero);
+      expect(platform.positions.hasListener, isFalse);
+    },
+  );
+
+  test('watch só emite leitura recente válida; erro encerra o GPS', () async {
+    final received = <CampusUserLocation>[];
+    final subscription = service.watch().listen(received.add);
+    await Future<void>.delayed(Duration.zero);
+    expect(platform.streamSettings!.distanceFilter, 5);
+    expect(platform.streamSettings!.accuracy, LocationAccuracy.high);
+    platform.positions.add(
+      _nativePosition(
+        timestamp: DateTime.now().subtract(const Duration(minutes: 1)),
+      ),
+    );
+    platform.positions.add(_nativePosition(latitude: 91));
+    platform.positions.add(_nativePosition());
+    await Future<void>.delayed(Duration.zero);
+    expect(received, hasLength(1));
+    platform.positions.addError(StateError('GPS interrompido'));
+    await Future<void>.delayed(Duration.zero);
+    expect(platform.positions.hasListener, isFalse);
+    await subscription.cancel();
+  });
 }
 
+Position _nativePosition({DateTime? timestamp, double latitude = -19.92}) =>
+    Position(
+      longitude: -43.99,
+      latitude: latitude,
+      timestamp: timestamp ?? DateTime.now(),
+      accuracy: 5,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: 0,
+      headingAccuracy: 0,
+      speed: 0,
+      speedAccuracy: 0,
+    );
+
 class _Platform extends GeolocatorPlatform {
+  final positions = StreamController<Position>.broadcast();
+  LocationSettings? streamSettings;
+  Completer<LocationPermission>? checking;
+  @override
+  Stream<Position> getPositionStream({LocationSettings? locationSettings}) {
+    streamSettings = locationSettings;
+    return positions.stream;
+  }
+
   bool enabled = true;
   LocationPermission permission = LocationPermission.whileInUse;
   LocationPermission requestResult = LocationPermission.whileInUse;
@@ -122,6 +208,7 @@ class _Platform extends GeolocatorPlatform {
   @override
   Future<LocationPermission> checkPermission() async {
     calls.add('check');
+    if (checking case final pending?) return pending.future;
     return permission;
   }
 
@@ -156,4 +243,33 @@ class _Platform extends GeolocatorPlatform {
   Future<bool> openAppSettings() async => true;
   @override
   Future<bool> openLocationSettings() async => true;
+}
+
+class _Routes implements CampusRouteService {
+  @override
+  Future<CampusRoute> route({
+    required CampusUserLocation origin,
+    required CampusRouteTarget destination,
+    required bool accessible,
+  }) async => CampusRoute(
+    destinationId: destination.key,
+    coordinates: [
+      [origin.longitude, origin.latitude],
+      [-43.991, -19.921],
+    ],
+    distanceMeters: 150,
+    durationSeconds: 100,
+    accessible: accessible,
+  );
+}
+
+class _Camera implements CampusMapCamera {
+  @override
+  Future<void> focus(CampusPlace place) async {}
+  @override
+  Future<void> showUser(CampusUserLocation location) async {}
+  @override
+  Future<void> showRoute(CampusRoute route) async {}
+  @override
+  Future<void> clearRoute() async {}
 }

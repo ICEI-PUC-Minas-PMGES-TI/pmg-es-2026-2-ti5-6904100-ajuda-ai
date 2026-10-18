@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:geolocator/geolocator.dart';
 
 enum CampusLocationStatus {
@@ -10,7 +12,7 @@ enum CampusLocationStatus {
 }
 
 /// Posição efêmera: nunca gravada nem incluída em logs. Só sai do aparelho
-/// quando o usuário pede uma rota (origem do [CampusRouteService]).
+/// para calcular a rota pedida pelo usuário ou seu recálculo após desvio.
 class CampusUserLocation {
   const CampusUserLocation({
     required this.longitude,
@@ -43,12 +45,82 @@ abstract interface class CampusLocationService {
   Future<bool> openLocationSettings();
 }
 
-/// Uma leitura sob demanda, sem stream, serviço foreground ou background.
-class GeolocatorCampusLocationService implements CampusLocationService {
+/// Capacidade opcional: o controller assina só com rota ativa e mapa visível.
+abstract interface class CampusLocationUpdates {
+  Stream<CampusUserLocation> watch();
+}
+
+/// Leitura explícita e atualizações durante a rota, sem serviço em background.
+class GeolocatorCampusLocationService
+    implements CampusLocationService, CampusLocationUpdates {
   GeolocatorCampusLocationService({GeolocatorPlatform? platform})
     : _platform = platform ?? GeolocatorPlatform.instance;
 
   final GeolocatorPlatform _platform;
+
+  @override
+  Stream<CampusUserLocation> watch() {
+    StreamSubscription<Position>? native;
+    var cancelled = false;
+    late StreamController<CampusUserLocation> updates;
+    Future<void> start() async {
+      try {
+        // A rota inicial já pediu permissão. Monitoramento nunca abre prompt.
+        final enabled = await _platform.isLocationServiceEnabled();
+        if (cancelled) return;
+        final permission = await _platform.checkPermission();
+        if (cancelled) return;
+        if (!enabled ||
+            (permission != LocationPermission.whileInUse &&
+                permission != LocationPermission.always)) {
+          unawaited(updates.close());
+          return;
+        }
+        native = _platform
+            .getPositionStream(
+              locationSettings: const LocationSettings(
+                accuracy: LocationAccuracy.high,
+                distanceFilter: 5,
+              ),
+            )
+            .listen(
+              (position) {
+                if (cancelled || updates.isClosed) return;
+                // Ignorar leitura antiga em cache ao reabrir o app.
+                if (DateTime.now().difference(position.timestamp).abs() >
+                    const Duration(seconds: 15)) {
+                  return;
+                }
+                final location = CampusUserLocation(
+                  longitude: position.longitude,
+                  latitude: position.latitude,
+                  accuracy: position.accuracy,
+                );
+                if (location.isValid) updates.add(location);
+              },
+              onError: (Object _) {
+                if (!updates.isClosed) unawaited(updates.close());
+              },
+              onDone: () {
+                if (!updates.isClosed) unawaited(updates.close());
+              },
+            );
+      } catch (_) {
+        if (!cancelled) unawaited(updates.close());
+      }
+    }
+
+    updates = StreamController<CampusUserLocation>(
+      onListen: () => unawaited(start()),
+      onCancel: () async {
+        cancelled = true;
+        try {
+          await native?.cancel();
+        } catch (_) {}
+      },
+    );
+    return updates.stream;
+  }
 
   @override
   Future<CampusLocationResult> locate() async {

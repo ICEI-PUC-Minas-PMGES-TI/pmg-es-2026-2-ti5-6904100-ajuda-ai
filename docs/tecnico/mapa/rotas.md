@@ -51,7 +51,7 @@ Não certifica condições físicas do campus, rampas/elevadores internos ou
 acessibilidade entre andares. Não há rota entre componentes desconectados.
 
 Áreas/salas são destinos por ponto, não polígonos de chegada ou navegação indoor.
-Não há turn-by-turn, recálculo ao andar, ETA dinâmico ou acompanhamento contínuo.
+Não há turn-by-turn, ETA dinâmico ou acompanhamento em background.
 A precisão do GPS não altera o raio de snapping.
 
 ## Cache e privacidade
@@ -75,6 +75,18 @@ fechar o card ou sair invalida respostas pendentes. Sem API não há cálculo lo
 A linha usa GeoJSON com casing, emissividade e oclusão configuradas; a câmera
 reserva espaço para os controles e a altura medida do card.
 Limpar a linha solicita repintura para que o mapa parado reflita a remoção.
+
+Com rota ativa e mapa em primeiro plano, o Flutter verifica a menor distância
+aos segmentos da linha em projeção local, no máximo a cada 2 s. Ignora GPS com
+precisão pior que 25 m ou leitura de mais de 15 s; o desvio deve superar
+`max(25 m, precisão × 1,5)` em leituras separadas por pelo menos 5 s, sem intervalo
+maior que 30 s, com deslocamento de `max(8 m, precisão média)` entre elas.
+O recálculo reutiliza o POST com origem atual, mesmo destino lógico e mesmo modo
+acessível, uma requisição automática por vez. Cooldown: 30 s após sucesso,
+60 s após falha; timeout de cálculo de 10 s. Falha conserva a rota anterior sem
+snackbar; respostas invalidadas não substituem a rota atual. Limpar, sair ou
+pausar cancela a assinatura GPS. Só há amostra efêmera para confirmar desvio,
+sem histórico; a posição só é enviada para calcular a rota.
 
 ## Verificação reproduzível
 

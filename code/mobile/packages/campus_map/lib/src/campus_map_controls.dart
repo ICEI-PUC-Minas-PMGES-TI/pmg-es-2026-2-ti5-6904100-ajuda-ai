@@ -74,6 +74,7 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   }
 
   void _listen(CampusMapController controller) {
+    controller.activeRoute.addListener(_onRouteChanged);
     controller.selectedPucStop.addListener(_onPucStopSelected);
     controller.collectedPucStops.addListener(_onCollectedChanged);
     controller.selectedContent.addListener(_onContentSelected);
@@ -81,6 +82,7 @@ class _CampusMapControlsState extends State<CampusMapControls> {
 
   void _unlisten(CampusMapController controller) {
     try {
+      controller.activeRoute.removeListener(_onRouteChanged);
       controller.selectedPucStop.removeListener(_onPucStopSelected);
       controller.collectedPucStops.removeListener(_onCollectedChanged);
       controller.selectedContent.removeListener(_onContentSelected);
@@ -96,6 +98,7 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     _pucStopRequest++;
     _menuRequest++;
     _unlisten(widget.controller);
+    unawaited(widget.controller.clearRoute());
     _text.dispose();
     _focus.dispose();
     super.dispose();
@@ -119,6 +122,10 @@ class _CampusMapControlsState extends State<CampusMapControls> {
 
   void _onCollectedChanged() {
     if (mounted && _pucStopId != null) setState(() {});
+  }
+
+  void _onRouteChanged() {
+    if (mounted) setState(() => _route = widget.controller.activeRoute.value);
   }
 
   void _onPucStopSelected() {
