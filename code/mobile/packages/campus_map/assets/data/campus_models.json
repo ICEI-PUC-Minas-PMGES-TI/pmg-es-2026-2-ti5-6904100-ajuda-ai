@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026-09-30-r2",
+  "version": "2026-09-30-r3",
   "source": {
     "project": "PUCMaps",
     "manifest": "code/mobile/assets/campus/campus_chunks.json",
@@ -884,5 +884,19 @@
       {"id": "car_82", "model": "car_hatch_grey", "position": [-43.99329071, -19.92598979], "scale": 1, "rotation": 312.5},
       {"id": "car_83", "model": "car_sedan_silver", "position": [-43.99333685, -19.92608101], "scale": 1, "rotation": 40.7}
     ]
+  },
+  "pucstops": {
+    "source": {
+      "project": "PUCMaps",
+      "repositoryCommit": "776e113",
+      "file": "code/mobile/assets/totens/torre_pucstop.glb",
+      "sha256": "2878bebd7e9dc939897bd68721e40b176c89b0e0a486902b2993d27c9eb15cbc",
+      "generator": "Khronos glTF Blender I/O v5.2.39",
+      "renderer": "lib/features/map/presentation/components/organisms/map_renderer.dart"
+    },
+    "models": [
+      {"id": "totem", "kind": "totem", "path": "models/pucstops/torre_pucstop.glb", "bytes": 3096036, "sha256": "2878bebd7e9dc939897bd68721e40b176c89b0e0a486902b2993d27c9eb15cbc"}
+    ],
+    "placement": {"heightMeters": 12, "modelHeightUnits": 16.39, "orientation": [0, 0, 180]}
   }
 }

@@ -34,7 +34,7 @@ void main() {
 
   group('manifesto ambiental', () {
     test('versão nova; prédios iguais aos da r1 publicada', () {
-      expect(manifest.version, '2026-09-30-r2');
+      expect(manifest.version, '2026-09-30-r3');
       expect(manifest.lod0, hasLength(12));
       expect(manifest.lod1, hasLength(4));
       expect(manifest.buildings, hasLength(82));
@@ -90,8 +90,11 @@ void main() {
       }
     });
 
-    test('nenhum debug, totem ou PucStop no manifesto publicado', () {
-      final json = text.toLowerCase();
+    test('nenhum debug, totem ou PucStop fora da seção pucstops', () {
+      // O totem tem seção própria (r3); prédios e ambiente continuam limpos.
+      final json = jsonEncode(
+        Map.of(jsonDecode(text) as Map)..remove('pucstops'),
+      ).toLowerCase();
       for (final banned in [
         'debug',
         'totem',
@@ -256,7 +259,7 @@ void main() {
             matches(
               RegExp(
                 r'^https://assets\.example\.invalid/map-assets/campus/versions/'
-                r'2026-09-30-r2/models/vegetation/tree_[a-z_]+\.glb$',
+                r'2026-09-30-r3/models/vegetation/tree_[a-z_]+\.glb$',
               ),
             ),
           );

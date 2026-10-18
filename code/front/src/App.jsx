@@ -18,6 +18,7 @@ import CoordLayout from './pages/coordenacao/CoordLayout';
 import DashboardPage from './pages/coordenacao/DashboardPage';
 import FormulariosPage from './pages/coordenacao/FormulariosPage';
 import ProgramasPage from './pages/coordenacao/ProgramasPage';
+import PucStopsPage from './pages/coordenacao/PucStopsPage';
 import UsuariosPage from './pages/coordenacao/UsuariosPage';
 
 export default function App() {
@@ -46,6 +47,7 @@ export default function App() {
               <Route path="usuarios" element={<UsuariosPage />} />
               <Route path="programas" element={<ProgramasPage />} />
               <Route path="formularios" element={<FormulariosPage />} />
+              <Route path="pucstops" element={<PucStopsPage />} />
               <Route path="configuracoes" element={<ConfiguracoesPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

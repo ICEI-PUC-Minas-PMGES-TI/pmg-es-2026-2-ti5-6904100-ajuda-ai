@@ -1,6 +1,6 @@
 # ADR-0002 — XP central
 
-> Estado: PLANEJADO (nada implementado ainda)
+> Estado: ACEITO E IMPLEMENTADO (Tarefa 10; migration aplicada no Supabase em 18/10/2026)
 
 ## Contexto
 
@@ -20,8 +20,25 @@ A integração do mapa traz funcionalidades que naturalmente geram XP (PucStops)
   - claim e crédito de XP devem ocorrer na mesma transação, quando a origem for uma ação como um PucStop.
 - Preferência atual: **carteira global**, não vinculada a um ciclo/programa de apadrinhamento, porque o mapa e os PucStops podem ser usados por qualquer usuário autenticado, inclusive fora de uma participação ativa. Esta preferência pode ser revista quando o desenho de XP for aprofundado.
 
+## Implementação (Tarefa 10)
+
+- Carteira **global** confirmada: `gamificacao.xp_carteiras` (saldo
+  materializado) por `usuarios.id`, sem vínculo com `participacoes`.
+- Movimentações: `gamificacao.xp_movimentacoes`, ledger somente inserção e
+  fonte de verdade (`saldo == sum(quantidade)`), com `tipo`, referência,
+  `chave_idempotencia` única e `saldo_apos`. Aceita débito futuro; saldo nunca
+  negativo.
+- Coleta de PucStop e crédito na mesma transação, com a carteira travada por
+  linha; coleta única por `(usuario_id, pucstop_id)` (regra real do PUCMaps,
+  sem cooldown).
+- Schema próprio `gamificacao` (nem `feed`, nem `mapa`), só SQL: o
+  `synchronize` local não toca nessas tabelas.
+- Detalhes: [gamificacao/xp.md](../gamificacao/xp.md) e
+  [mapa/pucstops.md](../mapa/pucstops.md).
+
 ## Consequências
 
-- Nenhuma tabela de XP é criada nesta etapa de documentação.
-- Quando o módulo de XP for implementado, ele deve ficar desacoplado de "mapa": o mapa é um dos consumidores (via PucStops), não o dono do domínio.
-- A home do app mobile só deve parar de usar o valor fixo quando o endpoint real de XP existir.
+- O módulo de XP (`src/gamificacao/`) é desacoplado do mapa: o mapa é um dos
+  consumidores (via PucStops), não o dono do domínio.
+- A home e o perfil do app mostram o saldo real de `GET /me/xp`.
+- Níveis continuam sem regra definida (não foram herdados do PUCMaps).

@@ -79,11 +79,12 @@ describe('publicar-assets-mapa', () => {
     }
   });
 
-  it('aceita prédios, vegetação, props e o manifesto, bloqueando .., absolutos, debug e totem', () => {
+  it('aceita prédios, vegetação, props, totem na sua seção e o manifesto, bloqueando .., absolutos, debug e totem fora de lugar', () => {
     for (const c of [
       'models/lod1/g0.glb',
       'models/vegetation/tree_round.glb',
       'models/props/car_sedan_white.glb',
+      'models/pucstops/torre_pucstop.glb',
     ]) {
       expect(validarCaminhoRelativo(c)).toBe(c);
     }
@@ -103,6 +104,9 @@ describe('publicar-assets-mapa', () => {
       'models/cars/car_hatch_red.glb',
       'totens/torre_pucstop.glb',
       'torre_Pucstop.glb',
+      'models/pucstops/ss_g0.glb',
+      'models/pucstops/debug_totem.glb',
+      'models/pucstops/Torre_Pucstop.glb',
     ]) {
       expect(() => validarCaminhoRelativo(c), c).toThrow();
     }
@@ -123,16 +127,52 @@ describe('publicar-assets-mapa', () => {
     );
   });
 
-  it('lê o manifesto real do package (16 prédios + 4 árvores + 8 props)', () => {
+  it('lê o manifesto real do package (16 prédios + 4 árvores + 8 props + totem)', () => {
     const lido = lerManifesto(fs.readFileSync(manifestoReal, 'utf8'));
-    expect(lido.versao).toBe('2026-09-30-r2');
-    expect(lido.modelos).toHaveLength(28);
+    expect(lido.versao).toBe('2026-09-30-r3');
+    expect(lido.modelos).toHaveLength(29);
     const porTipo = (tipo: string) =>
       lido.modelos.filter((m) => m.caminho.startsWith(`models/${tipo}/`));
     expect(porTipo('lod1')).toHaveLength(4);
     expect(porTipo('lod0')).toHaveLength(12);
     expect(porTipo('vegetation')).toHaveLength(4);
     expect(porTipo('props')).toHaveLength(8);
+    expect(porTipo('pucstops')).toEqual([
+      {
+        caminho: 'models/pucstops/torre_pucstop.glb',
+        bytes: 3096036,
+        sha256:
+          '2878bebd7e9dc939897bd68721e40b176c89b0e0a486902b2993d27c9eb15cbc',
+      },
+    ]);
+  });
+
+  it('totem: seção própria, achado em totens/ no layout do pipeline, nunca declarado em props', () => {
+    const { origem, manifesto, json } = cenario('pipeline');
+    const conteudo = Buffer.from('glb-totem');
+    fs.mkdirSync(path.join(origem, 'totens'));
+    fs.writeFileSync(path.join(origem, 'totens', 'torre_pucstop.glb'), conteudo);
+    const totem = {
+      id: 'totem',
+      path: 'models/pucstops/torre_pucstop.glb',
+      bytes: conteudo.length,
+      sha256: sha256(conteudo),
+    };
+    fs.writeFileSync(
+      manifesto,
+      JSON.stringify({ ...json, pucstops: { models: [totem] } }),
+    );
+    expect(planejar({ manifesto, origem }).itens.at(-2)?.blob).toBe(
+      'campus/versions/2099-01-01-r1/models/pucstops/torre_pucstop.glb',
+    );
+    const emProps = structuredClone(json);
+    emProps.props.models.push({
+      ...totem,
+      path: 'models/props/torre_pucstop.glb',
+    });
+    expect(() => lerManifesto(JSON.stringify(emProps))).toThrow(
+      /não publicável/,
+    );
   });
 
   it('manifesto sem seções ambientais (r1) continua válido', () => {

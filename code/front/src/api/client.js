@@ -119,15 +119,19 @@ async function request(path, { method = 'GET', body, token, aluno, anonimo = fal
 
   if (!response.ok) {
     let message = `Erro ${response.status}`;
+    let motivo;
     try {
       const data = await response.json();
       message = data.message || data.error || message;
       if (Array.isArray(message)) message = message.join(', ');
+      motivo = data.motivo;
     } catch {
       /* ignore */
     }
     const error = new Error(message);
     error.status = response.status;
+    // Código estável enviado pelo servidor (ex.: 'fora-do-campus'), quando houver.
+    if (motivo) error.motivo = motivo;
     throw error;
   }
 
@@ -264,5 +268,32 @@ export const api = {
   },
   criarComunicado(dados) {
     return request('/coordenacao/comunicados', { method: 'POST', body: dados });
+  },
+
+  /* ===== PucStops (coordenação; não dependem de programa/ciclo) ===== */
+  /** Todos os PucStops, ativos e inativos, ordenados por nome. */
+  pucstops() {
+    return request('/coordenacao/pucstops');
+  },
+  /** Área do campus onde o servidor aceita PucStops (limite, bbox e centro). */
+  campusPucStops() {
+    return request('/coordenacao/pucstops/campus');
+  },
+  pucstop(id) {
+    return request(`/coordenacao/pucstops/${encodeURIComponent(id)}`);
+  },
+  criarPucStop(dados) {
+    return request('/coordenacao/pucstops', { method: 'POST', body: dados });
+  },
+  /** Envie só os campos alterados; latitude e longitude vão sempre juntas. */
+  atualizarPucStop(id, dados) {
+    return request(`/coordenacao/pucstops/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  /** "Excluir" = desativação lógica: some do mapa dos alunos, histórico preservado. */
+  desativarPucStop(id) {
+    return request(`/coordenacao/pucstops/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  ativarPucStop(id) {
+    return request(`/coordenacao/pucstops/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
   },
 };

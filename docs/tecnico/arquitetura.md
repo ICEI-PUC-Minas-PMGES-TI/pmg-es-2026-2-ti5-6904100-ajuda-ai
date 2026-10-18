@@ -64,12 +64,13 @@ flowchart TB
     subgraph Backend[NestJS Ajuda-aí]
         Core[Módulos atuais\nauth, usuarios, participacoes, ...]
         MapaMod[Módulo mapa\nATUAL: leitura, busca\ne rotas sob demanda]
-        XPMod[Módulo XP central\nPLANEJADO]
+        XPMod[Módulo gamificacao\nATUAL: XP global, ledger,\nPucStops e claim]
     end
 
     subgraph DB[PostgreSQL / Supabase]
         FeedSchema[(schema feed\nATUAL)]
-        MapaSchema[(schema mapa\nATUAL: tabelas + dados\ncom PostGIS)]
+        MapaSchema[(schema mapa\nATUAL: tabelas + dados\ncom PostGIS + pucstops)]
+        GamSchema[(schema gamificacao\nATUAL: carteiras, ledger,\ncoletas)]
     end
 
     Azure[(Azure Blob Storage)]
@@ -79,7 +80,9 @@ flowchart TB
     Pkg -- "estilo/tiles" --> MapboxSvc
     Core --> FeedSchema
     MapaMod --> MapaSchema
-    MapaMod --> XPMod
+    XPMod --> MapaSchema
+    XPMod --> GamSchema
+    GamSchema -. "FK usuarios.id" .-> FeedSchema
     MapaMod -. "assets GLB (evolução futura)" .-> Azure
 ```
 
@@ -88,9 +91,11 @@ Pontos confirmados desta arquitetura-alvo:
 - O pacote `campus_map` não tem login próprio; recebe um `accessTokenProvider` do app principal. Ver [ADR-0001](decisoes/ADR-0001-identidade-central.md).
 - O módulo de mapa no backend é novo, dentro do mesmo NestJS — não há um segundo backend. Ver [ADR-0004](decisoes/ADR-0004-campus-map-package.md) e [origem-pucmaps.md](origem-pucmaps.md).
 - O schema `mapa` e o PostGIS existem (Tarefa 7) e o `MapaModule` os expõe: leitura e busca (Tarefa 8) e rotas calculadas em memória, sem pgRouting (Tarefa 9). Ver [ADR-0005](decisoes/ADR-0005-schema-mapa-postgis.md), [ADR-0003](decisoes/ADR-0003-rotas-sob-demanda.md) e [banco/migrations.md](banco/migrations.md).
-- XP é central e novo, não uma migração do `user_stats`/`xp_log` do PUCMaps. Ver [ADR-0002](decisoes/ADR-0002-xp-central.md) e [gamificacao/xp.md](gamificacao/xp.md).
+- XP é central e novo, não uma migração do `user_stats`/`xp_log` do PUCMaps: carteira global por `usuarios.id` e ledger no schema `gamificacao`; PucStops em `mapa.pucstops`, coletados com geofence PostGIS no servidor (Tarefa 10). Ver [ADR-0002](decisoes/ADR-0002-xp-central.md), [gamificacao/xp.md](gamificacao/xp.md) e [mapa/pucstops.md](mapa/pucstops.md).
 - Os GLBs ficam embutidos no pacote inicialmente; o Azure `map-assets` é evolução futura. Ver [ADR-0006](decisoes/ADR-0006-assets-3d.md).
 
-Nesta seção, o schema `mapa` e o módulo de mapa (leitura, busca e rotas) estão
-implementados; o módulo de XP e a integração com Azure pelo backend de mapa
-continuam `PLANEJADO` até que o código correspondente exista.
+Nesta seção, o schema `mapa`, o módulo de mapa (leitura, busca e rotas) e o
+módulo `gamificacao` (XP, PucStops) estão implementados; a migration de
+PucStops/XP foi aplicada no Supabase em 18/10/2026 (zero PucStops iniciais;
+a coordenação cadastra pelo CRUD). A integração com Azure pelo
+backend de mapa continua `PLANEJADO`.

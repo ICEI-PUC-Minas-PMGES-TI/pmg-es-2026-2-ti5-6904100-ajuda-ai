@@ -77,8 +77,8 @@ não há volumes, mesmo que a feature possua altura.
   estável do footprint. Materiais dos GLBs preservados; sem cor por zoom.
 - Câmera inicial com pitch 45° quando o 3D está ligado.
 - Sem base URL, ou com GLB indisponível, o 2D/extrusão continuam.
-- PucStops, picking e iluminação: não migrados. Vegetação, props e diagnóstico:
-  Tarefa 5, abaixo. Ver [renderizacao-3d.md](renderizacao-3d.md) e
+- Picking e iluminação: não migrados (PucStops: Tarefa 10, abaixo). Vegetação,
+  props e diagnóstico: Tarefa 5, abaixo. Ver [renderizacao-3d.md](renderizacao-3d.md) e
   [assets-pipeline.md](assets-pipeline.md).
 
 ## Implementação atual — ambiente 3D e diagnóstico (Tarefa 5)
@@ -143,6 +143,18 @@ O status dos testes, do APK e da validação visual está em
   rota agora." (sem rota local).
 - Sem pgRouting, sem migration, sem turn-by-turn, sem PucStops/admin, sem
   mudança em Azure/GLBs.
+
+## Implementação atual — PucStops e XP (Tarefa 10)
+
+- PucStops cadastrados pela coordenação (CRUD em `/coordenacao/pucstops` e
+  na web da coordenação) em `mapa.pucstops`, sem vínculo com a versão do
+  mapa; os totens do PUCMaps não foram importados.
+- Coleta manual no card ("Coletar XP"), geofence no servidor com PostGIS,
+  claim transacional e idempotente, XP global (`gamificacao`) com ledger.
+- Pontos 2D com estado (disponível/coletado, também em texto), totem 3D da
+  nova versão imutável `2026-09-30-r3`, picking só nas camadas de PucStop.
+- XP real no perfil e na home. Ver [pucstops.md](pucstops.md) e
+  [../gamificacao/xp.md](../gamificacao/xp.md).
 
 ## O que será aproveitado
 

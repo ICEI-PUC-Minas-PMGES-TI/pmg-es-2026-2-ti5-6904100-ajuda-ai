@@ -1,16 +1,25 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'campus_location_service.dart';
 import 'campus_map_controller.dart';
 import 'campus_place.dart';
+import 'campus_pucstop.dart';
 import 'campus_route.dart';
 
 /// Overlay isolado: digitação reconstrói somente os controles, não MapWidget.
 class CampusMapControls extends StatefulWidget {
-  const CampusMapControls({super.key, required this.controller});
+  const CampusMapControls({
+    super.key,
+    required this.controller,
+    this.onPucStopClaimed,
+  });
   final CampusMapController controller;
+
+  /// Coleta confirmada pelo servidor (gancho para XP do app e som).
+  final ValueChanged<CampusPucStopClaim>? onPucStopClaimed;
 
   @override
   State<CampusMapControls> createState() => _CampusMapControlsState();
@@ -33,10 +42,38 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   bool _routing = false;
   int _routeRequest = 0;
 
+  /// Card do PucStop: posição lida só enquanto ele está aberto (descartada
+  /// ao fechar); a decisão da coleta é do servidor.
+  String? _pucStopId;
+  _PucStopView _pucStop = const _PucStopView();
+  int _pucStopRequest = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _listen(widget.controller);
+  }
+
+  void _listen(CampusMapController controller) {
+    controller.selectedPucStop.addListener(_onPucStopSelected);
+    controller.collectedPucStops.addListener(_onCollectedChanged);
+  }
+
+  void _unlisten(CampusMapController controller) {
+    try {
+      controller.selectedPucStop.removeListener(_onPucStopSelected);
+      controller.collectedPucStops.removeListener(_onCollectedChanged);
+    } catch (_) {
+      // Controller já descartado pelo dono.
+    }
+  }
+
   @override
   void dispose() {
     _request++;
     _routeRequest++;
+    _pucStopRequest++;
+    _unlisten(widget.controller);
     _text.dispose();
     _focus.dispose();
     super.dispose();
@@ -46,9 +83,110 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   void didUpdateWidget(covariant CampusMapControls oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
+      _unlisten(oldWidget.controller);
+      _listen(widget.controller);
       _request++;
+      _pucStopRequest++;
+      _pucStopId = null;
       _clear();
     }
+  }
+
+  void _onCollectedChanged() {
+    if (mounted && _pucStopId != null) setState(() {});
+  }
+
+  void _onPucStopSelected() {
+    final id = widget.controller.selectedPucStop.value;
+    if (!mounted || id == _pucStopId) return;
+    _pucStopRequest++;
+    if (id != null) {
+      // Um card por vez: escolher um PucStop fecha a rota e a busca.
+      _request++;
+      _focus.unfocus();
+      _closeRoute();
+      _expanded = false;
+    }
+    setState(() {
+      _pucStopId = id;
+      _pucStop = const _PucStopView();
+    });
+    if (id != null) unawaited(_measurePucStop());
+  }
+
+  void _closePucStop() => widget.controller.selectPucStop(null);
+
+  /// Uma leitura de GPS para mostrar a distância (dica de interface).
+  Future<void> _measurePucStop() async {
+    final id = _pucStopId;
+    if (id == null) return;
+    final request = ++_pucStopRequest;
+    setState(() => _pucStop = _pucStop.copyWith(locating: true));
+    final result = await widget.controller.locateOnce();
+    if (!mounted || request != _pucStopRequest) return;
+    final stop = widget.controller.pucStop(id);
+    final location = result.location;
+    setState(() {
+      _pucStop = _pucStop.copyWith(
+        locating: false,
+        locationStatus: result.status,
+        distance: stop != null && location != null
+            ? stop.distanceFrom(location)
+            : null,
+        clearDistance: location == null,
+      );
+    });
+    if (result.status != CampusLocationStatus.located) {
+      _locationMessage(result.status);
+    }
+  }
+
+  Future<void> _claimPucStop() async {
+    final id = _pucStopId;
+    if (id == null || _pucStop.claiming) return;
+    final request = ++_pucStopRequest;
+    setState(() => _pucStop = _pucStop.copyWith(claiming: true));
+    final result = await widget.controller.claimPucStop(id);
+    if (!mounted || request != _pucStopRequest || result.cancelled) return;
+    setState(() => _pucStop = _pucStop.copyWith(claiming: false));
+    if (result.claim case final claim?) {
+      unawaited(HapticFeedback.mediumImpact());
+      setState(
+        () => _pucStop = _pucStop.copyWith(
+          claim: claim,
+          distance: claim.distanceMeters,
+        ),
+      );
+      widget.onPucStopClaimed?.call(claim);
+      return;
+    }
+    if (result.location case final status?) {
+      _locationMessage(status);
+      return;
+    }
+    final failure = result.failure!;
+    setState(() {
+      _pucStop = _pucStop.copyWith(
+        unavailable: failure == CampusPucStopFailure.unavailable,
+        distance: result.distanceMeters,
+      );
+    });
+    final stop = widget.controller.pucStop(id);
+    _message(switch (failure) {
+      CampusPucStopFailure.alreadyCollected => 'Você já coletou este PucStop.',
+      CampusPucStopFailure.outOfRange =>
+        result.distanceMeters != null && stop != null
+            ? 'Você está a ${campusDistanceLabel(result.distanceMeters!)}. '
+                  'Chegue a ${stop.radiusMeters.round()} m para coletar.'
+            : 'Aproxime-se do PucStop para coletar.',
+      CampusPucStopFailure.imprecise =>
+        'Localização imprecisa. Tente novamente ao ar livre.',
+      CampusPucStopFailure.unavailable => 'Este PucStop está indisponível.',
+      CampusPucStopFailure.unauthenticated =>
+        'Entre na sua conta para coletar XP.',
+      CampusPucStopFailure.offline =>
+        'Não foi possível coletar agora. Verifique a conexão.',
+    });
   }
 
   Future<void> _search(String query) async {
@@ -105,6 +243,7 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     _request++;
     _focus.unfocus();
     _text.text = place.displayName;
+    if (_pucStopId != null) _closePucStop();
     // Outro destino: a rota anterior não vale mais.
     _closeRoute();
     setState(() {
@@ -230,9 +369,29 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final pucStop = _pucStopId == null
+        ? null
+        : widget.controller.pucStop(_pucStopId!);
     return Stack(
       children: [
-        if (_selected case final place? when widget.controller.canRoute)
+        if (pucStop != null)
+          Positioned(
+            left: 12,
+            right: 76, // Coluna do botão de localização.
+            bottom: 44,
+            child: _PucStopCard(
+              stop: pucStop,
+              view: _pucStop,
+              collected: widget.controller.collectedPucStops.value.contains(
+                pucStop.id,
+              ),
+              canClaim: widget.controller.pucStopService?.canClaim ?? false,
+              onClaim: _claimPucStop,
+              onMeasure: _measurePucStop,
+              onClose: _closePucStop,
+            ),
+          )
+        else if (_selected case final place? when widget.controller.canRoute)
           Positioned(
             left: 12,
             right: 76, // Coluna do botão de localização.
@@ -455,6 +614,252 @@ class _RouteCard extends StatelessWidget {
     );
   }
 }
+
+/// Estado do card do PucStop (só da tela; nada persiste).
+class _PucStopView {
+  const _PucStopView({
+    this.locating = false,
+    this.claiming = false,
+    this.unavailable = false,
+    this.locationStatus,
+    this.distance,
+    this.claim,
+  });
+
+  final bool locating;
+  final bool claiming;
+  final bool unavailable;
+  final CampusLocationStatus? locationStatus;
+  final double? distance;
+  final CampusPucStopClaim? claim;
+
+  _PucStopView copyWith({
+    bool? locating,
+    bool? claiming,
+    bool? unavailable,
+    CampusLocationStatus? locationStatus,
+    double? distance,
+    bool clearDistance = false,
+    CampusPucStopClaim? claim,
+  }) => _PucStopView(
+    locating: locating ?? this.locating,
+    claiming: claiming ?? this.claiming,
+    unavailable: unavailable ?? this.unavailable,
+    locationStatus: locationStatus ?? this.locationStatus,
+    distance: clearDistance ? null : distance ?? this.distance,
+    claim: claim ?? this.claim,
+  );
+}
+
+/// Estados visíveis do PucStop. Cada um tem ícone e texto (não só cor).
+enum CampusPucStopState { available, outOfRange, collected, unavailable }
+
+class _PucStopCard extends StatelessWidget {
+  const _PucStopCard({
+    required this.stop,
+    required this.view,
+    required this.collected,
+    required this.canClaim,
+    required this.onClaim,
+    required this.onMeasure,
+    required this.onClose,
+  });
+
+  final CampusPucStop stop;
+  final _PucStopView view;
+  final bool collected;
+  final bool canClaim;
+  final VoidCallback onClaim;
+  final VoidCallback onMeasure;
+  final VoidCallback onClose;
+
+  CampusPucStopState get state {
+    if (collected || view.claim != null) return CampusPucStopState.collected;
+    if (view.unavailable) return CampusPucStopState.unavailable;
+    final distance = view.distance;
+    if (distance != null && distance > stop.radiusMeters) {
+      return CampusPucStopState.outOfRange;
+    }
+    return CampusPucStopState.available;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final state = this.state;
+    final claim = view.claim;
+    final (icon, label, color) = switch (state) {
+      CampusPucStopState.collected => (
+        Icons.check_circle,
+        claim != null ? 'XP coletado!' : 'Já coletado',
+        const Color(0xFF15803D),
+      ),
+      CampusPucStopState.unavailable => (
+        Icons.block,
+        'Indisponível no momento',
+        colors.onSurfaceVariant,
+      ),
+      CampusPucStopState.outOfRange => (
+        Icons.near_me_outlined,
+        'Fora de alcance: aproxime-se',
+        const Color(0xFFB45309),
+      ),
+      CampusPucStopState.available => (
+        Icons.auto_awesome,
+        view.distance == null ? 'Disponível' : 'Você está no alcance',
+        const Color(0xFFB45309),
+      ),
+    };
+    final distance = view.locating
+        ? 'Calculando distância…'
+        : view.distance != null
+        ? 'A ${campusDistanceLabel(view.distance!)} · raio de ${stop.radiusMeters.round()} m'
+        : 'Distância indisponível';
+    return Material(
+      key: const Key('campus-pucstop-card'),
+      color: colors.surface,
+      elevation: 3,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 4, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    stop.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.titleSmall,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF3C4),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '+${stop.xp} XP',
+                    key: const Key('campus-pucstop-xp'),
+                    style: text.labelMedium?.copyWith(
+                      color: const Color(0xFF92400E),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  key: const Key('campus-pucstop-close'),
+                  tooltip: 'Fechar',
+                  onPressed: onClose,
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            Row(
+              key: const Key('campus-pucstop-state'),
+              children: [
+                Icon(icon, size: 18, color: color),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    style: text.bodyMedium?.copyWith(color: color),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              distance,
+              key: const Key('campus-pucstop-distance'),
+              style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+            ),
+            if (claim != null)
+              _ClaimReward(
+                key: const Key('campus-pucstop-reward'),
+                claim: claim,
+              ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: switch (state) {
+                CampusPucStopState.collected ||
+                CampusPucStopState.unavailable => const SizedBox.shrink(),
+                _ when !canClaim => Text(
+                  'Entre na sua conta para coletar XP.',
+                  key: const Key('campus-pucstop-login'),
+                  style: text.bodyMedium,
+                ),
+                CampusPucStopState.outOfRange => OutlinedButton.icon(
+                  key: const Key('campus-pucstop-measure'),
+                  onPressed: view.locating ? null : onMeasure,
+                  icon: const Icon(Icons.my_location),
+                  label: const Text('Atualizar distância'),
+                ),
+                CampusPucStopState.available => FilledButton.icon(
+                  key: const Key('campus-pucstop-claim'),
+                  onPressed: view.claiming || view.locating ? null : onClaim,
+                  icon: view.claiming
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.auto_awesome),
+                  label: Text(view.claiming ? 'Coletando…' : 'Coletar XP'),
+                ),
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// "+50 XP" que cresce uma vez e o saldo novo. Animação curta, sem loop.
+class _ClaimReward extends StatelessWidget {
+  const _ClaimReward({super.key, required this.claim});
+  final CampusPucStopClaim claim;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.6, end: 1),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.elasticOut,
+      builder: (context, scale, child) => Transform.scale(
+        scale: scale,
+        alignment: Alignment.centerLeft,
+        child: child,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Text(
+          '+${claim.xpGained} XP · total ${claim.xpTotal} XP',
+          style: text.titleMedium?.copyWith(
+            color: const Color(0xFF15803D),
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "35 m" (metros inteiros) ou "1,2 km".
+String campusDistanceLabel(double meters) => meters < 1000
+    ? '${meters.round()} m'
+    : '${(meters / 1000).toStringAsFixed(1).replaceAll('.', ',')} km';
 
 /// "8 min a pé · 650 m": minutos arredondados (mínimo 1), metros de 10 em 10.
 String campusRouteSummary(CampusRoute route) {

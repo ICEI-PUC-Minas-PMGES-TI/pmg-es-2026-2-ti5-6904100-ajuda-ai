@@ -1,6 +1,6 @@
 # Pipeline de assets 3D
 
-> Estado: LEGADO (geração dos GLBs no projeto de origem) + ATUAL (inventário, versões, manifesto e publicação no Azure — Tarefas 4 e 5)
+> Estado: LEGADO (geração dos GLBs no projeto de origem) + ATUAL (inventário, versões, manifesto e publicação no Azure — Tarefas 4, 5 e 10)
 
 ## Origem dos GLBs
 
@@ -86,11 +86,12 @@ Auditado no repositório de origem (commit `776e113`): **41 GLBs, 13.593.320 B**
 | LOD2 | 0 | — | `fill-extrusion` das footprints | Sem GLB (manifesto cita `models/lod2/*.glb` por prédio, que não existem no repositório) |
 | Vegetação (`tree_*`) | 4 | 58.688 | `campus_vegetation_controller.dart` | **MIGRADO** (Tarefa 5, `2026-09-30-r2`) |
 | Props (7 carros + área esportiva) | 8 | 93.036 | `campus_props_controller.dart` | **MIGRADO** (Tarefa 5, `2026-09-30-r2`) |
-| Totem/PucStop (`totens/torre_pucstop.glb`) | 1 | 3.096.036 | `map_renderer.dart` | MIGRAR DEPOIS (fase PucStops) |
+| Totem/PucStop (`totens/torre_pucstop.glb`) | 1 | 3.096.036 | `map_renderer.dart` | **MIGRADO** (Tarefa 10, `2026-09-30-r3`, seção `pucstops`) |
 | Debug (`ss_g*`, `nowin_g*`, `ind_p*`) | 11 | 2.393.152 | variantes A/B do painel de diagnóstico | DESCARTAR |
 | Órfão (`torre_Pucstop.glb` na raiz) | 1 | 2.847.516 | nenhum | DESCARTAR |
 
-Áudios do totem continuam fora (fase PucStops). Os GeoJSONs de vegetação e
+Áudios do totem (`totem_spin.wav`, `totem_finish.mp3`) **não** foram migrados
+na Tarefa 10 (ver [pucstops.md](pucstops.md#som)). Os GeoJSONs de vegetação e
 carros e o `campus_sports.json` não são publicados como arquivos: seus pontos
 entram no manifesto (ver "Vegetação e props" abaixo).
 Os GLBs individuais por prédio citados no manifesto de origem (`models/*.glb`)
@@ -104,7 +105,8 @@ prédios (`osmTimestamp 2026-09-30T17:10:14Z`) + revisão de publicação.
 | Versão | Conteúdo | Estado |
 |---|---|---|
 | `2026-09-30-r1` | 16 GLBs de prédios + manifesto (17 objetos, Tarefa 4) | Publicada, **preservada intacta** (17/17 conferidos por `--verificar` depois da r2) |
-| `2026-09-30-r2` | os mesmos 16 GLBs de prédios (bytes idênticos) + 4 de vegetação + 8 de props + manifesto (29 objetos) | Publicada (Tarefa 5); referenciada pelo package |
+| `2026-09-30-r2` | os mesmos 16 GLBs de prédios (bytes idênticos) + 4 de vegetação + 8 de props + manifesto (29 objetos) | Publicada (Tarefa 5), **preservada intacta** |
+| `2026-09-30-r3` | os 28 GLBs da r2 (bytes idênticos) + totem `models/pucstops/torre_pucstop.glb` + manifesto com seção `pucstops` (30 objetos, 8.385.811 B) | Tarefa 10; referenciada pelo package (ver "Publicação r3") |
 
 Por que nova versão: adicionar vegetação/props muda o manifesto publicado
 (`manifests/campus-models.json`) e o conteúdo da versão. A r1 é imutável, então
@@ -122,12 +124,16 @@ campus/versions/2026-09-30-r1/          (Tarefa 4, intacta)
   manifests/campus-models.json
   models/lod0/c00.glb … c11.glb
   models/lod1/g0.glb … g3.glb
-campus/versions/2026-09-30-r2/          (Tarefa 5, atual)
+campus/versions/2026-09-30-r2/          (Tarefa 5, intacta)
   manifests/campus-models.json
   models/lod0/c00.glb … c11.glb
   models/lod1/g0.glb … g3.glb
   models/vegetation/tree_round.glb, tree_round_b.glb, tree_cone.glb, tree_cone_b.glb
   models/props/campus_sports.glb, car_{sedan_white,sedan_silver,sedan_graphite,hatch_white,hatch_grey,hatch_blue,hatch_red}.glb
+campus/versions/2026-09-30-r3/          (Tarefa 10, atual)
+  ... os mesmos 28 GLBs da r2 ...
+  models/pucstops/torre_pucstop.glb
+  manifests/campus-models.json
 ```
 
 Sem `lod2/` (não há GLB) e sem `data/` (footprints continuam no package).
@@ -145,6 +151,7 @@ ambientais a partir dos arquivos do PUCMaps listados abaixo. Cópia idêntica em
 |---|---|---|
 | r1 | 16.039 | `ea549f40fb1f6702259dc0875bbb1419b5d542c150c3c335893ddf607e75d6d8` |
 | r2 | 32.465 | `d0febcce36400189d7ebf06d1778eb59cb173ae45b1727ec0c7013a5075111d8` |
+| r3 | 33.159 | `d73258e564aafa6a77b4aad1c20af082026bd4a2364bf67bcd9476102e93e2fe` |
 
 Na r2 as seções `source`, `placement`, `lod1`, `lod0` e `buildings` são
 idênticas às da r1 (conferido campo a campo).
@@ -157,6 +164,33 @@ idênticas às da r1 (conferido campo a campo).
 | `lod1[]`, `lod0[]` | `id`, `path` relativo, `anchor [lon,lat]`, `bbox`, `buildings`, `bytes`, `sha256` (+ `lod1` no LOD0) |
 | `buildings[]` | `id` do footprint, `lod0`, `lod1`, `wallColor` (extrusão) |
 | `vegetation`, `props` (r2, opcionais) | `source` (origem/sha256), `models[]` (`id`, `kind`, `path`, `bytes`, `sha256`), `instances[]` (`id`, `model`, `position [lon,lat]`, `scale`, `rotation`) |
+| `pucstops` (r3, opcional) | `source` (origem/sha256), `models[]` com **um** totem (`kind: totem`), `placement` (`heightMeters`, `modelHeightUnits`, `orientation`). **Sem posições**: elas vêm da API (`GET /mapa/pucstops`) |
+
+Na r3 todas as seções da r2 são idênticas (só `version` muda) e `pucstops` é
+acrescentada ao final.
+
+### Totem dos PucStops (seção `pucstops`)
+
+Seção própria, separada de `props`: PucStop tem semântica de jogo (coleta,
+XP, estado) e não é ambientação. O manifesto guarda só o modelo e como
+posicioná-lo; **onde** ficam os PucStops é dado do banco (`mapa.pucstops`), a
+mesma fonte que o servidor usa na geofence. Duas fontes para a mesma posição
+divergiriam.
+
+| Campo | Valor | Origem (PUCMaps `map_renderer.dart`) |
+|---|---|---|
+| `models[0]` | `totem`, `models/pucstops/torre_pucstop.glb`, 3.096.036 B, sha256 `2878bebd…cbc` | `assets/totens/torre_pucstop.glb` (commit `776e113`) |
+| `heightMeters` | 12 | `_totemHeightMeters = 12.0` |
+| `modelHeightUnits` | 16,39 | `_totemModelHeightUnits = 16.39` (altura do GLB, conferida no arquivo) |
+| `orientation` | `[0, 0, 180]` | `_totemOrientation` ("cálice de frente") |
+
+Auditoria do GLB: glTF 2.0 (Blender I/O 5.2.39), 26.759 triângulos, sem
+animação, extensões `KHR_materials_clearcoat`/`KHR_materials_transmission`,
+3 texturas JPEG embutidas, nós `Aneis_Bronze`/`Joia_Azul` preservados. O
+`torre_Pucstop.glb` órfão da raiz do PUCMaps (versão antiga) continua
+DESCARTADO. O app valida a seção (`CampusPucStopModel`): um único modelo,
+caminho só em `models/pucstops/`, sem nome de debug; seção inválida desliga
+só o totem (pontos 2D e prédios seguem).
 
 ### Vegetação e props
 
@@ -288,12 +322,46 @@ o manifesto r2 foi gerado a partir do r1 e dos arquivos de origem acima. A
 ferramenta de conversão foi temporária e não é versionada; o resultado é
 verificável pelos sha256 registrados em `source`.
 
+## Publicação r3 (Tarefa 10)
+
+Motivo da nova versão: o totem muda o manifesto e o conteúdo da versão; a r2 é
+imutável. A r3 é autocontida como a r2 (repete os 28 GLBs, 5,26 MB).
+
+Script alterado só para aceitar a seção `pucstops`: caminho
+`models/pucstops/<nome>.glb`; nomes de totem/PucStop/torre continuam
+**recusados em qualquer outra pasta** (ex.: `models/props/torre_pucstop.glb`);
+debug e variantes A/B continuam recusados em todas. Layout do pipeline:
+`totens/` (como no PUCMaps). Testes em `publicar-assets-mapa.spec.ts`.
+
+Origem dos arquivos: cópia de `code/mobile/assets/campus/{lod0,lod1,vegetation,sports,cars}`
+e `code/mobile/assets/totens/` do PUCMaps (commit `776e113`) para uma pasta de
+staging fora do Git, conferida byte a byte pelo script (tamanho e sha256 de
+cada GLB contra o manifesto).
+
+Passos:
+
+1. `--dry-run` com credencial: validação local OK; 30 destinos `novo` em
+   `campus/versions/2026-09-30-r3/` (8.385.811 B); nada enviado.
+2. Publicação (`If-None-Match: *`, `Content-MD5`) e verificação pública.
+3. `--verificar` da r2 com o manifesto r2: deve continuar 29/29 OK.
+
+### Resultado da publicação r3
+
+| Passo | Resultado |
+|---|---|
+| `--dry-run` | 30 destinos `novo`; nada enviado |
+| Publicação | 30 envios; verificação pública: 30 × HTTP 200, `model/gltf-binary` / `application/json; charset=utf-8`, tamanho e SHA-256 iguais, `Cache-Control` imutável |
+| Reexecução | recusada: "30 blob(s) da versão 2026-09-30-r3 já existem" |
+| `--verificar` r2 (manifesto r2 do Git) | 29/29 OK: r2 intacta |
+| `--verificar` r3 | 30/30 OK |
+| APK debug | nenhum `.glb`/áudio; só o manifesto r3 (33.159 B) |
+
 ## Como publicar uma nova versão
 
 1. **Obter os GLBs** do pipeline externo (ver "Dependência do pipeline
    Blender/Python"). Sem acesso a ele não há como gerar novos modelos.
-2. **Validar**: só LOD0/LOD1 de prédios e vegetação/props aprovados; nenhum
-   asset de debug ou totem; conferir
+2. **Validar**: só LOD0/LOD1 de prédios, vegetação/props aprovados e o totem
+   na seção `pucstops`; nenhum asset de debug; conferir
    convenção `placement` (metros, sem rotação/escala) e que todo prédio do
    manifesto existe em `campus_footprints.geojson` com o mesmo `id`.
 3. **Criar a versão**: nova pasta `campus/versions/<data-osm>-r<n>`; nunca

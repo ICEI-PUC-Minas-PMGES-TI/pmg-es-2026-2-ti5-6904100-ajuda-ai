@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/services/participacoes_api.dart';
+import 'package:ajuda_ai/services/pucstops_api.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
@@ -33,6 +34,9 @@ class ApiFalsa {
 
   /// Se o e-mail já tem cadastro (login demo responde 201; senão 401).
   bool cadastrado;
+
+  /// Saldo de `GET /me/xp`.
+  int xp = 0;
   Map<String, dynamic>? perfilSalvo;
   String? fotoUrl;
 
@@ -241,14 +245,15 @@ class ApiFalsa {
       });
     }
     if (caminho.endsWith('/avisos')) return _json(avisos);
+    if (caminho == '/me/xp') return _json({'saldo': xp, 'atualizadoEm': null});
     return _json({'message': 'rota não simulada'}, 404);
   });
 
   /// Injeta esta API na sessão.
   ApiFalsa instalar() {
-    SessaoUsuario.atual.configurarApi(
-      ParticipacoesApi(client: client)..accessToken = token,
-    );
+    SessaoUsuario.atual
+      ..configurarApi(ParticipacoesApi(client: client)..accessToken = token)
+      ..configurarXpApi(XpApi(client: client));
     SessaoUsuario.atual.inscricoesDisponiveis = true;
     return this;
   }

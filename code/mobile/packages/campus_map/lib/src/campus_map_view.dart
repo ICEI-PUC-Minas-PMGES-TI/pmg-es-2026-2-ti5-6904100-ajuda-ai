@@ -12,6 +12,8 @@ import 'campus_map_controls.dart';
 import 'campus_location_service.dart';
 import 'campus_place.dart';
 import 'campus_place_repository.dart';
+import 'campus_pucstop.dart';
+import 'campus_pucstop_layer.dart';
 import 'campus_map_defaults.dart';
 import 'campus_map_features.dart';
 import 'campus_map_renderer.dart';
@@ -35,6 +37,8 @@ class CampusMapView extends StatefulWidget {
     this.controller,
     this.remotePlaceRepository,
     this.routeService,
+    this.pucStopService,
+    this.onPucStopClaimed,
   });
 
   final CampusMapConfig config;
@@ -52,6 +56,13 @@ class CampusMapView extends StatefulWidget {
   /// Cálculo de rota (ex.: API do app). Sem ele o card não oferece rota.
   /// Ignorado quando [controller] é fornecido.
   final CampusRouteService? routeService;
+
+  /// PucStops e coleta (ex.: API do app). Só vale com
+  /// `features.pucStops`. Ignorado quando [controller] é fornecido.
+  final CampusPucStopService? pucStopService;
+
+  /// Coleta confirmada pelo servidor (ex.: atualizar o XP do app, tocar som).
+  final ValueChanged<CampusPucStopClaim>? onPucStopClaimed;
 
   @override
   State<CampusMapView> createState() => _CampusMapViewState();
@@ -81,8 +92,12 @@ class _CampusMapViewState extends State<CampusMapView>
   /// Rota desenhada no momento; redesenhada se o style recarregar.
   CampusRoute? _route;
 
+  /// URL do totem instalado neste style (para reconhecer a falha do GLB).
+  String? _totemUrl;
+
   bool get _enable3d => widget.config.features.enable3d;
   CampusMapFeatures get _features => widget.config.features;
+  bool get _pucStopsEnabled => _features.pucStops && _controller.hasPucStops;
 
   @override
   void initState() {
@@ -102,7 +117,65 @@ class _CampusMapViewState extends State<CampusMapView>
               ? local
               : FallbackCampusPlaceRepository(primary: remote, fallback: local),
           routeService: widget.routeService,
+          pucStopService: widget.pucStopService,
         );
+    _controller.pucStops.addListener(_refreshPucStops);
+    _controller.collectedPucStops.addListener(_refreshPucStops);
+  }
+
+  void _releaseController(CampusMapController controller, bool owned) {
+    controller.detach(this);
+    if (owned) {
+      controller.dispose();
+    } else {
+      controller.pucStops.removeListener(_refreshPucStops);
+      controller.collectedPucStops.removeListener(_refreshPucStops);
+    }
+  }
+
+  /// Lista ou coletados mudaram: só troca os dados da source.
+  void _refreshPucStops() {
+    final map = _map;
+    if (map == null || !_styleReady || !_pucStopsEnabled) return;
+    final generation = _generation;
+    final revision = _styleRevision;
+    unawaited(
+      _showPucStops(
+        map,
+        () =>
+            mounted && generation == _generation && revision == _styleRevision,
+      ),
+    );
+  }
+
+  Future<void> _showPucStops(MapboxMap map, bool Function() isActive) async {
+    try {
+      await CampusPucStopLayer.show(
+        map.style,
+        _controller.pucStops.value,
+        _controller.collectedPucStops.value,
+        isActive: isActive,
+      );
+    } catch (_) {
+      // PucStops são opcionais: falha aqui não vira aviso de mapa.
+    }
+  }
+
+  /// Toque num ponto/halo de PucStop (interação do SDK restrita a essas
+  /// camadas): abre o card. Toque em outra parte do mapa não passa por aqui.
+  void _addPucStopInteractions(MapboxMap map) {
+    for (final layerId in CampusPucStopLayer.pickable) {
+      map.addInteraction(
+        TapInteraction(FeaturesetDescriptor(layerId: layerId), (feature, _) {
+          if (!mounted || !identical(map, _map)) return;
+          final id = feature.properties['id'];
+          if (id is String && _controller.pucStop(id) != null) {
+            _controller.selectPucStop(id);
+          }
+        }, radius: 12),
+        interactionID: layerId,
+      );
+    }
   }
 
   Future<CampusSnapshot> _loadSnapshot() => _snapshot ??= _readSnapshot();
@@ -126,6 +199,7 @@ class _CampusMapViewState extends State<CampusMapView>
       unawaited(_disablePuck(_map));
     } else if (_map != null && _styleReady) {
       _controller.attach(this);
+      if (_pucStopsEnabled) unawaited(_controller.reloadPucStops());
     }
   }
 
@@ -263,9 +337,9 @@ class _CampusMapViewState extends State<CampusMapView>
     if (oldWidget.controller != widget.controller ||
         oldWidget.dataSource != widget.dataSource ||
         oldWidget.remotePlaceRepository != widget.remotePlaceRepository ||
-        oldWidget.routeService != widget.routeService) {
-      _controller.detach(this);
-      if (oldWidget.controller == null) _controller.dispose();
+        oldWidget.routeService != widget.routeService ||
+        oldWidget.pucStopService != widget.pucStopService) {
+      _releaseController(_controller, oldWidget.controller == null);
       _createController();
       if (_map != null && _styleReady && _foreground) _controller.attach(this);
     }
@@ -275,6 +349,7 @@ class _CampusMapViewState extends State<CampusMapView>
         oldFeatures.enable3d != features.enable3d ||
         oldFeatures.vegetation != features.vegetation ||
         oldFeatures.props != features.props ||
+        oldFeatures.pucStops != features.pucStops ||
         oldFeatures.diagnostics != features.diagnostics ||
         oldWidget.dataSource != widget.dataSource ||
         oldWidget.modelManifestSource != widget.modelManifestSource) {
@@ -286,8 +361,7 @@ class _CampusMapViewState extends State<CampusMapView>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller.detach(this);
-    if (widget.controller == null) _controller.dispose();
+    _releaseController(_controller, widget.controller == null);
     unawaited(_disablePuck(_map));
     _cameraSettle?.cancel();
     _dispose3d();
@@ -323,6 +397,7 @@ class _CampusMapViewState extends State<CampusMapView>
     _snapshot = null;
     _modelManifest = null;
     _route = null;
+    _totemUrl = null;
     final token = widget.config.mapboxAccessToken.trim();
     if (token.isEmpty) {
       _configurationError =
@@ -367,6 +442,11 @@ class _CampusMapViewState extends State<CampusMapView>
       if (_route case final route? when isActive()) {
         await CampusRouteLayer.show(map.style, route, isActive: isActive);
       }
+      // Pontos 2D (source criada mesmo vazia; os dados chegam depois).
+      if (_pucStopsEnabled && isActive()) {
+        await _showPucStops(map, isActive);
+        unawaited(_controller.loadPucStops());
+      }
       if (isActive() && _foreground) _controller.attach(this);
       if (isActive()) _diagnostics?.mark('2d pronto');
       if (isActive() && _campusError) setState(() => _campusError = false);
@@ -404,8 +484,33 @@ class _CampusMapViewState extends State<CampusMapView>
       diagnostics?.buildings = controller;
       await controller.install();
       await _startEnvironment(map, manifest, resolver, isActive);
+      await _installTotem(map, manifest, resolver, isActive);
     } catch (_) {
       _set3dUnavailable(isActive);
+    }
+  }
+
+  /// Totem 3D dos PucStops: decorativo. Sem modelo no manifesto, ou com o GLB
+  /// indisponível, os pontos 2D continuam e o toque segue funcionando.
+  Future<void> _installTotem(
+    MapboxMap map,
+    CampusModelManifest manifest,
+    CampusAssetResolver resolver,
+    bool Function() isActive,
+  ) async {
+    final model = manifest.pucStopModel;
+    if (!_pucStopsEnabled || model == null || !isActive()) return;
+    try {
+      final url = resolver.resolve(model.path);
+      _totemUrl = url.toString();
+      await CampusPucStopLayer.installTotem(
+        map.style,
+        model,
+        url,
+        isActive: isActive,
+      );
+    } catch (_) {
+      _totemUrl = null;
     }
   }
 
@@ -467,6 +572,7 @@ class _CampusMapViewState extends State<CampusMapView>
               if (!mounted || generation != _generation) return;
               _map = map;
               _diagnostics?.attach(map);
+              if (_features.pucStops) _addPucStopInteractions(map);
               if (_styleReady) _renderCampus(generation, _styleRevision);
             },
             onStyleLoadedListener: (_) {
@@ -476,6 +582,7 @@ class _CampusMapViewState extends State<CampusMapView>
               unawaited(_disablePuck(_map));
               _styleRevision++;
               _renderer = null;
+              _totemUrl = null;
               _diagnostics?.mark('style carregado');
               // Um novo style descarta sources/layers; o 3D recomeça nele.
               _dispose3d();
@@ -506,6 +613,18 @@ class _CampusMapViewState extends State<CampusMapView>
             ),
             onMapLoadErrorListener: (event) {
               if (!mounted || generation != _generation) return;
+              // Totem indisponível: some só ele; os pontos 2D ficam.
+              if (_totemUrl case final url? when event.message.contains(url)) {
+                _totemUrl = null;
+                final map = _map;
+                if (map != null) {
+                  unawaited(
+                    CampusPucStopLayer.removeTotem(map.style)
+                        .catchError((_) {}),
+                  );
+                }
+                return;
+              }
               // Ambiente é decorativo: falha nele não vira aviso de mapa.
               final environment = _environment.where(
                 (e) => e.owns(event.sourceId, event.message),
@@ -558,7 +677,10 @@ class _CampusMapViewState extends State<CampusMapView>
                 ),
               ),
             ),
-          CampusMapControls(controller: _controller),
+          CampusMapControls(
+            controller: _controller,
+            onPucStopClaimed: widget.onPucStopClaimed,
+          ),
         ],
       ),
     );

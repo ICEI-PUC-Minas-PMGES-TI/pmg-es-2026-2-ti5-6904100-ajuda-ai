@@ -28,6 +28,7 @@ import { BaselineFeed1791900000000 } from '../src/migrations/1791900000000-Basel
 import { UsuariosERequisitosPadrinho1791944105933 } from '../src/migrations/1791944105933-UsuariosERequisitosPadrinho.js';
 import { HabilitaPostgisESchemaMapa1792263378656 } from '../src/migrations/1792263378656-HabilitaPostgisESchemaMapa.js';
 import { CriaTabelasMapa1792263378657 } from '../src/migrations/1792263378657-CriaTabelasMapa.js';
+import { PucStopsEXpGlobal1792279161187 } from '../src/migrations/1792279161187-PucStopsEXpGlobal.js';
 import { ParticipacaoEntity } from '../src/participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../src/programas/entities/programa.entity.js';
 import { ComentarioEntity } from '../src/publicacoes/entities/comentario.entity.js';
@@ -51,6 +52,7 @@ const MIGRATIONS: Array<new () => MigrationInterface> = [
   UsuariosERequisitosPadrinho1791944105933,
   HabilitaPostgisESchemaMapa1792263378656,
   CriaTabelasMapa1792263378657,
+  PucStopsEXpGlobal1792279161187,
 ];
 const snapshotReal = validarSnapshot(
   JSON.parse(
@@ -197,7 +199,7 @@ describe.skipIf(!URL_TESTE)(
       const banco = await bancoDeSynchronize('synchronize');
       await comFonte(banco, async (ds) => {
         const rodadas = await ds.runMigrations({ transaction: 'all' });
-        expect(rodadas).toHaveLength(4);
+        expect(rodadas).toHaveLength(5);
         const [{ n }] = await ds.query(
           `SELECT count(*)::int AS n FROM feed.programas`,
         );
@@ -206,7 +208,7 @@ describe.skipIf(!URL_TESTE)(
       });
     });
 
-    it('C) estado do Supabase (incremental já registrada): só baseline + mapa', async () => {
+    it('C) estado do Supabase (incremental já registrada): só baseline + mapa + PucStops/XP', async () => {
       const banco = await bancoDeSynchronize('supabase');
       await comFonte(banco, async (ds) => {
         await ds.query(
@@ -220,11 +222,13 @@ describe.skipIf(!URL_TESTE)(
           'BaselineFeed1791900000000',
           'HabilitaPostgisESchemaMapa1792263378656',
           'CriaTabelasMapa1792263378657',
+          'PucStopsEXpGlobal1792279161187',
         ]);
-        expect((await executadas(ds)).map((m) => m.name)).toHaveLength(4);
+        expect((await executadas(ds)).map((m) => m.name)).toHaveLength(5);
         // Segunda execução: nada pendente.
         expect(await ds.runMigrations()).toEqual([]);
         // Reverter a baseline é recusado (não derruba feed).
+        await ds.undoLastMigration(); // PucStops e XP (vazios)
         await ds.undoLastMigration(); // tabelas mapa
         await ds.undoLastMigration(); // schema mapa
         await expect(ds.undoLastMigration()).rejects.toThrow(/não é revertida/);

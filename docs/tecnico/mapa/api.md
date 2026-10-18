@@ -1,7 +1,12 @@
 # API pública do mapa
 
-> Estado: ATUAL (Tarefas 8 e 9). Somente leitura da versão ativa: dados,
+> Estado: ATUAL (Tarefas 8, 9 e 10). Somente leitura da versão ativa: dados,
 > busca e rotas a pé (`POST /mapa/rotas`, que calcula sem gravar nada).
+> PucStops (Tarefa 10) ficam no `GamificacaoModule`: leitura pública em
+> `/mapa/pucstops` e a única escrita ligada ao mapa, a coleta autenticada
+> (`POST /mapa/pucstops/:id/claim`). Criar/editar/desativar PucStops é só da
+> coordenação, em `/coordenacao/pucstops` (fora de `/mapa`). Ver
+> [pucstops.md](pucstops.md#endpoints).
 
 Módulo `code/back/api/src/mapa/` (`MapaModule`, `MapaController`,
 `MapaService`, `dto/mapa.dto.ts`), registrado no `AppModule`. Sem prefixo
@@ -42,6 +47,10 @@ global (como o resto da API). Dados: schema `mapa`, versão `ativa`
 | `GET /mapa/salas` | `SalaDto[]` (hoje `[]`: a origem não tem salas) | 503 |
 | `GET /mapa/busca?q=&limit=` | `ResultadoBuscaDto[]` | 400 `limit` fora de 1..20, `q` > 100 caracteres ou parâmetro desconhecido; 503 |
 | `POST /mapa/rotas` | `RotaDto` (200) | 400 corpo inválido; 404 prédio inexistente; 422 sem rota (`motivo`); 503 |
+| `GET /mapa/pucstops` | `PucStopDto[]` (ativos) | — |
+| `GET /mapa/pucstops/:id` | `PucStopDto` | 404 |
+| `POST /mapa/pucstops/:id/claim` (JWT) | `ColetaPucStopDto` (201) | 400; 401; 403; 404; 409 `ja-coletado`; 422 `fora-do-alcance`/`inativo`/`precisao-insuficiente` |
+| `GET /me/xp`, `GET /me/xp/movimentacoes`, `GET /me/pucstops` (JWT) | XP e coletas do próprio usuário | 400; 401; 403 |
 
 503: `{"message": "Mapa indisponível: nenhuma versão ativa.", ...}`. Erros
 seguem o formato padrão do Nest (`message`, `error`, `statusCode`).

@@ -243,6 +243,34 @@
 .announce-list p { margin: 4px 0; color: #5c5678; font-size: .86rem; line-height: 1.45; }
 .announce-list small { color: var(--muted); font-size: .74rem; }
 
+/* PucStops */
+.pucstops-page .dash-header { align-items: flex-start; }
+.pucstops-table tr.inativo td { color: var(--muted); }
+.pucstops-table tr.inativo strong { color: #5c5678; }
+.pucstop-icon { width: 30px; height: 30px; display: grid; flex: none; place-items: center; border-radius: 9px; color: var(--purple); background: #efebff; }
+.pucstops-table tr.inativo .pucstop-icon { color: var(--muted); background: #f2f2f6; }
+.pucstops-table td[data-label="Status"], .pucstops-table td[data-label="XP"], .pucstops-table td[data-label="Raio"] { white-space: nowrap; }
+.pucstop-form { display: grid; gap: 12px; }
+.pucstop-form .field-hint { margin: 0; color: var(--muted); font-size: .76rem; line-height: 1.4; }
+.pucstop-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pucstop-position { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.pucstop-position legend { margin-bottom: 4px; padding: 0; color: var(--ink); font-size: .9rem; font-weight: 800; }
+.pucstop-picker { display: grid; gap: 8px; min-width: 0; }
+.pucstop-map { position: relative; width: 100%; height: 320px; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: #f8f7fd; }
+.pucstop-map-loading { display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--muted); font-size: .84rem; }
+.pucstop-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; color: #5c5678; font-size: .76rem; }
+.pucstop-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.pucstop-legend i { width: 14px; height: 10px; border-radius: 3px; }
+.pucstop-legend .legend-area { border: 2px dashed var(--purple); background: rgba(74, 52, 207, .06); }
+.pucstop-legend .legend-geofence { border: 1.5px solid var(--purple); background: rgba(74, 52, 207, .18); border-radius: 50%; width: 12px; height: 12px; }
+.pucstop-legend .legend-outros { width: 10px; height: 10px; border-radius: 50%; background: #8b7cf0; box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px #d8d3f5; }
+.pucstop-coords { margin: 0; color: #5c5678; font-size: .78rem; }
+.pucstop-coords span { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
+@media (max-width: 620px) {
+  .pucstop-grid { grid-template-columns: 1fr; }
+  .pucstop-map { height: 260px; }
+}
+
 @container (max-width: 760px) {
   .detail-grid { grid-template-columns: 1fr; }
   .detail-grid.is-apadrinhado .detail-side { order: -1; }

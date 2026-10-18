@@ -1,4 +1,5 @@
 import 'package:ajuda_ai/services/mapa_api.dart';
+import 'package:ajuda_ai/services/pucstops_api.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/tela_mapa.dart';
 import 'package:ajuda_ai/widgets/app_bottom_navigation.dart';
@@ -26,6 +27,10 @@ void main() {
     expect(map.remotePlaceRepository, isA<MapaApiPlaceRepository>());
     // Rotas pela mesma API, sem rota local.
     expect(map.routeService, isA<MapaApiRouteService>());
+    // PucStops ligados, pela API, com coleta manual no card.
+    expect(map.config.features.pucStops, isTrue);
+    expect(map.pucStopService, isA<MapaApiPucStopService>());
+    expect(map.onPucStopClaimed, isNotNull);
     expect(find.textContaining('Mapa indisponível'), findsOneWidget);
     expect(find.text('Mapa em breve'), findsNothing);
     final navigation = tester.widget<AppBottomNavigation>(

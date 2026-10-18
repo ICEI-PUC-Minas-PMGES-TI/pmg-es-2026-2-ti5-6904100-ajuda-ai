@@ -54,7 +54,9 @@ A `MapaPage` lê `String.fromEnvironment` no app principal e fornece
   `events`, `canteens` e `diagnostics`. Têm efeito: `enable3d` (padrão `false`;
   a `MapaPage` liga), `vegetation` e `props` (padrão `true`, só valem com
   `enable3d`; servem para rollback/medição sem tocar nos prédios) e
-  `diagnostics` (padrão `false`). Com `enable3d: false`, manifesto 3D não é lido
+  `diagnostics` (padrão `false`), e `pucStops` (padrão `false`; a `MapaPage`
+  liga junto com um `CampusPucStopService`; ver [pucstops.md](pucstops.md)).
+  Com `enable3d: false`, manifesto 3D não é lido
   e nenhuma camada 3D é criada.
 - `CAMPUS_MAP_DIAGNOSTICS`: opcional, padrão `false`. Com `true` a `MapaPage` liga
   `diagnostics`: painel técnico no topo do mapa e logs `[campus3d] diag`. Só para

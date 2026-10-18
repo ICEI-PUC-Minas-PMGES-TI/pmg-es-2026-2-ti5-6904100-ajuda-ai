@@ -2,19 +2,28 @@ import 'package:campus_map/campus_map.dart';
 import 'package:flutter/material.dart';
 
 import 'services/mapa_api.dart';
+import 'services/pucstops_api.dart';
 import 'sessao_usuario.dart';
 import 'tela_perfil.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
 
 class MapaPage extends StatefulWidget {
-  const MapaPage({super.key, this.placeRepository, this.routeService});
+  const MapaPage({
+    super.key,
+    this.placeRepository,
+    this.routeService,
+    this.pucStopService,
+  });
 
   /// Busca remota; padrão: API do Ajuda-aí (`API_BASE_URL`). Testes injetam.
   final CampusPlaceRepository? placeRepository;
 
   /// Rotas a pé; padrão: `POST /mapa/rotas` da mesma API. Testes injetam.
   final CampusRouteService? routeService;
+
+  /// PucStops e coleta; padrão: `/mapa/pucstops` com o JWT da sessão.
+  final CampusPucStopService? pucStopService;
 
   @override
   State<MapaPage> createState() => _MapaPageState();
@@ -26,6 +35,16 @@ class _MapaPageState extends State<MapaPage> {
       widget.placeRepository ?? MapaApiPlaceRepository();
   late final CampusRouteService _routeService =
       widget.routeService ?? MapaApiRouteService();
+  late final CampusPucStopService _pucStopService =
+      widget.pucStopService ??
+      MapaApiPucStopService(accessToken: () => SessaoUsuario.atual.accessToken);
+
+  /// XP do app = total devolvido pelo servidor (nunca somado no cliente).
+  /// O card do mapa já mostra "+XP · total". Som de recompensa: gancho aqui,
+  /// sem asset nesta versão (ver docs/tecnico/mapa/pucstops.md).
+  void _coletou(CampusPucStopClaim coleta) {
+    SessaoUsuario.atual.xp.value = coleta.xpTotal;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,6 +58,7 @@ class _MapaPageState extends State<MapaPage> {
             mapAssetsBaseUrl: String.fromEnvironment('MAP_ASSETS_BASE_URL'),
             features: CampusMapFeatures(
               enable3d: true,
+              pucStops: true,
               // Painel técnico só em build de medição; nunca para usuário comum.
               diagnostics: bool.fromEnvironment('CAMPUS_MAP_DIAGNOSTICS'),
             ),
@@ -47,6 +67,9 @@ class _MapaPageState extends State<MapaPage> {
           remotePlaceRepository: _placeRepository,
           // Sem fallback local: com a API fora, a rota avisa e não desenha.
           routeService: _routeService,
+          // Coleta manual no card; sem geofence em segundo plano.
+          pucStopService: _pucStopService,
+          onPucStopClaimed: _coletou,
         ),
       ),
       bottomNavigationBar: AppBottomNavigation(

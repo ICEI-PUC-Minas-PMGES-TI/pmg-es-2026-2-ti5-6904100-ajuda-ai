@@ -5,14 +5,15 @@ import 'package:flutter/services.dart';
 
 import '../campus_snapshot.dart';
 import 'campus_environment.dart';
+import 'campus_pucstop_model.dart';
 
 enum CampusModelLod { lod0, lod1 }
 
 /// Manifesto dos GLBs do campus. Adaptado de `campus_chunks.json` (PUCMaps):
 /// mantém só o que o renderer usa. Os caminhos são relativos à versão.
 ///
-/// `vegetation` e `props` são opcionais e isolados: uma seção ausente ou
-/// inválida vira `null` e os prédios continuam.
+/// `vegetation`, `props` e `pucstops` são opcionais e isolados: uma seção
+/// ausente ou inválida vira `null` e os prédios continuam.
 class CampusModelManifest {
   CampusModelManifest._({
     required this.version,
@@ -24,6 +25,7 @@ class CampusModelManifest {
     required this.source,
     this.vegetation,
     this.props,
+    this.pucStopModel,
   });
 
   static const schemaVersion = 1;
@@ -123,6 +125,7 @@ class CampusModelManifest {
       ),
       vegetation: _environment(json, 'vegetation', campus),
       props: _environment(json, 'props', campus),
+      pucStopModel: _pucStopModel(json),
     );
   }
 
@@ -135,6 +138,9 @@ class CampusModelManifest {
   final Map<String, dynamic> source;
   final CampusEnvironmentSet? vegetation;
   final CampusEnvironmentSet? props;
+
+  /// Totem dos PucStops (seção `pucstops`); sem ele, só os pontos 2D.
+  final CampusPucStopModel? pucStopModel;
 
   List<String> get buildingIds => [for (final b in buildings) b.id];
 
@@ -149,6 +155,18 @@ class CampusModelManifest {
     } on FormatException catch (error) {
       if (kDebugMode || kProfileMode) {
         debugPrint('[campus3d] $name desativado: ${error.message}');
+      }
+      return null;
+    }
+  }
+
+  static CampusPucStopModel? _pucStopModel(Map<String, dynamic> json) {
+    if (!json.containsKey('pucstops')) return null;
+    try {
+      return CampusPucStopModel.parse(json['pucstops']);
+    } on FormatException catch (error) {
+      if (kDebugMode || kProfileMode) {
+        debugPrint('[campus3d] pucstops desativado: ${error.message}');
       }
       return null;
     }

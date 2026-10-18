@@ -12,6 +12,7 @@ import { AvisosModule } from './avisos/avisos.module.js';
 import { CadastroModule } from './cadastro/cadastro.module.js';
 import { CoordenacaoModule } from './coordenacao/coordenacao.module.js';
 import { FormulariosModule } from './formularios/formularios.module.js';
+import { GamificacaoModule } from './gamificacao/gamificacao.module.js';
 import { MapaModule } from './mapa/mapa.module.js';
 import { ParticipacoesModule } from './participacoes/participacoes.module.js';
 import { ProgramasModule } from './programas/programas.module.js';
@@ -103,6 +104,7 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
     FormulariosModule,
     CoordenacaoModule,
     MapaModule,
+    GamificacaoModule,
   ],
 })
 export class AppModule {}

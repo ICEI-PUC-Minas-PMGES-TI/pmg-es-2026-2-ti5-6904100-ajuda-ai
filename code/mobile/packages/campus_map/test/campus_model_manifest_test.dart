@@ -29,8 +29,8 @@ void main() {
   }
 
   test('manifesto versionado tem os 16 GLBs de prédios e 82 prédios', () {
-    // r2 = mesmos prédios da r1 publicada + vegetação/props (versão imutável).
-    expect(manifest.version, '2026-09-30-r2');
+    // r3 = prédios da r1 + vegetação/props da r2 + totem (versões imutáveis).
+    expect(manifest.version, '2026-09-30-r3');
     expect(manifest.lod0, hasLength(12));
     expect(manifest.lod1, hasLength(4));
     expect(manifest.buildings, hasLength(82));
@@ -59,21 +59,26 @@ void main() {
     }
   });
 
-  test('nenhum asset de debug, PucStop ou override de material', () {
-    final text = source.toLowerCase();
-    for (final banned in [
-      'debug',
-      'nowin',
-      'ss_g',
-      'ind_p',
-      'totem',
-      'pucstop',
-      'materialoverride',
-      'window_emissive',
-    ]) {
-      expect(text, isNot(contains(banned)), reason: banned);
-    }
-  });
+  test(
+    'nenhum asset de debug, PucStop fora da sua seção ou override de material',
+    () {
+      final text = jsonEncode(
+        Map.of(jsonDecode(source) as Map)..remove('pucstops'),
+      ).toLowerCase();
+      for (final banned in [
+        'debug',
+        'nowin',
+        'ss_g',
+        'ind_p',
+        'totem',
+        'pucstop',
+        'materialoverride',
+        'window_emissive',
+      ]) {
+        expect(text, isNot(contains(banned)), reason: banned);
+      }
+    },
+  );
 
   test('ambiente fica fora das listas de prédios', () {
     for (final model in [...manifest.lod0, ...manifest.lod1]) {

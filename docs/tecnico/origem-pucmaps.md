@@ -80,8 +80,8 @@ Não são trazidos para o Ajuda-aí, sem nova justificativa documentada:
 | Eventos | Entidade/módulo do backend de origem | — | Reaproveitar o conceito, leitura inicial | Backend NestJS do Ajuda-aí | PLANEJADO |
 | Cantinas | Entidade/módulo do backend de origem | — | Reaproveitar o conceito, leitura inicial | Backend NestJS do Ajuda-aí | PLANEJADO |
 | Menus/ofertas | Entidade/módulo do backend de origem | — | Reaproveitar o conceito, leitura inicial | Backend NestJS do Ajuda-aí | PLANEJADO |
-| Totens → PucStops | Módulo de totens do backend/cliente de origem | Auditoria de totens do projeto de origem | Reescrever (geofence no servidor, claim idempotente) | Backend + schema `mapa` | PLANEJADO |
-| XP | `user_stats`/`xp_log` do backend de origem | — | Reescrever como domínio central | Backend NestJS do Ajuda-aí | PLANEJADO |
+| Totens → PucStops | Módulo `totem` (API) e `_fallbackTotems` (app) de origem | Auditoria de totens do projeto de origem | Reescrever (geofence no servidor, claim idempotente e transacional) | `mapa.pucstops` + `src/gamificacao/pucstops` + `campus_map` | IMPLEMENTADO (Tarefa 10); Supabase pendente |
+| XP | `user_stats`/`xp_log` do backend de origem | — | Reescrever como domínio central (carteira global + ledger) | Schema `gamificacao` + `src/gamificacao` | IMPLEMENTADO (Tarefa 10); Supabase pendente |
 | Admin (geral) | Aplicação Angular de origem | — | Reescrever caso a caso | Coordenação React do Ajuda-aí / scripts | PLANEJADO (ver `mapa/administracao.md`) |
 | Diagnóstico 3D | `campus_3d_diagnostics.dart` | `docs/campus-3d-validacao.md` do projeto de origem | Adaptar atrás de `CampusMapFeatures.diagnostics` (sem A/B de debug) | `three_d/campus_3d_diagnostics.dart` | IMPLEMENTADO; MEDIDO NO EMULADOR |
 | Visualizador de grafo | Ferramenta do admin Angular de origem | — | Adaptar/recriar como debug ou figura de documentação | A decidir (ver `mapa/administracao.md`) | AINDA AVALIAR |
@@ -160,8 +160,8 @@ Registradas aqui para não se perderem, sem repetir dados sensíveis:
 | `campus_chunks.json` | ADAPTAR | `assets/data/campus_models.json` + Azure `manifests/` | Só campos usados; sha256/bytes por GLB |
 | `assets/campus/lod0/*.glb`, `lod1/*.glb` | MIGRAR | Azure `map-assets` | Binários idênticos (sha256 verificado) |
 | `assets/campus/debug/*.glb`, `torre_Pucstop.glb` (raiz) | DESCARTAR | — | Debug/órfão |
-| `campus_vegetation_controller.dart`, `campus_props_controller.dart` | MIGRAR DEPOIS | — | Fase própria |
-| `totens/torre_pucstop.glb`, `audio/*` | MIGRAR DEPOIS | — | Fase PucStops |
+| `campus_vegetation_controller.dart`, `campus_props_controller.dart` | MIGRAR DEPOIS | — | Fase própria (Tarefa 5) |
+| `totens/torre_pucstop.glb`, `audio/*` | MIGRAR DEPOIS | — | Fase PucStops (Tarefa 10, abaixo) |
 | `campus_3d_diagnostics.dart` | MIGRAR DEPOIS | — | Atrás de flag de diagnóstico |
 | Picking (`pickLogical`, `pickWithTapLayer`) | NÃO PORTAR AGORA | — | Reavaliar em fase própria |
 | Janelas acesas / `materialOverrideNames` | NÃO PORTAR AGORA | — | Iluminação futura |
@@ -184,6 +184,21 @@ externo (`place_trees.py`, `place_cars.py`, `build_*.py`, só leitura).
 | A/B de debug do painel (cores, sombras, luz, variantes, GLB individual, trace, culling) | DESCARTAR | — | Dependiam de assets de debug ou de iluminação |
 | `debug/*.glb`, `torre_Pucstop.glb` (raiz) | DESCARTAR | — | Já descartados na Tarefa 4 |
 | `totens/torre_pucstop.glb`, `audio/*` | MIGRAR DEPOIS | — | Fase PucStops |
+
+### Arquivos utilizados na migração de PucStops e XP (Tarefa 10)
+
+Auditados no repositório de origem (commit `776e113`), somente leitura.
+
+| Origem (PUCMaps) | Decisão | Destino no Ajuda-aí | Observação |
+|---|---|---|---|
+| `totem_remote_datasource.dart` (`_fallbackTotems`, 11 totens) | DESCARTAR | — (snapshot e exportador removidos em 17/10/2026) | Única lista concreta (banco sem totens); nomes/posições inconsistentes: só referência histórica ([mapa/pucstops.md](mapa/pucstops.md)) |
+| Migration `AddTotemAndGamification` (`totems`, `totem_claims`, `user_stats`, `xp_log`) | REESCREVER | migration `PucStopsEXpGlobal` | Mantidos limites (raio 10..500, XP 1..1000) e coleta única; sem `user_stats`/`xp_log` |
+| `claim-totem.use-case.ts`, `totem.controller.ts` | REESCREVER | `src/gamificacao/pucstops/` | Geofence no servidor, transação única, 409 em vez de 500, JWT do Ajuda-aí |
+| `totems_viewmodel.dart` (proximidade no cliente) | DESCARTAR | — | Distância no app só como dica; decisão no servidor |
+| `map_renderer.dart` (camadas `totem-*`, ModelLayer, escala/giro) | ADAPTAR | `campus_pucstop_layer.dart` | Cores e zoom do totem preservados; sem modo foco/giro arrastado |
+| `totens/torre_pucstop.glb` | MIGRAR | Azure `r3/models/pucstops/` | Binário idêntico (sha256) |
+| `audio/totem_spin.wav`, `audio/totem_finish.mp3` | ADIAR | — | Sem giro; som final sem origem/licença confirmada (ver `mapa/pucstops.md#som`) |
+| `gamification` (nível `floor(xp/100)+1`) | NÃO PORTAR | — | Sem regra de nível no Ajuda-aí |
 
 ### Arquivos utilizados na migração do banco geográfico (Tarefa 7)
 
@@ -210,6 +225,9 @@ PUCMaps (container `pucmaps-postgres`, somente leitura).
 | 2026-10-17 (Tarefa 4) | GLBs de prédios saem do Git/APK: versão imutável `2026-09-30-r1` no Azure `map-assets`, manifesto no package; LOD0/LOD1/LOD2 portados; vegetação, props, PucStops e picking adiados | [assets-pipeline.md](mapa/assets-pipeline.md), [renderizacao-3d.md](mapa/renderizacao-3d.md) |
 | 2026-10-17 (Tarefa 7) | Baseline de `feed`, PostGIS/unaccent em `extensions`, schema `mapa` com 6 tabelas; versão `pucmaps-12` importada por importador idempotente no banco local e, após preflight somente leitura e backup validado, no Supabase | [banco/migrations.md](banco/migrations.md), [mapa/dados-geo.md](mapa/dados-geo.md), [ADR-0005](decisoes/ADR-0005-schema-mapa-postgis.md) |
 | 2026-10-17 (Tarefa 5) | Vegetação, área esportiva e carros migrados como seções do manifesto na nova versão imutável `2026-09-30-r2` (r1 preservada); diagnóstico 3D atrás de flag; debug, totem e variantes descartados | [assets-pipeline.md](mapa/assets-pipeline.md), [renderizacao-3d.md](mapa/renderizacao-3d.md) |
+| 2026-10-18 (Tarefa 10) | Migration `PucStopsEXpGlobal` aplicada no Supabase (backup validado, zero PucStops, nenhuma importação de legado); banco local alinhado | [banco/migrations.md](banco/migrations.md#aplicação-no-supabase-18102026) |
+| 2026-10-17 (Tarefa 10, revisão) | Totens do PUCMaps descartados como dados de produção (só referência histórica); PucStops passam a ser cadastrados pela coordenação (CRUD com seletor no mapa), id UUID, sem `versao_id`; totem r3 mantido | [mapa/pucstops.md](mapa/pucstops.md#regra-atual-cadastro-pela-coordenação) |
+| 2026-10-17 (Tarefa 10) | XP global por usuário (ledger + carteira, schema `gamificacao`); PucStops em `mapa.pucstops` com geofence PostGIS no servidor e coleta única transacional; totem na versão imutável `2026-09-30-r3` (r2 preservada); áudio adiado; migration não aplicada no Supabase | [mapa/pucstops.md](mapa/pucstops.md), [gamificacao/xp.md](gamificacao/xp.md), [banco/migrations.md](banco/migrations.md#pucstops-e-xp-tarefa-10) |
 
 Decisões futuras devem ser adicionadas a esta tabela à medida que forem tomadas, com uma referência ao commit, PR ou documento que as registra.
 

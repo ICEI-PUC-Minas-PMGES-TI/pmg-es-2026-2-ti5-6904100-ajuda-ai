@@ -14,7 +14,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ResgatarPage), findsOneWidget);
-    expect(find.text('1.430 XP'), findsOneWidget);
+    // Saldo real (sem login no teste: 0), não mais o exemplo fixo 1.430.
+    expect(find.text('0 XP'), findsOneWidget);
     expect(find.text('Nenhum item disponível ainda'), findsOneWidget);
   });
 
