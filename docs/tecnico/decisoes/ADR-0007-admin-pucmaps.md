@@ -1,31 +1,27 @@
-# ADR-0007 — Admin do PUCMaps
+# ADR-0007 — Administração integrada à coordenação
 
-> Estado: ACEITO E IMPLEMENTADO (inventário fechado na Tarefa 11; PucStops,
-> eventos e restaurantes/cardápios reimplementados no React da coordenação;
-> ver [mapa/administracao.md](../mapa/administracao.md))
+Estado: aceito.
 
 ## Contexto
 
-O PUCMaps possui uma aplicação administrativa separada, em Angular, usada para gerenciar versões do mapa, prédios, áreas, rotas, eventos, cantinas e totens, incluindo ferramentas de diagnóstico como um visualizador de grafo e um editor/preview de estilo de mapa.
-
-O Ajuda-aí já possui sua própria interface de coordenação, em React, com autenticação e navegação próprias, usada pela coordenação do programa de apadrinhamento.
-
-Manter duas aplicações administrativas (Angular para o mapa, React para o programa de apadrinhamento) duplicaria autenticação, infraestrutura de frontend e experiência de uso para quem administra o sistema.
+O PUCMaps possui admin Angular próprio. O Ajuda-aí usa React para a coordenação,
+com identidade e navegação compartilhadas com o programa de apadrinhamento.
+Dois painéis duplicariam autenticação, operação e experiência administrativa.
 
 ## Decisão
 
-- A aplicação Angular do PUCMaps, **como aplicação**, não é migrada para o Ajuda-aí.
-- Isso **não significa descartar as funcionalidades administrativas úteis** que ela oferece. Cada funcionalidade é inventariada individualmente (ver [mapa/administracao.md](../mapa/administracao.md)) e classificada em uma das opções:
-  - **Reimplementar no React da coordenação** — quando a funcionalidade tem valor de produto para quem administra o Ajuda-aí (ex.: gerenciar versões do mapa, cadastrar prédios/áreas).
-  - **Backend/script administrativo** — quando uma tela dedicada não agrega valor e a operação pode ser feita por um script ou endpoint administrativo simples (ex.: forçar o processamento de uma versão).
-  - **Manter apenas como diagnóstico** — quando a ferramenta é útil para depuração técnica, mas não é uma funcionalidade de produto (ex.: visualizador de grafo).
-  - **Descartar** — quando a funcionalidade depende de infraestrutura que não será trazida (ex.: pipeline de tiles raster) e não tem substituto necessário.
-  - **Ainda avaliar** — quando a classificação depende de uma decisão de produto ainda não tomada.
-- O backend que sustenta essas funcionalidades passa a ser o NestJS do Ajuda-aí, não um backend separado do PUCMaps.
+- Administração de conteúdo do campus na coordenação React do Ajuda-aí,
+  sustentada pela API NestJS e seus guards.
+- Dados geográficos e assets publicados por scripts versionados, sem depender
+  do pipeline assíncrono, editor de estilo ou serviços do admin de origem.
+- Inspeção do grafo como ferramenta de engenharia regenerável, fora do runtime.
+- Não incorporar o aplicativo Angular nem seu modelo de autenticação.
 
 ## Consequências
 
-- Uma única experiência de administração/coordenação, com uma única autenticação.
-- Menos tecnologia duplicada (não é necessário manter Angular no projeto).
-- Algumas telas precisarão ser reconstruídas no React, o que é trabalho real e deve ser planejado, não assumido como trivial.
-- O inventário em [mapa/administracao.md](../mapa/administracao.md) é o documento vivo que acompanha essa decisão; nenhuma funcionalidade deve ser perdida silenciosamente só porque a implementação original era em Angular.
+PucStops, eventos, restaurantes e cardápios usam as mesmas permissões do restante
+da coordenação. Geografia é alterada por nova versão de snapshot, não por CRUD
+avulso. Uma nova necessidade administrativa deve ser avaliada pelo valor para
+o Ajuda-aí, sem obrigação de reproduzir telas da origem.
+
+[Responsabilidades e operações](../mapa/administracao.md).

@@ -54,7 +54,7 @@ function exigirData(valor: string, campo: string): Date {
  * recebe credencial nem SAS. Consistência banco ↔ blob:
  *
  * - envio: grava o blob (`If-None-Match: *`, nome único), depois a linha; se a
- *   linha falhar, apaga o blob (nada órfão);
+ *   linha falhar, tenta apagar o blob e registra falhas de compensação;
  * - remoção: apaga o blob, depois a linha (se o Azure falhar, a linha fica e
  *   continua apontando para um arquivo que existe);
  * - substituição: grava o novo e só então remove o antigo.

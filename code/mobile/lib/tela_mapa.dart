@@ -63,8 +63,6 @@ class _MapaPageState extends State<MapaPage> {
   }
 
   /// XP do app = total devolvido pelo servidor (nunca somado no cliente).
-  /// O card do mapa já mostra "+XP · total". Som de recompensa: gancho aqui,
-  /// sem asset nesta versão (ver docs/tecnico/mapa/pucstops.md).
   void _coletou(CampusPucStopClaim coleta) {
     SessaoUsuario.atual.xp.value = coleta.xpTotal;
   }
@@ -82,7 +80,6 @@ class _MapaPageState extends State<MapaPage> {
             features: CampusMapFeatures(
               enable3d: true,
               pucStops: true,
-              // Eventos ativos e "Onde comer" (restaurantes + cardápio).
               events: true,
               canteens: true,
               // Painel técnico só em build de medição; nunca para usuário comum.

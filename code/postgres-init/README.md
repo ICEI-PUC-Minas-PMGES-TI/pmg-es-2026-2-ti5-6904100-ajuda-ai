@@ -6,4 +6,4 @@ script da imagem `postgis/postgis` (que, num volume novo, instalaria `postgis`,
 
 Fica vazia de propósito: o PostgreSQL ignora este README. O PostGIS e o
 `unaccent` são instalados pela migration `HabilitaPostgisESchemaMapa`, no schema
-`extensions`, igual ao Supabase. Ver `docs/tecnico/banco/migrations.md`.
+`extensions`. Ver [banco e migrations](../../docs/tecnico/banco/migrations.md).

@@ -3,9 +3,10 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryFailedError } from 'typeorm';
 import { SCHEMA_MAPA, SRID, schemaPostgis } from '../../mapa/postgis.js';
 import {
   ehViolacaoUnica,
@@ -145,13 +146,23 @@ export class PucStopsService {
     await qr.startTransaction();
     try {
       const usuario = `${geo}.ST_SetSRID(${geo}.ST_MakePoint($2, $3), ${SRID})::${geo}.geography`;
-      const [p] = (await qr.query(
-        `SELECT "id", "nome", "xp", "raio_metros", "ativo", ` +
-          `${geo}.ST_Distance("localizacao"::${geo}.geography, ${usuario}) AS distancia, ` +
-          `${geo}.ST_DWithin("localizacao"::${geo}.geography, ${usuario}, "raio_metros" + $4) AS dentro ` +
-          `FROM ${m}."pucstops" WHERE "id" = $1 FOR SHARE`,
-        [id, leitura.longitude, leitura.latitude, MARGEM_TECNICA_METROS],
-      )) as Array<{
+      const [p] = (await qr
+        .query(
+          `SELECT "id", "nome", "xp", "raio_metros", "ativo", ` +
+            `${geo}.ST_Distance("localizacao"::${geo}.geography, ${usuario}) AS distancia, ` +
+            `${geo}.ST_DWithin("localizacao"::${geo}.geography, ${usuario}, "raio_metros" + $4) AS dentro ` +
+            `FROM ${m}."pucstops" WHERE "id" = $1 FOR SHARE`,
+          [id, leitura.longitude, leitura.latitude, MARGEM_TECNICA_METROS],
+        )
+        .catch((erro: unknown) => {
+          // QueryFailedError carrega SQL e parâmetros (a posição do usuário).
+          // Não o repassar ao logger padrão de exceções do Nest, nem como cause.
+          if (!(erro instanceof QueryFailedError)) throw erro;
+          this.logger.warn('Consulta de geofence indisponível.');
+          throw new ServiceUnavailableException(
+            'Não foi possível validar a localização agora. Tente novamente.',
+          );
+        })) as Array<{
         id: string;
         nome: string;
         xp: number;

@@ -1,5 +1,5 @@
 /**
- * Eventos, restaurantes e cardápios (Tarefa 11) contra PostgreSQL/PostGIS
+ * Eventos, restaurantes e cardápios contra PostgreSQL/PostGIS
  * REAL, com a versão `pucmaps-12` ativa. Pulado sem MAPA_TEST_DB_URL (mesmo
  * procedimento de test/mapa-banco.integration.spec.ts; bancos `campus_*`
  * apagados ao fim). O Azure é substituído por um armazenamento em memória

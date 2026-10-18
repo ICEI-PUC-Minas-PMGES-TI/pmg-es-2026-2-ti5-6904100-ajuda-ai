@@ -139,14 +139,15 @@ export function calcularRota(
     throw new RotaImpossivel('mesmo-local', 'Você já está no destino.');
   }
   const direta = mesmaAresta(origem, destino);
-  if (direta) return direta;
   const caminho = menorCaminho({
     grafo,
     origens: new Map([...origem.nos].map(([no, v]) => [no, v.custo])),
     destinos: new Set(destino.nos.keys()),
+    custosFinais: new Map([...destino.nos].map(([no, v]) => [no, v.custo])),
     acessivel: pedido.acessivel,
   });
   if (!caminho) {
+    if (direta) return direta;
     throw new RotaImpossivel(
       'sem-caminho',
       pedido.acessivel
@@ -155,6 +156,18 @@ export function calcularRota(
     );
   }
   const final = destino.nos.get(caminho.destino)!;
+  // Mesmo na mesma aresta pode existir um desvio mais rápido. Compare o
+  // tempo completo (e a distância no empate), como em qualquer outra rota.
+  const tempo = caminho.tempo + final.custo.tempo;
+  const distancia = caminho.distancia + final.custo.distancia;
+  if (
+    direta &&
+    (direta.tempo < tempo - 1e-9 ||
+      (Math.abs(direta.tempo - tempo) <= 1e-9 &&
+        direta.distancia <= distancia + 1e-9))
+  ) {
+    return direta;
+  }
   const geometria = montarGeometria(
     origem.nos.get(caminho.origem)!.trecho,
     caminho,
@@ -166,8 +179,8 @@ export function calcularRota(
   return {
     origem: origem.ponta,
     destino: destino.ponta,
-    distancia: caminho.distancia + final.custo.distancia,
-    tempo: caminho.tempo + final.custo.tempo,
+    distancia,
+    tempo,
     geometria,
     nos: caminho.nos.length,
     arestas: caminho.arestas.length,

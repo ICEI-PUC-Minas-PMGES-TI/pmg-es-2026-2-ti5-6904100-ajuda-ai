@@ -11,8 +11,7 @@ import 'campus_model_manifest.dart';
 
 /// Medições técnicas do campus 3D. Só existe com
 /// `CampusMapFeatures.diagnostics`; adaptado de `campus_3d_diagnostics.dart`
-/// do PUCMaps sem os A/B de debug (cores, variantes, luz, sombras, GLBs
-/// individuais), que dependiam de assets descartados.
+/// do PUCMaps.
 ///
 /// Origem de cada número (ver docs/tecnico/mapa/renderizacao-3d.md):
 /// * MEDIDO pelo Mapbox (`PerformanceStatistics`, API experimental): draw
@@ -292,8 +291,7 @@ class Campus3dDiagnostics implements PerformanceStatisticsListener {
     }
   }
 
-  /// Mesmo teste para os GLBs de prédios (LOD1 + chunks LOD0 pedidos): o
-  /// gargalo histórico de draw calls do PUCMaps.
+  /// Mesmo teste para os GLBs de prédios (LOD1 + chunks LOD0 pedidos).
   Future<void> buildingsAB() => _ab2('prédios GLB', (visible) async {
     final b = buildings;
     final map = _map;

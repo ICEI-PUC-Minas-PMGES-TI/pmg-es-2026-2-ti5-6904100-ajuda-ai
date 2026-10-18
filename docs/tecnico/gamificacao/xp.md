@@ -1,72 +1,61 @@
 # XP — gamificação central
 
-> Estado: ATUAL (Tarefa 10). XP global por usuário, com ledger auditável.
-> Migration **aplicada no Supabase em 18/10/2026** (tabelas vazias; ver
-> [banco/migrations.md](../banco/migrations.md#aplicação-no-supabase-18102026)).
+XP é global por `usuarios.id`, independente do ciclo de apadrinhamento.
+O ledger é a fonte de verdade; a carteira materializa seu saldo.
+[Decisão arquitetural](../decisoes/ADR-0002-xp-central.md).
 
-## Auditoria do que existia
+## Modelo e invariantes
 
-- **Ajuda-aí**: nenhum backend de XP. Só valores de exemplo: `_xpAtual = 1430`
-  na home do app e campos `xp`/`meta`/`nivel` na base demo (`dados/dados.ts`,
-  usados só na exibição do coordenador mockado). Nenhuma loja/recompensa no
-  backend; a tela "Resgatar" do app é estática (sem itens).
-- **PUCMaps**: `user_stats` (total + nível `floor(xp/100)+1`) e `xp_log`, sem
-  FK para usuário e sem transação com o claim. Não portados (ADR-0002).
+O schema `gamificacao` é mantido por migrations, sem entidades registradas
+para `synchronize`:
 
-## Modelo
+- `xp_movimentacoes`: evento, quantidade, tipo, referência, descrição,
+  chave de idempotência única e saldo após o evento.
+  Quantidade não pode ser zero; coleta de PucStop sempre credita valor positivo.
+- `xp_carteiras`: uma linha por usuário, saldo não negativo e ponto de trava.
+- `pucstop_coletas`: usuário, PucStop, data, XP concedido e movimentação.
+  Única por usuário/PucStop e por movimentação, sem coordenada.
 
-XP é **global por usuário** (`usuarios.id`), não por `participacoes`: o mapa e
-os PucStops existem fora de um ciclo do programa.
+Ledger e coletas aceitam somente inserção; triggers recusam
+UPDATE/DELETE/TRUNCATE. FKs usam `RESTRICT`, sem cascata.
+Correções de XP geram nova movimentação, nunca edição de registro anterior.
 
-Schema próprio `gamificacao` (fora de `feed` e de `mapa`), só SQL (sem
-entidades TypeORM, então o `synchronize` local nunca cria/altera essas
-tabelas):
+`registrarMovimentacao`, em `src/gamificacao/gamificacao.ts`, exige
+transação aberta pelo chamador. Trava a carteira com `FOR UPDATE`, grava
+ledger com `saldo_apos` e atualiza o saldo na mesma transação.
+A invariante é `saldo = sum(quantidade)`, inclusive sob concorrência.
 
-| Tabela | Papel | Restrições |
-|---|---|---|
-| `xp_movimentacoes` | **Ledger, fonte de verdade.** Uma linha por evento: `usuario_id`, `quantidade`, `tipo`, `referencia_tipo`/`referencia_id`, `descricao`, `chave_idempotencia`, `saldo_apos`, `criado_em` | `quantidade <> 0`; `tipo IN ('PUCSTOP_CLAIM','RECOMPENSA','AJUSTE_ADMIN')`; `PUCSTOP_CLAIM` só positivo; referência toda ou nada; `UNIQUE (chave_idempotencia)`; FK `usuarios` RESTRICT; **somente inserção** (trigger recusa UPDATE/DELETE/TRUNCATE) |
-| `xp_carteiras` | Saldo materializado (= soma do ledger) e ponto de trava por usuário | PK `usuario_id`; `saldo >= 0`; FK RESTRICT |
-| `pucstop_coletas` | Coleta de PucStop (PucStop + usuário + data + movimentação) | `UNIQUE (usuario_id, pucstop_id)`; `UNIQUE (movimentacao_id)`; FKs RESTRICT; somente inserção; **sem coordenada** |
+## Identidade e integração
 
-- **Débito futuro** (troca por item): o ledger aceita quantidade negativa
-  (`RECOMPENSA`), e o saldo nunca fica negativo (CHECK + `SaldoInsuficienteError`
-  na função de registro). A loja **não** foi implementada.
-- **Consistência**: toda movimentação passa por `registrarMovimentacao`
-  (`src/gamificacao/gamificacao.ts`), que trava a carteira (`FOR UPDATE`), grava
-  o ledger com `saldo_apos` e atualiza o saldo na mesma transação do chamador.
-  Testado: `saldo == sum(quantidade)` para todos os usuários, `saldo_apos` em
-  sequência mesmo com coletas simultâneas.
-- **Correção de XP**: nova movimentação (`AJUSTE_ADMIN`), nunca edição.
-- **Níveis**: não implementados (o Ajuda-aí ainda não tem regra; a do PUCMaps
-  não foi adotada). A barra da home usa uma meta visual fixa.
+Usuário vem do `sub` do JWT com e-mail conferido no cadastro.
+Não usar e-mail como FK, ID do PUCMaps ou identidade enviada no corpo.
+A conferência impede que IDs da base demo sejam confundidos com usuários reais.
 
-## Identidade
+PucStops usam a mesma transação para coleta e crédito.
+Editar o XP de um ponto afeta só novas coletas:
+[regras de PucStops](../mapa/pucstops.md).
 
-- Usuário = JWT `sub` → `usuarios.id`; o e-mail do token precisa ser o da
-  linha. Isso barra o coordenador mockado, que assina `sub` = id da base demo
-  (`"3"`) — no banco, `usuarios.id = 3` é outra pessoa. Sem cadastro → 403.
-- Nunca e-mail como FK, nunca id do PUCMaps, nunca usuário vindo do corpo.
+## API e app
 
-## Endpoints
+- `GET /me/xp`: `{saldo, atualizadoEm}`; sem movimentação, 0/null.
+  Leitura não cria carteira.
+- `GET /me/xp/movimentacoes?limite=1..100&antes=<id>`: histórico do próprio
+  usuário, mais recente primeiro, com paginação por cursor.
 
-| Rota | Auth | Resposta |
-|---|---|---|
-| `GET /me/xp` | JWT | `{ saldo, atualizadoEm }` (0/null sem movimentação; leitura não cria carteira) |
-| `GET /me/xp/movimentacoes?limite=1..100&antes=<id>` | JWT | movimentações do próprio usuário, mais recente primeiro, paginadas por cursor |
+Ambos exigem JWT. O app guarda o saldo em `SessaoUsuario.xp`,
+lê da API e substitui pelo `xpTotal` devolvido por uma coleta; nunca o calcula
+somando recompensas no cliente.
 
-Origem de XP hoje: só PucStops cadastrados pela coordenação ([mapa/pucstops.md](../mapa/pucstops.md)). Editar o XP de um PucStop vale só para novas coletas: movimentações antigas nunca são recalculadas.
+Níveis, meta visual da home e loja não se deduzem do ledger; não há regra de nível
+herdada automaticamente da origem.
 
-## App
+## Extensão
 
-- `SessaoUsuario.xp` (`ValueNotifier<int?>`), lido de `GET /me/xp`
-  (`XpApi`) e atualizado com o `xpTotal` devolvido por uma coleta (o cliente
-  nunca soma XP).
-- Perfil: indicador "★ N XP" para qualquer aluno com sessão (some sem sessão
-  ou para a coordenação). Home (participante ativo): o card "Seus pontos" e a
-  tela "Resgatar" usam o saldo real em vez do 1.430 fixo.
+Novas origens de XP usam `registrarMovimentacao`, referência e chave de
+idempotência próprias. Os tipos aceitos têm CHECK em migration; ampliar esse
+conjunto exige mudança explícita de estrutura. O ledger admite débitos tipados,
+mas isso não implementa por si só uma loja ou fluxo de recompensa.
 
-## Integração futura
-
-Qualquer outra funcionalidade que conceda ou debite XP usa
-`registrarMovimentacao` com um `tipo` novo (exige migration para a CHECK) e uma
-`chave_idempotencia` própria do evento.
+Concorrência e consistência são verificadas em
+`test/pucstops-xp.integration.spec.ts`; validações unitárias ficam em
+`src/gamificacao/gamificacao.spec.ts`.

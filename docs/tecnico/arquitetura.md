@@ -1,102 +1,51 @@
 # Arquitetura técnica
 
-> Estado: ATUAL (seção "Arquitetura atual") + PLANEJADO (seção "Arquitetura-alvo da integração")
-
-## Arquitetura atual
-
-Confirmado em código nesta branch (`feat/integracao-mapa`).
-
-### Backend — `code/back/api`
-
-- NestJS 12, projeto ESM (`"type": "module"`, imports terminam em `.js`).
-- TypeORM ^1.x com `@nestjs/typeorm`, driver `pg`.
-- Banco: PostgreSQL via Supabase, schema padrão `feed` (`DB_SCHEMA`) e schema
-  `mapa` com PostGIS (Tarefa 7; aplicado no banco local e no Supabase).
-- `DB_SYNCHRONIZE` é controlado por `src/config/seguranca.ts`, que só permite `synchronize`/seed de demo em host local e fora de produção.
-- Migrations: baseline de `feed` (reconhece bancos criados por `synchronize`),
-  a incremental `UsuariosERequisitosPadrinho`, PostGIS/`unaccent` + schema
-  `mapa` e tabelas de `mapa`. Ver [banco/migrations.md](banco/migrations.md).
-- Domínio de mapa: `MapaModule` (`src/mapa/`) com API pública de leitura
-  (`/mapa/versao`, `/mapa/predios`, `/mapa/areas`, `/mapa/salas`,
-  `/mapa/busca`; ver [mapa/api.md](mapa/api.md)) e rotas sob demanda
-  (`POST /mapa/rotas`, `src/mapa/rotas/`: grafo da versão ativa em memória e
-  Dijkstra; ver [mapa/rotas.md](mapa/rotas.md)), entidades em
-  `src/mapa/entities` e importador em `src/mapa/importacao`
-  (`npm run mapa:importar`). TypeORM runtime com `installExtensions: false`.
-- Autenticação: login Microsoft (Entra ID) verificado por JWKS remoto (`jose`), mais um modo demo controlado por `AUTH_DEMO_ENABLED`. Token da aplicação é JWT HS256 de 1 hora, sem refresh.
-- Armazenamento de arquivos: Azure Blob Storage (`@azure/storage-blob`), com containers públicos (`map-assets`, `restaurant-menus`) e privados (`profiles`, `feed`, `chat`). Cardápios (imagem/PDF) entram no `restaurant-menus` por upload mediado pelo backend (sem SAS no front).
-- Conteúdo do campus (`src/campus`, Tarefa 11): eventos, restaurantes e cardápios no schema `mapa`, leitura pública em `/mapa/eventos` e `/mapa/restaurantes`, CRUD em `/coordenacao/...` ([mapa/eventos-cantinas.md](mapa/eventos-cantinas.md)).
-- Testes: Vitest + Supertest.
-
-### Mobile — `code/mobile`
-
-- Flutter, pacote `ajuda_ai`, `applicationId br.pucminas.ajuda_ai`.
-- SDK mínimo `^3.13.0` / Flutter `>=3.47.0`.
-- Sem gerenciador de estado dedicado (singleton + `ValueNotifier`), sem roteador dedicado (`Navigator`/`MaterialPageRoute` imperativos).
-- Sessão (`lib/sessao_usuario.dart`) é mantida **somente em memória**; não há persistência local nem renovação automática de token.
-- Plataformas presentes no repositório: Android e Web. Não existe pasta `ios/`.
-- Aba "Mapa" já existe na navegação (`lib/tela_mapa.dart`), hoje como placeholder ("Mapa em breve").
-
-### Web — `code/front`
-
-- React 19 + React Router 7 + Vite 7.
-- Sem biblioteca de mapa.
-
-### Infraestrutura local
-
-- `code/docker-compose.yml` sobe `postgis/postgis:16-3.5-alpine` (PostgreSQL
-  16 + PostGIS 3.5), com `search_path` igual ao do Supabase e sem o init
-  automático de extensões da imagem (`code/postgres-init/`).
-
-## Papel do Mapbox
-
-Mapbox é o motor de renderização de mapa escolhido para a integração (decisão herdada do PUCMaps, mantida). O token de acesso e a URL do estilo devem ser fornecidos por configuração externa (`--dart-define`), nunca hardcoded, e a atribuição/logo do Mapbox deve ser mantida conforme os termos de uso. Ver [ADR-0004](decisoes/ADR-0004-campus-map-package.md) e [mapa/setup-mobile.md](mapa/setup-mobile.md).
-
-## Arquitetura-alvo da integração (PLANEJADO)
+O Ajuda-aí reúne os domínios do programa de apadrinhamento e do campus em uma
+API NestJS. Identidade e sessão pertencem ao aplicativo principal; o mapa é um
+pacote Flutter interno e usa serviços injetados pelo app. A coordenação usa React.
 
 ```mermaid
-flowchart TB
-    subgraph Mobile[Flutter Ajuda-aí]
-        App[App principal]
-        Pkg[pacote campus_map]
-        App --> Pkg
-    end
-
-    subgraph Backend[NestJS Ajuda-aí]
-        Core[Módulos atuais\nauth, usuarios, participacoes, ...]
-        MapaMod[Módulo mapa\nATUAL: leitura, busca\ne rotas sob demanda]
-        XPMod[Módulo gamificacao\nATUAL: XP global, ledger,\nPucStops e claim]
-    end
-
-    subgraph DB[PostgreSQL / Supabase]
-        FeedSchema[(schema feed\nATUAL)]
-        MapaSchema[(schema mapa\nATUAL: tabelas + dados\ncom PostGIS + pucstops)]
-        GamSchema[(schema gamificacao\nATUAL: carteiras, ledger,\ncoletas)]
-    end
-
-    Azure[(Azure Blob Storage)]
-    MapboxSvc[Mapbox\nrenderização/estilo]
-
-    Pkg -- "token do Ajuda-aí\n(accessTokenProvider)" --> MapaMod
-    Pkg -- "estilo/tiles" --> MapboxSvc
-    Core --> FeedSchema
-    MapaMod --> MapaSchema
-    XPMod --> MapaSchema
-    XPMod --> GamSchema
-    GamSchema -. "FK usuarios.id" .-> FeedSchema
-    MapaMod -. "assets GLB (evolução futura)" .-> Azure
+flowchart LR
+    App[Flutter Ajuda-aí] --> Pkg[campus_map]
+    App -->|HTTP e JWT da sessão| API[API NestJS]
+    Pkg -->|contratos injetados| App
+    Coord[Coordenação React] -->|HTTP e JWT| API
+    API --> Feed[(feed: usuários e programa)]
+    API --> Mapa[(mapa: geografia e conteúdo)]
+    API --> XP[(gamificacao: carteira e ledger)]
+    API -->|upload de cardápios| Menus[Azure restaurant-menus]
+    Pkg -->|HTTPS público| Assets[Azure map-assets]
+    Pkg --> Mapbox[Mapbox: estilo e basemap]
 ```
 
-Pontos confirmados desta arquitetura-alvo:
+## Responsabilidades
 
-- O pacote `campus_map` não tem login próprio; recebe um `accessTokenProvider` do app principal. Ver [ADR-0001](decisoes/ADR-0001-identidade-central.md).
-- O módulo de mapa no backend é novo, dentro do mesmo NestJS — não há um segundo backend. Ver [ADR-0004](decisoes/ADR-0004-campus-map-package.md) e [origem-pucmaps.md](origem-pucmaps.md).
-- O schema `mapa` e o PostGIS existem (Tarefa 7) e o `MapaModule` os expõe: leitura e busca (Tarefa 8) e rotas calculadas em memória, sem pgRouting (Tarefa 9). Ver [ADR-0005](decisoes/ADR-0005-schema-mapa-postgis.md), [ADR-0003](decisoes/ADR-0003-rotas-sob-demanda.md) e [banco/migrations.md](banco/migrations.md).
-- XP é central e novo, não uma migração do `user_stats`/`xp_log` do PUCMaps: carteira global por `usuarios.id` e ledger no schema `gamificacao`; PucStops em `mapa.pucstops`, coletados com geofence PostGIS no servidor (Tarefa 10). Ver [ADR-0002](decisoes/ADR-0002-xp-central.md), [gamificacao/xp.md](gamificacao/xp.md) e [mapa/pucstops.md](mapa/pucstops.md).
-- Os GLBs ficam embutidos no pacote inicialmente; o Azure `map-assets` é evolução futura. Ver [ADR-0006](decisoes/ADR-0006-assets-3d.md).
+- **Flutter:** `MapaPage` conecta navegação, sessão e adaptadores HTTP do app
+  aos contratos de `campus_map`. O pacote contém renderer, interação e modelos,
+  sem login, URL de API ou cliente HTTP próprios.
+- **NestJS:** `MapaModule` lê a versão geográfica ativa e calcula rotas em
+  memória; `CampusModule` administra eventos, restaurantes e cardápios;
+  `GamificacaoModule` concentra XP e coleta de PucStops.
+- **PostgreSQL/PostGIS:** `feed` é o schema padrão configurável por
+  `DB_SCHEMA`; `mapa` e `gamificacao` têm migrations próprias. Os serviços
+  desses domínios usam SQL parametrizado; suas entidades geográficas não são
+  registradas no runtime para `synchronize`.
+- **Mapbox:** renderiza o basemap e as camadas do campus. Logo e atribuição
+  permanecem visíveis; o cliente recebe somente token público.
+- **Azure Blob Storage:** GLBs versionados são lidos diretamente por HTTPS.
+  O backend medeia uploads de cardápios. Containers privados usam chaves
+  persistentes e SAS curtas; containers públicos usam URLs sem SAS.
 
-Nesta seção, o schema `mapa`, o módulo de mapa (leitura, busca e rotas) e o
-módulo `gamificacao` (XP, PucStops) estão implementados; a migration de
-PucStops/XP foi aplicada no Supabase em 18/10/2026 (zero PucStops iniciais;
-a coordenação cadastra pelo CRUD). A integração com Azure pelo
-backend de mapa continua `PLANEJADO`.
+## Fronteiras e falhas
+
+JWT e papéis são verificados na API. Coleta deriva o usuário do token; a posição
+não é histórico de usuário. [Identidade](decisoes/ADR-0001-identidade-central.md),
+[XP](gamificacao/xp.md) e [PucStops](mapa/pucstops.md) detalham essas invariantes.
+
+Footprints e manifesto locais sustentam o renderer; a busca remota tem fallback
+local. Rotas, coleta e conteúdo dinâmico dependem da API. O 3D depende da rede ou
+do cache do SDK; não há garantia de mapa completo offline.
+
+[Setup](mapa/setup-mobile.md), [migrations](banco/migrations.md) e
+[infraestrutura](infraestrutura/evolucao.md) concentram configuração e operação.
+Os diagramas de dados estão em [dados geoespaciais](mapa/dados-geo.md#banco-geográfico-schema-mapa).

@@ -14,7 +14,7 @@ import { EventosService } from './eventos/eventos.service.js';
 import { RestaurantesService } from './restaurantes/restaurantes.service.js';
 
 /**
- * Eventos, restaurantes e cardápios do campus (Tarefa 11). Leitura pública em
+ * Eventos, restaurantes e cardápios do campus. Leitura pública em
  * `/mapa/eventos` e `/mapa/restaurantes`; administração em `/coordenacao/...`.
  * SQL direto no schema `mapa` (sem entidades: o `synchronize` local nunca
  * cria essas tabelas; só a migration EventosRestaurantesCardapios).

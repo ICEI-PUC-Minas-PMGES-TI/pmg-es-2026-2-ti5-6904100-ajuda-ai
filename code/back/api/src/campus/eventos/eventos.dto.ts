@@ -15,7 +15,7 @@ import { LocalEntradaDto, type LocalDto } from '../local.js';
 
 /**
  * Data/hora ISO 8601 **com fuso** (`Z` ou `-03:00`). Sem fuso o significado
- * dependeria do relógio do servidor (bug do PUCMaps com `datetime-local`).
+ * dependeria do relógio do servidor.
  */
 export const DATA_HORA_COM_FUSO =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;

@@ -10,10 +10,8 @@ import 'campus_asset_resolver.dart';
 import 'campus_environment.dart';
 import 'campus_model_manifest.dart';
 
-/// Vegetação ou props do campus em um style carregado. Adaptado de
-/// `CampusVegetationController` e `CampusPropsController` do PUCMaps (mesmo
-/// padrão nos dois: source GeoJSON de pontos + modelos do style + ModelLayer),
-/// sem `rootBundle`, sem camada-sonda `asset://` e sem toggles de debug.
+/// Vegetação ou props: source GeoJSON de pontos, modelos do style e ModelLayer.
+/// Adaptado de `CampusVegetationController` e `CampusPropsController` do PUCMaps.
 ///
 /// Uma instância por seção e por style. Nunca lança: qualquer falha deixa
 /// prédios e mapa como estão. Tudo é idempotente.

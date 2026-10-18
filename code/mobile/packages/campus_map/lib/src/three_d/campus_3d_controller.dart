@@ -10,9 +10,8 @@ import 'campus_3d_layers.dart';
 import 'campus_asset_resolver.dart';
 import 'campus_model_manifest.dart';
 
-/// Ciclo de vida do campus 3D em um style carregado. Adaptado do
-/// `Campus3dController` do PUCMaps sem picking, janelas acesas, overrides de
-/// cor, sombras de debug ou carregamento de asset embutido.
+/// Ciclo de vida do campus 3D em um style carregado.
+/// Adaptado do `Campus3dController` do PUCMaps.
 ///
 /// Um controller pertence a um único style: troca de style ou de tela cria
 /// outro. Tudo é idempotente (ids existentes não são recriados).

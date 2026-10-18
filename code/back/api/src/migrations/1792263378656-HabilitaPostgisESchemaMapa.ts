@@ -12,8 +12,8 @@ import {
  *   onde o `search_path` do papel `postgres` já inclui esse schema). Se já
  *   existir em outro schema (imagem local `postgis/postgis` instala em
  *   `public`), é mantido onde está.
- * - `unaccent`: para a futura busca remota; mesmo critério.
- * - `pgrouting`: NÃO instalado (rotas ficam para outra fase).
+ * - `unaccent`: normalização da busca remota; mesmo critério.
+ * - `pgrouting`: não instalado; rotas são calculadas em memória.
  * - schema `mapa`: separado de `feed`; nada de `feed` é movido.
  */
 export class HabilitaPostgisESchemaMapa1792263378656 implements MigrationInterface {

@@ -82,7 +82,7 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
     usuarios = [];
     participacoes = [];
     programas = [
-      {
+      repositorioEmMemoria<ProgramaEntity>().create({
         id: 1,
         codigo: ciclo,
         etapaAtual: 'inscricoes',
@@ -90,7 +90,7 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
         inscricoesInicio: '2000-01-01',
         inscricoesFim: '2099-12-31',
         requisitosPadrinho: [],
-      } as ProgramaEntity,
+      }),
     ];
     formularios = [
       {

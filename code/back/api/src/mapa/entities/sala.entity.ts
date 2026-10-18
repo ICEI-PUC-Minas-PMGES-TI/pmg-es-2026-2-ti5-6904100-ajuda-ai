@@ -12,9 +12,8 @@ import {
 import { PredioEntity } from './predio.entity.js';
 
 /**
- * Sala de um prédio (campos do `RoomEntity` do PUCMaps; lat/lon viram um
- * ponto PostGIS). A versão ativa de origem não tem salas: a tabela existe,
- * vazia, para a fase em que houver fonte real.
+ * Sala de um prédio, identificada dentro da versão geográfica.
+ * Campos derivados do `RoomEntity` do PUCMaps, com localização PostGIS.
  */
 @Entity({ name: 'salas', schema: 'mapa' })
 @Check('ck_salas_capacidade', `"capacidade" >= 0`)

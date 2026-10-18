@@ -14,7 +14,7 @@ export {
   VersaoMapaEntity,
 };
 
-/** Entidades do schema `mapa` (sem módulo HTTP nesta fase). */
+/** Entidades para ferramentas e validação do schema `mapa`, fora do runtime SQL. */
 export const ENTIDADES_MAPA = [
   VersaoMapaEntity,
   PredioEntity,

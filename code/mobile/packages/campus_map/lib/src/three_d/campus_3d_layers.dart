@@ -8,11 +8,11 @@ import 'campus_model_manifest.dart';
 /// Faixas de zoom herdadas de `Campus3dController` do PUCMaps.
 ///
 ///   < [lod1MinZoom]                 LOD2: fill-extrusion das footprints
-///   [lod1MinZoom] .. [lod0MinZoom]  LOD1: 4 grupos GLB
-///   ≥ [lod0MinZoom]                 LOD0: 12 chunks GLB, sob demanda
+///   [lod1MinZoom] .. [lod0MinZoom]  LOD1: grupos GLB
+///   ≥ [lod0MinZoom]                 LOD0: chunks GLB, sob demanda
 ///
 /// Os limites de zoom do Mapbox trocam os LODs sem sobreposição; as camadas
-/// "pendentes" mantêm a extrusão onde o GLB ainda não chegou.
+/// "pendentes" cobrem modelos não pedidos ou falhos, com atraso após o pedido.
 abstract final class Campus3dLod {
   static const lod1MinZoom = 16.5;
   static const lod0MinZoom = 17.8;
@@ -20,18 +20,16 @@ abstract final class Campus3dLod {
   /// LOD0 começa a baixar 1 nível antes de aparecer (valor do PUCMaps).
   static const lod0PrefetchZoom = 16.8;
 
-  /// No PUCMaps o LOD1 baixava ao abrir o mapa. Aqui segue a mesma antecedência
-  /// de 1 nível usada no LOD0, para não baixar 1,1 MB na visão geral.
+  /// Pré-carga antes da faixa visível, sem baixar os grupos na visão geral.
   static const lod1PrefetchZoom = lod1MinZoom - 1;
 
   /// Margem (fração do bbox da câmera) para pré-carregar chunks vizinhos.
   static const prefetchMargin = 0.25;
 
-  /// Tempo para o Mapbox processar o GLB antes de remover a extrusão pendente.
+  /// Atraso heurístico após pedir o GLB; não confirma processamento na GPU.
   static const modelSettleDelay = Duration(milliseconds: 300);
 
-  /// Câmera sem mudar por este tempo dispara a atualização de LOD. Substitui
-  /// o `onMapIdle` do PUCMaps, que não dispara com um GLB indisponível.
+  /// Câmera estável dispara LOD; `onMapIdle` pode não chegar com GLB indisponível.
   static const cameraSettle = Duration(milliseconds: 250);
 
   /// Um chunk por frame: espalha parse/upload de GPU.
@@ -104,7 +102,7 @@ abstract final class Campus3dLayers {
     ];
   }
 
-  /// Extrusão sobre a source 2D existente. Base = `minHeight` real (0 hoje):
+  /// Extrusão sobre a source 2D existente. Base = `minHeight` do footprint:
   /// nenhum volume abaixo do solo.
   static Map<String, dynamic> extrusion(
     String id,

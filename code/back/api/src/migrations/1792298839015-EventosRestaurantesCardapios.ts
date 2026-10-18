@@ -17,11 +17,10 @@ function schemaUsuarios(queryRunner: QueryRunner): string {
 }
 
 /**
- * Eventos, restaurantes e cardápios do campus (Tarefa 11,
- * docs/tecnico/mapa/eventos-cantinas.md). Conteúdo da coordenação no schema
+ * Eventos, restaurantes e cardápios do campus
+ * (docs/tecnico/mapa/eventos-cantinas.md). Conteúdo da coordenação no schema
  * `mapa`, como `mapa.pucstops`: sem `versao_id`, criado e editado sem
- * publicar versão nova do mapa. Nada é importado do PUCMaps (lá as tabelas
- * estavam vazias).
+ * publicar versão nova do mapa.
  *
  * Local (evento opcional, restaurante obrigatório): exatamente uma forma —
  * `predio_id` (chave estável do campus, ex. `P16`), `area_id` (UUID da área)

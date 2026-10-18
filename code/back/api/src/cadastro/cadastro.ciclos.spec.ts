@@ -5,7 +5,10 @@ import {
 } from '../../test/helpers/repositorio-memoria.js';
 import type { AuthService } from '../auth/auth.service.js';
 import { CoordenacaoService } from '../coordenacao/coordenacao.service.js';
-import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
+import {
+  ParticipacaoEntity,
+  type RespostasCadastro,
+} from '../participacoes/entities/participacao.entity.js';
 import { ParticipacoesService } from '../participacoes/participacoes.service.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ProgramasService } from '../programas/programas.service.js';
@@ -95,12 +98,13 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
   const EMAIL = 'veterano@pucminas.edu.br';
   const usuario = () => usuarios.find((u) => u.email === EMAIL)!;
   const todos = (programa: string) =>
+    // O payload envia id/cumpre; descrição e obrigatoriedade vêm do servidor.
     ({
       requisitos: (programa === '2026/2'
         ? ['calculo-i']
         : ['calculo-i', 'aed-i']
       ).map((id) => ({ id, cumpre: true })),
-    }) as never;
+    }) as Pick<RespostasCadastro, 'requisitos'>;
   const padrinho = (
     programa: string,
     periodo = 4,

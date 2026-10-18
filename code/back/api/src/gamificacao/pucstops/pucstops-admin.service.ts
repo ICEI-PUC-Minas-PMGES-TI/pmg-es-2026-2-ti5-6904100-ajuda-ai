@@ -23,7 +23,7 @@ import { ID_PUCSTOP } from './pucstops.service.js';
 const m = `"${SCHEMA_MAPA}"`;
 const g = `"${SCHEMA_GAMIFICACAO}"`;
 
-/** Reexportado: os testes e a doc dos PucStops citam a margem daqui. */
+/** Margem compartilhada com os demais conteúdos posicionados no campus. */
 export { MARGEM_CAMPUS_METROS };
 
 interface LinhaAdmin {

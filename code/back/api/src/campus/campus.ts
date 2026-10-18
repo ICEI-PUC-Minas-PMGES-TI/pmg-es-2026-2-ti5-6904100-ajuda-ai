@@ -1,5 +1,5 @@
 /**
- * Conteúdo do campus administrado pela coordenação (Tarefa 11): eventos,
+ * Conteúdo do campus administrado pela coordenação: eventos,
  * restaurantes/lanchonetes e cardápios. Fica no schema `mapa` porque é
  * conteúdo posicionado no mapa, como `mapa.pucstops`; não pertence a uma
  * versão do mapa (é editado sem publicar versão nova). A versão ativa só

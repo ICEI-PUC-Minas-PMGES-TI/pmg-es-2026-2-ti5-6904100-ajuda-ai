@@ -125,7 +125,7 @@ async function comFonte<T>(
   }
 }
 
-/** Estado atual do Supabase/locais: schema `feed` criado por synchronize. */
+/** Fixture de banco existente: schema `feed` criado por synchronize. */
 async function bancoDeSynchronize(nome: string): Promise<string> {
   const banco = await bancoNovo(nome);
   await comFonte(

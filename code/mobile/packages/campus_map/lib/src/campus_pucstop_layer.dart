@@ -172,10 +172,8 @@ abstract final class CampusPucStopLayer {
     if (await style.styleSourceExists(source)) {
       if (!isActive()) return;
       await style.setStyleSourceProperty(source, 'data', data);
-      // Com só a troca de dados, o Mapbox (2.31, emulador Android) deixava a
-      // parte translúcida do totem (anéis/joia) desenhada sobre um PucStop
-      // recém-coletado. Recriar a camada redesenha do zero; o GLB continua
-      // no cache do style (sem novo download).
+      // Mapbox 2.31 pode manter resíduos translúcidos ao trocar só os dados.
+      // Recriar a camada força o redesenho sem baixar o GLB novamente.
       if (await style.styleLayerExists(totem) && isActive()) {
         final propriedades = await style.getStyleLayerProperties(totem);
         await style.removeStyleLayer(totem);

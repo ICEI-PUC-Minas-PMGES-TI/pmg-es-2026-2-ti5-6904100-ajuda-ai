@@ -32,9 +32,11 @@ export function menorCaminho(entrada: {
   grafo: Grafo;
   origens: ReadonlyMap<string, Custo>;
   destinos: ReadonlySet<string>;
+  /** Custo do nó final até a coordenada. Só participa da escolha; o chamador soma no resultado. */
+  custosFinais?: ReadonlyMap<string, Custo>;
   acessivel: boolean;
 }): Caminho | null {
-  const { grafo, origens, destinos, acessivel } = entrada;
+  const { grafo, origens, destinos, custosFinais, acessivel } = entrada;
   if (!origens.size || !destinos.size) return null;
   const custo = new Map<string, Custo>();
   const anterior = new Map<string, ArestaGrafo>();
@@ -49,14 +51,26 @@ export function menorCaminho(entrada: {
     }
   }
   let visitados = 0;
+  let chegada: { no: string; parcial: Custo; total: Custo } | undefined;
   for (let item = fila.retirar(); item; item = fila.retirar()) {
     const { no, custo: c } = item;
+    // Custos restantes não negativos: nenhum nó posterior melhora esse total.
+    if (chegada && menor(chegada.total, c)) break;
     if (fechados.has(no)) continue;
     const melhor = custo.get(no)!;
     if (menor(melhor, c)) continue; // entrada antiga da fila
     fechados.add(no);
     visitados++;
-    if (destinos.has(no)) return reconstruir(no, melhor, anterior, visitados);
+    if (destinos.has(no)) {
+      if (!custosFinais) return reconstruir(no, melhor, anterior, visitados);
+      const final = custosFinais.get(no) ?? { tempo: 0, distancia: 0 };
+      const total = {
+        tempo: melhor.tempo + final.tempo,
+        distancia: melhor.distancia + final.distancia,
+      };
+      if (!chegada || menor(total, chegada.total))
+        chegada = { no, parcial: melhor, total };
+    }
     for (const aresta of grafo.saidas.get(no) ?? []) {
       if (acessivel && !aresta.acessivel) continue;
       if (fechados.has(aresta.destino)) continue;
@@ -72,7 +86,9 @@ export function menorCaminho(entrada: {
       }
     }
   }
-  return null;
+  return chegada
+    ? reconstruir(chegada.no, chegada.parcial, anterior, visitados)
+    : null;
 }
 
 /** Tolerância para somas de ponto flutuante na distância. */

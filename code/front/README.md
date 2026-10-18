@@ -1,10 +1,8 @@
 # Ajuda-aí Web
 
-Frontend em React e Vite. Inclui:
-
-- fluxo de cadastro do estudante (`/`): perfil → como quer participar (padrinho / apadrinhado / explorar) → formulário → revisão/envio;
-- área do aluno (`/aluno/perfil`, `/aluno/candidatura`, `/aluno/padrinho`, `/aluno/historico`, `/aluno/configuracoes`);
-- login demo e painel da coordenação (`/login`, `/coordenacao`: dashboard, candidaturas, usuários, programas, formulários, PucStops, configurações/comunicados).
+Frontend em React e Vite para cadastro, área do aluno e coordenação.
+Regras de administração do campus estão em
+[administração do mapa](../../docs/tecnico/mapa/administracao.md).
 
 ## Executar localmente
 
