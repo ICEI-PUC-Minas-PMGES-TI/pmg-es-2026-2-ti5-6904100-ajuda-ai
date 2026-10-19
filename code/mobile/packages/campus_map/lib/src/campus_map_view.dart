@@ -15,6 +15,7 @@ import 'campus_map_controller.dart';
 import 'campus_map_controls.dart';
 import 'campus_location_service.dart';
 import 'campus_place.dart';
+import 'campus_place_layer.dart';
 import 'campus_place_repository.dart';
 import 'campus_pucstop.dart';
 import 'campus_pucstop_layer.dart';
@@ -119,6 +120,7 @@ class _CampusMapViewState extends State<CampusMapView>
   /// Rota desenhada no momento; redesenhada se o style recarregar.
   CampusRoute? _route;
   Future<void> _routePaint = Future.value();
+  Future<void> _categoryPaint = Future.value();
 
   /// Serializa mutações da mesma source; cada operação revalida a geração.
   Future<void> _paintRoute(Future<void> Function() operation) {
@@ -161,6 +163,7 @@ class _CampusMapViewState extends State<CampusMapView>
     _controller.pucStops.addListener(_refreshPucStops);
     _controller.collectedPucStops.addListener(_refreshPucStops);
     _controller.events.addListener(_refreshContent);
+    _controller.categoryFilter.addListener(_refreshCategories);
     _controller.restaurants.addListener(_refreshContent);
     _controller.contentCardHeight.addListener(_refitRoute);
     _controller.controlsHeight.addListener(_controlsResized);
@@ -174,10 +177,53 @@ class _CampusMapViewState extends State<CampusMapView>
       controller.pucStops.removeListener(_refreshPucStops);
       controller.collectedPucStops.removeListener(_refreshPucStops);
       controller.events.removeListener(_refreshContent);
+      controller.categoryFilter.removeListener(_refreshCategories);
       controller.restaurants.removeListener(_refreshContent);
       controller.contentCardHeight.removeListener(_refitRoute);
       controller.controlsHeight.removeListener(_controlsResized);
     }
+  }
+
+  /// Filtro estrutural mudou: só troca os pontos, sem mover a câmera.
+  void _refreshCategories() {
+    final map = _map;
+    if (map == null || !_styleReady) return;
+    final generation = _generation;
+    final revision = _styleRevision;
+    unawaited(
+      _showCategories(
+        map,
+        () =>
+            mounted && generation == _generation && revision == _styleRevision,
+      ),
+    );
+  }
+
+  Future<void> _showCategories(MapboxMap map, bool Function() isActive) {
+    final filter = _controller.categoryFilter.value;
+    final result = _categoryPaint.then((_) async {
+      bool current() =>
+          isActive() && identical(filter, _controller.categoryFilter.value);
+      if (current()) {
+        await CampusPlaceLayer.show(map.style, filter, isActive: current);
+      }
+    });
+    _categoryPaint = result.catchError((_) {});
+    return _categoryPaint;
+  }
+
+  void _addCategoryInteractions(MapboxMap map) {
+    map.addInteraction(
+      TapInteraction(FeaturesetDescriptor(layerId: CampusPlaceLayer.symbols), (
+        feature,
+        _,
+      ) {
+        if (!mounted || !identical(map, _map)) return;
+        final id = feature.properties['id'];
+        if (id is String) _controller.selectCategoryPlace(id);
+      }, radius: 12),
+      interactionID: CampusPlaceLayer.symbols,
+    );
   }
 
   /// Eventos/restaurantes mudaram: só troca os dados da source.
@@ -814,6 +860,7 @@ class _CampusMapViewState extends State<CampusMapView>
         });
       }
       // Pontos 2D (source criada mesmo vazia; os dados chegam depois).
+      if (isActive()) await _showCategories(map, isActive);
       if (_pucStopsEnabled && isActive()) {
         await _showPucStops(map, isActive);
         unawaited(_controller.loadPucStops());
@@ -960,6 +1007,7 @@ class _CampusMapViewState extends State<CampusMapView>
                   if (!mounted || generation != _generation) return;
                   _map = map;
                   _diagnostics?.attach(map);
+                  _addCategoryInteractions(map);
                   if (_features.pucStops) _addPucStopInteractions(map);
                   if (_features.events || _features.canteens) {
                     _addContentInteractions(map);

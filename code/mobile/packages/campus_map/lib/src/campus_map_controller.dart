@@ -7,6 +7,7 @@ import 'campus_content.dart';
 import 'campus_location_service.dart';
 import 'campus_place.dart';
 import 'campus_place_category.dart';
+import 'campus_place_filter.dart';
 import 'campus_place_repository.dart';
 import 'campus_pucstop.dart';
 import 'campus_route.dart';
@@ -140,6 +141,58 @@ class CampusMapController {
 
   /// Rota confirmada, inclusive depois de recálculo; sem histórico GPS.
   final ValueNotifier<CampusRoute?> activeRoute = ValueNotifier(null);
+  final ValueNotifier<CampusPlaceFilter> categoryFilter = ValueNotifier(
+    const CampusPlaceFilter(),
+  );
+  final _placeSelections = StreamController<CampusPlace>.broadcast(sync: true);
+
+  /// Pedidos de seleção vindos dos marcadores; não retém eventos entre telas.
+  Stream<CampusPlace> get placeSelections => _placeSelections.stream;
+  int _categoryRequest = 0;
+
+  /// Troca somente a descoberta espacial. Uma resposta antiga não repõe pontos.
+  Future<void> toggleCategory(CampusPlaceCategory category) async {
+    if (_disposed) return;
+    if (categoryFilter.value.category == category) {
+      clearCategory();
+      return;
+    }
+    final request = ++_categoryRequest;
+    categoryFilter.value = CampusPlaceFilter(category: category, loading: true);
+    try {
+      final places = await placesInCategory(category);
+      if (_disposed || request != _categoryRequest) return;
+      categoryFilter.value = CampusPlaceFilter(
+        category: category,
+        places: List.unmodifiable(
+          {for (final place in places) place.id: place}.values,
+        ),
+      );
+    } catch (_) {
+      if (_disposed || request != _categoryRequest) return;
+      categoryFilter.value = const CampusPlaceFilter();
+      rethrow;
+    }
+  }
+
+  void clearCategory() {
+    if (_disposed || categoryFilter.value.category == null) return;
+    _categoryRequest++;
+    categoryFilter.value = const CampusPlaceFilter();
+  }
+
+  /// Resolve o ID na coleção atualmente visível; o overlay reutiliza a seleção
+  /// da busca, incluindo card, foco e rota. Toques de um filtro antigo são ignorados.
+  void selectCategoryPlace(String id) {
+    if (_disposed) return;
+    for (final place in categoryFilter.value.places) {
+      if (place.id == id) {
+        _placeSelections.add(place);
+        return;
+      }
+    }
+  }
+
   final Duration Function() _elapsed;
   CampusRouteTarget? _routeTarget;
   bool _routeAccessible = false;
@@ -859,6 +912,8 @@ class CampusMapController {
     _pucStopRequest++;
     _camera = null;
     pucStops.dispose();
+    categoryFilter.dispose();
+    unawaited(_placeSelections.close());
     collectedPucStops.dispose();
     selectedPucStop.dispose();
     events.dispose();

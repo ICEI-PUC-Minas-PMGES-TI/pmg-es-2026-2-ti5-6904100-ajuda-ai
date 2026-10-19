@@ -221,7 +221,7 @@ void main() {
     },
   );
 
-  group('controles', () {
+  group('descoberta cartográfica', () {
     late CampusMapController controller;
     late _Camera camera;
     late _Routes routes;
@@ -241,98 +241,65 @@ void main() {
         home: Scaffold(body: CampusMapControls(controller: controller)),
       ),
     );
-    Future<void> open(WidgetTester tester) async {
-      FocusManager.instance.primaryFocus?.unfocus();
-      await tester.tapAt(const Offset(790, 400));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('campus-category-quick-academic')));
-      await tester.pumpAndSettle();
-    }
-
-    Future<void> category(
+    Future<void> tapCategory(
       WidgetTester tester,
       CampusPlaceCategory category,
     ) async {
-      await tester.tap(find.byKey(Key('campus-category-${category.name}')));
+      final target = find.byKey(Key('campus-category-quick-${category.name}'));
+      await tester.ensureVisible(target);
+      await tester.tap(target);
       await tester.pumpAndSettle();
     }
 
-    testWidgets('atalhos visíveis, roláveis e abrem diretamente a categoria', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(320, 600));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      await mount(tester);
-      expect(find.byTooltip('Categorias de locais'), findsNothing);
-      for (final c in CampusPlaceCategory.values) {
-        expect(
-          find.byKey(Key('campus-category-quick-${c.name}')),
-          findsOneWidget,
-        );
-      }
-      await tester.drag(
-        find.byKey(const Key('campus-category-shortcuts')),
-        const Offset(-550, 0),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('campus-category-quick-library')));
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const Key('campus-category-place-P26')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('campus-category-place-P34')), findsNothing);
-      Navigator.of(tester.element(find.text('Locais do campus'))).pop();
-      await tester.pumpAndSettle();
-      await tester.tap(find.byType(TextField));
-      tester.view.viewInsets = const FakeViewPadding(bottom: 260);
-      addTearDown(tester.view.resetViewInsets);
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('campus-category-shortcuts')), findsNothing);
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('atalhos respeitam fonte ampliada em tela estreita', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(320, 600));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      tester.platformDispatcher.textScaleFactorTestValue = 2;
-      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-      await mount(tester);
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const Key('campus-category-quick-academic')),
-        findsOneWidget,
-      );
-      await tester.drag(
-        find.byKey(const Key('campus-category-shortcuts')),
-        const Offset(-1600, 0),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('campus-category-quick-sports')));
-      await tester.pumpAndSettle();
-      await tester.drag(
-        find.byKey(const Key('campus-category-results')),
-        const Offset(0, -450),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const Key('campus-category-place-P65')),
-        findsOneWidget,
-      );
-      expect(tester.takeException(), isNull);
-    });
-
     testWidgets(
-      'seleção foca o prédio, abre card normal e traça rota pelo ID',
+      'nenhum ponto por padrão; uma categoria, toggle, sem sheet nem foco',
       (tester) async {
         await mount(tester);
-        await open(tester);
-        expect(find.text('Locais do campus'), findsOneWidget);
-        expect(find.byType(ChoiceChip), findsNWidgets(4));
-        await category(tester, CampusPlaceCategory.library);
-        await tester.tap(find.byKey(const Key('campus-category-place-P26')));
+        expect(controller.categoryFilter.value.places, isEmpty);
+        for (final (category, ids) in [
+          (
+            CampusPlaceCategory.academic,
+            (await _repository().inCategory(CampusPlaceCategory.academic))
+                .map((p) => p.id)
+                .toSet(),
+          ),
+          (CampusPlaceCategory.lab, {'P09', 'P10', 'P23'}),
+          (CampusPlaceCategory.library, {'P26'}),
+          (CampusPlaceCategory.sports, {'P65'}),
+        ]) {
+          await tapCategory(tester, category);
+          final state = controller.categoryFilter.value;
+          expect(state.category, category);
+          expect(state.places.map((p) => p.id).toSet(), ids);
+          expect(state.places.length, ids.length);
+          expect(
+            tester
+                .widget<FilterChip>(
+                  find.byKey(Key('campus-category-quick-${category.name}')),
+                )
+                .selected,
+            isTrue,
+          );
+          expect(find.byType(BottomSheet), findsNothing);
+          expect(find.byType(ListTile), findsNothing);
+          expect(camera.focused, isEmpty);
+        }
+        await tapCategory(tester, CampusPlaceCategory.sports);
+        expect(controller.categoryFilter.value.category, isNull);
+        expect(controller.categoryFilter.value.places, isEmpty);
+      },
+    );
+    testWidgets(
+      'marcador resolve ID, abre card da busca, foco e rota acessível',
+      (tester) async {
+        await mount(tester);
+        await tapCategory(tester, CampusPlaceCategory.library);
+        controller.selectCategoryPlace(
+          'P09',
+        ); // toque antigo após troca de filtro
+        await tester.pumpAndSettle();
+        expect(camera.focused, isEmpty);
+        controller.selectCategoryPlace('P26');
         await tester.pumpAndSettle();
         expect(camera.focused.single.id, 'P26');
         expect(
@@ -340,59 +307,36 @@ void main() {
           (await _repository().findById('P26'))!.center,
         );
         expect(find.byKey(const Key('campus-route-card')), findsOneWidget);
+        await tester.tap(find.byType(Switch));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Traçar rota'));
         await tester.pumpAndSettle();
-        expect(routes.targets.single, isA<CampusRoutePlace>());
         expect(routes.targets.single.key, 'P26');
-        expect(camera.routes.single.destinationId, 'P26');
+        expect(camera.routes.single.accessible, isTrue);
         expect(tester.takeException(), isNull);
       },
     );
-
     testWidgets(
-      'busca preservada ao cancelar e continua global após categoria',
+      'iniciar busca limpa categoria; resultados globais e seleção preservados',
       (tester) async {
         await mount(tester);
-        await tester.enterText(find.byType(TextField), '34');
-        await tester.pumpAndSettle();
-        await open(tester);
-        await category(tester, CampusPlaceCategory.lab);
-        await tester.enterText(
-          find.byKey(const Key('campus-category-query')),
-          'biologica',
-        );
-        await tester.pumpAndSettle();
-        expect(
-          find.byKey(const Key('campus-category-place-P23')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const Key('campus-category-place-P09')),
-          findsNothing,
-        );
-        Navigator.of(tester.element(find.text('Locais do campus'))).pop();
-        await tester.pumpAndSettle();
-        expect(
-          tester.widget<TextField>(find.byType(TextField)).controller!.text,
-          '34',
-        );
+        await tapCategory(tester, CampusPlaceCategory.lab);
         await tester.enterText(find.byType(TextField), 'biblioteca');
         await tester.pumpAndSettle();
+        expect(controller.categoryFilter.value.category, isNull);
+        expect(controller.categoryFilter.value.places, isEmpty);
         await tester.tap(find.byType(ListTile));
         await tester.pumpAndSettle();
         expect(camera.focused.single.id, 'P26');
+        expect(find.byKey(const Key('campus-route-card')), findsOneWidget);
       },
     );
-
-    testWidgets('Eventos e Onde comer mantêm listas e cards independentes', (
+    testWidgets('Eventos e Onde comer mantêm conteúdo e cards independentes', (
       tester,
     ) async {
       await controller.loadContent();
       await mount(tester);
-      await open(tester);
-      await category(tester, CampusPlaceCategory.sports);
-      await tester.tap(find.byKey(const Key('campus-category-place-P65')));
-      await tester.pumpAndSettle();
+      await tapCategory(tester, CampusPlaceCategory.sports);
       for (final (button, id) in [
         ('campus-events-button', _Content.event.id),
         ('campus-restaurants-button', _Content.restaurant.id),
@@ -401,83 +345,75 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(Key('campus-content-item-$id')));
         await tester.pumpAndSettle();
-        expect(find.byKey(const Key('campus-content-card')), findsOneWidget);
-        expect(find.byKey(const Key('campus-route-card')), findsNothing);
         expect(controller.selectedContent.value!.id, id);
+        expect(find.byKey(const Key('campus-content-card')), findsOneWidget);
+        expect(
+          controller.categoryFilter.value.category,
+          CampusPlaceCategory.sports,
+        );
       }
-      await open(tester);
-      await category(tester, CampusPlaceCategory.library);
-      await tester.tap(find.byKey(const Key('campus-category-place-P26')));
+      controller.selectCategoryPlace('P65');
       await tester.pumpAndSettle();
       expect(controller.selectedContent.value, isNull);
       expect(find.byKey(const Key('campus-route-card')), findsOneWidget);
     });
-
-    testWidgets('tela estreita e landscape com teclado não causam overflow', (
+    testWidgets('reentrada dos controles e fonte ampliada em tela estreita', (
       tester,
     ) async {
-      addTearDown(tester.view.resetViewInsets);
+      await tester.binding.setSurfaceSize(const Size(320, 600));
       addTearDown(() => tester.binding.setSurfaceSize(null));
-      for (final size in [const Size(320, 600), const Size(800, 360)]) {
-        await tester.binding.setSurfaceSize(size);
-        await mount(tester);
-        await open(tester);
-        tester.view.viewInsets = const FakeViewPadding(bottom: 140);
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-        Navigator.of(tester.element(find.text('Locais do campus'))).pop();
-        tester.view.resetViewInsets();
-        await tester.pumpAndSettle();
-      }
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await mount(tester);
+      await tapCategory(tester, CampusPlaceCategory.sports);
+      expect(controller.categoryFilter.value.places.single.id, 'P65');
+      await tester.pumpWidget(const SizedBox());
+      await mount(tester);
+      controller.selectCategoryPlace('P65');
+      await tester.pumpAndSettle();
+      expect(camera.focused, hasLength(1)); // listener anterior foi removido
+      expect(tester.takeException(), isNull);
     });
   });
 
-  testWidgets('resposta antiga e descarte não sobrescrevem filtro novo', (
-    tester,
-  ) async {
-    final catalog = _PendingCatalog();
+  test(
+    'resposta antiga não repõe pontos após troca, busca ou descarte',
+    () async {
+      for (final mode in ['switch', 'clear', 'dispose']) {
+        final catalog = _PendingCatalog();
+        final controller = CampusMapController(placeCatalog: catalog);
+        final old = controller.toggleCategory(CampusPlaceCategory.academic);
+        if (mode == 'switch') {
+          await controller.toggleCategory(CampusPlaceCategory.library);
+        } else if (mode == 'clear') {
+          controller.clearCategory();
+        } else {
+          controller.dispose();
+        }
+        catalog.pending.complete(
+          await _repository().inCategory(CampusPlaceCategory.academic),
+        );
+        await old;
+        if (mode != 'dispose') {
+          expect(
+            controller.categoryFilter.value.places.map((p) => p.id),
+            mode == 'switch' ? ['P26'] : isEmpty,
+          );
+          controller.dispose();
+        }
+      }
+    },
+  );
+  test('falha permite tentar novamente e coleção não duplica IDs', () async {
+    final catalog = _RetryCatalog();
     final controller = CampusMapController(placeCatalog: catalog);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(body: CampusMapControls(controller: controller)),
-      ),
+    await expectLater(
+      controller.toggleCategory(CampusPlaceCategory.library),
+      throwsStateError,
     );
-    await tester.tap(find.byKey(const Key('campus-category-quick-academic')));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    await tester.tap(find.byKey(const Key('campus-category-library')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('campus-category-place-P26')), findsOneWidget);
-    catalog.pending.complete([]);
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('campus-category-place-P26')), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-    controller.dispose();
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('fechar o painel durante carga ignora resposta tardia', (
-    tester,
-  ) async {
-    final catalog = _PendingCatalog();
-    final controller = CampusMapController(placeCatalog: catalog);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(body: CampusMapControls(controller: controller)),
-      ),
-    );
-    await tester.tap(find.byKey(const Key('campus-category-quick-academic')));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    Navigator.of(tester.element(find.text('Locais do campus'))).pop();
-    await tester.pumpAndSettle();
-    catalog.pending.complete(
-      await _repository().inCategory(CampusPlaceCategory.academic),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Locais do campus'), findsNothing);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
+    expect(controller.categoryFilter.value.category, isNull);
+    await controller.toggleCategory(CampusPlaceCategory.library);
+    expect(controller.categoryFilter.value.places.single.id, 'P26');
     controller.dispose();
   });
 
@@ -600,4 +536,17 @@ class _PendingCatalog implements CampusPlaceCatalog {
   }) => category == CampusPlaceCategory.academic
       ? pending.future
       : _repository().inCategory(category, query: query);
+}
+
+class _RetryCatalog implements CampusPlaceCatalog {
+  int requests = 0;
+  @override
+  Future<List<CampusPlace>> inCategory(
+    CampusPlaceCategory category, {
+    String query = '',
+  }) async {
+    if (requests++ == 0) throw StateError('offline');
+    final places = await _repository().inCategory(category);
+    return [...places, ...places];
+  }
 }

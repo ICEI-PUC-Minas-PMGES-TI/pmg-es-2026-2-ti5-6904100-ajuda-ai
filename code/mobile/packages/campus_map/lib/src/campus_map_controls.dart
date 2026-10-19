@@ -11,8 +11,8 @@ import 'campus_content_widgets.dart';
 import 'campus_location_service.dart';
 import 'campus_map_controller.dart';
 import 'campus_place.dart';
-import 'campus_place_category_sheet.dart';
 import 'campus_place_category.dart';
+import 'campus_place_category_style.dart';
 import 'campus_pucstop.dart';
 import 'campus_route.dart';
 
@@ -52,6 +52,7 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   bool _searchError = false;
   bool _locating = false;
   int _request = 0;
+  StreamSubscription<CampusPlace>? _placeSelections;
 
   /// Local escolhido na busca: abre o card de rota.
   CampusPlace? _selected;
@@ -83,6 +84,10 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   }
 
   void _listen(CampusMapController controller) {
+    _placeSelections = controller.placeSelections.listen(
+      (place) => unawaited(_select(place)),
+    );
+    controller.categoryFilter.addListener(_onCategoryChanged);
     controller.activeRoute.addListener(_onRouteChanged);
     controller.selectedPucStop.addListener(_onPucStopSelected);
     controller.collectedPucStops.addListener(_onCollectedChanged);
@@ -90,7 +95,9 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   }
 
   void _unlisten(CampusMapController controller) {
+    unawaited(_placeSelections?.cancel());
     try {
+      controller.categoryFilter.removeListener(_onCategoryChanged);
       controller.activeRoute.removeListener(_onRouteChanged);
       controller.selectedPucStop.removeListener(_onPucStopSelected);
       controller.collectedPucStops.removeListener(_onCollectedChanged);
@@ -190,27 +197,22 @@ class _CampusMapControlsState extends State<CampusMapControls> {
 
   void _closeContent() => widget.controller.selectContent(null);
 
-  Future<void> _openCategories(CampusPlaceCategory category) async {
-    final controller = widget.controller;
+  void _onCategoryChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _toggleCategory(CampusPlaceCategory category) async {
     _request++;
     _focus.unfocus();
+    _text.clear();
     setState(() => _expanded = false);
-    final place = await showModalBottomSheet<CampusPlace>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: CampusPlaceCategorySheet(
-          controller: controller,
-          initialCategory: category,
-        ),
-      ),
-    );
-    if (!mounted || controller != widget.controller || place == null) return;
-    await _select(place);
+    try {
+      await widget.controller.toggleCategory(category);
+    } catch (_) {
+      if (mounted) {
+        _message('Não foi possível mostrar os locais. Tente novamente.');
+      }
+    }
   }
 
   Future<void> _openList(CampusContentKind kind) async {
@@ -366,6 +368,7 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   }
 
   Future<void> _search(String query) async {
+    if (query.trim().isNotEmpty) widget.controller.clearCategory();
     final request = ++_request;
     setState(() {
       _expanded = query.trim().isNotEmpty;
@@ -582,21 +585,39 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   }
 
   List<Widget> get _categoryShortcuts => [
-    for (final category in CampusPlaceCategory.values)
-      ActionChip(
-        key: Key('campus-category-quick-${category.name}'),
-        avatar: Icon(switch (category) {
-          CampusPlaceCategory.academic => Icons.school_outlined,
-          CampusPlaceCategory.lab => Icons.biotech_outlined,
-          CampusPlaceCategory.library => Icons.local_library_outlined,
-          CampusPlaceCategory.sports => Icons.sports_soccer_outlined,
-        }, size: 18),
-        label: Text(category.label),
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        elevation: 2,
-        onPressed: () => _openCategories(category),
-      ),
+    for (final category in CampusPlaceCategory.values) _categoryChip(category),
   ];
+
+  Widget _categoryChip(CampusPlaceCategory category) {
+    final selected =
+        widget.controller.categoryFilter.value.category == category;
+    final foreground = selected
+        ? CampusPlaceCategoryStyle.selectedChipColor
+        : Colors.black;
+    return FilterChip(
+      key: Key('campus-category-quick-${category.name}'),
+      selected: selected,
+      showCheckmark: false,
+      avatar: Icon(category.icon, size: 18, color: foreground),
+      label: Text(category.label),
+      labelStyle: TextStyle(
+        color: foreground,
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+      ),
+      backgroundColor: Colors.white,
+      selectedColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      shape: const StadiumBorder(),
+      side: BorderSide(
+        color: selected ? foreground : Colors.black.withValues(alpha: 0.2),
+        width: selected ? 2 : 1,
+      ),
+      elevation: 0,
+      pressElevation: 0,
+      onSelected: (_) => _toggleCategory(category),
+    );
+  }
 
   Widget _shortcutRow(List<Widget> chips, String label, Key key) => Padding(
     padding: const EdgeInsets.only(top: 6),
