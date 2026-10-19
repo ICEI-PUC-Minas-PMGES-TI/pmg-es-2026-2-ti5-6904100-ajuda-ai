@@ -242,7 +242,10 @@ void main() {
       ),
     );
     Future<void> open(WidgetTester tester) async {
-      await tester.tap(find.byTooltip('Categorias de locais'));
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.tapAt(const Offset(790, 400));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('campus-category-quick-academic')));
       await tester.pumpAndSettle();
     }
 
@@ -253,6 +256,73 @@ void main() {
       await tester.tap(find.byKey(Key('campus-category-${category.name}')));
       await tester.pumpAndSettle();
     }
+
+    testWidgets('atalhos visíveis, roláveis e abrem diretamente a categoria', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(320, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await mount(tester);
+      expect(find.byTooltip('Categorias de locais'), findsNothing);
+      for (final c in CampusPlaceCategory.values) {
+        expect(
+          find.byKey(Key('campus-category-quick-${c.name}')),
+          findsOneWidget,
+        );
+      }
+      await tester.drag(
+        find.byKey(const Key('campus-category-shortcuts')),
+        const Offset(-550, 0),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('campus-category-quick-library')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('campus-category-place-P26')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('campus-category-place-P34')), findsNothing);
+      Navigator.of(tester.element(find.text('Locais do campus'))).pop();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(TextField));
+      tester.view.viewInsets = const FakeViewPadding(bottom: 260);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('campus-category-shortcuts')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('atalhos respeitam fonte ampliada em tela estreita', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(320, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await mount(tester);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('campus-category-quick-academic')),
+        findsOneWidget,
+      );
+      await tester.drag(
+        find.byKey(const Key('campus-category-shortcuts')),
+        const Offset(-1600, 0),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('campus-category-quick-sports')));
+      await tester.pumpAndSettle();
+      await tester.drag(
+        find.byKey(const Key('campus-category-results')),
+        const Offset(0, -450),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('campus-category-place-P65')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets(
       'seleção foca o prédio, abre card normal e traça rota pelo ID',
@@ -372,7 +442,7 @@ void main() {
         home: Scaffold(body: CampusMapControls(controller: controller)),
       ),
     );
-    await tester.tap(find.byTooltip('Categorias de locais'));
+    await tester.tap(find.byKey(const Key('campus-category-quick-academic')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     await tester.tap(find.byKey(const Key('campus-category-library')));
@@ -396,7 +466,7 @@ void main() {
         home: Scaffold(body: CampusMapControls(controller: controller)),
       ),
     );
-    await tester.tap(find.byTooltip('Categorias de locais'));
+    await tester.tap(find.byKey(const Key('campus-category-quick-academic')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     Navigator.of(tester.element(find.text('Locais do campus'))).pop();

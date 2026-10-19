@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
+import 'three_d/campus_window_lighting.dart';
+
 /// Mesmas faixas locais do PUCMaps; são presets, não um cálculo solar.
 abstract final class CampusLightSchedule {
   static const boundaries = [330, 540, 900, 1120];
@@ -40,11 +42,15 @@ class CampusMapLighting {
     this.style, {
     required this.isActive,
     DateTime Function()? now,
+    this.onWindowGlow,
   }) : _now = now ?? DateTime.now;
 
   final StyleManager style;
   final bool Function() isActive;
   final DateTime Function() _now;
+  final Future<void> Function(double glow)? onWindowGlow;
+  double get windowGlow =>
+      CampusWindowLighting.glowFor(CampusLightSchedule.preset(_now()));
   Timer? _timer;
   Future<void> _queue = Future.value();
   String? _applied;
@@ -73,15 +79,19 @@ class CampusMapLighting {
           }
           _configured = true;
         }
-        if (!_supported || !_alive) return;
+        if (!_alive) return;
         final preset = CampusLightSchedule.preset(_now());
-        if (preset == _applied) return;
-        await style.setStyleImportConfigProperty(
-          'basemap',
-          'lightPreset',
-          preset,
-        );
-        if (_alive) _applied = preset;
+        if (_supported && preset != _applied) {
+          await style.setStyleImportConfigProperty(
+            'basemap',
+            'lightPreset',
+            preset,
+          );
+          if (_alive) _applied = preset;
+        }
+        if (_alive) {
+          await onWindowGlow?.call(CampusWindowLighting.glowFor(preset));
+        }
       } catch (_) {
         // Um style customizado/sem Standard continua utilizável.
       } finally {
@@ -94,7 +104,7 @@ class CampusMapLighting {
 
   void _schedule() {
     _timer?.cancel();
-    if (!_alive || (_configured && !_supported)) return;
+    if (!_alive || (_configured && !_supported && onWindowGlow == null)) return;
     _timer = Timer(
       CampusLightSchedule.nextCheck(_now()),
       () => unawaited(refresh()),

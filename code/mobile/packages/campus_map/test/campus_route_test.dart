@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' hide Size;
 
 import 'package:campus_map/campus_map.dart';
 import 'package:campus_map/src/campus_route_layer.dart';
@@ -491,6 +494,41 @@ void main() {
     expect(campusRouteSummary(r(1234, 900)), '15 min a pé · 1,2 km');
   });
 
+  test(
+    'recálculo atualiza GeoJSON sem recriar sources ou layers da rota',
+    () async {
+      final style = _RouteStyle();
+      await CampusRouteLayer.show(style, _rota('P26'), isActive: () => true);
+      final casing = style.layers[CampusRouteLayer.casing];
+      final line = style.layers[CampusRouteLayer.line];
+      final changed = CampusRoute(
+        destinationId: 'P26',
+        coordinates: [
+          [-43.9938, -19.9232],
+          [-43.9931, -19.9208],
+        ],
+        distanceMeters: 240,
+        durationSeconds: 190,
+        accessible: true,
+      );
+      await CampusRouteLayer.show(style, changed, isActive: () => true);
+      expect(style.sourceAdds, 1);
+      expect(style.layerAdds, 2);
+      expect(style.removals, 0);
+      expect(style.layers[CampusRouteLayer.casing], same(casing));
+      expect(style.layers[CampusRouteLayer.line], same(line));
+      expect(
+        style.sources[CampusRouteLayer.source]!['data'],
+        CampusRouteLayer.feature(changed),
+      );
+      await CampusRouteLayer.show(style, _rota('P26'), isActive: () => false);
+      expect(style.updates, 1);
+      await CampusRouteLayer.clear(style);
+      expect(style.sources, isEmpty);
+      expect(style.layers, isEmpty);
+    },
+  );
+
   test('camadas da linha: GeoJSON orientado, slot e oclusão', () {
     final feature = CampusRouteLayer.feature(_rota('P26'));
     expect(feature['geometry'], {
@@ -588,4 +626,51 @@ class _Camera implements CampusMapCamera {
     cleared++;
     routes.clear();
   }
+}
+
+class _RouteStyle implements StyleManager {
+  final sources = <String, Map<String, dynamic>>{};
+  final layers = <String, Map<String, dynamic>>{};
+  int sourceAdds = 0, layerAdds = 0, removals = 0, updates = 0;
+  @override
+  Future<bool> styleSourceExists(String id) async => sources.containsKey(id);
+  @override
+  Future<bool> styleLayerExists(String id) async => layers.containsKey(id);
+  @override
+  Future<void> addStyleSource(String id, String value) async {
+    sourceAdds++;
+    sources[id] = jsonDecode(value) as Map<String, dynamic>;
+  }
+
+  @override
+  Future<void> addStyleLayer(String value, LayerPosition? position) async {
+    layerAdds++;
+    final layer = jsonDecode(value) as Map<String, dynamic>;
+    layers[layer['id'] as String] = layer;
+  }
+
+  @override
+  Future<void> setStyleSourceProperty(
+    String id,
+    String property,
+    Object value,
+  ) async {
+    updates++;
+    sources[id]![property] = jsonDecode(value as String);
+  }
+
+  @override
+  Future<void> removeStyleLayer(String id) async {
+    removals++;
+    layers.remove(id);
+  }
+
+  @override
+  Future<void> removeStyleSource(String id) async {
+    removals++;
+    sources.remove(id);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

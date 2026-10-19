@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' hide Size;
 
 import 'campus_snapshot.dart';
+import 'campus_map_defaults.dart';
 
 class CampusCameraPolicy {
   CampusCameraPolicy(CampusSnapshot snapshot)
@@ -12,7 +13,8 @@ class CampusCameraPolicy {
         south: math.min(snapshot.bounds.south, sourceExtent.south),
         east: math.max(snapshot.bounds.east, sourceExtent.east),
         north: math.max(snapshot.bounds.north, sourceExtent.north),
-      );
+      ),
+      initialCenter = _initialCenter(snapshot);
 
   /// bbox da versão PUCMaps 12 (`pucmaps-12.json`, origem.bbox): inclui
   /// portões/grafo ao norte dos footprints. União evita cortar as construções.
@@ -25,6 +27,26 @@ class CampusCameraPolicy {
   static const marginMeters = 120.0;
   static const maxZoom = 22.0;
   final CampusBounds extent;
+  final List<double> initialCenter;
+
+  static List<double> _initialCenter(CampusSnapshot snapshot) {
+    final centers = snapshot.features
+        .where((f) => !f.isArea && f.center != null)
+        .map((f) => f.center!)
+        .toList();
+    if (centers.isEmpty) {
+      return [snapshot.bounds.longitude, snapshot.bounds.latitude];
+    }
+    double median(int axis) {
+      final values = centers.map((p) => p[axis]).toList()..sort();
+      final middle = values.length ~/ 2;
+      return values.length.isOdd
+          ? values[middle]
+          : (values[middle - 1] + values[middle]) / 2;
+    }
+
+    return List.unmodifiable([median(0), median(1)]);
+  }
 
   CampusBounds get navigationBounds {
     const dy = marginMeters / 111195;
@@ -37,8 +59,11 @@ class CampusCameraPolicy {
     );
   }
 
-  static MbxEdgeInsets overviewPadding(Size size) => MbxEdgeInsets(
-    top: math.min(136, size.height * .25),
+  static MbxEdgeInsets overviewPadding(
+    Size size, {
+    double controlsHeight = 180,
+  }) => MbxEdgeInsets(
+    top: math.min(controlsHeight + 24, size.height * .45),
     bottom: math.min(76, size.height * .15),
     left: math.min(24, size.width * .08),
     right: math.min(24, size.width * .08),
@@ -54,17 +79,18 @@ class CampusCameraPolicy {
     Size size, {
     required double bottom,
     bool sideCard = false,
+    double controlsHeight = 180,
   }) {
     final cardWidth = sideCard ? sideCardWidth(size) : null;
     if (cardWidth != null) {
       return MbxEdgeInsets(
-        top: math.min(150, size.height * .45),
+        top: math.min(controlsHeight + 24, size.height * .4),
         bottom: math.min(68, size.height * .2),
         left: cardWidth + 36,
         right: 48,
       );
     }
-    final top = math.min(150.0, size.height * .28);
+    final top = math.min(controlsHeight + 24, size.height * .45);
     final visible = math.min(160.0, size.height * .4);
     return MbxEdgeInsets(
       top: top,
@@ -127,4 +153,51 @@ class CampusCameraPolicy {
       for (final y in [extent.south, extent.north])
         Point(coordinates: Position(x, y)),
   ];
+}
+
+/// Uma abertura por instância de mapa. Resume, reload do style e resize
+/// mantêm a exploração; uma nova tela (Perfil → Mapa) ganha nova abertura.
+class CampusCameraOpening {
+  bool _opened = false;
+  CameraViewportState? _viewport;
+
+  /// O SDK compara a identidade do viewport em didUpdateWidget. Recriá-lo
+  /// em resize/rebuild dispara uma transição para a câmera provisória.
+  CameraViewportState initialViewport({required bool enable3d}) =>
+      _viewport ??= CameraViewportState(
+        center: Point(
+          coordinates: Position(
+            CampusMapDefaults.longitude,
+            CampusMapDefaults.latitude,
+          ),
+        ),
+        zoom: CampusMapDefaults.zoom,
+        pitch: enable3d ? CampusMapDefaults.pitch3d : CampusMapDefaults.pitch,
+        bearing: CampusMapDefaults.bearing,
+      );
+
+  CameraOptions? takeCamera(
+    CampusCameraPolicy policy,
+    Size size, {
+    required double minimumZoom,
+    required bool enable3d,
+    double controlsHeight = 180,
+  }) {
+    if (_opened || size.isEmpty) return null;
+    _opened = true;
+    return CameraOptions(
+      center: Point(
+        coordinates: Position(policy.initialCenter[0], policy.initialCenter[1]),
+      ),
+      zoom: math
+          .max(CampusMapDefaults.zoom, minimumZoom + .75)
+          .clamp(0, CampusCameraPolicy.maxZoom),
+      pitch: enable3d ? CampusMapDefaults.pitch3d : CampusMapDefaults.pitch,
+      bearing: CampusMapDefaults.bearing,
+      padding: CampusCameraPolicy.overviewPadding(
+        size,
+        controlsHeight: controlsHeight,
+      ),
+    );
+  }
 }

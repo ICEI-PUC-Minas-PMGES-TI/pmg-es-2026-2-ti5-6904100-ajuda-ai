@@ -186,6 +186,9 @@ class CampusMapController {
   /// PucStop (e a tela fecha a busca/rota ao abrir).
   final ValueNotifier<CampusContent?> selectedContent = ValueNotifier(null);
 
+  /// Altura real da busca e dos atalhos, em pontos de tela.
+  final ValueNotifier<double> controlsHeight = ValueNotifier(0);
+
   /// Altura medida do card de evento/restaurante (0 = fechado ou ainda não
   /// medido). A câmera reserva esse rodapé ao focar o local e ao enquadrar a
   /// rota, para o ponto e o fim da rota não ficarem sob o card.
@@ -864,6 +867,7 @@ class CampusMapController {
     restaurantsStatus.dispose();
     selectedContent.dispose();
     contentCardHeight.dispose();
+    controlsHeight.dispose();
     activeRoute.dispose();
   }
 }

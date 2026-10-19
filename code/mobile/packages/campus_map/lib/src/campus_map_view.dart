@@ -111,8 +111,8 @@ class _CampusMapViewState extends State<CampusMapView>
   CampusMapLighting? _lighting;
   CampusCameraPolicy? _cameraPolicy;
   Size _viewport = Size.zero;
-  double _keyboardInset = 0;
-  bool _initialCameraApplied = false;
+  CampusCameraOpening _opening = CampusCameraOpening();
+  double _minimumZoom = 0;
   bool _correctingCenter = false;
   Future<void> _boundsQueue = Future.value();
 
@@ -163,6 +163,7 @@ class _CampusMapViewState extends State<CampusMapView>
     _controller.events.addListener(_refreshContent);
     _controller.restaurants.addListener(_refreshContent);
     _controller.contentCardHeight.addListener(_refitRoute);
+    _controller.controlsHeight.addListener(_controlsResized);
   }
 
   void _releaseController(CampusMapController controller, bool owned) {
@@ -175,6 +176,7 @@ class _CampusMapViewState extends State<CampusMapView>
       controller.events.removeListener(_refreshContent);
       controller.restaurants.removeListener(_refreshContent);
       controller.contentCardHeight.removeListener(_refitRoute);
+      controller.controlsHeight.removeListener(_controlsResized);
     }
   }
 
@@ -315,10 +317,17 @@ class _CampusMapViewState extends State<CampusMapView>
     }
   }
 
+  double get _controlsHeight => _controller.controlsHeight.value > 0
+      ? _controller.controlsHeight.value
+      : 180;
+
+  void _controlsResized() => unawaited(_refreshCameraLayout());
+
   MbxEdgeInsets get _routePadding => CampusCameraPolicy.routePadding(
     _viewport,
     bottom: _rodapeReservado(semCard: CampusMapDefaults.routePaddingBottom),
     sideCard: true,
+    controlsHeight: _controlsHeight,
   );
 
   Future<void> _applyCameraBounds() {
@@ -328,7 +337,10 @@ class _CampusMapViewState extends State<CampusMapView>
     final generation = _generation;
     final revision = _styleRevision;
     final padding = _route == null
-        ? CampusCameraPolicy.overviewPadding(size)
+        ? CampusCameraPolicy.overviewPadding(
+            size,
+            controlsHeight: _controlsHeight,
+          )
         : _routePadding;
     final work = _boundsQueue.then((_) async {
       if (map == null ||
@@ -364,6 +376,7 @@ class _CampusMapViewState extends State<CampusMapView>
         policy.minZoom(size, padding),
         fit.zoom ?? CampusCameraPolicy.maxZoom,
       );
+      _minimumZoom = minimum;
       await map.setBounds(
         CameraBoundsOptions(
           bounds: policy.mapBounds(size, minimum),
@@ -402,26 +415,7 @@ class _CampusMapViewState extends State<CampusMapView>
     );
   }
 
-  Future<void> _fitCampus(MapboxMap map, bool Function() isActive) async {
-    final policy = _cameraPolicy;
-    if (policy == null || _viewport.isEmpty) return;
-    final padding = CampusCameraPolicy.overviewPadding(_viewport);
-    final camera = await map.cameraForCoordinatesPadding(
-      policy.corners,
-      CameraOptions(
-        pitch: _enable3d ? CampusMapDefaults.pitch3d : 0,
-        bearing: 0,
-        padding: padding,
-      ),
-      MbxEdgeInsets(top: 0, left: 0, bottom: 0, right: 0),
-      null,
-      null,
-    );
-    if (!isActive()) return;
-    await map.setCamera(camera);
-  }
-
-  Future<void> _refreshCameraLayout({bool refitCampus = true}) async {
+  Future<void> _refreshCameraLayout() async {
     final map = _map;
     final generation = _generation;
     final revision = _styleRevision;
@@ -435,9 +429,7 @@ class _CampusMapViewState extends State<CampusMapView>
       await _applyCameraBounds();
       if (!active()) return;
       final route = _route;
-      if (route == null) {
-        if (refitCampus) await _fitCampus(map, active);
-      } else {
+      if (route != null) {
         await _fitRoute(map, route, () => active() && identical(route, _route));
       }
     } catch (_) {
@@ -733,7 +725,8 @@ class _CampusMapViewState extends State<CampusMapView>
     _lighting?.dispose();
     _lighting = null;
     _cameraPolicy = null;
-    _initialCameraApplied = false;
+    _opening = CampusCameraOpening();
+    _minimumZoom = 0;
     _controller.detach(this);
     unawaited(_disablePuck(_map));
     _loadError = false;
@@ -792,6 +785,9 @@ class _CampusMapViewState extends State<CampusMapView>
       final lighting = _lighting ??= CampusMapLighting(
         map.style,
         now: widget.localTime,
+        onWindowGlow: (glow) async {
+          await _campus3d?.setWindowGlow(glow);
+        },
         isActive: () => isActive() && _foreground,
       );
       await lighting.refresh();
@@ -799,10 +795,14 @@ class _CampusMapViewState extends State<CampusMapView>
       _cameraPolicy = CampusCameraPolicy(snapshot);
       await _applyCameraBounds();
       if (!isActive()) return;
-      if (!_initialCameraApplied) {
-        _initialCameraApplied = true;
-        if (_route == null) await _fitCampus(map, isActive);
-      }
+      final camera = _opening.takeCamera(
+        _cameraPolicy!,
+        _viewport,
+        minimumZoom: _minimumZoom,
+        enable3d: _enable3d,
+        controlsHeight: _controlsHeight,
+      );
+      if (camera != null && _route == null) await map.setCamera(camera);
       await renderer.render(snapshot, isActive: isActive);
       // Style novo apaga sources: a rota em exibição volta a ser desenhada.
       if (_route case final route? when isActive()) {
@@ -854,6 +854,7 @@ class _CampusMapViewState extends State<CampusMapView>
         resolver: resolver,
         isActive: isActive,
         onEvent: diagnostics?.mark,
+        windowGlow: _lighting?.windowGlow ?? 0,
       );
       _campus3d = controller;
       diagnostics?.buildings = controller;
@@ -940,15 +941,11 @@ class _CampusMapViewState extends State<CampusMapView>
       builder: (context, constraints) {
         final size = constraints.biggest;
         if (size != _viewport) {
-          final inset = MediaQuery.viewInsetsOf(context).bottom;
-          final keyboardChanged = inset != _keyboardInset;
-          _keyboardInset = inset;
           _viewport = size;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            // Fechar o teclado após uma seleção não pode trocar seu foco
-            // por um novo fit de campus. Rotação continua reenquadrando.
+            // Resize/teclado preservam a exploração; só a rota é reenquadrada.
             if (mounted) {
-              unawaited(_refreshCameraLayout(refitCampus: !keyboardChanged));
+              unawaited(_refreshCameraLayout());
             }
           });
         }
@@ -991,25 +988,14 @@ class _CampusMapViewState extends State<CampusMapView>
                   if (!mounted || generation != _generation) return;
                   _constrainCenter(event.cameraState);
                   if (_campus3d == null) return;
+                  _campus3d?.onCameraChanged();
                   _cameraSettle?.cancel();
                   _cameraSettle = Timer(Campus3dLod.cameraSettle, () {
                     if (!mounted || generation != _generation) return;
                     _campus3d?.onCameraIdle();
                   });
                 },
-                viewport: CameraViewportState(
-                  center: Point(
-                    coordinates: Position(
-                      CampusMapDefaults.longitude,
-                      CampusMapDefaults.latitude,
-                    ),
-                  ),
-                  zoom: CampusMapDefaults.zoom,
-                  pitch: _enable3d
-                      ? CampusMapDefaults.pitch3d
-                      : CampusMapDefaults.pitch,
-                  bearing: CampusMapDefaults.bearing,
-                ),
+                viewport: _opening.initialViewport(enable3d: _enable3d),
                 onMapLoadErrorListener: (event) {
                   if (!mounted || generation != _generation) return;
                   // Totem indisponível: some só ele; os pontos 2D ficam.
@@ -1052,9 +1038,17 @@ class _CampusMapViewState extends State<CampusMapView>
                 onRenderFrameFinishedListener: _diagnostics == null
                     ? null
                     : (event) => _diagnostics?.onFrame(event),
-                onResourceRequestListener: _diagnostics == null
+                onResourceRequestListener: !_enable3d && _diagnostics == null
                     ? null
-                    : (event) => _diagnostics?.onResource(event),
+                    : (event) {
+                        if (!mounted || generation != _generation) return;
+                        _diagnostics?.onResource(event);
+                        if (!event.cancelled &&
+                            event.response != null &&
+                            event.response!.error == null) {
+                          _campus3d?.onModelDownloaded(event.request.url);
+                        }
+                      },
               ),
               if (_diagnostics case final diagnostics?)
                 // No topo: logo e atribuição do Mapbox (rodapé) continuam visíveis.

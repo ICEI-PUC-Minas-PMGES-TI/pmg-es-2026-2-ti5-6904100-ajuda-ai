@@ -51,9 +51,13 @@ void main() {
         await tester.pumpWidget(const SizedBox());
         var now = DateTime(2026, 10, 18, 14, 59, 59);
         final style = _Style();
+        final glows = <double>[];
         final lighting = CampusMapLighting(
           style,
           now: () => now,
+          onWindowGlow: (value) async {
+            glows.add(value);
+          },
           isActive: () => true,
         );
         await lighting.refresh();
@@ -69,6 +73,7 @@ void main() {
         expect(style.config['lightPreset'], 'dusk');
         await lighting.resume();
         expect(style.config['lightPreset'], 'night');
+        expect(glows, [0, .35, 1]);
         lighting.dispose();
         final writes = style.writes;
         await tester.pump(const Duration(minutes: 2));
@@ -139,6 +144,68 @@ void main() {
         ),
       );
     });
+    test(
+      'abertura central próxima, independente do mínimo e aplicada uma vez',
+      () {
+        expect(policy.initialCenter[0], closeTo(-43.9933884, 1e-7));
+        expect(policy.initialCenter[1], closeTo(-19.92298695, 1e-7));
+        for (final size in [const Size(393, 780), const Size(800, 360)]) {
+          final opening = CampusCameraOpening();
+          final viewport = opening.initialViewport(enable3d: true);
+          expect(opening.initialViewport(enable3d: true), same(viewport));
+          expect(
+            opening.takeCamera(
+              policy,
+              Size.zero,
+              minimumZoom: 14,
+              enable3d: true,
+            ),
+            isNull,
+          );
+          final minimum = policy.minZoom(
+            size,
+            CampusCameraPolicy.overviewPadding(size),
+          );
+          final camera = opening.takeCamera(
+            policy,
+            size,
+            minimumZoom: minimum,
+            enable3d: true,
+          )!;
+          expect(camera.zoom, 16.5);
+          expect(camera.zoom!, greaterThan(minimum));
+          expect(camera.pitch, 45);
+          expect(camera.bearing, 0);
+          expect(camera.center!.coordinates.lng, policy.initialCenter[0]);
+          // Mesma instância após resize/resume/style reload não reseta exploração.
+          expect(
+            opening.takeCamera(
+              policy,
+              const Size(780, 393),
+              minimumZoom: minimum,
+              enable3d: true,
+            ),
+            isNull,
+          );
+          expect(opening.initialViewport(enable3d: true), same(viewport));
+          expect(
+            CampusCameraOpening().initialViewport(enable3d: true),
+            isNot(same(viewport)),
+          );
+          // Perfil → Mapa cria outra instância.
+          expect(
+            CampusCameraOpening().takeCamera(
+              policy,
+              size,
+              minimumZoom: minimum,
+              enable3d: true,
+            ),
+            isNotNull,
+          );
+        }
+      },
+    );
+
     test(
       'inclui todos os footprints, grafo/portões da origem e margem de 120 m',
       () {

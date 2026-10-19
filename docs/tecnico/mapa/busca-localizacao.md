@@ -99,6 +99,16 @@ resolver a árvore do app e testar a plataforma, sem dependency overrides cegos.
 
 O snapshot local não modela navegação indoor. Rotas dependem da API.
 
+## Atalhos de categorias
+
+Sob a busca há uma linha horizontal rolável: Prédios acadêmicos,
+Laboratórios, Biblioteca e Esportes. Um toque abre a categoria escolhida no
+painel existente; seleção mantém foco → card normal → rota. Eventos e Onde
+comer ficam em outra linha, com suas listas próprias. O antigo botão de
+filtro foi removido porque repetia a mesma função. As linhas somem durante
+a digitação/foco na busca para liberar espaço ao teclado e aos resultados.
+A busca global e as classificações herdadas permanecem iguais.
+
 ## Limites da câmera
 
 `CampusCameraPolicy` une o bbox das footprints ao bbox da origem `pucmaps-12`
@@ -115,8 +125,21 @@ O bbox nativo inclui overscan de enquadramento: sem ele, o SDK aumenta o zoom
 mínimo para fazer a viewport caber no bbox e corta o campus em telas estreitas.
 O listener de câmera limita o centro separadamente, inclusive para gestos.
 
-Ao mudar o tamanho da tela, a view recalcula os limites e enquadra o campus
-ou a rota ativa. Padding proporcional e a altura medida do card reservam
+A abertura usa zoom 16,5, pitch 45° com 3D (0° em 2D), bearing 0° e a
+mediana dos centros dos prédios do snapshot (`-43.9933884, -19.92298695`).
+É independente do mínimo; se este superar 15,75, a abertura mantém ao menos
+0,75 de aproximação acima dele, até o máximo 22. Há zoom out para o campus.
+O PUCMaps usava fallback 16,5/65°/−20° no centro estático
+`-43.9940, -19.9230` ou 18,5 com GPS no campus; aqui se prioriza leitura
+central e espaço ocupado pela busca/atalhos/bottom navigation.
+
+Uma abertura é aplicada por instância/configuração de mapa. Perfil → Mapa
+cria nova tela e reaplica; background, recarga de style, teclado e rotação
+preservam a exploração. O `CameraViewportState` provisório mantém a mesma
+identidade durante rebuilds: recriá-lo faz o SDK iniciar outra transição.
+Não há botão home/reset. Ao mudar o tamanho da tela,
+a view recalcula os limites e reenquadra somente a rota ativa.
+Padding proporcional e as alturas medidas dos controles e do card reservam
 espaço aos controles; rotas mantêm rumo/inclinação e usam o fit nativo.
 Em telas largas (largura mínima 600 pt e proporção mínima 1,5), os cards
 ocupam uma coluna de até 360 pt; o fit reserva essa coluna e mantém a rota

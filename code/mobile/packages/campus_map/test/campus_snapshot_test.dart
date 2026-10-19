@@ -49,14 +49,14 @@ void main() {
     );
   });
 
-  test('bbox WGS84 real determina o centro da câmera', () {
+  test('bbox WGS84 real preserva a extensão das construções', () {
     final bounds = CampusSnapshot.parse(source).bounds;
     expect(bounds.west, -43.9959851);
     expect(bounds.south, -19.9265038);
     expect(bounds.east, -43.9894739);
     expect(bounds.north, -19.9185445);
-    expect(bounds.latitude, closeTo(CampusMapDefaults.latitude, 1e-10));
-    expect(bounds.longitude, closeTo(CampusMapDefaults.longitude, 1e-10));
+    expect(bounds.latitude, closeTo(-19.92252415, 1e-10));
+    expect(bounds.longitude, closeTo(-43.9927295, 1e-10));
   });
 
   test('serialização preserva exatamente as coordenadas e propriedades', () {

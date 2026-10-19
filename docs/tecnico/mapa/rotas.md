@@ -73,7 +73,9 @@ log. Logs resumem versão, destino por prédio ou tipo coordenada, modo e custo.
 O card permite traçar, alternar acessibilidade e limpar a rota. Trocar seleção,
 fechar o card ou sair invalida respostas pendentes. Sem API não há cálculo local.
 A linha usa GeoJSON com casing, emissividade e oclusão configuradas; a câmera
-reserva espaço para os controles e a altura medida do card.
+reserva espaço para os controles e a altura medida do card. Recálculos
+atualizam os dados da mesma source; as duas layers permanecem instaladas,
+evita-se desmontar/recriar a linha durante a navegação.
 Limpar a linha solicita repintura para que o mapa parado reflita a remoção.
 
 Com rota ativa e mapa em primeiro plano, o Flutter verifica a menor distância

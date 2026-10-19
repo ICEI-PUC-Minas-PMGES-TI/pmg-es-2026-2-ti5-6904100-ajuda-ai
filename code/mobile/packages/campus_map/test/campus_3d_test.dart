@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:campus_map/campus_map.dart';
@@ -7,6 +8,7 @@ import 'package:campus_map/src/campus_map_renderer.dart';
 import 'package:campus_map/src/three_d/campus_3d_controller.dart';
 import 'package:campus_map/src/three_d/campus_3d_layers.dart';
 import 'package:campus_map/src/three_d/campus_asset_resolver.dart';
+import 'package:campus_map/src/three_d/campus_window_lighting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
@@ -166,12 +168,16 @@ void main() {
         expect(model['uri'], startsWith('$base/campus/versions/'));
         expect(model['uri'], endsWith('.glb'));
         expect(model['orientation'], [0, 0, 0]);
-        expect(model.containsKey('materialOverrideNames'), isFalse);
+        expect(model['materialOverrideNames'], [CampusWindowLighting.material]);
       }
       final lod1 = map.memoryStyle.layers[Campus3dLayerIds.lod1Layer]!;
       expect(lod1['minzoom'], Campus3dLod.lod1MinZoom);
       expect(lod1['maxzoom'], Campus3dLod.lod0MinZoom);
-      expect(jsonEncode(lod1['paint']), isNot(contains('model-color')));
+      expect((lod1['paint'] as Map)['model-color'], CampusWindowLighting.color);
+      expect(
+        (lod1['paint'] as Map)['model-emissive-strength'],
+        CampusWindowLighting.strength(0),
+      );
 
       map.zoom = 18.0;
       await controller.onCameraIdle();
@@ -186,6 +192,212 @@ void main() {
         controller.lod0Requested.length,
         reason: 'uma source por chunk, sem duplicar',
       );
+    });
+
+    test('janelas em LOD1/LOD0 seguem horário sem duplicar modelos', () async {
+      final map = _FakeMap(zoom: 16);
+      var active = true;
+      final controller = Campus3dController(
+        map: map,
+        manifest: manifest,
+        resolver: resolver,
+        isActive: () => active,
+        windowGlow: 1,
+      );
+      await controller.install();
+      void expectGlow(double value) {
+        for (final layer in map.memoryStyle.layers.values.where(
+          (l) => l['type'] == 'model',
+        )) {
+          final paint = layer['paint'] as Map;
+          expect(paint['model-color'], CampusWindowLighting.color);
+          for (final property in [
+            'model-color-mix-intensity',
+            'model-emissive-strength',
+          ]) {
+            expect(paint[property], [
+              'match',
+              ['get', 'part'],
+              'PUC_Window_Emissive',
+              value,
+              0.0,
+            ]);
+          }
+        }
+      }
+
+      expectGlow(1);
+      final sources = map.memoryStyle.sources.length;
+      final layers = map.memoryStyle.layers.length;
+      await controller.setWindowGlow(.35);
+      expectGlow(.35);
+      expect(map.memoryStyle.sources.length, sources);
+      expect(map.memoryStyle.layers.length, layers);
+      final writes = map.memoryStyle.paintWrites;
+      await controller.setWindowGlow(.35);
+      expect(map.memoryStyle.paintWrites, writes);
+      map.zoom = 18;
+      await controller.onCameraIdle();
+      expect(controller.lod0Requested, isNotEmpty);
+      expectGlow(.35);
+      await controller.setWindowGlow(0);
+      expectGlow(0);
+      active = false;
+      await controller.setWindowGlow(1);
+      expectGlow(0);
+      active = true;
+      await controller.setWindowGlow(1);
+      expectGlow(1);
+      controller.dispose();
+      await controller.setWindowGlow(0);
+      expectGlow(1);
+    });
+
+    test('câmera próxima prioriza LOD0 visível antes de LOD1', () async {
+      final map = _FakeMap(zoom: 18);
+      final controller = Campus3dController(
+        map: map,
+        manifest: manifest,
+        resolver: resolver,
+        isActive: () => true,
+      );
+      await controller.install();
+      expect(
+        map.memoryStyle.sources.keys.first,
+        startsWith('campus-map-3d-lod0-'),
+      );
+      expect(
+        map.memoryStyle.sources.keys,
+        contains(Campus3dLayerIds.lod1Source),
+      );
+      controller.dispose();
+    });
+
+    test('cem callbacks de câmera compartilham uma leitura pendente', () async {
+      final map = _FakeMap(zoom: 15.2);
+      final controller = Campus3dController(
+        map: map,
+        manifest: manifest,
+        resolver: resolver,
+        isActive: () => true,
+      );
+      await controller.install();
+      final before = map.cameraReads;
+      await Future.wait(List.generate(100, (_) => controller.onCameraIdle()));
+      expect(map.cameraReads - before, 1);
+      controller.dispose();
+    });
+
+    test(
+      'zoom out durante carga abandona chunks ainda não iniciados',
+      () async {
+        final map = _FakeMap(zoom: 18);
+        final started = Completer<void>();
+        final release = Completer<void>();
+        map.memoryStyle.onSource = (id) async {
+          if (id.contains('-lod0-') && !started.isCompleted) {
+            started.complete();
+            await release.future;
+          }
+        };
+        final controller = Campus3dController(
+          map: map,
+          manifest: manifest,
+          resolver: resolver,
+          isActive: () => true,
+        );
+        final installing = controller.install();
+        await started.future;
+        map.zoom = 15.2;
+        final latest = controller.onCameraIdle();
+        release.complete();
+        await Future.wait([installing, latest]);
+        expect(controller.lod0Requested, hasLength(1));
+        controller.dispose();
+      },
+    );
+
+    test('extrusão espera todos os downloads LOD1 e cada chunk LOD0', () async {
+      final map = _FakeMap(zoom: 16);
+      final controller = Campus3dController(
+        map: map,
+        manifest: manifest,
+        resolver: resolver,
+        isActive: () => true,
+      );
+      await controller.install();
+      List<dynamic> pending(String layer) =>
+          ((map.memoryStyle.properties[layer] ??
+                      (map.memoryStyle.layers[layer]!['filter']))
+                  as List)[2][1]
+              as List;
+      expect(
+        pending(Campus3dLayerIds.pendingLod1),
+        containsAll(manifest.buildingIds),
+      );
+      for (final model in manifest.lod1.take(manifest.lod1.length - 1)) {
+        controller.onModelDownloaded(resolver.resolve(model.path).toString());
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 330));
+      expect(
+        pending(Campus3dLayerIds.pendingLod1),
+        containsAll(manifest.buildingIds),
+      );
+      controller.onModelDownloaded(
+        resolver.resolve(manifest.lod1.last.path).toString(),
+      );
+      expect(pending(Campus3dLayerIds.pendingLod1), isNotEmpty);
+      await Future<void>.delayed(const Duration(milliseconds: 330));
+      expect(pending(Campus3dLayerIds.pendingLod1), isEmpty);
+      map.zoom = 18;
+      await controller.onCameraIdle();
+      final chunk = manifest.lod0.firstWhere(
+        (m) => m.id == controller.lod0Requested.first,
+      );
+      expect(
+        pending(Campus3dLayerIds.pendingLod0),
+        containsAll(chunk.buildingIds),
+      );
+      controller.onModelDownloaded('https://unrelated.invalid/model.glb');
+      controller.onModelDownloaded(resolver.resolve(chunk.path).toString());
+      await Future<void>.delayed(const Duration(milliseconds: 330));
+      expect(
+        pending(Campus3dLayerIds.pendingLod0),
+        isNot(contains(chunk.buildingIds.first)),
+      );
+      final writes = map.memoryStyle.filterWrites;
+      controller.onModelDownloaded(resolver.resolve(chunk.path).toString());
+      await Future<void>.delayed(const Duration(milliseconds: 330));
+      expect(
+        map.memoryStyle.filterWrites,
+        writes,
+        reason: 'evento duplicado não rearma settle',
+      );
+      controller.onSourceError(Campus3dLayerIds.lod0Source(chunk.id));
+      await controller.onCameraIdle();
+      expect(
+        pending(Campus3dLayerIds.pendingLod0),
+        containsAll(chunk.buildingIds),
+      );
+      controller.dispose();
+    });
+
+    test('descarte cancela settle sem escrita tardia no style', () async {
+      final map = _FakeMap(zoom: 16);
+      final controller = Campus3dController(
+        map: map,
+        manifest: manifest,
+        resolver: resolver,
+        isActive: () => true,
+      );
+      await controller.install();
+      for (final model in manifest.lod1) {
+        controller.onModelDownloaded(resolver.resolve(model.path).toString());
+      }
+      final writes = map.memoryStyle.filterWrites;
+      controller.dispose();
+      await Future<void>.delayed(const Duration(milliseconds: 330));
+      expect(map.memoryStyle.filterWrites, writes);
     });
 
     test('falha de um GLB devolve a região à extrusão pendente', () async {
@@ -237,6 +449,7 @@ class _FakeMap implements MapboxMap {
   _FakeMap({required this.zoom});
 
   double zoom;
+  int cameraReads = 0;
   final memoryStyle = _MemoryStyle();
 
   @override
@@ -246,13 +459,16 @@ class _FakeMap implements MapboxMap {
   static final _center = Point(coordinates: Position(-43.9919927, -19.92402));
 
   @override
-  Future<CameraState> getCameraState() async => CameraState(
-    center: _center,
-    padding: MbxEdgeInsets(top: 0, left: 0, bottom: 0, right: 0),
-    zoom: zoom,
-    bearing: 0,
-    pitch: 45,
-  );
+  Future<CameraState> getCameraState() async {
+    cameraReads++;
+    return CameraState(
+      center: _center,
+      padding: MbxEdgeInsets(top: 0, left: 0, bottom: 0, right: 0),
+      zoom: zoom,
+      bearing: 0,
+      pitch: 45,
+    );
+  }
 
   @override
   Future<CoordinateBounds> coordinateBoundsForCamera(
@@ -272,6 +488,9 @@ class _MemoryStyle implements StyleManager {
   final sources = <String, Map<String, dynamic>>{};
   final layers = <String, Map<String, dynamic>>{};
   final properties = <String, Object>{};
+  int paintWrites = 0;
+  int filterWrites = 0;
+  Future<void> Function(String id)? onSource;
 
   @override
   Future<bool> styleSourceExists(String id) async => sources.containsKey(id);
@@ -283,6 +502,7 @@ class _MemoryStyle implements StyleManager {
   Future<void> addStyleSource(String id, String value) async {
     if (sources.containsKey(id)) throw StateError('Source duplicada.');
     sources[id] = jsonDecode(value) as Map<String, dynamic>;
+    await onSource?.call(id);
   }
 
   @override
@@ -302,7 +522,13 @@ class _MemoryStyle implements StyleManager {
     String property,
     Object value,
   ) async {
-    if (property == 'filter') properties[layerId] = value;
+    if (property == 'filter') {
+      filterWrites++;
+      properties[layerId] = value;
+    } else {
+      paintWrites++;
+      (layers[layerId]!['paint'] as Map)[property] = value;
+    }
   }
 
   @override

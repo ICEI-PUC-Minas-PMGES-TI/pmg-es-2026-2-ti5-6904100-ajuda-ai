@@ -12,7 +12,8 @@ import 'campus_model_manifest.dart';
 ///   ≥ [lod0MinZoom]                 LOD0: chunks GLB, sob demanda
 ///
 /// Os limites de zoom do Mapbox trocam os LODs sem sobreposição; as camadas
-/// "pendentes" cobrem modelos não pedidos ou falhos, com atraso após o pedido.
+/// "pendentes" cobrem modelos sem bytes disponíveis ou falhos, até passar
+/// o settle após download/cache.
 abstract final class Campus3dLod {
   static const lod1MinZoom = 16.5;
   static const lod0MinZoom = 17.8;
@@ -26,13 +27,15 @@ abstract final class Campus3dLod {
   /// Margem (fração do bbox da câmera) para pré-carregar chunks vizinhos.
   static const prefetchMargin = 0.25;
 
-  /// Atraso heurístico após pedir o GLB; não confirma processamento na GPU.
+  /// Atraso heurístico após receber os bytes do GLB (rede/cache); não
+  /// confirma processamento na GPU. A fila não espera esse timer.
   static const modelSettleDelay = Duration(milliseconds: 300);
 
   /// Câmera estável dispara LOD; `onMapIdle` pode não chegar com GLB indisponível.
   static const cameraSettle = Duration(milliseconds: 250);
 
-  /// Um chunk por frame: espalha parse/upload de GPU.
+  /// Espaça os pedidos de chunk em 16 ms. Não limita downloads concorrentes
+  /// nem confirma parse/upload de GPU: esses trabalhos pertencem ao SDK.
   static const chunkSpacing = Duration(milliseconds: 16);
 
   // Ambiente (valores dos controllers de vegetação/props do PUCMaps). Não

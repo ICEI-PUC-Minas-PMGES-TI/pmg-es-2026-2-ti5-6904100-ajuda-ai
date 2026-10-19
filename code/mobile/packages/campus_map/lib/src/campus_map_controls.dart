@@ -12,6 +12,7 @@ import 'campus_location_service.dart';
 import 'campus_map_controller.dart';
 import 'campus_place.dart';
 import 'campus_place_category_sheet.dart';
+import 'campus_place_category.dart';
 import 'campus_pucstop.dart';
 import 'campus_route.dart';
 
@@ -73,7 +74,12 @@ class _CampusMapControlsState extends State<CampusMapControls> {
   @override
   void initState() {
     super.initState();
+    _focus.addListener(_focusChanged);
     _listen(widget.controller);
+  }
+
+  void _focusChanged() {
+    if (mounted) setState(() {});
   }
 
   void _listen(CampusMapController controller) {
@@ -184,7 +190,7 @@ class _CampusMapControlsState extends State<CampusMapControls> {
 
   void _closeContent() => widget.controller.selectContent(null);
 
-  Future<void> _openCategories() async {
+  Future<void> _openCategories(CampusPlaceCategory category) async {
     final controller = widget.controller;
     _request++;
     _focus.unfocus();
@@ -197,7 +203,10 @@ class _CampusMapControlsState extends State<CampusMapControls> {
         padding: EdgeInsets.only(
           bottom: MediaQuery.viewInsetsOf(context).bottom,
         ),
-        child: CampusPlaceCategorySheet(controller: controller),
+        child: CampusPlaceCategorySheet(
+          controller: controller,
+          initialCategory: category,
+        ),
       ),
     );
     if (!mounted || controller != widget.controller || place == null) return;
@@ -572,6 +581,45 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     ];
   }
 
+  List<Widget> get _categoryShortcuts => [
+    for (final category in CampusPlaceCategory.values)
+      ActionChip(
+        key: Key('campus-category-quick-${category.name}'),
+        avatar: Icon(switch (category) {
+          CampusPlaceCategory.academic => Icons.school_outlined,
+          CampusPlaceCategory.lab => Icons.biotech_outlined,
+          CampusPlaceCategory.library => Icons.local_library_outlined,
+          CampusPlaceCategory.sports => Icons.sports_soccer_outlined,
+        }, size: 18),
+        label: Text(category.label),
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        elevation: 2,
+        onPressed: () => _openCategories(category),
+      ),
+  ];
+
+  Widget _shortcutRow(List<Widget> chips, String label, Key key) => Padding(
+    padding: const EdgeInsets.only(top: 6),
+    child: Semantics(
+      label: label,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: SingleChildScrollView(
+          key: key,
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (var i = 0; i < chips.length; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                chips[i],
+              ],
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) =>
@@ -647,107 +695,108 @@ class _CampusMapControlsState extends State<CampusMapControls> {
           top: 12,
           left: 12,
           right: 12,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Material(
-                color: colors.surface,
-                elevation: 3,
-                borderRadius: BorderRadius.circular(16),
-                child: TextField(
-                  controller: _text,
-                  focusNode: _focus,
-                  onChanged: _search,
-                  onTap: () {
-                    if (_text.text.isNotEmpty) _search(_text.text);
-                  },
-                  onTapOutside: (_) {
-                    _focus.unfocus();
-                    if (_expanded) setState(() => _expanded = false);
-                  },
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: _search,
-                  decoration: InputDecoration(
-                    labelText: 'Buscar local no campus',
-                    hintText: 'Nome ou código do prédio',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: 'Categorias de locais',
-                          onPressed: _openCategories,
-                          icon: const Icon(Icons.filter_list),
-                        ),
-                        IconButton(
-                          tooltip: 'Limpar busca',
-                          onPressed: _clear,
-                          icon: const Icon(Icons.close),
-                        ),
-                      ],
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                  ),
-                ),
-              ),
-              if (!_expanded && _shortcuts.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Wrap(spacing: 8, children: _shortcuts),
-                  ),
-                ),
-              if (_expanded && !_searching)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  // Resultados e campo pertencem ao mesmo grupo de toque:
-                  // selecionar não dispara onTapOutside antes do onTap.
-                  child: TextFieldTapRegion(
-                    child: Material(
-                      color: colors.surface,
-                      elevation: 3,
-                      borderRadius: BorderRadius.circular(16),
-                      clipBehavior: Clip.antiAlias,
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxHeight: MediaQuery.sizeOf(context).height * .3,
-                        ),
-                        child: _results.isEmpty
-                            ? Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Text(
-                                  _searchError
-                                      ? 'Não foi possível buscar locais. Tente novamente.'
-                                      : 'Nenhum local encontrado.',
-                                ),
-                              )
-                            : ListView.builder(
-                                padding: EdgeInsets.zero,
-                                shrinkWrap: true,
-                                itemCount: _results.length,
-                                itemBuilder: (context, index) {
-                                  final place = _results[index];
-                                  return ListTile(
-                                    leading: const Icon(Icons.place_outlined),
-                                    title: Text(place.displayName),
-                                    subtitle:
-                                        place.name != null && place.code != null
-                                        ? Text(place.code!)
-                                        : null,
-                                    onTap: () => _select(place),
-                                  );
-                                },
-                              ),
+          child: _MedeAltura(
+            onAltura: (height) {
+              if (mounted) widget.controller.controlsHeight.value = height;
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Material(
+                  color: colors.surface,
+                  elevation: 3,
+                  borderRadius: BorderRadius.circular(16),
+                  child: TextField(
+                    controller: _text,
+                    focusNode: _focus,
+                    onChanged: _search,
+                    onTap: () {
+                      if (_text.text.isNotEmpty) _search(_text.text);
+                    },
+                    onTapOutside: (_) {
+                      _focus.unfocus();
+                      if (_expanded) setState(() => _expanded = false);
+                    },
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: _search,
+                    decoration: InputDecoration(
+                      labelText: 'Buscar local no campus',
+                      hintText: 'Nome ou código do prédio',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: IconButton(
+                        tooltip: 'Limpar busca',
+                        onPressed: _clear,
+                        icon: const Icon(Icons.close),
+                      ),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
                       ),
                     ),
                   ),
                 ),
-            ],
+                if (!_expanded && !_focus.hasFocus) ...[
+                  _shortcutRow(
+                    _categoryShortcuts,
+                    'Categorias de locais',
+                    const Key('campus-category-shortcuts'),
+                  ),
+                  if (_shortcuts.isNotEmpty)
+                    _shortcutRow(
+                      _shortcuts,
+                      'Eventos e alimentação',
+                      const Key('campus-content-shortcuts'),
+                    ),
+                ],
+                if (_expanded && !_searching)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    // Resultados e campo pertencem ao mesmo grupo de toque:
+                    // selecionar não dispara onTapOutside antes do onTap.
+                    child: TextFieldTapRegion(
+                      child: Material(
+                        color: colors.surface,
+                        elevation: 3,
+                        borderRadius: BorderRadius.circular(16),
+                        clipBehavior: Clip.antiAlias,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: MediaQuery.sizeOf(context).height * .3,
+                          ),
+                          child: _results.isEmpty
+                              ? Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Text(
+                                    _searchError
+                                        ? 'Não foi possível buscar locais. Tente novamente.'
+                                        : 'Nenhum local encontrado.',
+                                  ),
+                                )
+                              : ListView.builder(
+                                  padding: EdgeInsets.zero,
+                                  shrinkWrap: true,
+                                  itemCount: _results.length,
+                                  itemBuilder: (context, index) {
+                                    final place = _results[index];
+                                    return ListTile(
+                                      leading: const Icon(Icons.place_outlined),
+                                      title: Text(place.displayName),
+                                      subtitle:
+                                          place.name != null &&
+                                              place.code != null
+                                          ? Text(place.code!)
+                                          : null,
+                                      onTap: () => _select(place),
+                                    );
+                                  },
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
         Positioned(

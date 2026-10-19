@@ -8,7 +8,12 @@ import 'campus_place_category.dart';
 
 /// Locais permanentes separados das listas de eventos e alimentação.
 class CampusPlaceCategorySheet extends StatefulWidget {
-  const CampusPlaceCategorySheet({super.key, required this.controller});
+  const CampusPlaceCategorySheet({
+    super.key,
+    required this.controller,
+    this.initialCategory = CampusPlaceCategory.academic,
+  });
+  final CampusPlaceCategory initialCategory;
   final CampusMapController controller;
 
   @override
@@ -17,7 +22,7 @@ class CampusPlaceCategorySheet extends StatefulWidget {
 
 class _CategorySheetState extends State<CampusPlaceCategorySheet> {
   final _query = TextEditingController();
-  CampusPlaceCategory _category = CampusPlaceCategory.academic;
+  late CampusPlaceCategory _category;
   List<CampusPlace> _places = const [];
   bool _loading = true;
   bool _failed = false;
@@ -26,6 +31,7 @@ class _CategorySheetState extends State<CampusPlaceCategorySheet> {
   @override
   void initState() {
     super.initState();
+    _category = widget.initialCategory;
     unawaited(_load());
   }
 

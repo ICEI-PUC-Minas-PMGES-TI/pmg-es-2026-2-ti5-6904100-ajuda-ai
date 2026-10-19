@@ -59,21 +59,30 @@ abstract final class CampusRouteLayer {
     ];
   }
 
-  /// Troca a linha inteira (remove a anterior): sem estado entre rotas.
+  /// Recálculo troca os dados da linha existente; não desmonta o style.
+  /// Limpar/descartar ainda remove as camadas e a source por [clear].
   static Future<void> show(
     StyleManager style,
     CampusRoute route, {
     required bool Function() isActive,
   }) async {
-    await clear(style);
     if (!isActive()) return;
-    await style.addStyleSource(
-      source,
-      jsonEncode({'type': 'geojson', 'data': feature(route)}),
-    );
+    final data = feature(route);
+    final exists = await style.styleSourceExists(source);
+    if (!isActive()) return;
+    if (exists) {
+      await style.setStyleSourceProperty(source, 'data', jsonEncode(data));
+    } else {
+      await style.addStyleSource(
+        source,
+        jsonEncode({'type': 'geojson', 'data': data}),
+      );
+    }
     for (final layer in layers) {
       if (!isActive()) return;
-      await style.addStyleLayer(jsonEncode(layer), null);
+      final exists = await style.styleLayerExists(layer['id'] as String);
+      if (!isActive()) return;
+      if (!exists) await style.addStyleLayer(jsonEncode(layer), null);
     }
   }
 

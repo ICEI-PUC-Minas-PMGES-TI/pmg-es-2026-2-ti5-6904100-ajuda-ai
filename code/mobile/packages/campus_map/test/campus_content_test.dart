@@ -659,7 +659,13 @@ void main() {
       expect(find.text(campusEventSchedule(_feira)), findsOneWidget);
       expect(find.text('Acontecendo agora'), findsOneWidget);
       expect(find.text('Em breve'), findsNWidgets(2));
-      expect(find.text('Biblioteca'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('campus-events-sheet')),
+          matching: find.text('Biblioteca'),
+        ),
+        findsOneWidget,
+      );
       expect(service.eventCalls, 1);
     });
 

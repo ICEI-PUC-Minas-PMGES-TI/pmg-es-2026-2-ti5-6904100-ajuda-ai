@@ -3,11 +3,11 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 abstract final class CampusMapDefaults {
   static const styleUri = MapboxStyles.STANDARD;
 
-  // Centro do bbox dos 82 footprints reais do snapshot PUCMaps.
-  // É um enquadramento das construções, não o limite administrativo do campus.
-  static const latitude = -19.92252415;
-  static const longitude = -43.9927295;
-  static const zoom = 15.2;
+  // Câmera provisória até ler o snapshot; a abertura usa o centro mediano
+  // dos prédios. O zoom inicial é independente do mínimo/fit do campus.
+  static const latitude = -19.92298695;
+  static const longitude = -43.9933884;
+  static const zoom = 16.5;
   static const pitch = 0.0;
   static const bearing = 0.0;
   static const placeZoom = 18.0;
@@ -17,9 +17,9 @@ abstract final class CampusMapDefaults {
 
   /// Enquadramento da rota: zoom máximo (rota curta não "cola" no chão) e
   /// margens em pontos de tela para a busca e os atalhos Eventos/Onde comer
-  /// (topo, ~126 pt) e o card (rodapé).
+  /// (topo, medido pelos controles) e o card (rodapé).
   static const routeMaxZoom = 18.5;
-  static const routePaddingTop = 150.0;
+  static const routePaddingTop = 204.0;
   static const routePaddingBottom = 230.0;
   static const routePaddingSide = 48.0;
 
@@ -36,6 +36,6 @@ abstract final class CampusMapDefaults {
   static const minVisibleMapHeight = 160.0;
 
   /// Inclinação inicial só com 3D ligado. O PUCMaps usava 65°; aqui é menor
-  /// para manter a leitura do campus inteiro na abertura.
+  /// para facilitar a leitura dos prédios centrais na abertura.
   static const pitch3d = 45.0;
 }
