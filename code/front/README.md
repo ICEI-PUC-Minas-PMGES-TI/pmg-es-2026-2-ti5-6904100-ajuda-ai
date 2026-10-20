@@ -4,7 +4,7 @@ Frontend em React e Vite. Inclui:
 
 - fluxo de cadastro do estudante (`/`): perfil → como quer participar (padrinho / apadrinhado / explorar) → formulário → revisão/envio;
 - área do aluno (`/aluno/perfil`, `/aluno/candidatura`, `/aluno/padrinho`, `/aluno/historico`, `/aluno/configuracoes`);
-- login demo e painel da coordenação (`/login`, `/coordenacao`: dashboard, candidaturas, usuários, programas, formulários, configurações/comunicados).
+- login demo e painel da coordenação (`/login`, `/coordenacao`: dashboard, candidaturas, usuários, programas, matching manual, formulários, configurações/comunicados).
 
 ## Executar localmente
 
@@ -39,6 +39,13 @@ Perfil e foto são editados em `/aluno/perfil/editar`; foto usa somente
 A candidatura passa por revisão e só é registrada ao confirmar o envio.
 Após o envio, respostas são imutáveis. Aprovação aguarda matching; somente
 `padrinho_ativo` libera acesso aos apadrinhados. Anexos não são suportados.
+
+Na coordenação, cada programa mantém seu próprio calendário e ciclo. Em
+`/coordenacao/programas`, encerre as inscrições sem decidir candidaturas e use
+“Liberar matching” somente após preparar os aprovados. A rota
+`/coordenacao/matching?programa=AAAA/semestre` só consulta participantes elegíveis
+depois dessa liberação; os vínculos são manuais e não há geração automática de
+sugestões ou grupos.
 
 ### Validação
 

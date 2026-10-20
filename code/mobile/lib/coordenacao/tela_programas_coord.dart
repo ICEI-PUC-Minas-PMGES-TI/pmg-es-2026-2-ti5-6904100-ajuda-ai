@@ -39,6 +39,7 @@ class TelaProgramasCoord extends StatefulWidget {
     this.iniciarNovo = false,
     this.onProgramaCriado,
     this.onProgramaSelecionado,
+    this.onAbrirMatching,
     this.onProgramaExcluido,
   });
 
@@ -51,6 +52,7 @@ class TelaProgramasCoord extends StatefulWidget {
   final bool iniciarNovo;
   final ValueChanged<String>? onProgramaCriado;
   final ValueChanged<String>? onProgramaSelecionado;
+  final ValueChanged<String>? onAbrirMatching;
   final ValueChanged<String>? onProgramaExcluido;
 
   @override
@@ -61,6 +63,7 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
   List<Map<String, dynamic>> _programas = const [];
   bool _carregando = true;
   String? _erro;
+  final Set<String> _acoesEmAndamento = {};
 
   bool _novoAgendado = false;
 
@@ -175,6 +178,61 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
     await _carregar();
   }
 
+  Future<void> _encerrarInscricoes(Map<String, dynamic> programa) async {
+    final codigo = '${programa['codigo']}';
+    if (_acoesEmAndamento.contains(codigo)) return;
+    final confirmou = await confirmarAcaoCoord(
+      context,
+      titulo: 'Encerrar inscrições?',
+      mensagem:
+          'As inscrições do programa $codigo serão encerradas. '
+          'Nenhuma candidatura será aprovada nem vinculada por esta ação.',
+      confirmar: 'Encerrar inscrições',
+      destrutiva: true,
+    );
+    if (!confirmou || !mounted) return;
+    setState(() => _acoesEmAndamento.add(codigo));
+    try {
+      await widget.api.encerrarInscricoes(codigo);
+      if (!mounted) return;
+      mostrarMensagemCoord(
+        context,
+        'Inscrições encerradas. As candidaturas continuam sem decisão.',
+      );
+      await _carregar();
+    } catch (erro) {
+      if (mounted) mostrarMensagemCoord(context, mensagemDeErro(erro));
+    } finally {
+      if (mounted) setState(() => _acoesEmAndamento.remove(codigo));
+    }
+  }
+
+  Future<void> _liberarMatching(Map<String, dynamic> programa) async {
+    final codigo = '${programa['codigo']}';
+    if (_acoesEmAndamento.contains(codigo)) return;
+    final confirmou = await confirmarAcaoCoord(
+      context,
+      titulo: 'Liberar matching?',
+      mensagem:
+          'É necessário encerrar as inscrições, decidir todas as candidaturas '
+          'e ter ao menos um padrinho aprovado. A liberação não cria grupos '
+          'nem define vínculos automaticamente.',
+      confirmar: 'Liberar matching',
+    );
+    if (!confirmou || !mounted) return;
+    setState(() => _acoesEmAndamento.add(codigo));
+    try {
+      await widget.api.liberarMatching(codigo);
+      if (!mounted) return;
+      mostrarMensagemCoord(context, 'Matching liberado para $codigo.');
+      await _carregar();
+    } catch (erro) {
+      if (mounted) mostrarMensagemCoord(context, mensagemDeErro(erro));
+    } finally {
+      if (mounted) setState(() => _acoesEmAndamento.remove(codigo));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final aviso = switch (widget.pendencia) {
@@ -250,6 +308,19 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
                     programa: programa,
                     onEditar: () => _editar(programa),
                     onExcluir: () => _excluir(programa),
+                    onEncerrar: programa['podeEncerrarInscricoes'] == true
+                        ? () => _encerrarInscricoes(programa)
+                        : null,
+                    onLiberar: programa['podeLiberarMatching'] == true
+                        ? () => _liberarMatching(programa)
+                        : null,
+                    ocupado: _acoesEmAndamento.contains(
+                      '${programa['codigo']}',
+                    ),
+                    onMatching: widget.onAbrirMatching == null
+                        ? null
+                        : () =>
+                              widget.onAbrirMatching!('${programa['codigo']}'),
                     onAdministrar: widget.onProgramaSelecionado == null
                         ? null
                         : () {
@@ -284,12 +355,20 @@ class _CardPrograma extends StatelessWidget {
     required this.programa,
     required this.onEditar,
     required this.onExcluir,
+    required this.ocupado,
+    this.onEncerrar,
+    this.onLiberar,
+    this.onMatching,
     this.onAdministrar,
   });
 
   final Map<String, dynamic> programa;
   final VoidCallback onEditar;
   final VoidCallback onExcluir;
+  final bool ocupado;
+  final VoidCallback? onEncerrar;
+  final VoidCallback? onLiberar;
+  final VoidCallback? onMatching;
   final VoidCallback? onAdministrar;
 
   @override
@@ -379,7 +458,9 @@ class _CardPrograma extends StatelessWidget {
               programa['formularioPublicado'] == true
                   ? 'Formulário publicado'
                   : 'Formulário não publicado',
-              if (programa['matchingPendente'] == true) 'Matching pendente',
+              programa['matchingLiberado'] == true
+                  ? 'Matching liberado'
+                  : 'Matching bloqueado',
             ].join(' · '),
             style: const TextStyle(
               fontSize: 12,
@@ -478,6 +559,28 @@ class _CardPrograma extends StatelessWidget {
               onPressed: onAdministrar,
               icon: const Icon(Icons.dashboard_outlined),
               label: const Text('Administrar este programa'),
+            ),
+          if (onEncerrar != null)
+            FilledButton.tonalIcon(
+              onPressed: ocupado ? null : onEncerrar,
+              icon: const Icon(Icons.lock_outline),
+              label: Text(ocupado ? 'Processando…' : 'Encerrar inscrições'),
+            ),
+          if (onLiberar != null)
+            FilledButton.icon(
+              onPressed: ocupado ? null : onLiberar,
+              icon: const Icon(Icons.link),
+              label: Text(ocupado ? 'Processando…' : 'Liberar matching'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          if (programa['matchingLiberado'] == true && onMatching != null)
+            OutlinedButton.icon(
+              onPressed: onMatching,
+              icon: const Icon(Icons.groups_outlined),
+              label: const Text('Abrir matching manual'),
             ),
           Align(
             alignment: Alignment.centerRight,

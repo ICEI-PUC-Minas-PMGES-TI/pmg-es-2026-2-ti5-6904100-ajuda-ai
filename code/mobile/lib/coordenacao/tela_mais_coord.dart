@@ -14,8 +14,8 @@ class TelaMaisCoord extends StatelessWidget {
 
   final String nomeCoordenador;
 
-  /// Destino: cadastros | formularios | usuarios | programas | comunicado |
-  /// sem_vinculo.
+  /// Destino: cadastros | formularios | usuarios | matching | programas |
+  /// comunicado | sem_vinculo.
   final ValueChanged<String> onAbrir;
   final VoidCallback onSair;
 
@@ -37,6 +37,12 @@ class TelaMaisCoord extends StatelessWidget {
       'Usuários',
       'Participantes, situação e vínculos',
       'usuarios',
+    ),
+    (
+      Icons.link,
+      'Matching manual',
+      'Vincule participantes após liberar o matching do ciclo',
+      'matching',
     ),
     (
       Icons.link,

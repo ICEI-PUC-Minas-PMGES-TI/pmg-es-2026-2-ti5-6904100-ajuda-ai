@@ -267,6 +267,34 @@ class CoordenacaoApi {
     ),
   );
 
+  Future<Map<String, dynamic>> encerrarInscricoes(String codigo) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/programas/encerrar-inscricoes',
+      query: {'codigo': codigo},
+      erro: 'Falha ao encerrar as inscrições',
+    ),
+  );
+
+  Future<Map<String, dynamic>> liberarMatching(String codigo) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/programas/liberar-matching',
+      query: {'codigo': codigo},
+      erro: 'Falha ao liberar o matching',
+    ),
+  );
+
+  Future<Map<String, dynamic>> matching({required String programa}) async =>
+      _mapa(
+        await _enviar(
+          'GET',
+          '/coordenacao/matching',
+          query: {'programa': programa},
+          erro: 'Falha ao carregar o matching',
+        ),
+      );
+
   /// Formulário para edição (`padrinho` | `apadrinhado`), mesmo não publicado.
   Future<Formulario> formulario(String tipo, {String? programa}) async =>
       Formulario.fromJson(

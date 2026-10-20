@@ -10,6 +10,7 @@ const NAV = [
   { to: '/coordenacao/candidaturas', label: 'Candidaturas', icon: 'clipboard' },
   { to: '/coordenacao/usuarios', label: 'Usuários', icon: 'users' },
   { to: '/coordenacao/programas', label: 'Programas', icon: 'calendar' },
+  { to: '/coordenacao/matching', label: 'Matching', icon: 'link' },
   { to: '/coordenacao/formularios', label: 'Formulários', icon: 'form' },
   { to: '/coordenacao/configuracoes', label: 'Configurações', icon: 'settings' },
 ];

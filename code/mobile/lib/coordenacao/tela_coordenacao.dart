@@ -11,6 +11,7 @@ import 'tela_comunicado_coord.dart';
 import 'tela_dashboard_coord.dart';
 import 'tela_cadastros_coord.dart';
 import 'tela_formularios_coord.dart';
+import 'tela_matching_coord.dart';
 import 'tela_mais_coord.dart';
 import 'tela_programas_coord.dart';
 import 'tela_usuarios_coord.dart';
@@ -199,6 +200,20 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
     });
   }
 
+  void _abrirMatching(String codigo) {
+    final api = _api;
+    if (api == null) return;
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => TelaMatchingCoord(api: api, programa: codigo),
+          ),
+        )
+        .then((_) {
+          if (mounted) _carregarProgramas();
+        });
+  }
+
   /// Destinos do dashboard (pontos de atenção / ações rápidas) e da aba Mais.
   void _abrirDestino(String destino, Map<String, String> query) {
     final api = _api;
@@ -228,6 +243,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         programa: _programa,
       ),
       'usuarios' => TelaUsuariosCoord(api: api, programa: _programa),
+      'matching' => TelaMatchingCoord(api: api, programa: _programa!),
       'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
       'comunicado' => TelaComunicadoCoord(api: api),
       _ => TelaProgramasCoord(
@@ -239,6 +255,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
           _aba = 0;
           _carregarProgramas(preferido: codigo);
         },
+        onAbrirMatching: _abrirMatching,
         onProgramaExcluido: (codigo) {
           if (_programaSolicitado == codigo) _programaSolicitado = null;
           if (_programa == codigo) {

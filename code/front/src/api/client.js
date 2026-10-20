@@ -256,6 +256,15 @@ export const api = {
   atualizarPrograma(codigo, dados) {
     return request(`/coordenacao/programas${query({ codigo })}`, { method: 'PATCH', body: dados });
   },
+  encerrarInscricoes(codigo) {
+    return request(`/coordenacao/programas/encerrar-inscricoes${query({ codigo })}`, { method: 'POST' });
+  },
+  liberarMatching(codigo) {
+    return request(`/coordenacao/programas/liberar-matching${query({ codigo })}`, { method: 'POST' });
+  },
+  matching(programa) {
+    return request(`/coordenacao/matching${query({ programa })}`);
+  },
   formularioCoordenacao(tipo, programa) {
     return request(`/coordenacao/formularios/${tipo}${query({ programa })}`);
   },

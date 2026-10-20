@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:ajuda_ai/coordenacao/tela_dashboard_coord.dart';
@@ -57,4 +58,40 @@ void main() {
       });
     }
   }
+
+  testWidgets('dashboard não quebra quando indicadores vêm incompletos', (
+    tester,
+  ) async {
+    final resposta = Map<String, dynamic>.from(jsonDecode(dashboard) as Map)
+      ..['indicadores'] = null;
+    resposta.remove('candidaturasVisaoGeral');
+    final apiIncompleta = CoordenacaoApi(
+      accessToken: 'teste',
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode(resposta),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TelaDashboardCoord(
+            api: apiIncompleta,
+            programa: '2026/2',
+            onProgramaChanged: (_) {},
+            onVerCandidaturas: ({status}) {},
+            onAbrirDestino: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Candidaturas pendentes'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

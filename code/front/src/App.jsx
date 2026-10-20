@@ -17,6 +17,7 @@ import ConfiguracoesPage from './pages/coordenacao/ConfiguracoesPage';
 import CoordLayout from './pages/coordenacao/CoordLayout';
 import DashboardPage from './pages/coordenacao/DashboardPage';
 import FormulariosPage from './pages/coordenacao/FormulariosPage';
+import MatchingPage from './pages/coordenacao/MatchingPage';
 import ProgramasPage from './pages/coordenacao/ProgramasPage';
 import UsuariosPage from './pages/coordenacao/UsuariosPage';
 
@@ -45,6 +46,7 @@ export default function App() {
               <Route path="candidaturas" element={<CandidaturasPage />} />
               <Route path="usuarios" element={<UsuariosPage />} />
               <Route path="programas" element={<ProgramasPage />} />
+              <Route path="matching" element={<MatchingPage />} />
               <Route path="formularios" element={<FormulariosPage />} />
               <Route path="configuracoes" element={<ConfiguracoesPage />} />
             </Route>

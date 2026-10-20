@@ -45,6 +45,15 @@ O backend ainda exige `AUTH_DEMO_ENABLED=true` e recusa a rota em produção e p
 
 Renata abre a área da coordenação. Os demais abrem a home do aluno. Para os alunos existirem no banco compartilhado, alguém da equipe roda uma vez `npm run seed:demo` na API. Não habilitar `SEED_DEMO_DATA=true` no banco remoto.
 
+### Programas e matching da coordenação
+
+Em **Mais → Programas**, cada ciclo mostra sua etapa, situação das inscrições e
+calendário. A coordenação encerra inscrições por uma ação confirmada; isso não
+aprova candidaturas. Depois de decidir todas as candidaturas e preparar ao menos
+um padrinho aprovado, pode liberar o matching explicitamente. **Mais → Matching
+manual** consulta o conjunto elegível somente após a liberação e permite criar
+vínculos manuais; não gera sugestões nem grupos automaticamente.
+
 ### Entra ID
 
 1. Registrar um aplicativo público (contas só deste diretório organizacional).
