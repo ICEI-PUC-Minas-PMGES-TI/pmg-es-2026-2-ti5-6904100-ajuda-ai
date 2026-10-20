@@ -25,9 +25,7 @@ function repoMemoria<T extends Registro>(linhas: T[]) {
       const where = opts?.where;
       if (Array.isArray(where)) {
         lista = lista.filter((item) =>
-          where.some((w) =>
-            Object.entries(w).every(([k, v]) => item[k] === v),
-          ),
+          where.some((w) => Object.entries(w).every(([k, v]) => item[k] === v)),
         );
       } else if (where) {
         lista = lista.filter((item) =>
@@ -116,7 +114,8 @@ describe('CriterioCatalogoService', () => {
     const dados = {
       manager,
       getRepository: (entity: unknown) => repos.get(entity),
-      transaction: async <T>(fn: (m: EntityManager) => Promise<T>) => fn(manager),
+      transaction: async <T>(fn: (m: EntityManager) => Promise<T>) =>
+        fn(manager),
     } as unknown as DataSource;
     service = new CriterioCatalogoService(dados);
   });
@@ -241,6 +240,74 @@ describe('CriterioCatalogoService', () => {
     expect(atualizado.versoes).toHaveLength(2);
     expect(atualizado.versoes![1].versao).toBe(1);
     expect(atualizado.versoes![1].tipo).toBe('escolha_unica');
+  });
+
+  it.each(['adicionar', 'remover'])(
+    'preserva a versão em uso ao %s alternativa e editar o enunciado juntos',
+    async (operacao) => {
+      const criado = await service.criar(
+        {
+          nome: 'Turno preferido',
+          enunciadoPadrao: 'Qual turno?',
+          tipo: 'escolha_unica',
+          alternativas: [{ rotulo: 'Manhã' }, { rotulo: 'Noite' }],
+        },
+        'coord@pucminas.edu.br',
+      );
+      const original = structuredClone(criado.versao!);
+      configs.push({
+        id: 1,
+        criterios: [{ criterioPadrinhoId: criado.id }],
+      } as MatchingConfiguracaoEntity);
+      const alternativas =
+        operacao === 'adicionar'
+          ? [...original.alternativas, { rotulo: 'Tarde' }]
+          : original.alternativas.slice(0, 1);
+
+      const atualizado = await service.atualizar(
+        criado.id,
+        { enunciadoPadrao: 'Em qual turno prefere participar?', alternativas },
+        'coord@pucminas.edu.br',
+      );
+
+      expect(atualizado.versaoAtual).toBe(2);
+      expect(atualizado.versao).toMatchObject({
+        versao: 2,
+        enunciadoPadrao: 'Em qual turno prefere participar?',
+        alternativas: expect.any(Array),
+      });
+      expect(atualizado.versao!.alternativas).toHaveLength(alternativas.length);
+      expect(atualizado.versoes!.find((v) => v.versao === 1)).toEqual(original);
+    },
+  );
+
+  it('mantém a versão ao editar apenas enunciado e rótulos de alternativas', async () => {
+    const criado = await service.criar(
+      {
+        nome: 'Turno preferido',
+        enunciadoPadrao: 'Qual turno?',
+        tipo: 'escolha_unica',
+        alternativas: [{ rotulo: 'Manhã' }],
+      },
+      'coord@pucminas.edu.br',
+    );
+    configs.push({
+      id: 1,
+      criterios: [{ criterioPadrinhoId: criado.id }],
+    } as MatchingConfiguracaoEntity);
+    const atualizado = await service.atualizar(
+      criado.id,
+      {
+        enunciadoPadrao: 'Em qual turno prefere participar?',
+        alternativas: [
+          { id: criado.versao!.alternativas[0].id, rotulo: 'Matutino' },
+        ],
+      },
+      'coord@pucminas.edu.br',
+    );
+    expect(atualizado.versaoAtual).toBe(1);
+    expect(atualizado.versoes).toHaveLength(1);
+    expect(atualizado.versao!.alternativas[0].rotulo).toBe('Matutino');
   });
 
   it('impede exclusão física com dependências e permite desativar', async () => {

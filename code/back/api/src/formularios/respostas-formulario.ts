@@ -5,7 +5,7 @@ import type {
   TipoFormulario,
 } from './entities/formulario.entity.js';
 
-type Resposta = string | string[];
+type Resposta = string | string[] | boolean;
 
 /** Papéis de participação que respondem ao formulário de cada público. */
 export const PAPEIS_DO_FORMULARIO = {
@@ -68,6 +68,7 @@ function respostaDe(
   perguntaId: string,
 ): Resposta | null {
   const valor = item.respostas?.extras?.[perguntaId];
+  if (typeof valor === 'boolean') return valor;
   if (Array.isArray(valor)) return valor.length ? valor : null;
   return typeof valor === 'string' && valor.trim() ? valor : null;
 }
@@ -138,8 +139,10 @@ export function respostasPorPergunta(
         resposta,
       });
       if (pergunta.opcoes.length)
-        for (const opcao of [resposta].flat())
-          grupo.contagem[opcao] = (grupo.contagem[opcao] ?? 0) + 1;
+        for (const opcao of [resposta].flat()) {
+          const chave = String(opcao);
+          grupo.contagem[chave] = (grupo.contagem[chave] ?? 0) + 1;
+        }
     }
   }
   return [...grupos.values()];

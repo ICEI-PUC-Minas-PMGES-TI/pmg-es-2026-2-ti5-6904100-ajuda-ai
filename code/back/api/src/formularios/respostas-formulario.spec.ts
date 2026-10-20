@@ -22,7 +22,7 @@ const apoio = {
 function envio(
   id: number,
   usuarioId: string,
-  extras: Record<string, string | string[]>,
+  extras: Record<string, string | string[] | boolean>,
   formulario?: { versao?: number; perguntas: unknown[] },
 ): ParticipacaoEntity {
   return {
@@ -80,6 +80,45 @@ describe('respostas de formulário', () => {
     },
   );
   const semFormulario = envio(4, 'd@x.com', {});
+
+  it('preserva Sim e Não nas consultas individuais e por pergunta', () => {
+    const pergunta = {
+      id: 'bolsa',
+      enunciado: 'É bolsista?',
+      tipo: 'sim_nao',
+      opcoes: [],
+      obrigatoria: false,
+    };
+    const itens = [true, false].map((resposta, i) =>
+      envio(
+        i + 10,
+        `booleano${i}@x.com`,
+        { bolsa: resposta },
+        {
+          versao: 1,
+          perguntas: [pergunta],
+        },
+      ),
+    );
+    itens.push(
+      envio(
+        12,
+        'sem-resposta@x.com',
+        {},
+        {
+          versao: 1,
+          perguntas: [pergunta],
+        },
+      ),
+    );
+
+    expect(
+      respostasIndividuais(itens).map((item) => item.respostas[0].resposta),
+    ).toEqual([true, false, null]);
+    const [grupo] = respostasPorPergunta(itens);
+    expect(grupo.total).toBe(2);
+    expect(grupo.respostas.map((r) => r.resposta)).toEqual([true, false]);
+  });
 
   describe('individual', () => {
     it('liga cada resposta ao aluno e à versão respondida', () => {

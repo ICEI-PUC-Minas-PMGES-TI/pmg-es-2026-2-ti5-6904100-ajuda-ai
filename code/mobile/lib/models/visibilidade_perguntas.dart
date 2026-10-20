@@ -12,8 +12,7 @@ enum OperadorCondicao {
   final String apiValue;
   final String rotulo;
 
-  bool get precisaValor =>
-      this == igual || this == diferente || this == contem;
+  bool get precisaValor => this == igual || this == diferente || this == contem;
 
   static OperadorCondicao fromApi(String? valor) =>
       OperadorCondicao.values.firstWhere(
@@ -58,6 +57,7 @@ class CondicaoVisibilidade {
 }
 
 bool _preenchida(Object? valor) => switch (valor) {
+  bool _ => true,
   String texto => texto.trim().isNotEmpty,
   List lista => lista.isNotEmpty,
   _ => false,

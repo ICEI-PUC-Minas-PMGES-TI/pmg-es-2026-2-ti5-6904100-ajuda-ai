@@ -308,6 +308,51 @@ export class MatchingService {
     return undefined;
   }
 
+  private metadadoDaParticipacao(
+    participacao: ParticipacaoEntity,
+    meta: MetadadoCriterio | undefined,
+  ): MetadadoCriterio | undefined {
+    if (!meta) return undefined;
+    const formulario = participacao.respostas?._servidor?.formulario;
+    // Envios legados sem snapshot continuam usando os metadados disponíveis.
+    if (!formulario) return meta;
+    const pergunta = formulario.perguntas.find((bruta) => {
+      if (!bruta || typeof bruta !== 'object') return false;
+      return (
+        Number((bruta as { criterioId?: unknown }).criterioId) ===
+        meta.criterioId
+      );
+    }) as
+      | {
+          id?: unknown;
+          criterioVersao?: unknown;
+          tipo?: unknown;
+          enunciado?: unknown;
+        }
+      | undefined;
+    const versao = Number(pergunta?.criterioVersao);
+    if (
+      typeof pergunta?.id !== 'string' ||
+      !pergunta.id ||
+      !Number.isInteger(versao) ||
+      versao < 1 ||
+      (pergunta.tipo !== 'sim_nao' &&
+        pergunta.tipo !== 'escolha_unica' &&
+        pergunta.tipo !== 'multipla_escolha')
+    )
+      return undefined;
+    return {
+      ...meta,
+      perguntaId: pergunta.id,
+      criterioVersao: versao,
+      tipo: pergunta.tipo,
+      rotulo:
+        typeof pergunta.enunciado === 'string'
+          ? pergunta.enunciado
+          : meta.rotulo,
+    };
+  }
+
   private valorPorCriterio(
     participacao: ParticipacaoEntity,
     meta: MetadadoCriterio | undefined,
@@ -327,9 +372,13 @@ export class MatchingService {
     let obtido = 0;
     let denominador = 0;
     const detalhes = criterios.map((criterio) => {
-      const metaP = metadata.campos.padrinho.get(criterio.criterioPadrinhoId);
-      const metaA = metadata.campos.apadrinhado.get(
-        criterio.criterioApadrinhadoId,
+      const metaP = this.metadadoDaParticipacao(
+        padrinho,
+        metadata.campos.padrinho.get(criterio.criterioPadrinhoId),
+      );
+      const metaA = this.metadadoDaParticipacao(
+        apadrinhado,
+        metadata.campos.apadrinhado.get(criterio.criterioApadrinhadoId),
       );
       let vp = this.valorPorCriterio(padrinho, metaP);
       let va = this.valorPorCriterio(apadrinhado, metaA);

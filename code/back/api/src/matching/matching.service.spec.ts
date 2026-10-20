@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
+import type { TipoCriterioCatalogo } from './entities/criterio-catalogo.entity.js';
 import type { CriterioMatching } from './entities/matching.entity.js';
 import { MatchingService } from './matching.service.js';
 
@@ -31,7 +32,7 @@ describe('MatchingService: critérios do catálogo', () => {
             criterioId: 10,
             criterioVersao: 1,
             perguntaId: 'q-bolsa',
-            tipo: 'sim_nao' as const,
+            tipo: 'sim_nao' as TipoCriterioCatalogo,
             rotulo: 'É bolsista?',
             nome: 'Condição de bolsista',
           },
@@ -117,6 +118,119 @@ describe('MatchingService: critérios do catálogo', () => {
     });
   });
 
+  const pontuarBolsa = (
+    padrinho: ParticipacaoEntity,
+    apadrinhado: ParticipacaoEntity,
+    campos = metadata,
+  ) => {
+    const pontuar = Reflect.get(service, 'pontuar') as (
+      p: ParticipacaoEntity,
+      a: ParticipacaoEntity,
+      criterios: CriterioMatching[],
+      campos: unknown,
+    ) => {
+      score: number;
+      explicacao: { criterios: Array<Record<string, unknown>> };
+    };
+    return pontuar.call(
+      service,
+      padrinho,
+      apadrinhado,
+      [
+        {
+          criterioPadrinhoId: 10,
+          criterioApadrinhadoId: 10,
+          operacao: 'igualdade',
+          peso: 100,
+        },
+      ],
+      campos,
+    );
+  };
+
+  const comSnapshot = (p: ParticipacaoEntity, perguntas: unknown[]) => {
+    p.respostas!._servidor = {
+      formulario: {
+        id: 1,
+        programa: p.programa,
+        versao: 1,
+        atualizadoEm: null,
+        perguntas,
+      },
+    };
+    return p;
+  };
+
+  it.each([true, false])(
+    'pontua resposta %s pelo ID da versão respondida',
+    (valor) => {
+      const antigo = comSnapshot(
+        participante(1, { 'bolsa-antiga': valor, 'q-bolsa': !valor }),
+        [
+          {
+            id: 'bolsa-antiga',
+            criterioId: 10,
+            criterioVersao: 1,
+            tipo: 'sim_nao',
+            enunciado: 'Pergunta original',
+          },
+        ],
+      );
+      const atual = comSnapshot(participante(2, { 'q-bolsa-a': valor }), [
+        { id: 'q-bolsa-a', criterioId: 10, criterioVersao: 2, tipo: 'sim_nao' },
+      ]);
+      const resultado = pontuarBolsa(antigo, atual);
+      expect(resultado.score).toBe(1);
+      expect(resultado.explicacao.criterios[0]).toMatchObject({
+        considerado: true,
+        valorPadrinho: valor,
+        valorApadrinhado: valor,
+        rotuloPadrinho: 'Pergunta original',
+      });
+    },
+  );
+
+  it('não atribui resposta de outro critério quando o ID atual foi reutilizado', () => {
+    const antigo = comSnapshot(participante(1, { 'q-bolsa': true }), [
+      { id: 'q-bolsa', criterioId: 99, criterioVersao: 1, tipo: 'sim_nao' },
+    ]);
+    const resultado = pontuarBolsa(
+      antigo,
+      participante(2, { 'q-bolsa-a': true }),
+    );
+    expect(resultado.explicacao.criterios[0]).toMatchObject({
+      considerado: false,
+      motivo: 'resposta_ausente',
+    });
+  });
+
+  it('normaliza a resposta pelo tipo da versão respondida, não pelo atual', () => {
+    const antigo = comSnapshot(participante(1, { 'bolsa-antiga': 'true' }), [
+      {
+        id: 'bolsa-antiga',
+        criterioId: 10,
+        criterioVersao: 1,
+        tipo: 'sim_nao',
+      },
+    ]);
+    const campos = {
+      ...metadata,
+      campos: {
+        ...metadata.campos,
+        padrinho: new Map(metadata.campos.padrinho),
+      },
+    };
+    campos.campos.padrinho.set(10, {
+      ...metadata.campos.padrinho.get(10)!,
+      criterioVersao: 2,
+      tipo: 'escolha_unica',
+    });
+    expect(
+      pontuarBolsa(antigo, participante(2, { 'q-bolsa-a': true }), campos)
+        .score,
+    ).toBe(1);
+  });
+
   it('recusa configuração vazia e formato legado de campos', () => {
     const validar = Reflect.get(service, 'validarCriterios') as (
       criterios: unknown[],
@@ -184,7 +298,10 @@ describe('MatchingService: critérios do catálogo', () => {
       apadrinhado: ParticipacaoEntity,
       criterios: CriterioMatching[],
       metadata: unknown,
-    ) => { score: number; explicacao: { criterios: Array<Record<string, unknown>> } };
+    ) => {
+      score: number;
+      explicacao: { criterios: Array<Record<string, unknown>> };
+    };
     const resultado = pontuar.call(
       service,
       participante(1, { 'q-areas': ['academico', 'pessoal'] }),

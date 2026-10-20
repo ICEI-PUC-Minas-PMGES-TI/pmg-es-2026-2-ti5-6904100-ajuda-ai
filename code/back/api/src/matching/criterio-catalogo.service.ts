@@ -113,10 +113,8 @@ export class CriterioCatalogoService {
     atual: MatchingCriterioVersaoEntity,
     tipo: TipoCriterioCatalogo,
     alternativas: AlternativaCriterio[],
-    enunciado: string,
   ): boolean {
     if (atual.tipo !== tipo) return true;
-    if (atual.enunciadoPadrao !== enunciado) return false; // enunciado só não força versão
     const idsAtuais = atual.alternativas
       .map((a) => a.id)
       .sort()
@@ -280,10 +278,10 @@ export class CriterioCatalogoService {
         tipo === 'sim_nao'
           ? undefined
           : (dto.alternativas ??
-            versaoAtual.alternativas.map((a) => ({
-              id: a.id,
-              rotulo: a.rotulo,
-            }))),
+              versaoAtual.alternativas.map((a) => ({
+                id: a.id,
+                rotulo: a.rotulo,
+              }))),
         versaoAtual.alternativas,
       );
 
@@ -291,7 +289,6 @@ export class CriterioCatalogoService {
         versaoAtual,
         tipo,
         alternativas,
-        enunciado,
       );
       const soRotulos =
         !estrutural &&
