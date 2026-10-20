@@ -49,6 +49,9 @@ Migrations não publicam GLBs nem importam conteúdo administrativo.
 - `CriaTabelasMapa`: versões, prédios, salas, áreas e grafo.
 - `PucStopsEXpGlobal`: PucStops e schema `gamificacao`.
 - `EventosRestaurantesCardapios`: conteúdo administrativo do campus.
+- `VersoesEEncerramentoFormularios`: `formularios.versao` (publicados viram
+  versão 1) e `formularios.encerrado_em`. Reconhece bancos de `synchronize`,
+  recusa estado parcial e recusa `down` se houver versões ou encerramentos.
 
 Modelos e regras têm fonte em [dados geoespaciais](../mapa/dados-geo.md),
 [PucStops](../mapa/pucstops.md), [XP](../gamificacao/xp.md) e

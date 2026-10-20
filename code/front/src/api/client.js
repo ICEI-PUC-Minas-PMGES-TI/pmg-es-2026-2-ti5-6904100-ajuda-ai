@@ -245,6 +245,12 @@ export const api = {
   rejeitarCandidatura(id, justificativa) {
     return request(`/coordenacao/candidaturas/${id}/rejeitar`, { method: 'POST', body: {justificativa} });
   },
+  desvincularCandidatura(id) {
+    return request(`/coordenacao/candidaturas/${id}/desvincular`, { method: 'POST' });
+  },
+  revogarAprovacao(id, justificativa) {
+    return request(`/coordenacao/candidaturas/${id}/revogar`, { method: 'POST', body: { justificativa } });
+  },
   cadastros(status, programa) {
     return request(`/coordenacao/cadastros${query({ status, programa })}`);
   },
@@ -257,7 +263,7 @@ export const api = {
   rejeitarCadastro(id, motivo, programa) {
     return request(`/coordenacao/cadastros/${id}/rejeitar${query({programa})}`, {
       method: 'POST',
-      body: motivo ? { motivo } : {},
+      body: { motivo },
     });
   },
   acaoEmMassa(ids, acao, justificativa) {
@@ -283,6 +289,24 @@ export const api = {
   },
   atualizarPrograma(codigo, dados) {
     return request(`/coordenacao/programas${query({ codigo })}`, { method: 'PATCH', body: dados });
+  },
+  formulariosCoordenacao(programa) {
+    return request(`/coordenacao/formularios${query({ programa })}`);
+  },
+  encerrarFormulario(tipo, dados) {
+    return request(`/coordenacao/formularios/${tipo}/encerrar`, { method: 'POST', body: dados });
+  },
+  duplicarFormulario(tipo, dados) {
+    return request(`/coordenacao/formularios/${tipo}/duplicar`, { method: 'POST', body: dados });
+  },
+  respostasFormulario(tipo, programa) {
+    return request(`/coordenacao/formularios/${tipo}/respostas${query({ programa })}`);
+  },
+  respostasPorPergunta(tipo, programa) {
+    return request(`/coordenacao/formularios/${tipo}/respostas/por-pergunta${query({ programa })}`);
+  },
+  excluirFormulario(tipo, programa) {
+    return request(`/coordenacao/formularios/${tipo}${query({ programa })}`, { method: 'DELETE' });
   },
   formularioCoordenacao(tipo, programa) {
     return request(`/coordenacao/formularios/${tipo}${query({ programa })}`);

@@ -31,9 +31,17 @@ export interface RequisitoRespondido {
  * antigos (e a semente demo) podem não ter respostas.
  */
 export interface MetadadosCandidatura {
+  /**
+   * Foto do formulário respondido: perguntas exatas e versão. Ausente em
+   * envios antigos e quando não havia formulário publicado.
+   */
   formulario?: {
     id: number | null;
     programa: string;
+    /** Público do formulário; ausente nos envios anteriores à F06. */
+    tipo?: 'padrinho' | 'apadrinhado';
+    /** Versão respondida; ausente nos envios anteriores à F06. */
+    versao?: number;
     perguntas: unknown[];
     atualizadoEm: Date | null;
   };
@@ -72,6 +80,11 @@ export interface RespostasCadastro {
   /** Apadrinhado: o que espera do padrinho. */
   expectativa?: string;
   outrasInformacoes?: string;
+  /**
+   * Apadrinhado: declaração explícita de que está no 1º período / é calouro
+   * elegível ao programa.
+   */
+  declaraPrimeiroPeriodo?: boolean;
   /** Respostas às perguntas extras do formulário publicado (id → valor). */
   extras?: Record<string, string | string[]>;
 }

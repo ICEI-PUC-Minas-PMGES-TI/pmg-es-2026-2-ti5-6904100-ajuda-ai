@@ -109,7 +109,13 @@ A API fica disponível em `http://localhost:3000`.
 | `GET` | `/coordenacao/programas` | Programas com etapas, datas e totais. |
 | `POST` | `/coordenacao/programas` | Abre um novo ciclo. |
 | `PATCH` | `/coordenacao/programas?codigo=2026/2` | Atualiza etapa, inscrições, vagas, grupos e datas. |
-| `GET`/`PUT` | `/coordenacao/formularios/:tipo` | Lê/salva as perguntas do formulário e a publicação. |
+| `GET` | `/coordenacao/formularios` | Formulários de padrinho e apadrinhado do programa (`?programa=`), com `status` (`rascunho`, `publicado`, `encerrado`) e `versao`. |
+| `GET`/`PUT` | `/coordenacao/formularios/:tipo` | Lê/salva as perguntas e a publicação. Publicar, ou alterar um formulário publicado, cria nova versão; programa encerrado não publica. |
+| `DELETE` | `/coordenacao/formularios/:tipo` | Exclui um rascunho nunca publicado (`?programa=`). |
+| `POST` | `/coordenacao/formularios/:tipo/encerrar` | Encerra novas respostas (`{ programa }`); os envios existentes são mantidos. |
+| `POST` | `/coordenacao/formularios/:tipo/duplicar` | Copia as perguntas para outro programa como rascunho (`{ programaOrigem, programaDestino }`; 409 se o destino já tem formulário). |
+| `GET` | `/coordenacao/formularios/:tipo/respostas` | Envios do programa, cada um com aluno, programa e versão respondida. |
+| `GET` | `/coordenacao/formularios/:tipo/respostas/por-pergunta` | Mesmas respostas agrupadas por pergunta, com contagem por alternativa. |
 | `POST` | `/coordenacao/comunicados` | Publica um comunicado para todos, padrinhos ou apadrinhados. |
 | `GET` | `/publicacoes` | Lista as publicações persistidas no backend. |
 | `POST` | `/publicacoes` | Cria uma publicação com zero curtidas e zero comentários. |

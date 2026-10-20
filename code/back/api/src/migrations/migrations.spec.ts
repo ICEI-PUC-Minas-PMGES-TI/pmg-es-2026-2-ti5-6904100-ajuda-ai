@@ -4,6 +4,7 @@ import {
   TABELAS_BASELINE,
 } from './1791900000000-BaselineFeed.js';
 import { UsuariosERequisitosPadrinho1791944105933 } from './1791944105933-UsuariosERequisitosPadrinho.js';
+import { VersoesEEncerramentoFormularios1792400000000 } from './1792400000000-VersoesEEncerramentoFormularios.js';
 
 /** QueryRunner falso: responde o catálogo com as colunas dadas e grava o SQL. */
 function runner(colunas: Array<[string, string]>) {
@@ -114,5 +115,74 @@ describe('UsuariosERequisitosPadrinho (proteção para bancos de synchronize)', 
     await expect(migration.up(runner(usuarios).qr)).rejects.toThrow(
       /estado parcial/,
     );
+  });
+});
+
+describe('VersoesEEncerramentoFormularios', () => {
+  const migration = new VersoesEEncerramentoFormularios1792400000000();
+  const colunas: Array<[string, string]> = [
+    ['formularios', 'versao'],
+    ['formularios', 'encerrado_em'],
+  ];
+
+  it('banco da baseline: adiciona as colunas e marca os publicados como versão 1', async () => {
+    const { qr, executado } = runner([]);
+    await migration.up(qr);
+    expect(executado).toHaveLength(2);
+    expect(executado[0]).toMatch(
+      /ALTER TABLE "feed"\."formularios" ADD "versao" integer NOT NULL DEFAULT 0, ADD "encerrado_em" TIMESTAMP WITH TIME ZONE/,
+    );
+    expect(executado[1]).toMatch(
+      /UPDATE "feed"\."formularios" SET "versao" = 1 WHERE "publicado" = true/,
+    );
+  });
+
+  it('banco criado por synchronize: reconhece as colunas e não altera nada', async () => {
+    const { qr, executado } = runner(colunas);
+    await migration.up(qr);
+    expect(executado).toEqual([]);
+  });
+
+  it('estado parcial falha sem alterar nada', async () => {
+    const { qr, executado } = runner(colunas.slice(0, 1));
+    await expect(migration.up(qr)).rejects.toThrow(/estado parcial/);
+    expect(executado).toEqual([]);
+  });
+
+  describe('rollback', () => {
+    const comFormularios = (usados: number) => {
+      const executado: string[] = [];
+      const qr = {
+        connection: { options: { schema: 'feed' } },
+        query: async (sql: string) => {
+          executado.push(sql);
+          return sql.startsWith('SELECT count') ? [{ usados }] : [];
+        },
+      } as unknown as QueryRunner;
+      return { qr, executado };
+    };
+
+    afterEach(() => {
+      delete process.env.MIGRATION_DOWN_DESCARTAR_DADOS;
+    });
+
+    it('recusa descartar versões/encerramentos já registrados', async () => {
+      const { qr, executado } = comFormularios(2);
+      await expect(migration.down(qr)).rejects.toThrow(/Rollback recusado/);
+      expect(executado).toHaveLength(1);
+    });
+
+    it('sem dados a perder, remove as colunas; com a variável, descarta mesmo assim', async () => {
+      const vazio = comFormularios(0);
+      await migration.down(vazio.qr);
+      expect(vazio.executado[1]).toMatch(
+        /DROP COLUMN "encerrado_em", DROP COLUMN "versao"/,
+      );
+
+      process.env.MIGRATION_DOWN_DESCARTAR_DADOS = 'true';
+      const forcado = comFormularios(2);
+      await migration.down(forcado.qr);
+      expect(forcado.executado).toHaveLength(2);
+    });
   });
 });

@@ -1,11 +1,12 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { api } from '../api/client';
+import { perguntasVisiveis } from '../formularios/visibilidade';
 
 export const TIPOS_PERGUNTA = [
   { valor: 'texto_curto', rotulo: 'Texto curto' },
   { valor: 'texto_longo', rotulo: 'Texto longo' },
-  { valor: 'checklist', rotulo: 'Checklist' },
-  { valor: 'dropdown', rotulo: 'Dropdown' },
+  { valor: 'checklist', rotulo: 'Múltipla escolha' },
+  { valor: 'dropdown', rotulo: 'Escolha única' },
 ];
 
 export const ERRO_FORMULARIO_NAO_SUPORTADO = 'Formulário contém tipo de pergunta não suportado. Procure a coordenação.';
@@ -89,10 +90,10 @@ function vazio(valor) {
   return !String(valor ?? '').trim();
 }
 
-/** Retorna erros de tipos não suportados e de respostas obrigatórias ausentes. */
+/** Retorna erros de tipos não suportados e de respostas obrigatórias ausentes (só visíveis). */
 export function validarExtras(perguntas, extras = {}) {
   const erros = {};
-  perguntas.forEach((pergunta) => {
+  perguntasVisiveis(perguntas, extras).forEach((pergunta) => {
     if (!tipoPerguntaSuportado(pergunta.tipo) || (pergunta.obrigatoria && vazio(extras[pergunta.id]))) {
       erros[pergunta.id] = true;
     }
@@ -100,10 +101,10 @@ export function validarExtras(perguntas, extras = {}) {
   return erros;
 }
 
-/** Só as respostas preenchidas e de perguntas existentes. */
+/** Só as respostas preenchidas das perguntas visíveis. */
 export function limparExtras(perguntas, extras = {}) {
   const resultado = {};
-  perguntas.forEach((pergunta) => {
+  perguntasVisiveis(perguntas, extras).forEach((pergunta) => {
     if (!tipoPerguntaSuportado(pergunta.tipo)) throw new Error(ERRO_FORMULARIO_NAO_SUPORTADO);
     const valor = extras[pergunta.id];
     if (!vazio(valor)) resultado[pergunta.id] = Array.isArray(valor) ? valor : String(valor).trim();
@@ -117,6 +118,16 @@ export function textoResposta(valor) {
 }
 
 export default function PerguntasAdicionais({ perguntas, valores = {}, onChange, erros = {}, titulo = 'Perguntas adicionais', descricao }) {
+  const visiveis = useMemo(() => perguntasVisiveis(perguntas || [], valores), [perguntas, valores]);
+
+  useEffect(() => {
+    if (!onChange || !perguntas?.length) return;
+    const idsVisiveis = new Set(visiveis.map((p) => p.id));
+    perguntas.forEach((p) => {
+      if (!idsVisiveis.has(p.id) && !vazio(valores[p.id])) onChange(p.id, p.tipo === 'checklist' ? [] : '');
+    });
+  }, [perguntas, visiveis, valores, onChange]);
+
   if (!perguntas || perguntas.length === 0) return null;
   if (!formularioSuportado(perguntas))
     return (
@@ -124,21 +135,42 @@ export default function PerguntasAdicionais({ perguntas, valores = {}, onChange,
         {ERRO_FORMULARIO_NAO_SUPORTADO}
       </p>
     );
+  if (visiveis.length === 0) return null;
   return (
     <fieldset className="extras-section">
       <legend>{titulo}</legend>
       {descricao && <p className="extras-desc">{descricao}</p>}
-      {perguntas.map((pergunta) => (
-        <PerguntaCampo key={pergunta.id} pergunta={pergunta} valor={valores[pergunta.id]} erro={erros[pergunta.id]} onChange={(valor) => onChange?.(pergunta.id, valor)} />
+      {agruparPorSecao(visiveis).map(({ secao, itens }, i) => (
+        <div key={`${i}-${secao}`} className="extras-group">
+          {secao && <h4 className="extras-secao">{secao}</h4>}
+          {itens.map((pergunta) => (
+            <PerguntaCampo key={pergunta.id} pergunta={pergunta} valor={valores[pergunta.id]} erro={erros[pergunta.id]} onChange={(valor) => onChange?.(pergunta.id, valor)} />
+          ))}
+        </div>
       ))}
     </fieldset>
   );
 }
 
+/** Agrupa perguntas consecutivas da mesma seção, preservando a ordem do formulário. */
+function agruparPorSecao(perguntas) {
+  const grupos = [];
+  perguntas.forEach((pergunta) => {
+    const secao = (pergunta.secao || '').trim();
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo && ultimo.secao === secao) ultimo.itens.push(pergunta);
+    else grupos.push({ secao, itens: [pergunta] });
+  });
+  return grupos;
+}
+
 function PerguntaCampo({ pergunta, valor, erro, onChange }) {
   const id = useId();
   const erroId = `${id}-erro`;
+  const ajudaId = `${id}-ajuda`;
   const obrigatoria = pergunta.obrigatoria;
+  const descritoPor = [pergunta.ajuda && ajudaId, erro && erroId].filter(Boolean).join(' ') || undefined;
+  const ajuda = pergunta.ajuda ? <span id={ajudaId} className="extra-help">{pergunta.ajuda}</span> : null;
   const rotulo = (
     <>
       {pergunta.enunciado}
@@ -154,7 +186,7 @@ function PerguntaCampo({ pergunta, valor, erro, onChange }) {
   );
   const comuns = {
     'aria-invalid': erro ? true : undefined,
-    'aria-describedby': erro ? erroId : undefined,
+    'aria-describedby': descritoPor,
     'aria-required': obrigatoria || undefined,
   };
 
@@ -175,8 +207,9 @@ function PerguntaCampo({ pergunta, valor, erro, onChange }) {
   } else if (pergunta.tipo === 'checklist') {
     const lista = Array.isArray(valor) ? valor : [];
     return (
-      <fieldset className={`extra-field${erro ? ' has-error' : ''}`} aria-describedby={erro ? erroId : undefined}>
+      <fieldset className={`extra-field${erro ? ' has-error' : ''}`} aria-describedby={descritoPor}>
         <legend className="extra-label">{rotulo}</legend>
+        {ajuda}
         <div className="extra-checks">
           {(pergunta.opcoes || []).map((opcao) => (
             <label key={opcao} className={`extra-check${lista.includes(opcao) ? ' selected' : ''}`}>
@@ -201,6 +234,7 @@ function PerguntaCampo({ pergunta, valor, erro, onChange }) {
       <label className="extra-label" htmlFor={id}>
         {rotulo}
       </label>
+      {ajuda}
       {controle}
       {erro && (
         <span id={erroId} className="error-message">

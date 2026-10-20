@@ -8,8 +8,8 @@ import '../tela_login.dart';
 import '../theme/colors.dart';
 import 'tela_candidaturas_coord.dart';
 import 'tela_comunicado_coord.dart';
+import 'tela_configuracoes_coord.dart';
 import 'tela_dashboard_coord.dart';
-import 'tela_cadastros_coord.dart';
 import 'tela_formularios_coord.dart';
 import 'tela_mais_coord.dart';
 import 'tela_programas_coord.dart';
@@ -55,6 +55,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
   String? _avisoPrograma;
   int _consultaProgramas = 0;
   String? _filtroStatus;
+  String? _filtroPublico;
   int _versao = 0;
   int _versaoLista = 0;
 
@@ -125,6 +126,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
             : null;
         _carregandoProgramas = false;
         _filtroStatus = null;
+        _filtroPublico = null;
         _versao++;
         _versaoLista++;
       });
@@ -146,6 +148,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       _exigirSelecao = false;
       _avisoPrograma = null;
       _filtroStatus = null;
+      _filtroPublico = null;
       _versao++;
       _versaoLista++;
     });
@@ -191,9 +194,10 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
     );
   }
 
-  void _abrirCandidaturas({String? status}) {
+  void _abrirCandidaturas({String? status, String? publico}) {
     setState(() {
       _filtroStatus = status;
+      _filtroPublico = publico;
       _aba = 1;
       _versaoLista++;
     });
@@ -203,7 +207,10 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
   void _abrirDestino(String destino, Map<String, String> query) {
     final api = _api;
     if (api == null) return;
-    if (_programa == null && destino != 'programas') {
+    if (_programa == null &&
+        destino != 'programas' &&
+        destino != 'configuracoes' &&
+        destino != 'comunicado') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -213,20 +220,34 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       );
       return;
     }
-    if (destino == 'candidaturas') {
-      _abrirCandidaturas(status: query['status']);
+    if (destino == 'candidaturas' || destino == 'cadastros') {
+      _abrirCandidaturas(
+        status: query['status'] ?? (destino == 'cadastros' ? 'pendente' : null),
+        publico: query['publico'] ??
+            (destino == 'cadastros' ? 'apadrinhado' : null),
+      );
       return;
     }
     if (destino == 'sem_vinculo') {
-      _abrirCandidaturas(status: 'sem_vinculo');
+      _abrirCandidaturas(status: 'sem_vinculo', publico: 'apadrinhado');
+      return;
+    }
+    if (destino == 'configuracoes') {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => TelaConfiguracoesCoord(
+            nome: _sessao?.nome ?? 'Coordenação',
+            email: _sessao?.email ?? widget.emailDemo,
+            onSair: () {
+              Navigator.of(context).pop();
+              _sair();
+            },
+          ),
+        ),
+      );
       return;
     }
     final Widget pagina = switch (destino) {
-      'cadastros' => TelaCadastrosCoord(
-        api: api,
-        status: query['status'],
-        programa: _programa,
-      ),
       'usuarios' => TelaUsuariosCoord(api: api, programa: _programa),
       'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
       'comunicado' => TelaComunicadoCoord(api: api),
@@ -246,6 +267,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
             _exigirSelecao = true;
             _aba = 0;
             _filtroStatus = null;
+            _filtroPublico = null;
             Navigator.of(context).pop();
           }
           _carregarProgramas();
@@ -331,10 +353,13 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         _estadoContexto(),
       if (_programa != null && !_carregandoProgramas && _erroProgramas == null)
         TelaCandidaturasCoord(
-          key: ValueKey('candidaturas-$_programa-$_versao-$_versaoLista'),
+          key: ValueKey(
+            'candidaturas-$_programa-$_versao-$_versaoLista-$_filtroPublico-$_filtroStatus',
+          ),
           api: _api!,
           programa: _programa,
           status: _filtroStatus,
+          publico: _filtroPublico,
         )
       else
         _estadoContexto(),
@@ -417,7 +442,10 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         selectedIndex: _aba,
         onDestinationSelected: (i) => setState(() {
           _aba = i;
-          if (i == 0) _filtroStatus = null;
+          if (i == 0) {
+            _filtroStatus = null;
+            _filtroPublico = null;
+          }
         }),
         backgroundColor: Colors.white,
         indicatorColor: const Color(0xFFEBE4FF),

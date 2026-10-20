@@ -263,18 +263,17 @@ void main() {
     },
   );
   testWidgets(
-    'usuários, matching, formulários e cadastros recebem o ciclo selecionado',
+    'usuários, matching e formulários recebem o ciclo selecionado',
     (tester) async {
       await abrir(tester, backend);
       await tester.tap(find.text('Mais'));
       await tester.pumpAndSettle();
-      for (final destino in ['Usuários', 'Formulários', 'Cadastros']) {
+      for (final destino in ['Usuários', 'Formulários']) {
         await tester.tap(find.text(destino));
         await tester.pumpAndSettle();
         final paths = {
           'Usuários': '/coordenacao/usuarios',
           'Formulários': '/coordenacao/formularios/apadrinhado',
-          'Cadastros': '/coordenacao/cadastros',
         };
         expect(
           backend.pedidos(paths[destino]!).last.url.queryParameters['programa'],

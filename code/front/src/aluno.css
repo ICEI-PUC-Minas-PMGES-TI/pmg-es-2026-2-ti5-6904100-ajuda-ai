@@ -67,11 +67,22 @@
 .extras-section { margin: 6px 0 4px; padding: 12px 14px 4px; border: 1px solid var(--border); border-radius: 10px; background: #fbfaff; }
 .extras-section > legend { padding: 0 6px; color: var(--purple-deep); font-family: Poppins, Inter, sans-serif; font-weight: 800; font-size: 13px; }
 .extras-desc { margin: 0 0 8px; color: #77799b; font-size: 10px; }
+.extras-secao { margin: 10px 0 6px; padding-top: 8px; border-top: 1px solid var(--border); color: var(--purple-deep); font-size: 12px; font-weight: 800; }
+.extras-group:first-of-type .extras-secao { margin-top: 0; padding-top: 0; border-top: 0; }
+.extra-help { display: block; margin: 0 0 6px; color: #77799b; font-size: 11px; }
 .extra-field { display: flex; flex-direction: column; gap: 5px; margin: 0 0 12px; padding: 0; border: 0; min-width: 0; }
 .extra-label { padding: 0; color: #373278; font-size: 11px; font-weight: 600; line-height: 1.35; }
 .extra-req { color: #c63d66; }
 .extra-opt { color: #9495b2; font-weight: 400; }
 .extra-input { width: 100%; min-height: 37px; padding: 8px 10px; border: 1px solid #e0dffa; border-radius: 7px; color: #303062; background: #fff; font-size: 11px; }
+select.extra-input {
+  min-height: 37px;
+  padding: 0 32px 0 10px;
+  border-color: #e0dffa;
+  border-radius: 7px;
+  font-size: 11px;
+  background-position: right 10px center;
+}
 textarea.extra-input { resize: vertical; line-height: 1.45; }
 .extra-field.has-error .extra-input { border-color: #df718d; }
 .extra-checks { display: flex; flex-wrap: wrap; gap: 6px; }

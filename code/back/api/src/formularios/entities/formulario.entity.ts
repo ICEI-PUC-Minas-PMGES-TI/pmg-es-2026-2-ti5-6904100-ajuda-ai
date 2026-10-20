@@ -6,8 +6,11 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
+import type { CondicaoVisibilidade } from '../visibilidade-perguntas.js';
 
+export type { CondicaoVisibilidade };
 export type TipoFormulario = 'padrinho' | 'apadrinhado';
+export type StatusFormulario = 'rascunho' | 'publicado' | 'encerrado';
 export const TIPOS_PERGUNTA_SUPORTADOS = [
   'texto_curto',
   'texto_longo',
@@ -29,6 +32,14 @@ export interface PerguntaFormulario {
   tipo: string;
   opcoes: string[];
   obrigatoria: boolean;
+  /** Texto de ajuda exibido abaixo do enunciado. */
+  ajuda?: string;
+  /** Seção (agrupamento) em que a pergunta aparece. */
+  secao?: string;
+  /** Resposta disponível para os critérios de matching (só perguntas de escolha). */
+  matching?: boolean;
+  /** Mostrar só se a condição for verdadeira (depende de pergunta anterior). */
+  visivelSe?: CondicaoVisibilidade;
 }
 
 /**
@@ -50,6 +61,17 @@ export class FormularioEntity {
 
   @Column({ type: 'boolean', default: false })
   publicado!: boolean;
+
+  /**
+   * Versão em vigor: sobe a cada publicação ou alteração de um formulário
+   * publicado. 0 = nunca publicado. Cada resposta guarda a versão respondida.
+   */
+  @Column({ type: 'int', default: 0 })
+  versao!: number;
+
+  /** Quando a coordenação encerrou as novas respostas (`publicado` fica falso). */
+  @Column({ name: 'encerrado_em', type: 'timestamptz', nullable: true })
+  encerradoEm!: Date | null;
 
   @Column({ type: 'jsonb', nullable: true })
   perguntas!: PerguntaFormulario[] | null;

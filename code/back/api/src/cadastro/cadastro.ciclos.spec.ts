@@ -27,6 +27,16 @@ const cronograma = {
   formacaoInicio: '2099-12-31', formacaoFim: '2099-12-31',
   andamentoInicio: '2099-12-31', andamentoFim: '2099-12-31', encerramentoEm: '2099-12-31',
 };
+
+const respostasApadrinhado: RespostasCadastro = {
+  areas: ['Rotina'],
+  disponibilidade: ['Noite'],
+  genero: 'Prefiro não informar',
+  bolsistaProuni: false,
+  deOutraCidade: false,
+  expectativa: 'Quero apoio na adaptação.',
+  declaraPrimeiroPeriodo: true,
+};
 describe('Cadastro × ciclos, requisitos e transição', () => {
   const COORD = 'renata@pucminas.edu.br';
   let usuarios: UsuarioEntity[];
@@ -231,7 +241,10 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       periodo: 1,
       tipoParticipacao: 'apadrinhado',
       programa: '2027/1',
-      respostas: { requisitos: [{ id: 'x', cumpre: true }] } as never,
+      respostas: {
+        ...respostasApadrinhado,
+        requisitos: [{ id: 'x', cumpre: true }],
+      } as never,
     });
     expect(participacao.respostas?.requisitos).toBeUndefined();
   });
@@ -282,6 +295,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       periodo: 1,
       tipoParticipacao: 'apadrinhado',
       programa: '2028/2',
+      respostas: respostasApadrinhado,
     });
     expect(participacao.programa).toBe('2028/2');
   });
@@ -386,6 +400,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       periodo: 1,
       tipoParticipacao: 'apadrinhado',
       programa: '2026/2',
+      respostas: respostasApadrinhado,
     });
     await cadastro.aprovar(u.id, COORD);
     expect(participacao.status).toBe('em_andamento');
@@ -473,6 +488,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       periodo: 1,
       tipoParticipacao: 'apadrinhado',
       programa: '2026/2',
+      respostas: respostasApadrinhado,
     });
     const nova = await cadastro.registrar(padrinho('2027/1', 2));
     expect(nova.participacao).toMatchObject({

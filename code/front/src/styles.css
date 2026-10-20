@@ -47,6 +47,70 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   outline-offset: 2px;
 }
 
+/* Selects nativos: sem chrome do SO, seta e tipografia do sistema */
+select:not([multiple]):not([size]) {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 36px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--ink);
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' stroke='%235b3cc4' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+  cursor: pointer;
+}
+select:not([multiple]):not([size]):hover:not(:disabled) {
+  border-color: #c9c0ff;
+}
+select:not([multiple]):not([size]):focus {
+  border-color: #9283f0;
+  box-shadow: 0 0 0 3px rgba(111, 91, 225, 0.1);
+  outline: none;
+}
+select:not([multiple]):not([size]):disabled {
+  color: #5c5678;
+  background-color: #f6f5fb;
+  cursor: not-allowed;
+  opacity: 1;
+}
+/* Dentro de moldura própria: só o wrapper tem borda (evita caixa dentro de caixa) */
+.field select:not([multiple]):not([size]),
+.filter-select select:not([multiple]):not([size]),
+.chips select:not([multiple]):not([size]) {
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+  padding: 0 22px 0 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' stroke='%235b3cc4' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+  background-size: 12px;
+  box-shadow: none;
+}
+.field select:not([multiple]):not([size]):hover:not(:disabled),
+.filter-select select:not([multiple]):not([size]):hover:not(:disabled),
+.chips select:not([multiple]):not([size]):hover:not(:disabled),
+.field select:not([multiple]):not([size]):focus,
+.filter-select select:not([multiple]):not([size]):focus,
+.chips select:not([multiple]):not([size]):focus,
+.field select:not([multiple]):not([size]):disabled,
+.filter-select select:not([multiple]):not([size]):disabled,
+.chips select:not([multiple]):not([size]):disabled {
+  border: 0;
+  box-shadow: none;
+  background-color: transparent;
+}
+.field:has(select)::after { display: none; }
+
 .app-shell { min-height: 100vh; overflow: hidden; background: #f7f8ff; }
 .icon { flex: 0 0 auto; }
 
@@ -124,10 +188,21 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .field { min-width: 0; min-height: 37px; display: flex; align-items: center; gap: 9px; padding: 0 10px; border: 1px solid #e0dffa; border-radius: 7px; color: #7777a3; background: #fff; }
 .field:focus-within { border-color: #9283f0; box-shadow: 0 0 0 3px rgba(111,91,225,.09); }
 .field > .icon { color: #7273a7; }
-.field input, .field select { width: 100%; min-width: 0; height: 35px; padding: 0; border: 0; outline: 0; color: #303062; background: transparent; font-size: 10px; }
+.field input, .field select { width: 100%; min-width: 0; height: 35px; padding: 0; border: 0; outline: 0; color: #303062; font-size: 10px; }
+.field input { background: transparent; }
 .field input:disabled { color: #8586a8; cursor: not-allowed; }
-.field select { appearance: none; cursor: pointer; }
-.field:has(select)::after { content: '⌄'; margin-left: auto; color: #3c35a3; font-size: 17px; pointer-events: none; }
+.field select:not([multiple]):not([size]) {
+  height: 35px;
+  padding: 0 22px 0 0;
+  border: 0;
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' stroke='%235b3cc4' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+  background-size: 12px;
+  box-shadow: none;
+  font-size: 10px;
+}
 .field input::placeholder { color: #9b9bb5; }
 .interest-field { grid-column: 1 / -1; }
 .interest-control { min-height: 38px; flex-wrap: nowrap; }

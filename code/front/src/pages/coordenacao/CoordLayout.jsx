@@ -6,7 +6,6 @@ import Icon from '../../components/Icon';
 
 const NAV = [
   { to: '/coordenacao', end: true, label: 'Dashboard', icon: 'home' },
-  { to: '/coordenacao/cadastros', label: 'Cadastros', icon: 'userSearch' },
   { to: '/coordenacao/candidaturas', label: 'Candidaturas', icon: 'clipboard' },
   { to: '/coordenacao/usuarios', label: 'Usuários', icon: 'users' },
   { to: '/coordenacao/programas', label: 'Programas', icon: 'calendar' },
@@ -14,6 +13,7 @@ const NAV = [
   { to: '/coordenacao/pucstops', label: 'PucStops', icon: 'pin' },
   { to: '/coordenacao/eventos', label: 'Eventos', icon: 'calendarEvent' },
   { to: '/coordenacao/restaurantes', label: 'Restaurantes', icon: 'restaurant' },
+  { to: '/coordenacao/comunicados', label: 'Comunicados', icon: 'megaphone' },
   { to: '/coordenacao/configuracoes', label: 'Configurações', icon: 'settings' },
 ];
 
@@ -32,9 +32,14 @@ export default function CoordLayout() {
   const [exigirSelecao, setExigirSelecao] = useState(false);
   const programa = searchParams.get('programa');
   const [menuAberto, setMenuAberto] = useState(false);
+  const [seletorAberto, setSeletorAberto] = useState(false);
   const menuId = useId();
+  const seletorId = useId();
   const botaoMenuRef = useRef(null);
   const painelMenuRef = useRef(null);
+  const seletorBtnRef = useRef(null);
+  const seletorListaRef = useRef(null);
+  const seletorWrapRef = useRef(null);
   const navigate = useNavigate();
 
   const carregarProgramas = useCallback(async () => {
@@ -69,6 +74,26 @@ export default function CoordLayout() {
     return () => document.removeEventListener('keydown', onKey);
   }, [menuAberto]);
 
+  useEffect(() => {
+    if (!seletorAberto) return undefined;
+    function onKey(event) {
+      if (event.key === 'Escape') {
+        setSeletorAberto(false);
+        seletorBtnRef.current?.focus();
+      }
+    }
+    function onClickFora(event) {
+      if (!seletorWrapRef.current?.contains(event.target)) setSeletorAberto(false);
+    }
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onClickFora);
+    seletorListaRef.current?.querySelector('[role="option"]')?.focus();
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onClickFora);
+    };
+  }, [seletorAberto]);
+
   if (!autenticado) return <Navigate to="/login" replace />;
   if (!ehCoordenador) {
     return <Navigate to="/" replace />;
@@ -80,6 +105,7 @@ export default function CoordLayout() {
     .slice(0, 2)
     .map((p) => p[0]?.toUpperCase())
     .join('');
+  const cicloAtual = programas?.find((p) => p.codigo === programa);
 
   function withPrograma(path) {
     if (!programa) return path;
@@ -181,11 +207,78 @@ export default function CoordLayout() {
         )}
 
         <div className="coord-content">
-          {!SEM_SELETOR.includes(rota) && <label>Programa/ciclo <select aria-label="Programa/ciclo" value={programas?.some(p => p.codigo === programa) ? programa : ''} onChange={e => {
-            setExigirSelecao(false); const novos = new URLSearchParams(searchParams);
-            if(e.target.value) novos.set('programa', e.target.value); else novos.delete('programa');
-            setSearchParams(novos);
-          }}><option value="">Selecione o programa/ciclo</option>{programas?.map(p => <option key={p.codigo} value={p.codigo}>{p.titulo || p.nome}</option>)}</select></label>}
+          {!SEM_SELETOR.includes(rota) && (
+            <div className="coord-cycle-picker">
+              <span>Programa/ciclo</span>
+              <div className="program-select" ref={seletorWrapRef}>
+                <button
+                  ref={seletorBtnRef}
+                  type="button"
+                  className="program-select-btn"
+                  aria-haspopup="listbox"
+                  aria-expanded={seletorAberto}
+                  aria-controls={seletorId}
+                  aria-label="Programa/ciclo"
+                  disabled={!programas?.length}
+                  onClick={() => setSeletorAberto((v) => !v)}
+                >
+                  <Icon name="calendar" size={17} />
+                  <span className="program-select-label">
+                    <strong>
+                      {cicloAtual?.titulo
+                        || cicloAtual?.nome
+                        || (programa ? `Programa ${programa}` : 'Selecione o programa/ciclo')}
+                    </strong>
+                    <small>
+                      {cicloAtual
+                        ? [cicloAtual.statusRotulo, cicloAtual.vigente ? 'vigente' : null]
+                            .filter(Boolean)
+                            .join(' · ') || 'Ciclo selecionado'
+                        : 'Nenhum ciclo selecionado'}
+                    </small>
+                  </span>
+                  <Icon name="chevron" size={16} className={`select-chevron${seletorAberto ? ' open' : ''}`} />
+                </button>
+                {seletorAberto && (
+                  <ul
+                    id={seletorId}
+                    ref={seletorListaRef}
+                    className="program-select-list"
+                    role="listbox"
+                    aria-label="Selecionar programa"
+                  >
+                    {(programas || []).map((p) => (
+                      <li key={p.codigo} role="presentation">
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={p.codigo === programa}
+                          className={p.codigo === programa ? 'selected' : ''}
+                          onClick={() => {
+                            setSeletorAberto(false);
+                            setExigirSelecao(false);
+                            const novos = new URLSearchParams(searchParams);
+                            novos.set('programa', p.codigo);
+                            setSearchParams(novos);
+                            seletorBtnRef.current?.focus();
+                          }}
+                        >
+                          <span className="program-option-main">
+                            <strong>{p.titulo || p.nome || `Programa ${p.codigo}`}</strong>
+                            <span>
+                              {p.statusRotulo}
+                              {p.vigente ? ' · vigente' : p.encerrado ? ' · encerrado' : ''}
+                            </span>
+                          </span>
+                          {p.codigo === programa && <Icon name="check" size={16} />}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
           {SEM_PROGRAMA.includes(rota) ? <Outlet context={{programaQ: programa, programaExcluido, carregarProgramas}}/>
             : erroProgramas ? <p role="alert">{erroProgramas}<button onClick={carregarProgramas}>Tentar novamente</button></p>
             : programas === null ? <p role="status">Carregando programas…</p>

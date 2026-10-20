@@ -7,7 +7,8 @@ import 'campos_cadastro.dart';
 /// Seção "Perguntas adicionais" do formulário publicado pela coordenação.
 ///
 /// As respostas são gravadas em [respostas] (`id → String | List<String>`),
-/// que vai para `respostas.extras` no envio.
+/// que vai para `respostas.extras` no envio. Perguntas com `visivelSe` só
+/// aparecem quando a condição é satisfeita.
 class PerguntasAdicionais extends StatefulWidget {
   const PerguntasAdicionais({
     super.key,
@@ -24,13 +25,13 @@ class PerguntasAdicionais extends StatefulWidget {
   final VoidCallback? onChanged;
   final bool mostrarTitulo;
 
-  /// Tipos não suportados bloqueiam o envio, mesmo quando opcionais.
+  /// Tipos não suportados bloqueiam o envio; obrigatórias só se visíveis.
   static List<String> pendentes(
     List<PerguntaFormulario> perguntas,
     Map<String, dynamic> respostas,
   ) {
     return [
-      for (final pergunta in perguntas)
+      for (final pergunta in perguntasVisiveis(perguntas, respostas))
         if (!pergunta.tipo.suportado ||
             (pergunta.obrigatoria && !_respondida(respostas[pergunta.id])))
           pergunta.id,
@@ -43,14 +44,25 @@ class PerguntasAdicionais extends StatefulWidget {
     _ => false,
   };
 
-  /// Só as respostas preenchidas (sem textos vazios / listas vazias).
-  static Map<String, dynamic> limpar(Map<String, dynamic> respostas) => {
+  /// Só as respostas preenchidas das perguntas visíveis.
+  static Map<String, dynamic> limpar(
+    List<PerguntaFormulario> perguntas,
+    Map<String, dynamic> respostas,
+  ) => {
+    for (final pergunta in perguntasVisiveis(perguntas, respostas))
+      if (_respondida(respostas[pergunta.id]))
+        pergunta.id: respostas[pergunta.id] is String
+            ? (respostas[pergunta.id] as String).trim()
+            : List<String>.from(respostas[pergunta.id] as List),
+  };
+
+  /// Compatível com chamadas antigas que só passavam o mapa.
+  static Map<String, dynamic> limparMapa(Map<String, dynamic> respostas) => {
     for (final MapEntry(:key, :value) in respostas.entries)
       if (_respondida(value))
         key: value is String ? value.trim() : List<String>.from(value as List),
   };
 
-  /// Texto legível de uma resposta (para revisão).
   static String formatar(Object? valor) => switch (valor) {
     String texto when texto.trim().isNotEmpty => texto.trim(),
     List lista when lista.isNotEmpty => lista.join(', '),
@@ -85,7 +97,25 @@ class _PerguntasAdicionaisState extends State<PerguntasAdicionais> {
 
   void _alterar(String id, Object valor) {
     setState(() => widget.respostas[id] = valor);
+    _limparOcultas();
     widget.onChanged?.call();
+  }
+
+  void _limparOcultas() {
+    final visiveis = {
+      for (final p in perguntasVisiveis(widget.perguntas, widget.respostas))
+        p.id,
+    };
+    for (final pergunta in widget.perguntas) {
+      if (visiveis.contains(pergunta.id)) continue;
+      if (!PerguntasAdicionais._respondida(widget.respostas[pergunta.id])) {
+        continue;
+      }
+      widget.respostas[pergunta.id] = pergunta.tipo == TipoPergunta.checklist
+          ? <String>[]
+          : '';
+      _controllers[pergunta.id]?.text = '';
+    }
   }
 
   @override
@@ -97,9 +127,12 @@ class _PerguntasAdicionaisState extends State<PerguntasAdicionais> {
         style: TextStyle(color: Colors.red),
       );
     }
+    final visiveis = perguntasVisiveis(widget.perguntas, widget.respostas);
+    if (visiveis.isEmpty) return const SizedBox.shrink();
     final pendentes = widget.validar
         ? PerguntasAdicionais.pendentes(widget.perguntas, widget.respostas)
         : const <String>[];
+    final grupos = _agruparPorSecao(visiveis);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -124,8 +157,21 @@ class _PerguntasAdicionaisState extends State<PerguntasAdicionais> {
             ),
           ),
         ],
-        for (final pergunta in widget.perguntas)
-          _campo(pergunta, erro: pendentes.contains(pergunta.id)),
+        for (final grupo in grupos) ...[
+          if (grupo.secao.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text(
+              grupo.secao,
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+          for (final pergunta in grupo.itens)
+            _campo(pergunta, erro: pendentes.contains(pergunta.id)),
+        ],
       ],
     );
   }
@@ -189,9 +235,43 @@ class _PerguntasAdicionaisState extends State<PerguntasAdicionais> {
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [RotuloCampo(rotulo), campo],
+      children: [
+        RotuloCampo(rotulo),
+        if (pergunta.ajuda.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              pergunta.ajuda,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                color: AppColors.muted,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        campo,
+      ],
     );
   }
+}
+
+class _GrupoSecao {
+  const _GrupoSecao(this.secao, this.itens);
+  final String secao;
+  final List<PerguntaFormulario> itens;
+}
+
+List<_GrupoSecao> _agruparPorSecao(List<PerguntaFormulario> perguntas) {
+  final grupos = <_GrupoSecao>[];
+  for (final pergunta in perguntas) {
+    final secao = pergunta.secao.trim();
+    if (grupos.isNotEmpty && grupos.last.secao == secao) {
+      grupos.last.itens.add(pergunta);
+    } else {
+      grupos.add(_GrupoSecao(secao, [pergunta]));
+    }
+  }
+  return grupos;
 }
 
 class _Checklist extends StatelessWidget {

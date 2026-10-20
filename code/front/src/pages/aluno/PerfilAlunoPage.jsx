@@ -185,7 +185,7 @@ function SituacaoCard({ dados, perfil, resolucao }) {
       <section className="status-card blue" aria-label="Situação no programa">
         <div className="status-card-head">
           <span className="status-card-icon" aria-hidden="true"><Icon name="userSearch" size={30} /></span>
-          <div><h2>Aguardando padrinho</h2><p>Seu cadastro no programa foi concluído. Estamos buscando o melhor match para você.</p></div>
+          <div><h2>Aprovado — aguardando matching</h2><p>Seu cadastro foi aprovado. Estamos buscando o melhor match para você.</p></div>
         </div>
         <div className="status-meta">
           {programaMeta}

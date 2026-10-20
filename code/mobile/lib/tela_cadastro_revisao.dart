@@ -90,6 +90,11 @@ class _RevisaoCadastroPageState extends State<RevisaoCadastroPage> {
         'Outras informações',
         dados.outrasInformacoes,
       ),
+      (
+        Icons.verified_user_outlined,
+        'Declaração de 1º período',
+        dados.declaraPrimeiroPeriodo ? 'Declarado' : 'Não declarado',
+      ),
       for (final pergunta in widget.perguntasAdicionais)
         (
           Icons.help_outline,

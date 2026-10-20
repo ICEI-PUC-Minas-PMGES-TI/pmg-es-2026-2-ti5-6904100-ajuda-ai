@@ -133,6 +133,26 @@ class CoordenacaoApi {
     ),
   );
 
+  Future<Map<String, dynamic>> desvincularCandidatura(int id) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/candidaturas/$id/desvincular',
+      erro: 'Falha ao desfazer o vínculo',
+    ),
+  );
+
+  Future<Map<String, dynamic>> revogarAprovacao(
+    int id, {
+    required String justificativa,
+  }) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/candidaturas/$id/revogar',
+      corpo: {'justificativa': justificativa},
+      erro: 'Falha ao revogar a aprovação',
+    ),
+  );
+
   /// Solicitações de cadastro (`status` = pendente | aprovado | rejeitado;
   /// null = todos). Mesmos endpoints do web.
   Future<List<Map<String, dynamic>>> cadastros({
@@ -169,17 +189,16 @@ class CoordenacaoApi {
     ),
   );
 
-  /// `motivo` vazio = sem motivo (o aluno vê o motivo quando houver).
   Future<Map<String, dynamic>> rejeitarCadastro(
     int id, {
-    String? motivo,
+    required String motivo,
     String? programa,
   }) async => _mapa(
     await _enviar(
       'POST',
       '/coordenacao/cadastros/$id/rejeitar',
       query: {'programa': programa},
-      corpo: {if (motivo != null && motivo.isNotEmpty) 'motivo': motivo},
+      corpo: {'motivo': motivo},
       erro: 'Falha ao rejeitar o cadastro',
     ),
   );
@@ -297,6 +316,86 @@ class CoordenacaoApi {
         },
         erro: 'Falha ao salvar o formulário',
       ),
+    ),
+  );
+
+  Future<List<Formulario>> formularios({String? programa}) async {
+    final corpo = await _enviar(
+      'GET',
+      '/coordenacao/formularios',
+      query: {'programa': programa},
+      erro: 'Falha ao listar formulários',
+    );
+    return [
+      for (final item in _lista(corpo)) Formulario.fromJson(item),
+    ];
+  }
+
+  Future<Formulario> excluirFormulario(String tipo, {String? programa}) async =>
+      Formulario.fromJson(
+        _mapa(
+          await _enviar(
+            'DELETE',
+            '/coordenacao/formularios/$tipo',
+            query: {'programa': programa},
+            erro: 'Falha ao excluir o rascunho',
+          ),
+        ),
+      );
+
+  Future<Formulario> encerrarFormulario(
+    String tipo, {
+    String? programa,
+  }) async => Formulario.fromJson(
+    _mapa(
+      await _enviar(
+        'POST',
+        '/coordenacao/formularios/$tipo/encerrar',
+        corpo: {'programa': ?programa},
+        erro: 'Falha ao encerrar o formulário',
+      ),
+    ),
+  );
+
+  Future<Formulario> duplicarFormulario(
+    String tipo, {
+    required String programaOrigem,
+    required String programaDestino,
+  }) async => Formulario.fromJson(
+    _mapa(
+      await _enviar(
+        'POST',
+        '/coordenacao/formularios/$tipo/duplicar',
+        corpo: {
+          'programaOrigem': programaOrigem,
+          'programaDestino': programaDestino,
+        },
+        erro: 'Falha ao duplicar o formulário',
+      ),
+    ),
+  );
+
+  Future<Map<String, dynamic>> respostasFormulario(
+    String tipo, {
+    String? programa,
+  }) async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/formularios/$tipo/respostas',
+      query: {'programa': programa},
+      erro: 'Falha ao carregar respostas',
+    ),
+  );
+
+  Future<Map<String, dynamic>> respostasPorPergunta(
+    String tipo, {
+    String? programa,
+  }) async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/formularios/$tipo/respostas/por-pergunta',
+      query: {'programa': programa},
+      erro: 'Falha ao carregar respostas por pergunta',
     ),
   );
 
