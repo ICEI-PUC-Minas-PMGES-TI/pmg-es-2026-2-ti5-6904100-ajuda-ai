@@ -5,7 +5,18 @@ import '../services/coordenacao_api.dart';
 import '../theme/colors.dart';
 import '../widgets/perguntas_adicionais.dart';
 import 'componentes_coord.dart';
+import 'tela_matching_coord.dart';
 import 'tela_respostas_formulario_coord.dart';
+
+Map<String, dynamic> _mapa(Object? valor) =>
+    valor is Map ? Map<String, dynamic>.from(valor) : <String, dynamic>{};
+
+List<Map<String, dynamic>> _mapas(Object? valor) => valor is List
+    ? valor
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList()
+    : <Map<String, dynamic>>[];
 
 /// Gerenciador de Formulários — paridade com a web (F05 + F06).
 class TelaFormulariosCoord extends StatelessWidget {
@@ -73,8 +84,12 @@ class _PerguntaEditavel {
       opcoes = [
         for (final opcao in pergunta.opcoes) TextEditingController(text: opcao),
       ],
+      alternativas = List.of(pergunta.alternativas),
       obrigatoria = pergunta.obrigatoria,
-      matching = pergunta.matching,
+      matching = pergunta.matching || pergunta.tipo.matching,
+      criterioId = pergunta.criterioId,
+      criterioVersao = pergunta.criterioVersao,
+      criterioNome = pergunta.criterioNome,
       visivelSe = pergunta.visivelSe;
 
   final String id;
@@ -84,9 +99,15 @@ class _PerguntaEditavel {
   TipoPergunta tipo;
   final String? tipoOriginal;
   final List<TextEditingController> opcoes;
+  List<AlternativaPergunta> alternativas;
   bool obrigatoria;
   bool matching;
+  int? criterioId;
+  int? criterioVersao;
+  String? criterioNome;
   CondicaoVisibilidade? visivelSe;
+
+  bool get ehMatching => tipo.matching && criterioId != null;
 
   PerguntaFormulario paraModelo() => PerguntaFormulario(
     id: id,
@@ -99,10 +120,16 @@ class _PerguntaEditavel {
               if (opcao.text.trim().isNotEmpty) opcao.text.trim(),
           ]
         : const [],
+    alternativas: tipo.temAlternativas || tipo == TipoPergunta.simNao
+        ? alternativas
+        : const [],
     obrigatoria: obrigatoria,
     ajuda: ajuda.text.trim(),
     secao: secao.text.trim(),
-    matching: tipo.temOpcoes && matching,
+    matching: tipo.matching,
+    criterioId: criterioId,
+    criterioVersao: criterioVersao,
+    criterioNome: criterioNome,
     visivelSe: visivelSe,
   );
 
@@ -236,6 +263,14 @@ class _EditorFormularioCoordState extends State<EditorFormularioCoord>
       if (p.tipo.temOpcoes && p.opcoes.toSet().length != p.opcoes.length) {
         return 'A pergunta $n tem opções repetidas.';
       }
+      if (p.tipo.matching) {
+        if (p.criterioId == null || p.criterioVersao == null) {
+          return 'A pergunta $n de matching precisa de um critério do catálogo.';
+        }
+        if (p.tipo.temAlternativas && p.alternativas.isEmpty) {
+          return 'A pergunta $n precisa das alternativas do critério.';
+        }
+      }
       final condicao = p.visivelSe;
       if (condicao != null) {
         if (!anteriores.contains(condicao.perguntaId)) {
@@ -285,7 +320,7 @@ class _EditorFormularioCoordState extends State<EditorFormularioCoord>
     }
   }
 
-  void _adicionarPergunta() {
+  void _adicionarPerguntaComum() {
     setState(() {
       _perguntas.add(
         _PerguntaEditavel(
@@ -297,6 +332,112 @@ class _EditorFormularioCoordState extends State<EditorFormularioCoord>
         ),
       );
     });
+  }
+
+  Future<void> _adicionarPerguntaMatching() async {
+    try {
+      final ativos = await widget.api.criteriosMatchingAtivos();
+      if (!mounted) return;
+      if (ativos.isEmpty) {
+        final ir = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Catálogo vazio'),
+            content: const Text(
+              'Cadastre critérios em Matching → Critérios. '
+              'O rascunho deste formulário permanece nesta tela ao voltar.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Fechar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Abrir matching'),
+              ),
+            ],
+          ),
+        );
+        if (ir == true && mounted) {
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => TelaMatchingCoord(
+                api: widget.api,
+                programa: _programa ?? widget.programa ?? '',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      final usados = {
+        for (final p in _perguntas)
+          if (p.criterioId != null) p.criterioId!,
+      };
+      final disponiveis = [
+        for (final c in ativos)
+          if (!usados.contains((c['id'] as num).toInt())) c,
+      ];
+      if (disponiveis.isEmpty) {
+        mostrarMensagemCoord(
+          context,
+          'Todos os critérios ativos já estão neste formulário.',
+        );
+        return;
+      }
+      final escolhido = await showModalBottomSheet<Map<String, dynamic>>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+          child: ListView(
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: Text(
+                  'Adicionar pergunta de matching',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+                ),
+              ),
+              for (final c in disponiveis)
+                ListTile(
+                  title: Text('${c['nome']}'),
+                  subtitle: Text(
+                    '${_mapa(c['versao'])['enunciadoPadrao'] ?? c['descricao'] ?? ''}',
+                  ),
+                  onTap: () => Navigator.pop(context, c),
+                ),
+            ],
+          ),
+        ),
+      );
+      if (escolhido == null || !mounted) return;
+      final versao = _mapa(escolhido['versao']);
+      setState(() {
+        _perguntas.add(
+          _PerguntaEditavel(
+            PerguntaFormulario(
+              id: 'pergunta-${DateTime.now().microsecondsSinceEpoch}',
+              enunciado: '${versao['enunciadoPadrao'] ?? escolhido['nome'] ?? ''}',
+              tipo: TipoPergunta.fromApi(versao['tipo']?.toString()),
+              alternativas: [
+                for (final alt in _mapas(versao['alternativas']))
+                  AlternativaPergunta.fromJson(alt),
+              ],
+              matching: true,
+              criterioId: (escolhido['id'] as num).toInt(),
+              criterioVersao:
+                  (versao['versao'] as num?)?.toInt() ??
+                  (escolhido['versaoAtual'] as num?)?.toInt() ??
+                  1,
+              criterioNome: '${escolhido['nome']}',
+            ),
+          ),
+        );
+      });
+    } catch (erro) {
+      if (mounted) mostrarMensagemCoord(context, mensagemDeErro(erro));
+    }
   }
 
   void _excluir(int indice) {
@@ -646,9 +787,21 @@ class _EditorFormularioCoordState extends State<EditorFormularioCoord>
                   OutlinedButton.icon(
                     onPressed: _perguntas.length >= 30
                         ? null
-                        : _adicionarPergunta,
+                        : _adicionarPerguntaComum,
                     icon: const Icon(Icons.add),
-                    label: const Text('Adicionar pergunta'),
+                    label: const Text('Adicionar pergunta comum'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      minimumSize: const Size.fromHeight(44),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _perguntas.length >= 30
+                        ? null
+                        : _adicionarPerguntaMatching,
+                    icon: const Icon(Icons.auto_awesome_outlined),
+                    label: const Text('Adicionar pergunta de matching'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.primary,
                       minimumSize: const Size.fromHeight(44),
@@ -780,6 +933,18 @@ class _CardPergunta extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (pergunta.ehMatching)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Text(
+                        'Critério: ${pergunta.criterioNome ?? '#${pergunta.criterioId}'}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppAccents.success,
+                        ),
+                      ),
+                    ),
                   if (pergunta.visivelSe != null)
                     const Padding(
                       padding: EdgeInsets.only(right: 4),
@@ -835,34 +1000,62 @@ class _CardPergunta extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    DropdownButtonFormField<TipoPergunta>(
-                      initialValue: pergunta.tipo.suportado
-                          ? pergunta.tipo
-                          : null,
-                      isExpanded: true,
-                      decoration: InputDecoration(
-                        labelText: 'Tipo de resposta',
-                        isDense: true,
-                        border: borda,
-                        enabledBorder: borda,
-                      ),
-                      items: [
-                        for (final tipo in TipoPergunta.suportados)
-                          DropdownMenuItem(
-                            value: tipo,
-                            child: Text(tipo.rotulo),
+                    if (pergunta.ehMatching)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          '${pergunta.tipo.rotulo} · versão ${pergunta.criterioVersao}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.muted,
                           ),
-                      ],
-                      onChanged: (tipo) {
-                        if (tipo == null) return;
-                        pergunta.tipo = tipo;
-                        if (tipo.temOpcoes && pergunta.opcoes.isEmpty) {
-                          pergunta.opcoes.add(TextEditingController());
-                        }
-                        if (!tipo.temOpcoes) pergunta.matching = false;
-                        onAlterado();
-                      },
-                    ),
+                        ),
+                      )
+                    else
+                      DropdownButtonFormField<TipoPergunta>(
+                        initialValue: pergunta.tipo.suportado
+                            ? pergunta.tipo
+                            : null,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: 'Tipo de resposta',
+                          isDense: true,
+                          border: borda,
+                          enabledBorder: borda,
+                        ),
+                        items: [
+                          for (final tipo in TipoPergunta.comuns)
+                            DropdownMenuItem(
+                              value: tipo,
+                              child: Text(tipo.rotulo),
+                            ),
+                        ],
+                        onChanged: (tipo) {
+                          if (tipo == null) return;
+                          pergunta.tipo = tipo;
+                          if (tipo.temOpcoes && pergunta.opcoes.isEmpty) {
+                            pergunta.opcoes.add(TextEditingController());
+                          }
+                          if (!tipo.temOpcoes) pergunta.matching = false;
+                          onAlterado();
+                        },
+                      ),
+                    if (pergunta.ehMatching &&
+                        pergunta.alternativas.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Alternativas do critério',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      for (final alt in pergunta.alternativas)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text('• ${alt.rotulo}'),
+                        ),
+                    ],
                     if (pergunta.tipo.temOpcoes) ...[
                       const SizedBox(height: 10),
                       const Text(
@@ -926,21 +1119,6 @@ class _CardPergunta extends StatelessWidget {
                         onAlterado();
                       },
                     ),
-                    if (pergunta.tipo.temOpcoes)
-                      SwitchListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        value: pergunta.matching,
-                        activeTrackColor: AppColors.primary,
-                        title: const Text(
-                          'Usar como critério de matching',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        onChanged: (valor) {
-                          pergunta.matching = valor;
-                          onAlterado();
-                        },
-                      ),
                     if (anteriores.isNotEmpty) ...[
                       SwitchListTile(
                         dense: true,

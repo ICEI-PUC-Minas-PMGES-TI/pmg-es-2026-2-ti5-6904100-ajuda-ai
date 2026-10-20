@@ -243,6 +243,191 @@ class CoordenacaoApi {
     ),
   );
 
+  Future<Map<String, dynamic>> matchingVisao(String programa) async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/matching',
+      query: {'programa': programa},
+      erro: 'Falha ao carregar o matching',
+    ),
+  );
+
+  Future<List<Map<String, dynamic>>> criteriosMatching({String? busca}) async =>
+      _lista(
+        await _enviar(
+          'GET',
+          '/coordenacao/matching/criterios',
+          query: {'busca': busca},
+          erro: 'Falha ao carregar o catálogo de critérios',
+        ),
+      );
+
+  Future<List<Map<String, dynamic>>> criteriosMatchingAtivos() async => _lista(
+    await _enviar(
+      'GET',
+      '/coordenacao/matching/criterios/ativos',
+      erro: 'Falha ao carregar os critérios ativos',
+    ),
+  );
+
+  Future<List<Map<String, dynamic>>> criteriosMatchingSemelhantes(
+    String nome, {
+    int? excetoId,
+  }) async => _lista(
+    await _enviar(
+      'GET',
+      '/coordenacao/matching/criterios/semelhantes',
+      query: {
+        'nome': nome,
+        if (excetoId != null) 'excetoId': '$excetoId',
+      },
+      erro: 'Falha ao buscar critérios semelhantes',
+    ),
+  );
+
+  Future<Map<String, dynamic>> criterioMatching(int id) async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/matching/criterios/$id',
+      erro: 'Falha ao carregar o critério',
+    ),
+  );
+
+  Future<Map<String, dynamic>> criarCriterioMatching(
+    Map<String, dynamic> dados,
+  ) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/matching/criterios',
+      corpo: dados,
+      erro: 'Falha ao criar o critério',
+    ),
+  );
+
+  Future<Map<String, dynamic>> atualizarCriterioMatching(
+    int id,
+    Map<String, dynamic> dados,
+  ) async => _mapa(
+    await _enviar(
+      'PUT',
+      '/coordenacao/matching/criterios/$id',
+      corpo: dados,
+      erro: 'Falha ao atualizar o critério',
+    ),
+  );
+
+  Future<Map<String, dynamic>> ativarCriterioMatching(
+    int id,
+    bool ativo,
+  ) async => _mapa(
+    await _enviar(
+      'PATCH',
+      '/coordenacao/matching/criterios/$id/ativo',
+      corpo: {'ativo': ativo},
+      erro: 'Falha ao alterar o status do critério',
+    ),
+  );
+
+  Future<void> excluirCriterioMatching(int id) async {
+    await _enviar(
+      'DELETE',
+      '/coordenacao/matching/criterios/$id',
+      erro: 'Falha ao excluir o critério',
+    );
+  }
+
+  Future<Map<String, dynamic>> salvarMatchingConfiguracao({
+    required String programa,
+    required bool liberado,
+    required int capacidadePorPadrinho,
+    required int capacidadePorApadrinhado,
+    required List<Map<String, dynamic>> criterios,
+  }) async => _mapa(
+    await _enviar(
+      'PUT',
+      '/coordenacao/matching/config',
+      corpo: {
+        'programa': programa,
+        'liberado': liberado,
+        'capacidadePorPadrinho': capacidadePorPadrinho,
+        'capacidadePorApadrinhado': capacidadePorApadrinhado,
+        'criterios': criterios,
+      },
+      erro: 'Falha ao salvar a configuração de matching',
+    ),
+  );
+
+  Future<Map<String, dynamic>> liberarMatching(
+    String programa,
+    bool liberado,
+  ) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/matching/liberar',
+      corpo: {'programa': programa, 'liberado': liberado},
+      erro: 'Falha ao atualizar a liberação do matching',
+    ),
+  );
+
+  Future<Map<String, dynamic>> executarMatching(String programa) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/matching/executar',
+      corpo: {'programa': programa},
+      erro: 'Falha ao executar o matching',
+    ),
+  );
+
+  Future<List<Map<String, dynamic>>> execucoesMatching(String programa) async =>
+      _lista(
+        await _enviar(
+          'GET',
+          '/coordenacao/matching/execucoes',
+          query: {'programa': programa},
+          erro: 'Falha ao carregar as execuções de matching',
+        ),
+      );
+
+  Future<List<Map<String, dynamic>>> sugestoesMatching(
+    String programa, {
+    String? status,
+  }) async => _lista(
+    await _enviar(
+      'GET',
+      '/coordenacao/matching/sugestoes',
+      query: {'programa': programa, 'status': status},
+      erro: 'Falha ao carregar as sugestões de matching',
+    ),
+  );
+
+  Future<Map<String, dynamic>> sugestaoMatching(int id) async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/matching/sugestao/$id',
+      erro: 'Falha ao carregar a comparação',
+    ),
+  );
+
+  Future<Map<String, dynamic>> aprovarSugestaoMatching(int id) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/matching/sugestao/$id/aprovar',
+      erro: 'Falha ao aprovar a sugestão',
+    ),
+  );
+
+  Future<Map<String, dynamic>> recusarSugestaoMatching(
+    int id, {
+    String? motivo,
+  }) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/matching/sugestao/$id/recusar',
+      corpo: {'motivo': motivo},
+      erro: 'Falha ao recusar a sugestão',
+    ),
+  );
+
   Future<List<Map<String, dynamic>>> programas() async => _lista(
     await _enviar(
       'GET',
@@ -326,9 +511,7 @@ class CoordenacaoApi {
       query: {'programa': programa},
       erro: 'Falha ao listar formulários',
     );
-    return [
-      for (final item in _lista(corpo)) Formulario.fromJson(item),
-    ];
+    return [for (final item in _lista(corpo)) Formulario.fromJson(item)];
   }
 
   Future<Formulario> excluirFormulario(String tipo, {String? programa}) async =>

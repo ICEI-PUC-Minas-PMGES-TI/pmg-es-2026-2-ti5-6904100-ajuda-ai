@@ -14,6 +14,7 @@ import {
   PerguntaFormulario,
   StatusFormulario,
   TipoFormulario,
+  tipoPerguntaMatching,
   tipoPerguntaSuportado,
 } from './entities/formulario.entity.js';
 import {
@@ -246,6 +247,22 @@ export class FormulariosService {
         ) {
           throw new BadRequestException(`Opção inválida: ${q.enunciado}.`);
         }
+      } else if (q.tipo === 'sim_nao') {
+        if (typeof valor !== 'boolean')
+          throw new BadRequestException(`Resposta inválida: ${q.enunciado}.`);
+      } else if (q.tipo === 'escolha_unica') {
+        const ids = (q.alternativas ?? []).map((a) => a.id);
+        if (typeof valor !== 'string' || !ids.includes(valor))
+          throw new BadRequestException(`Opção inválida: ${q.enunciado}.`);
+      } else if (q.tipo === 'multipla_escolha') {
+        const ids = (q.alternativas ?? []).map((a) => a.id);
+        if (
+          !Array.isArray(valor) ||
+          valor.length > 30 ||
+          valor.some((v) => typeof v !== 'string' || !ids.includes(v))
+        ) {
+          throw new BadRequestException(`Opção inválida: ${q.enunciado}.`);
+        }
       } else if (
         typeof valor !== 'string' ||
         valor.length > (q.tipo === 'texto_longo' ? 1000 : 300) ||
@@ -384,6 +401,7 @@ export class FormulariosService {
     }
     const ids = new Set<string>();
     const idsAnteriores = new Set<string>();
+    const criteriosUsados = new Set<number>();
     return entrada.map((bruta, index) => {
       const item = (bruta ?? {}) as Record<string, unknown>;
       const enunciado =
@@ -397,6 +415,34 @@ export class FormulariosService {
       if (!tipoPerguntaSuportado(tipo)) {
         throw new BadRequestException(
           `Tipo de resposta inválido na pergunta ${index + 1}.`,
+        );
+      }
+      const ehMatching = tipoPerguntaMatching(tipo);
+      const criterioId =
+        typeof item.criterioId === 'number'
+          ? item.criterioId
+          : Number(item.criterioId);
+      const criterioVersao =
+        typeof item.criterioVersao === 'number'
+          ? item.criterioVersao
+          : Number(item.criterioVersao);
+      if (ehMatching) {
+        if (!Number.isInteger(criterioId) || criterioId < 1)
+          throw new BadRequestException(
+            `A pergunta ${index + 1} de matching precisa estar vinculada a um critério do catálogo.`,
+          );
+        if (!Number.isInteger(criterioVersao) || criterioVersao < 1)
+          throw new BadRequestException(
+            `A pergunta ${index + 1} precisa da versão do critério.`,
+          );
+        if (criteriosUsados.has(criterioId))
+          throw new BadRequestException(
+            `O critério ${criterioId} já foi incluído neste formulário.`,
+          );
+        criteriosUsados.add(criterioId);
+      } else if (Number.isInteger(criterioId) && criterioId > 0) {
+        throw new BadRequestException(
+          `A pergunta ${index + 1} comum não pode referenciar um critério de matching.`,
         );
       }
       const comOpcoes = tipo === 'checklist' || tipo === 'dropdown';
@@ -417,9 +463,34 @@ export class FormulariosService {
           `A pergunta ${index + 1} tem opções repetidas.`,
         );
       }
-      if (item.matching === true && !comOpcoes) {
+      const alternativas = Array.isArray(item.alternativas)
+        ? item.alternativas
+            .map((alt) => {
+              const a = (alt ?? {}) as Record<string, unknown>;
+              const id =
+                typeof a.id === 'string' ? a.id.trim().slice(0, 60) : '';
+              const rotulo =
+                typeof a.rotulo === 'string'
+                  ? a.rotulo.trim().slice(0, 80)
+                  : '';
+              return id && rotulo ? { id, rotulo } : null;
+            })
+            .filter((a): a is { id: string; rotulo: string } => Boolean(a))
+            .slice(0, 30)
+        : [];
+      if (
+        (tipo === 'escolha_unica' || tipo === 'multipla_escolha') &&
+        alternativas.length < 1
+      ) {
         throw new BadRequestException(
-          `A pergunta ${index + 1} só pode ser usada no matching se tiver alternativas.`,
+          `A pergunta ${index + 1} precisa das alternativas do critério.`,
+        );
+      }
+      // LEGADO: matching=true em checklist/dropdown sem critério — ainda aceito
+      // na leitura, mas novas perguntas devem nascer com criterioId.
+      if (item.matching === true && !comOpcoes && !ehMatching) {
+        throw new BadRequestException(
+          `A pergunta ${index + 1} só pode marcar matching legado se tiver alternativas.`,
         );
       }
       const ajuda =
@@ -444,10 +515,15 @@ export class FormulariosService {
         enunciado: enunciado.slice(0, 200),
         tipo,
         opcoes: comOpcoes ? opcoes : [],
+        ...(alternativas.length ? { alternativas } : {}),
         obrigatoria: item.obrigatoria === true,
         ...(ajuda ? { ajuda } : {}),
         ...(secao ? { secao } : {}),
-        ...(item.matching === true ? { matching: true } : {}),
+        ...(ehMatching
+          ? { criterioId, criterioVersao, matching: true }
+          : item.matching === true
+            ? { matching: true }
+            : {}),
         ...(visivelSe ? { visivelSe } : {}),
       };
     });

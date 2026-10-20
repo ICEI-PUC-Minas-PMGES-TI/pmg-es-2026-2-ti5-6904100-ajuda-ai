@@ -262,48 +262,45 @@ void main() {
       expect(find.text('Pendências do ciclo 2026/1'), findsNothing);
     },
   );
-  testWidgets(
-    'usuários, matching e formulários recebem o ciclo selecionado',
-    (tester) async {
-      await abrir(tester, backend);
-      await tester.tap(find.text('Mais'));
+  testWidgets('usuários, matching e formulários recebem o ciclo selecionado', (
+    tester,
+  ) async {
+    await abrir(tester, backend);
+    await tester.tap(find.text('Mais'));
+    await tester.pumpAndSettle();
+    for (final destino in ['Usuários', 'Matching', 'Formulários']) {
+      await tester.tap(find.text(destino));
       await tester.pumpAndSettle();
-      for (final destino in ['Usuários', 'Formulários']) {
-        await tester.tap(find.text(destino));
+      final paths = {
+        'Usuários': '/coordenacao/usuarios',
+        'Matching': '/coordenacao/matching',
+        'Formulários': '/coordenacao/formularios/apadrinhado',
+      };
+      expect(
+        backend.pedidos(paths[destino]!).last.url.queryParameters['programa'],
+        '2026/2',
+      );
+      if (destino == 'Formulários') {
+        await tester.tap(find.text('Padrinhos'));
         await tester.pumpAndSettle();
-        final paths = {
-          'Usuários': '/coordenacao/usuarios',
-          'Formulários': '/coordenacao/formularios/apadrinhado',
-        };
         expect(
-          backend.pedidos(paths[destino]!).last.url.queryParameters['programa'],
+          backend
+              .pedidos('/coordenacao/formularios/padrinho')
+              .last
+              .url
+              .queryParameters['programa'],
           '2026/2',
         );
-        if (destino == 'Formulários') {
-          await tester.tap(find.text('Padrinhos'));
-          await tester.pumpAndSettle();
-          expect(
-            backend
-                .pedidos('/coordenacao/formularios/padrinho')
-                .last
-                .url
-                .queryParameters['programa'],
-            '2026/2',
-          );
-        }
-        await tester.binding.handlePopRoute();
-        await tester.pumpAndSettle();
       }
-      await tester.tap(find.text('Apadrinhados sem vínculo'));
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
-      final matching = backend.pedidos('/coordenacao/candidaturas').last;
-      expect(matching.url.queryParameters, containsPair('programa', '2026/2'));
-      expect(
-        matching.url.queryParameters,
-        containsPair('status', 'sem_vinculo'),
-      );
-    },
-  );
+    }
+    await tester.tap(find.text('Apadrinhados sem vínculo'));
+    await tester.pumpAndSettle();
+    final matching = backend.pedidos('/coordenacao/candidaturas').last;
+    expect(matching.url.queryParameters, containsPair('programa', '2026/2'));
+    expect(matching.url.queryParameters, containsPair('status', 'sem_vinculo'));
+  });
   testWidgets(
     'novo ciclo retornado pela API é carregado e selecionado explicitamente',
     (tester) async {

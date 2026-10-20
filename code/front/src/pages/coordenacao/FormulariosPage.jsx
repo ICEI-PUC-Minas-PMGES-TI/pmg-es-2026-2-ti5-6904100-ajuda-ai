@@ -4,7 +4,12 @@ import { api } from '../../api/client';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import DuplicarFormularioModal from './DuplicarFormularioModal';
-import PerguntasAdicionais, { TIPOS_PERGUNTA, tipoPerguntaSuportado } from '../../components/PerguntasAdicionais';
+import PerguntasAdicionais, {
+  TIPOS_COMUNS,
+  TIPOS_PERGUNTA,
+  tipoPerguntaMatching,
+  tipoPerguntaSuportado,
+} from '../../components/PerguntasAdicionais';
 import Toggle from '../../components/Toggle';
 import { useToast } from '../../components/Toast';
 import { OPERADORES_CONDICAO, operadorPrecisaValor, rotuloCondicao } from '../../formularios/visibilidade';
@@ -14,6 +19,12 @@ const ABAS = [
   { tipo: 'padrinho', rotulo: 'Padrinhos' },
 ];
 
+/** Rascunho preservado ao ir para o catálogo de matching e voltar. */
+const rascunhoFormularioCache = new Map();
+function chaveRascunho(tipo, programa) {
+  return `${tipo}::${programa || ''}`;
+}
+
 let contadorLocal = 0;
 function novoId() {
   contadorLocal += 1;
@@ -22,6 +33,10 @@ function novoId() {
 
 function comOpcoes(tipo) {
   return tipo === 'checklist' || tipo === 'dropdown';
+}
+
+function comAlternativas(tipo) {
+  return tipo === 'escolha_unica' || tipo === 'multipla_escolha';
 }
 
 const ROTULO_STATUS = { rascunho: 'Rascunho', publicado: 'Publicado', encerrado: 'Encerrado' };
@@ -44,7 +59,11 @@ function podeExcluir(formulario) {
 function paraEdicao(formulario) {
   return {
     publicado: Boolean(formulario?.publicado),
-    perguntas: (formulario?.perguntas || []).map((p) => ({ ...p, opcoes: p.opcoes ? [...p.opcoes] : [] })),
+    perguntas: (formulario?.perguntas || []).map((p) => ({
+      ...p,
+      opcoes: p.opcoes ? [...p.opcoes] : [],
+      alternativas: p.alternativas ? p.alternativas.map((a) => ({ ...a })) : [],
+    })),
   };
 }
 
@@ -58,17 +77,25 @@ function serializarCondicao(condicao) {
 function serializar(rascunho) {
   return JSON.stringify({
     publicado: rascunho.publicado,
-    perguntas: rascunho.perguntas.map((p) => ({
-      id: p.id,
-      enunciado: p.enunciado,
-      tipo: p.tipo,
-      opcoes: comOpcoes(p.tipo) ? p.opcoes : [],
-      obrigatoria: Boolean(p.obrigatoria),
-      ajuda: (p.ajuda || '').trim(),
-      secao: (p.secao || '').trim(),
-      matching: comOpcoes(p.tipo) && Boolean(p.matching),
-      visivelSe: serializarCondicao(p.visivelSe),
-    })),
+    perguntas: rascunho.perguntas.map((p) => {
+      const matching = tipoPerguntaMatching(p.tipo);
+      return {
+        id: p.id,
+        enunciado: p.enunciado,
+        tipo: p.tipo,
+        opcoes: comOpcoes(p.tipo) ? p.opcoes : [],
+        ...(comAlternativas(p.tipo) || p.tipo === 'sim_nao'
+          ? { alternativas: (p.alternativas || []).map((a) => ({ id: a.id, rotulo: a.rotulo })) }
+          : {}),
+        obrigatoria: Boolean(p.obrigatoria),
+        ajuda: (p.ajuda || '').trim(),
+        secao: (p.secao || '').trim(),
+        ...(matching
+          ? { criterioId: Number(p.criterioId), criterioVersao: Number(p.criterioVersao), matching: true }
+          : {}),
+        visivelSe: serializarCondicao(p.visivelSe),
+      };
+    }),
   });
 }
 
@@ -95,6 +122,14 @@ function validarRascunho(perguntas) {
       const opcoes = p.opcoes.map((o) => o.trim()).filter(Boolean);
       if (opcoes.length === 0) return `A pergunta ${n} precisa de pelo menos uma opção.`;
       if (new Set(opcoes).size !== opcoes.length) return `A pergunta ${n} tem opções repetidas.`;
+    }
+    if (tipoPerguntaMatching(p.tipo)) {
+      if (!p.criterioId || !p.criterioVersao) {
+        return `A pergunta ${n} de matching precisa estar vinculada a um critério do catálogo.`;
+      }
+      if (comAlternativas(p.tipo) && !(p.alternativas || []).length) {
+        return `A pergunta ${n} precisa das alternativas do critério.`;
+      }
     }
     if (p.visivelSe) {
       if (!anteriores.has(p.visivelSe.perguntaId)) return `A pergunta ${n} só pode depender de uma pergunta anterior.`;
@@ -131,6 +166,7 @@ export default function FormulariosPage() {
   const [duplicando, setDuplicando] = useState(false);
   const [arrastando, setArrastando] = useState(null);
   const [sobre, setSobre] = useState(null);
+  const [modalMatching, setModalMatching] = useState(false);
 
   useEffect(() => {
     api.programas().then(setProgramas).catch(() => setProgramas([]));
@@ -154,7 +190,14 @@ export default function FormulariosPage() {
     try {
       const dados = await api.formularioCoordenacao(tipo, programaParam || undefined);
       setFormulario(dados);
-      setRascunho(paraEdicao(dados));
+      const chave = chaveRascunho(tipo, dados.programa || programaParam);
+      const preservado = rascunhoFormularioCache.get(chave);
+      if (preservado) {
+        setRascunho(preservado);
+        rascunhoFormularioCache.delete(chave);
+      } else {
+        setRascunho(paraEdicao(dados));
+      }
     } catch (error) {
       setErro(error.message || 'Não foi possível carregar o formulário.');
     } finally {
@@ -183,9 +226,20 @@ export default function FormulariosPage() {
       ...atual,
       perguntas: sanitizarCondicoes(atual.perguntas.map((p, i) => {
         if (i !== indice) return p;
+        if (tipoPerguntaMatching(p.tipo) && parcial.tipo && !tipoPerguntaMatching(parcial.tipo)) {
+          return p;
+        }
         const nova = { ...p, ...parcial };
-        if (parcial.tipo && comOpcoes(parcial.tipo) && nova.opcoes.length === 0) nova.opcoes = ['Opção 1'];
-        if (parcial.tipo && !comOpcoes(parcial.tipo)) nova.matching = false;
+        if (parcial.tipo && comOpcoes(parcial.tipo) && (!nova.opcoes || nova.opcoes.length === 0)) {
+          nova.opcoes = ['Opção 1'];
+        }
+        if (parcial.tipo && !comOpcoes(parcial.tipo) && !tipoPerguntaMatching(parcial.tipo)) {
+          nova.matching = false;
+          nova.criterioId = undefined;
+          nova.criterioVersao = undefined;
+          nova.alternativas = [];
+          nova.criterioNome = undefined;
+        }
         if (parcial.visivelSe === null) nova.visivelSe = undefined;
         return nova;
       })),
@@ -216,15 +270,59 @@ export default function FormulariosPage() {
     }));
   }
 
-  function adicionar() {
+  function adicionarComum() {
     setRascunho((atual) => ({
       ...atual,
-      perguntas: [...atual.perguntas, { id: novoId(), enunciado: '', tipo: 'texto_curto', opcoes: [], obrigatoria: false }],
+      perguntas: [...atual.perguntas, {
+        id: novoId(),
+        enunciado: '',
+        tipo: 'texto_curto',
+        opcoes: [],
+        alternativas: [],
+        obrigatoria: false,
+      }],
     }));
     window.setTimeout(() => {
       const campos = document.querySelectorAll('.question-card .question-statement');
       campos[campos.length - 1]?.focus();
     }, 0);
+  }
+
+  function adicionarMatching(criterio) {
+    const versao = criterio.versao || {};
+    const criterioId = Number(criterio.id);
+    setRascunho((atual) => {
+      if (atual.perguntas.some((p) => Number(p.criterioId) === criterioId)) {
+        setErroSalvar(`O critério “${criterio.nome}” já está neste formulário.`);
+        return atual;
+      }
+      return {
+        ...atual,
+        perguntas: [...atual.perguntas, {
+          id: novoId(),
+          enunciado: versao.enunciadoPadrao || criterio.nome || '',
+          tipo: versao.tipo,
+          opcoes: [],
+          alternativas: (versao.alternativas || []).map((a) => ({ id: a.id, rotulo: a.rotulo })),
+          obrigatoria: false,
+          matching: true,
+          criterioId,
+          criterioVersao: Number(versao.versao || criterio.versaoAtual || 1),
+          criterioNome: criterio.nome,
+        }],
+      };
+    });
+    setModalMatching(false);
+    setErroSalvar('');
+  }
+
+  function irParaCatalogoMatching() {
+    if (rascunho) {
+      rascunhoFormularioCache.set(
+        chaveRascunho(tipo, formulario?.programa || programaParam),
+        rascunho,
+      );
+    }
   }
 
   async function salvar() {
@@ -392,9 +490,19 @@ export default function FormulariosPage() {
             ))}
           </ol>
 
-          <button type="button" className="add-question" onClick={adicionar} disabled={rascunho.perguntas.length >= 30}>
-            <Icon name="plus" size={18} /> Adicionar nova pergunta
-          </button>
+          <div className="forms-add-actions">
+            <button type="button" className="add-question" onClick={adicionarComum} disabled={rascunho.perguntas.length >= 30}>
+              <Icon name="plus" size={18} /> Adicionar pergunta comum
+            </button>
+            <button
+              type="button"
+              className="add-question matching"
+              onClick={() => setModalMatching(true)}
+              disabled={rascunho.perguntas.length >= 30}
+            >
+              <Icon name="spark" size={18} /> Adicionar pergunta de matching
+            </button>
+          </div>
 
           {erroSalvar && <p className="form-error" role="alert"><Icon name="alert" size={16} /> {erroSalvar}</p>}
 
@@ -427,6 +535,15 @@ export default function FormulariosPage() {
           </div>
           <p className="forms-hint"><Icon name="info" size={15} /> As alterações ficam disponíveis para os {aba.rotulo.toLowerCase()} após salvar com o formulário publicado.</p>
         </>
+      )}
+
+      {modalMatching && (
+        <ModalCriterioMatching
+          usados={rascunho.perguntas.map((p) => Number(p.criterioId)).filter(Boolean)}
+          onFechar={() => setModalMatching(false)}
+          onSelecionar={adicionarMatching}
+          onIrCatalogo={irParaCatalogoMatching}
+        />
       )}
 
       {previa && rascunho && (
@@ -501,6 +618,71 @@ export default function FormulariosPage() {
   );
 }
 
+function ModalCriterioMatching({ usados, onFechar, onSelecionar, onIrCatalogo }) {
+  const [lista, setLista] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState('');
+
+  useEffect(() => {
+    let ativo = true;
+    api.criteriosMatchingAtivos()
+      .then((dados) => { if (ativo) setLista(dados); })
+      .catch((e) => { if (ativo) setErro(e.message || 'Não foi possível carregar os critérios.'); })
+      .finally(() => { if (ativo) setCarregando(false); });
+    return () => { ativo = false; };
+  }, []);
+
+  const disponiveis = lista.filter((c) => !usados.includes(Number(c.id)));
+
+  return (
+    <Modal
+      titulo="Adicionar pergunta de matching"
+      descricao="Selecione um critério ativo do catálogo. O enunciado e o tipo vêm da versão atual."
+      onFechar={onFechar}
+      tamanho="lg"
+    >
+      {carregando && <p className="empty-copy" role="status">Carregando critérios…</p>}
+      {erro && <p className="form-error" role="alert">{erro}</p>}
+      {!carregando && !lista.length && (
+        <div className="matching-empty">
+          <Icon name="spark" size={28} />
+          <h3>Catálogo vazio</h3>
+          <p>
+            Cadastre critérios em Matching → Critérios de matching.
+            Seu rascunho deste formulário fica preservado em memória local ao voltar.
+          </p>
+          <Link className="primary-button inline" to="/coordenacao/matching" onClick={onIrCatalogo}>
+            Abrir catálogo de critérios
+          </Link>
+        </div>
+      )}
+      {!carregando && lista.length > 0 && !disponiveis.length && (
+        <p className="empty-copy">Todos os critérios ativos já estão neste formulário.</p>
+      )}
+      <div className="matching-catalog-list">
+        {disponiveis.map((criterio) => {
+          const versao = criterio.versao || {};
+          return (
+            <button
+              key={criterio.id}
+              type="button"
+              className="matching-catalog-pick"
+              onClick={() => onSelecionar(criterio)}
+            >
+              <strong>{criterio.nome}</strong>
+              <span>{versao.enunciadoPadrao || criterio.descricao || 'Sem enunciado'}</span>
+              <small>
+                {TIPOS_PERGUNTA.find((t) => t.valor === versao.tipo)?.rotulo || versao.tipo}
+                {' · '}v{versao.versao || criterio.versaoAtual || 1}
+              </small>
+            </button>
+          );
+        })}
+      </div>
+    </Modal>
+  );
+}
+
 export function PerguntaEditor({
   pergunta, indice, total, anteriores = [], secoes = [],
   arrastando, sobre, onDragStart, onDragOver, onDrop, onDragEnd,
@@ -513,10 +695,14 @@ export function PerguntaEditor({
   const secoesId = useId();
   const condicaoId = useId();
   const [confirmar, setConfirmar] = useState(false);
+  const ehMatching = tipoPerguntaMatching(pergunta.tipo);
   const precisaOpcoes = comOpcoes(pergunta.tipo);
+  const alternativas = pergunta.alternativas || [];
   const condicao = pergunta.visivelSe;
   const perguntaAlvo = anteriores.find((p) => p.id === condicao?.perguntaId);
-  const opcoesAlvo = comOpcoes(perguntaAlvo?.tipo) ? (perguntaAlvo.opcoes || []).filter((o) => o.trim()) : [];
+  const opcoesAlvo = comOpcoes(perguntaAlvo?.tipo)
+    ? (perguntaAlvo.opcoes || []).filter((o) => o.trim())
+    : (perguntaAlvo?.alternativas || []).map((a) => a.rotulo);
 
   function editarOpcao(i, valor) {
     onChange({ opcoes: pergunta.opcoes.map((o, j) => (j === i ? valor : o)) });
@@ -533,7 +719,7 @@ export function PerguntaEditor({
 
   return (
     <li
-      className={`question-card${arrastando ? ' dragging' : ''}${sobre ? ' drop-target' : ''}`}
+      className={`question-card${arrastando ? ' dragging' : ''}${sobre ? ' drop-target' : ''}${ehMatching ? ' matching-q' : ''}`}
       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOver?.(); }}
       onDrop={(e) => { e.preventDefault(); onDrop?.(); }}
     >
@@ -554,7 +740,11 @@ export function PerguntaEditor({
           <Icon name="grip" size={16} />
         </button>
         <strong>Pergunta {indice + 1}</strong>
-        <span className="matching-tag custom">Personalizada</span>
+        {ehMatching ? (
+          <span className="matching-tag">Critério: {pergunta.criterioNome || `#${pergunta.criterioId}`}</span>
+        ) : (
+          <span className="matching-tag custom">Personalizada</span>
+        )}
         {condicao && <span className="matching-tag" title={rotuloCondicao(condicao, anteriores)}>Condicional</span>}
         <div className="question-tools">
           <button type="button" className="icon-square" onClick={() => onMover(-1)} disabled={indice === 0} aria-label={`Mover pergunta ${indice + 1} para cima`}><Icon name="arrowUp" size={16} /></button>
@@ -585,10 +775,17 @@ export function PerguntaEditor({
 
       <label className="q-label" htmlFor={tipoId}>Tipo de resposta</label>
       {!tipoPerguntaSuportado(pergunta.tipo) && <p className="error-message" role="alert">Tipo não suportado ({String(pergunta.tipo)}). Remova ou substitua esta pergunta.</p>}
-      <select id={tipoId} className="q-select" value={pergunta.tipo} onChange={(e) => onChange({ tipo: e.target.value })}>
-        {!tipoPerguntaSuportado(pergunta.tipo) && <option value={pergunta.tipo} disabled>Tipo não suportado ({String(pergunta.tipo)})</option>}
-        {TIPOS_PERGUNTA.map((t) => <option key={t.valor} value={t.valor}>{t.rotulo}</option>)}
-      </select>
+      {ehMatching ? (
+        <p className="q-hint locked-type">
+          {TIPOS_PERGUNTA.find((t) => t.valor === pergunta.tipo)?.rotulo || pergunta.tipo}
+          {' · '}versão do critério {pergunta.criterioVersao}
+        </p>
+      ) : (
+        <select id={tipoId} className="q-select" value={pergunta.tipo} onChange={(e) => onChange({ tipo: e.target.value })}>
+          {!tipoPerguntaSuportado(pergunta.tipo) && <option value={pergunta.tipo} disabled>Tipo não suportado ({String(pergunta.tipo)})</option>}
+          {TIPOS_COMUNS.map((t) => <option key={t.valor} value={t.valor}>{t.rotulo}</option>)}
+        </select>
+      )}
 
       {precisaOpcoes && (
         <fieldset className="q-options">
@@ -606,10 +803,18 @@ export function PerguntaEditor({
         </fieldset>
       )}
 
-      <Toggle className="q-required" label="Resposta obrigatória" checked={pergunta.obrigatoria} onChange={(v) => onChange({ obrigatoria: v })} />
-      {precisaOpcoes && (
-        <Toggle className="q-required" label="Usar como critério de matching" descricao="A resposta ficará disponível para combinar padrinhos e apadrinhados." checked={Boolean(pergunta.matching)} onChange={(v) => onChange({ matching: v })} />
+      {ehMatching && alternativas.length > 0 && (
+        <fieldset className="q-options readonly">
+          <legend>Alternativas do critério</legend>
+          <ul className="matching-alt-readonly">
+            {alternativas.map((alt) => (
+              <li key={alt.id}>{alt.rotulo}</li>
+            ))}
+          </ul>
+        </fieldset>
       )}
+
+      <Toggle className="q-required" label="Resposta obrigatória" checked={pergunta.obrigatoria} onChange={(v) => onChange({ obrigatoria: v })} />
 
       {anteriores.length > 0 && (
         <div className="q-condition" id={condicaoId}>

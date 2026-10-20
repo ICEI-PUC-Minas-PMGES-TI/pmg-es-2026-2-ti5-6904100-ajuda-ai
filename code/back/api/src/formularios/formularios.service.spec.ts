@@ -91,11 +91,83 @@ describe('FormulariosService', () => {
         { tipo: 'texto_curto', matching: true },
       ],
       ['tipo desconhecido', { tipo: 'upload' }],
+      [
+        'matching sem critério',
+        {
+          tipo: 'sim_nao',
+          enunciado: 'É bolsista?',
+          opcoes: [],
+        },
+      ],
     ])('recusa pergunta inválida: %s', async (_, parcial) => {
       await expect(
         salvar({ perguntas: [pergunta(parcial)] }),
       ).rejects.toThrow();
       expect(registros).toHaveLength(0);
+    });
+
+    it('vincula pergunta de matching ao critério sem duplicar no mesmo formulário', async () => {
+      const matching = {
+        enunciado: 'Você é bolsista?',
+        tipo: 'sim_nao',
+        criterioId: 7,
+        criterioVersao: 1,
+        obrigatoria: true,
+        opcoes: [],
+      };
+      const salvo = await salvar({ perguntas: [matching] });
+      expect(salvo.perguntas[0]).toMatchObject({
+        tipo: 'sim_nao',
+        criterioId: 7,
+        criterioVersao: 1,
+        matching: true,
+      });
+      await expect(
+        salvar({
+          perguntas: [
+            matching,
+            { ...matching, enunciado: 'Outra formulação', id: 'q2' },
+          ],
+        }),
+      ).rejects.toThrow(/já foi incluído/);
+    });
+
+    it('aceita escolha única e múltipla escolha com alternativas do catálogo', async () => {
+      const unico = await salvar({
+        perguntas: [
+          {
+            enunciado: 'Categoria',
+            tipo: 'escolha_unica',
+            criterioId: 3,
+            criterioVersao: 2,
+            alternativas: [
+              { id: 'cat_a', rotulo: 'A' },
+              { id: 'cat_b', rotulo: 'B' },
+            ],
+            opcoes: [],
+          },
+        ],
+      });
+      expect(unico.perguntas[0].alternativas).toEqual([
+        { id: 'cat_a', rotulo: 'A' },
+        { id: 'cat_b', rotulo: 'B' },
+      ]);
+      const multi = await salvar({
+        perguntas: [
+          {
+            enunciado: 'Interesses',
+            tipo: 'multipla_escolha',
+            criterioId: 4,
+            criterioVersao: 1,
+            alternativas: [
+              { id: 'i1', rotulo: 'Esporte' },
+              { id: 'i2', rotulo: 'Música' },
+            ],
+            opcoes: [],
+          },
+        ],
+      });
+      expect(multi.perguntas[0].tipo).toBe('multipla_escolha');
     });
 
     it('lista os dois públicos do programa', async () => {

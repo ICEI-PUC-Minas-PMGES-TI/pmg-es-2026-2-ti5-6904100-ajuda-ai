@@ -5,6 +5,16 @@ import {
 } from './1791900000000-BaselineFeed.js';
 import { UsuariosERequisitosPadrinho1791944105933 } from './1791944105933-UsuariosERequisitosPadrinho.js';
 import { VersoesEEncerramentoFormularios1792400000000 } from './1792400000000-VersoesEEncerramentoFormularios.js';
+import {
+  COLUNAS_MATCHING,
+  MatchingF11F121792500000000,
+  TABELAS_MATCHING,
+} from './1792500000000-MatchingF11F12.js';
+import {
+  CatalogoCriteriosMatching1792600000000,
+  COLUNAS_CATALOGO_CRITERIOS,
+  TABELAS_CATALOGO_CRITERIOS,
+} from './1792600000000-CatalogoCriteriosMatching.js';
 
 /** QueryRunner falso: responde o catálogo com as colunas dadas e grava o SQL. */
 function runner(colunas: Array<[string, string]>) {
@@ -184,5 +194,108 @@ describe('VersoesEEncerramentoFormularios', () => {
       await migration.down(forcado.qr);
       expect(forcado.executado).toHaveLength(2);
     });
+  });
+});
+
+describe('MatchingF11F12', () => {
+  const migration = new MatchingF11F121792500000000();
+
+  function runnerTabelas(tabelas: string[], colunasCompletas = true) {
+    const executado: string[] = [];
+    const qr = {
+      connection: { options: { schema: 'feed' } },
+      query: async (sql: string) => {
+        if (sql.includes('information_schema.tables'))
+          return tabelas.map((table_name) => ({ table_name }));
+        if (sql.includes('information_schema.columns'))
+          return colunasCompletas
+            ? Object.entries(COLUNAS_MATCHING).flatMap(
+                ([table_name, colunas]) =>
+                  colunas.map((column_name) => ({
+                    table_name,
+                    column_name,
+                  })),
+              )
+            : [{ table_name: 'matching_configuracoes', column_name: 'id' }];
+        executado.push(sql);
+        return [];
+      },
+    } as unknown as QueryRunner;
+    return { qr, executado };
+  }
+
+  it('cria persistência e converte grupos legados sem apagá-los', async () => {
+    const { qr, executado } = runnerTabelas([]);
+    await migration.up(qr);
+    expect(executado.join('\n')).toMatch(
+      /CREATE TABLE "feed"\."matching_configuracoes"/,
+    );
+    expect(executado.join('\n')).toMatch(
+      /CREATE UNIQUE INDEX "uq_matching_vinculo_par_ativo"/,
+    );
+    expect(executado.join('\n')).toMatch(
+      /INSERT INTO "feed"\."matching_vinculos"/,
+    );
+    expect(executado.join('\n')).not.toMatch(
+      /UPDATE\s+"feed"\."participacoes"|DELETE\s+FROM\s+"feed"\."participacoes"/,
+    );
+  });
+
+  it('reconhece synchronize completo e recusa estado parcial', async () => {
+    const completo = runnerTabelas([...TABELAS_MATCHING]);
+    await migration.up(completo.qr);
+    expect(completo.executado).toEqual([]);
+    const parcial = runnerTabelas([TABELAS_MATCHING[0]]);
+    await expect(migration.up(parcial.qr)).rejects.toThrow(/estado parcial/);
+    expect(parcial.executado).toEqual([]);
+    await expect(
+      migration.up(runnerTabelas([...TABELAS_MATCHING], false).qr),
+    ).rejects.toThrow(/colunas ausentes/);
+  });
+});
+
+describe('CatalogoCriteriosMatching', () => {
+  const migration = new CatalogoCriteriosMatching1792600000000();
+
+  function runnerTabelas(tabelas: string[], colunasCompletas = true) {
+    const executado: string[] = [];
+    const qr = {
+      connection: { options: { schema: 'feed' } },
+      query: async (sql: string, params?: unknown[]) => {
+        if (sql.includes('information_schema.tables'))
+          return tabelas.map((table_name) => ({ table_name }));
+        if (sql.includes('information_schema.columns'))
+          return colunasCompletas
+            ? Object.entries(COLUNAS_CATALOGO_CRITERIOS).flatMap(
+                ([table_name, colunas]) =>
+                  colunas.map((column_name) => ({
+                    table_name,
+                    column_name,
+                  })),
+              )
+            : [{ table_name: 'matching_criterios', column_name: 'id' }];
+        if (sql.includes('SELECT "id" FROM') && params) return [{ id: 1 }];
+        executado.push(sql);
+        if (sql.includes('RETURNING')) return [{ id: 1 }];
+        return [];
+      },
+    } as unknown as QueryRunner;
+    return { qr, executado };
+  }
+
+  it('cria catálogo e sementes sem apagar dados', async () => {
+    const { qr, executado } = runnerTabelas([]);
+    await migration.up(qr);
+    const sql = executado.join('\n');
+    expect(sql).toMatch(/CREATE TABLE "feed"\."matching_criterios"/);
+    expect(sql).toMatch(/matching_criterio_versoes/);
+    expect(sql).toMatch(/INSERT INTO "feed"\."matching_criterios"/);
+    expect(sql).toMatch(/INSERT INTO "feed"\."matching_criterio_versoes"/);
+  });
+
+  it('é idempotente quando o catálogo já existe', async () => {
+    const completo = runnerTabelas([...TABELAS_CATALOGO_CRITERIOS]);
+    await migration.up(completo.qr);
+    expect(completo.executado).toEqual([]);
   });
 });

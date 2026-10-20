@@ -7,6 +7,7 @@ import Icon from '../../components/Icon';
 const NAV = [
   { to: '/coordenacao', end: true, label: 'Dashboard', icon: 'home' },
   { to: '/coordenacao/candidaturas', label: 'Candidaturas', icon: 'clipboard' },
+  { to: '/coordenacao/matching', label: 'Matching', icon: 'spark' },
   { to: '/coordenacao/usuarios', label: 'Usuários', icon: 'users' },
   { to: '/coordenacao/programas', label: 'Programas', icon: 'calendar' },
   { to: '/coordenacao/formularios', label: 'Formulários', icon: 'form' },

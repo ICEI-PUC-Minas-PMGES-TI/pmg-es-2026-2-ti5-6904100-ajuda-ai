@@ -275,6 +275,62 @@ export const api = {
   vincular(apadrinhadoId, padrinhoId) {
     return request('/coordenacao/vinculos', { method: 'POST', body: { apadrinhadoId, padrinhoId } });
   },
+  matchingVisao(programa) {
+    return request(`/coordenacao/matching${query({ programa })}`);
+  },
+  matchingConfiguracao(programa) {
+    return request(`/coordenacao/matching/config${query({ programa })}`);
+  },
+  salvarMatchingConfiguracao(dados) {
+    return request('/coordenacao/matching/config', { method: 'PUT', body: dados });
+  },
+  liberarMatching(programa, liberado) {
+    return request('/coordenacao/matching/liberar', { method: 'POST', body: { programa, liberado } });
+  },
+  executarMatching(programa) {
+    return request('/coordenacao/matching/executar', { method: 'POST', body: { programa } });
+  },
+  execucoesMatching(programa) {
+    return request(`/coordenacao/matching/execucoes${query({ programa })}`);
+  },
+  sugestoesMatching(programa, status) {
+    return request(`/coordenacao/matching/sugestoes${query({ programa, status })}`);
+  },
+  sugestaoMatching(id) {
+    return request(`/coordenacao/matching/sugestao/${id}`);
+  },
+  aprovarSugestaoMatching(id) {
+    return request(`/coordenacao/matching/sugestao/${id}/aprovar`, { method: 'POST' });
+  },
+  recusarSugestaoMatching(id, motivo) {
+    return request(`/coordenacao/matching/sugestao/${id}/recusar`, { method: 'POST', body: { motivo } });
+  },
+  criteriosMatching(busca) {
+    return request(`/coordenacao/matching/criterios${query({ busca })}`);
+  },
+  criteriosMatchingAtivos() {
+    return request('/coordenacao/matching/criterios/ativos');
+  },
+  criteriosMatchingSemelhantes(nome, excetoId) {
+    return request(
+      `/coordenacao/matching/criterios/semelhantes${query({ nome, excetoId })}`,
+    );
+  },
+  criterioMatching(id) {
+    return request(`/coordenacao/matching/criterios/${id}`);
+  },
+  criarCriterioMatching(dados) {
+    return request('/coordenacao/matching/criterios', { method: 'POST', body: dados });
+  },
+  atualizarCriterioMatching(id, dados) {
+    return request(`/coordenacao/matching/criterios/${id}`, { method: 'PUT', body: dados });
+  },
+  ativarCriterioMatching(id, ativo) {
+    return request(`/coordenacao/matching/criterios/${id}/ativo`, { method: 'PATCH', body: { ativo } });
+  },
+  excluirCriterioMatching(id) {
+    return request(`/coordenacao/matching/criterios/${id}`, { method: 'DELETE' });
+  },
   programas() {
     return request('/coordenacao/programas');
   },

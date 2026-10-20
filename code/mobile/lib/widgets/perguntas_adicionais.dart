@@ -39,6 +39,7 @@ class PerguntasAdicionais extends StatefulWidget {
   }
 
   static bool _respondida(Object? valor) => switch (valor) {
+    bool _ => true,
     String texto => texto.trim().isNotEmpty,
     List lista => lista.isNotEmpty,
     _ => false,
@@ -51,9 +52,12 @@ class PerguntasAdicionais extends StatefulWidget {
   ) => {
     for (final pergunta in perguntasVisiveis(perguntas, respostas))
       if (_respondida(respostas[pergunta.id]))
-        pergunta.id: respostas[pergunta.id] is String
-            ? (respostas[pergunta.id] as String).trim()
-            : List<String>.from(respostas[pergunta.id] as List),
+        pergunta.id: switch (respostas[pergunta.id]) {
+          bool valor => valor,
+          String texto => texto.trim(),
+          List lista => List<String>.from(lista),
+          final outro => outro,
+        },
   };
 
   /// Compatível com chamadas antigas que só passavam o mapa.
@@ -64,6 +68,7 @@ class PerguntasAdicionais extends StatefulWidget {
   };
 
   static String formatar(Object? valor) => switch (valor) {
+    bool valor => valor ? 'Sim' : 'Não',
     String texto when texto.trim().isNotEmpty => texto.trim(),
     List lista when lista.isNotEmpty => lista.join(', '),
     _ => 'Não informado',
@@ -111,8 +116,12 @@ class _PerguntasAdicionaisState extends State<PerguntasAdicionais> {
       if (!PerguntasAdicionais._respondida(widget.respostas[pergunta.id])) {
         continue;
       }
-      widget.respostas[pergunta.id] = pergunta.tipo == TipoPergunta.checklist
+      widget.respostas[pergunta.id] =
+          pergunta.tipo == TipoPergunta.checklist ||
+              pergunta.tipo == TipoPergunta.multiplaEscolha
           ? <String>[]
+          : pergunta.tipo == TipoPergunta.simNao
+          ? null
           : '';
       _controllers[pergunta.id]?.text = '';
     }
@@ -222,8 +231,42 @@ class _PerguntasAdicionaisState extends State<PerguntasAdicionais> {
         opcoes: {for (final opcao in pergunta.opcoes) opcao: opcao},
         onChanged: (valor) => _alterar(pergunta.id, valor),
       ),
+      TipoPergunta.escolhaUnica => CampoSelecao<String>(
+        icone: Icons.list_alt_outlined,
+        valor: pergunta.alternativas.any(
+              (a) => a.id == widget.respostas[pergunta.id],
+            )
+            ? widget.respostas[pergunta.id] as String
+            : null,
+        dica: 'Selecione uma opção',
+        rotuloSemantico: pergunta.enunciado,
+        erro: erro,
+        mensagemErro: mensagem,
+        opcoes: {
+          for (final alt in pergunta.alternativas) alt.id: alt.rotulo,
+        },
+        onChanged: (valor) => _alterar(pergunta.id, valor),
+      ),
+      TipoPergunta.simNao => _SimNao(
+        valor: widget.respostas[pergunta.id] is bool
+            ? widget.respostas[pergunta.id] as bool
+            : null,
+        erro: erro,
+        onChanged: (valor) => _alterar(pergunta.id, valor),
+      ),
       TipoPergunta.checklist => _Checklist(
         opcoes: pergunta.opcoes,
+        selecionadas: List<String>.from(
+          widget.respostas[pergunta.id] as List? ?? const [],
+        ),
+        erro: erro,
+        onChanged: (lista) => _alterar(pergunta.id, lista),
+      ),
+      TipoPergunta.multiplaEscolha => _Checklist(
+        opcoes: [for (final alt in pergunta.alternativas) alt.id],
+        rotulos: {
+          for (final alt in pergunta.alternativas) alt.id: alt.rotulo,
+        },
         selecionadas: List<String>.from(
           widget.respostas[pergunta.id] as List? ?? const [],
         ),
@@ -274,15 +317,71 @@ List<_GrupoSecao> _agruparPorSecao(List<PerguntaFormulario> perguntas) {
   return grupos;
 }
 
+class _SimNao extends StatelessWidget {
+  const _SimNao({
+    required this.valor,
+    required this.erro,
+    required this.onChanged,
+  });
+
+  final bool? valor;
+  final bool erro;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget opcao(String rotulo, bool alvo) {
+      final selecionado = valor == alvo;
+      return InkWell(
+        onTap: () => onChanged(alvo),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Icon(
+                selecionado
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_off,
+                color: selecionado ? AppColors.primary : AppColors.muted,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Text(rotulo, style: EstiloCampo.valor),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: EstiloCampo.decoracao(erro: erro),
+          child: Column(
+            children: [
+              opcao('Sim', true),
+              opcao('Não', false),
+            ],
+          ),
+        ),
+        if (erro) const MensagemErroCampo('Responda esta pergunta para continuar.'),
+      ],
+    );
+  }
+}
+
 class _Checklist extends StatelessWidget {
   const _Checklist({
     required this.opcoes,
     required this.selecionadas,
     required this.erro,
     required this.onChanged,
+    this.rotulos = const {},
   });
 
   final List<String> opcoes;
+  final Map<String, String> rotulos;
   final List<String> selecionadas;
   final bool erro;
   final ValueChanged<List<String>> onChanged;
@@ -304,7 +403,10 @@ class _Checklist extends StatelessWidget {
                     value: selecionadas.contains(opcao),
                     activeColor: AppColors.primary,
                     controlAffinity: ListTileControlAffinity.leading,
-                    title: Text(opcao, style: EstiloCampo.valor),
+                    title: Text(
+                      rotulos[opcao] ?? opcao,
+                      style: EstiloCampo.valor,
+                    ),
                     onChanged: (marcado) {
                       final nova = List.of(selecionadas);
                       if (marcado == true) {

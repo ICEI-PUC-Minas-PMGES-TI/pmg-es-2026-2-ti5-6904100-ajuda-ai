@@ -16,13 +16,35 @@ export const TIPOS_PERGUNTA_SUPORTADOS = [
   'texto_longo',
   'checklist',
   'dropdown',
+  'sim_nao',
+  'escolha_unica',
+  'multipla_escolha',
 ] as const;
 export type TipoPergunta = (typeof TIPOS_PERGUNTA_SUPORTADOS)[number];
+export const TIPOS_PERGUNTA_MATCHING = [
+  'sim_nao',
+  'escolha_unica',
+  'multipla_escolha',
+] as const;
+export type TipoPerguntaMatching = (typeof TIPOS_PERGUNTA_MATCHING)[number];
 export function tipoPerguntaSuportado(tipo: unknown): tipo is TipoPergunta {
   return (
     typeof tipo === 'string' &&
     (TIPOS_PERGUNTA_SUPORTADOS as readonly string[]).includes(tipo)
   );
+}
+export function tipoPerguntaMatching(
+  tipo: unknown,
+): tipo is TipoPerguntaMatching {
+  return (
+    typeof tipo === 'string' &&
+    (TIPOS_PERGUNTA_MATCHING as readonly string[]).includes(tipo)
+  );
+}
+
+export interface AlternativaPergunta {
+  id: string;
+  rotulo: string;
 }
 
 export interface PerguntaFormulario {
@@ -31,13 +53,22 @@ export interface PerguntaFormulario {
   /** String preserva tipos legados na leitura administrativa, sem convertê-los. */
   tipo: string;
   opcoes: string[];
+  /** Alternativas estruturadas (perguntas vinculadas ao catálogo de matching). */
+  alternativas?: AlternativaPergunta[];
   obrigatoria: boolean;
   /** Texto de ajuda exibido abaixo do enunciado. */
   ajuda?: string;
   /** Seção (agrupamento) em que a pergunta aparece. */
   secao?: string;
-  /** Resposta disponível para os critérios de matching (só perguntas de escolha). */
+  /**
+   * LEGADO: checkbox livre em perguntas comuns. Novas perguntas de matching
+   * usam `criterioId` + `criterioVersao`.
+   */
   matching?: boolean;
+  /** Vínculo com o catálogo de critérios de matching. */
+  criterioId?: number;
+  /** Versão do critério no momento da inclusão no formulário. */
+  criterioVersao?: number;
   /** Mostrar só se a condição for verdadeira (depende de pergunta anterior). */
   visivelSe?: CondicaoVisibilidade;
 }

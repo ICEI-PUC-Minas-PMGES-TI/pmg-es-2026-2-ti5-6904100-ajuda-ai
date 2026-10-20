@@ -379,6 +379,16 @@ export class CadastroService {
       email,
       programa,
     );
+    if (registro) {
+      const canonicos =
+        await this.participacoesService.listarVinculados(registro);
+      if (canonicos.length)
+        return canonicos.map(({ participacao, vinculoId }) => ({
+          ...perfilDoRegistro(participacao),
+          grupo: null,
+          vinculoId,
+        }));
+    }
     const grupo = registro?.grupo?.trim();
     if (
       !registro ||

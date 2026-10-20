@@ -12,6 +12,7 @@ import 'tela_configuracoes_coord.dart';
 import 'tela_dashboard_coord.dart';
 import 'tela_formularios_coord.dart';
 import 'tela_mais_coord.dart';
+import 'tela_matching_coord.dart';
 import 'tela_programas_coord.dart';
 import 'tela_usuarios_coord.dart';
 
@@ -223,8 +224,8 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
     if (destino == 'candidaturas' || destino == 'cadastros') {
       _abrirCandidaturas(
         status: query['status'] ?? (destino == 'cadastros' ? 'pendente' : null),
-        publico: query['publico'] ??
-            (destino == 'cadastros' ? 'apadrinhado' : null),
+        publico:
+            query['publico'] ?? (destino == 'cadastros' ? 'apadrinhado' : null),
       );
       return;
     }
@@ -250,6 +251,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
     final Widget pagina = switch (destino) {
       'usuarios' => TelaUsuariosCoord(api: api, programa: _programa),
       'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
+      'matching' => TelaMatchingCoord(api: api, programa: _programa!),
       'comunicado' => TelaComunicadoCoord(api: api),
       _ => TelaProgramasCoord(
         api: api,

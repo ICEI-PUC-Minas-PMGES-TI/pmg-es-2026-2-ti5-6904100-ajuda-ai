@@ -133,7 +133,7 @@ export class CoordenacaoService implements OnModuleInit {
         ativos.push(padrinho);
     }
     const padrinhosComVinculo = ativos.length;
-    const gruposFormados = new Set(ativos.map((r) => r.grupo)).size;
+    const gruposFormados = ativos.length;
 
     const candidaturasInscritas =
       pendentes + emAnalise + rejeitadas + aprovadas;
@@ -146,9 +146,11 @@ export class CoordenacaoService implements OnModuleInit {
       .slice(0, 6)
       .map((item) => this.enriquecerCandidatura(item));
 
-    const semVinculoLista = apadrinhados.filter(
-      (r) => !ParticipacoesService.vinculoValido(r, registros),
-    );
+    const semVinculoLista: ParticipacaoEntity[] = [];
+    for (const apadrinhado of apadrinhados) {
+      if (!(await this.participacoesService.temVinculoValido(apadrinhado)))
+        semVinculoLista.push(apadrinhado);
+    }
     const gruposIncompletos = Math.max(
       0,
       (programa.gruposPrevistos || 0) - gruposFormados,
@@ -291,7 +293,10 @@ export class CoordenacaoService implements OnModuleInit {
     return registros.map((item) => this.enriquecerCandidatura(item));
   }
 
-  async criarNovoCiclo(codigo?: string, configuracao: Record<string, unknown> = {}) {
+  async criarNovoCiclo(
+    codigo?: string,
+    configuracao: Record<string, unknown> = {},
+  ) {
     return this.serializarPrograma(
       await this.programasService.criarNovoCiclo(codigo, configuracao),
     );

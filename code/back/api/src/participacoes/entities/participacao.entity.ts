@@ -86,7 +86,7 @@ export interface RespostasCadastro {
    */
   declaraPrimeiroPeriodo?: boolean;
   /** Respostas às perguntas extras do formulário publicado (id → valor). */
-  extras?: Record<string, string | string[]>;
+  extras?: Record<string, string | string[] | boolean>;
 }
 
 @Entity({ name: 'participacoes' })
@@ -115,13 +115,13 @@ export class ParticipacaoEntity {
   status!: StatusParticipacaoRegistro;
 
   @Column({ name: 'grupo', type: 'varchar', length: 40, nullable: true })
-  grupo!: string;
+  grupo!: string | null;
 
   @Column({ type: 'int', default: 0 })
   apadrinhados!: number;
 
   @Column({ name: 'inicio_em', type: 'timestamptz', nullable: true })
-  inicioEm!: Date;
+  inicioEm!: Date | null;
 
   @Column({ name: 'termino_em', type: 'timestamptz', nullable: true })
   terminoEm!: Date | null;

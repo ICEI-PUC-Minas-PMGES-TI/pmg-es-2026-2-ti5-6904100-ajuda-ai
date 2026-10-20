@@ -7,11 +7,25 @@ export const TIPOS_PERGUNTA = [
   { valor: 'texto_longo', rotulo: 'Texto longo' },
   { valor: 'checklist', rotulo: 'Múltipla escolha' },
   { valor: 'dropdown', rotulo: 'Escolha única' },
+  { valor: 'sim_nao', rotulo: 'Sim / Não' },
+  { valor: 'escolha_unica', rotulo: 'Escolha única (matching)' },
+  { valor: 'multipla_escolha', rotulo: 'Múltipla escolha (matching)' },
 ];
+
+export const TIPOS_COMUNS = TIPOS_PERGUNTA.filter((t) =>
+  ['texto_curto', 'texto_longo', 'checklist', 'dropdown'].includes(t.valor),
+);
+
+export const TIPOS_MATCHING = TIPOS_PERGUNTA.filter((t) =>
+  ['sim_nao', 'escolha_unica', 'multipla_escolha'].includes(t.valor),
+);
 
 export const ERRO_FORMULARIO_NAO_SUPORTADO = 'Formulário contém tipo de pergunta não suportado. Procure a coordenação.';
 export function tipoPerguntaSuportado(tipo) {
   return TIPOS_PERGUNTA.some((t) => t.valor === tipo);
+}
+export function tipoPerguntaMatching(tipo) {
+  return TIPOS_MATCHING.some((t) => t.valor === tipo);
 }
 export function formularioSuportado(perguntas = []) {
   return perguntas.every((p) => p && tipoPerguntaSuportado(p.tipo));
@@ -86,8 +100,15 @@ export function useRequisitosPadrinho(programa) {
 }
 
 function vazio(valor) {
+  if (typeof valor === 'boolean') return false;
   if (Array.isArray(valor)) return valor.length === 0;
   return !String(valor ?? '').trim();
+}
+
+function valorVazioParaTipo(tipo) {
+  if (tipo === 'checklist' || tipo === 'multipla_escolha') return [];
+  if (tipo === 'sim_nao') return undefined;
+  return '';
 }
 
 /** Retorna erros de tipos não suportados e de respostas obrigatórias ausentes (só visíveis). */
@@ -107,12 +128,16 @@ export function limparExtras(perguntas, extras = {}) {
   perguntasVisiveis(perguntas, extras).forEach((pergunta) => {
     if (!tipoPerguntaSuportado(pergunta.tipo)) throw new Error(ERRO_FORMULARIO_NAO_SUPORTADO);
     const valor = extras[pergunta.id];
-    if (!vazio(valor)) resultado[pergunta.id] = Array.isArray(valor) ? valor : String(valor).trim();
+    if (vazio(valor)) return;
+    if (pergunta.tipo === 'sim_nao') resultado[pergunta.id] = Boolean(valor);
+    else if (Array.isArray(valor)) resultado[pergunta.id] = valor;
+    else resultado[pergunta.id] = String(valor).trim();
   });
   return resultado;
 }
 
 export function textoResposta(valor) {
+  if (typeof valor === 'boolean') return valor ? 'Sim' : 'Não';
   if (Array.isArray(valor)) return valor.join(', ');
   return valor ? String(valor) : '';
 }
@@ -124,7 +149,7 @@ export default function PerguntasAdicionais({ perguntas, valores = {}, onChange,
     if (!onChange || !perguntas?.length) return;
     const idsVisiveis = new Set(visiveis.map((p) => p.id));
     perguntas.forEach((p) => {
-      if (!idsVisiveis.has(p.id) && !vazio(valores[p.id])) onChange(p.id, p.tipo === 'checklist' ? [] : '');
+      if (!idsVisiveis.has(p.id) && !vazio(valores[p.id])) onChange(p.id, valorVazioParaTipo(p.tipo));
     });
   }, [perguntas, visiveis, valores, onChange]);
 
@@ -189,6 +214,7 @@ function PerguntaCampo({ pergunta, valor, erro, onChange }) {
     'aria-describedby': descritoPor,
     'aria-required': obrigatoria || undefined,
   };
+  const alternativas = pergunta.alternativas || [];
 
   let controle;
   if (pergunta.tipo === 'texto_longo') {
@@ -204,6 +230,49 @@ function PerguntaCampo({ pergunta, valor, erro, onChange }) {
         ))}
       </select>
     );
+  } else if (pergunta.tipo === 'escolha_unica') {
+    controle = (
+      <select id={id} className="extra-input" value={valor ?? ''} onChange={(e) => onChange(e.target.value)} {...comuns}>
+        <option value="">Selecione</option>
+        {alternativas.map((alt) => (
+          <option key={alt.id} value={alt.id}>
+            {alt.rotulo}
+          </option>
+        ))}
+      </select>
+    );
+  } else if (pergunta.tipo === 'sim_nao') {
+    return (
+      <fieldset className={`extra-field${erro ? ' has-error' : ''}`} aria-describedby={descritoPor}>
+        <legend className="extra-label">{rotulo}</legend>
+        {ajuda}
+        <div className="extra-checks extra-radios">
+          <label className={`extra-check${valor === true ? ' selected' : ''}`}>
+            <input
+              type="radio"
+              name={id}
+              checked={valor === true}
+              onChange={() => onChange(true)}
+            />
+            <span>Sim</span>
+          </label>
+          <label className={`extra-check${valor === false ? ' selected' : ''}`}>
+            <input
+              type="radio"
+              name={id}
+              checked={valor === false}
+              onChange={() => onChange(false)}
+            />
+            <span>Não</span>
+          </label>
+        </div>
+        {erro && (
+          <span id={erroId} className="error-message">
+            Responda esta pergunta para continuar.
+          </span>
+        )}
+      </fieldset>
+    );
   } else if (pergunta.tipo === 'checklist') {
     const lista = Array.isArray(valor) ? valor : [];
     return (
@@ -215,6 +284,31 @@ function PerguntaCampo({ pergunta, valor, erro, onChange }) {
             <label key={opcao} className={`extra-check${lista.includes(opcao) ? ' selected' : ''}`}>
               <input type="checkbox" checked={lista.includes(opcao)} onChange={() => onChange(lista.includes(opcao) ? lista.filter((v) => v !== opcao) : [...lista, opcao])} />
               <span>{opcao}</span>
+            </label>
+          ))}
+        </div>
+        {erro && (
+          <span id={erroId} className="error-message">
+            Responda esta pergunta para continuar.
+          </span>
+        )}
+      </fieldset>
+    );
+  } else if (pergunta.tipo === 'multipla_escolha') {
+    const lista = Array.isArray(valor) ? valor : [];
+    return (
+      <fieldset className={`extra-field${erro ? ' has-error' : ''}`} aria-describedby={descritoPor}>
+        <legend className="extra-label">{rotulo}</legend>
+        {ajuda}
+        <div className="extra-checks">
+          {alternativas.map((alt) => (
+            <label key={alt.id} className={`extra-check${lista.includes(alt.id) ? ' selected' : ''}`}>
+              <input
+                type="checkbox"
+                checked={lista.includes(alt.id)}
+                onChange={() => onChange(lista.includes(alt.id) ? lista.filter((v) => v !== alt.id) : [...lista, alt.id])}
+              />
+              <span>{alt.rotulo}</span>
             </label>
           ))}
         </div>

@@ -3,10 +3,12 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
+import { MatchingVinculoEntity } from '../matching/entities/matching.entity.js';
 import {
   PapelParticipacao,
   ParticipacaoEntity,
@@ -69,7 +71,16 @@ export class ParticipacoesService {
     private readonly participacoes: Repository<ParticipacaoEntity>,
     @InjectRepository(ProgramaEntity)
     private readonly programas: Repository<ProgramaEntity>,
+    @Optional()
+    @InjectDataSource()
+    private readonly dados?: DataSource,
   ) {}
+
+  private repositorioVinculos(): Repository<MatchingVinculoEntity> | null {
+    return this.dados?.isInitialized
+      ? this.dados.getRepository(MatchingVinculoEntity)
+      : null;
+  }
 
   /**
    * Uma participação só pode apontar para um ciclo cadastrado em `programas`.
@@ -608,6 +619,21 @@ export class ParticipacoesService {
   async temVinculoValido(
     registro: ParticipacaoEntity | null,
   ): Promise<boolean> {
+    const repositorioVinculos = this.repositorioVinculos();
+    if (registro && repositorioVinculos) {
+      const campo =
+        registro.papel === 'padrinho'
+          ? { padrinhoParticipacaoId: registro.id }
+          : registro.papel === 'apadrinhado'
+            ? { apadrinhadoParticipacaoId: registro.id }
+            : null;
+      if (campo) {
+        const existe = await repositorioVinculos.exists({
+          where: { ...campo, ativo: true },
+        });
+        if (existe) return true;
+      }
+    }
     if (
       !registro ||
       registro.status !== 'em_andamento' ||
@@ -619,6 +645,38 @@ export class ParticipacoesService {
       where: { programa: registro.programa, grupo: registro.grupo },
     });
     return ParticipacoesService.vinculoValido(registro, grupo);
+  }
+
+  /** Relações canônicas F11/F12; vazio permite ao chamador usar o legado. */
+  async listarVinculados(
+    registro: ParticipacaoEntity,
+  ): Promise<Array<{ participacao: ParticipacaoEntity; vinculoId: number }>> {
+    const repositorioVinculos = this.repositorioVinculos();
+    if (!repositorioVinculos) return [];
+    const comoPadrinho = registro.papel === 'padrinho';
+    const comoApadrinhado = registro.papel === 'apadrinhado';
+    if (!comoPadrinho && !comoApadrinhado) return [];
+    const vinculos = await repositorioVinculos.find({
+      where: {
+        ...(comoPadrinho
+          ? { padrinhoParticipacaoId: registro.id }
+          : { apadrinhadoParticipacaoId: registro.id }),
+        ativo: true,
+      },
+      order: { confirmadoEm: 'ASC', id: 'ASC' },
+    });
+    if (!vinculos.length) return [];
+    const ids = vinculos.map((v) =>
+      comoPadrinho ? v.apadrinhadoParticipacaoId : v.padrinhoParticipacaoId,
+    );
+    const pessoas = await this.participacoes.find({ where: { id: In(ids) } });
+    return vinculos.flatMap((v) => {
+      const id = comoPadrinho
+        ? v.apadrinhadoParticipacaoId
+        : v.padrinhoParticipacaoId;
+      const participacao = pessoas.find((p) => p.id === id);
+      return participacao ? [{ participacao, vinculoId: v.id }] : [];
+    });
   }
 
   static vinculoValido(
@@ -712,7 +770,7 @@ export class ParticipacoesService {
       typeof valor === 'boolean' ? valor : undefined;
     const periodo = Number(respostas.periodo);
 
-    const extras: Record<string, string | string[]> = {};
+    const extras: Record<string, string | string[] | boolean> = {};
     if (respostas.extras && typeof respostas.extras === 'object') {
       for (const [chave, valor] of Object.entries(respostas.extras).slice(
         0,
@@ -722,6 +780,8 @@ export class ParticipacoesService {
           extras[chave.slice(0, 60)] = lista(valor) ?? [];
         } else if (typeof valor === 'string') {
           extras[chave.slice(0, 60)] = valor.trim().slice(0, 1000);
+        } else if (typeof valor === 'boolean') {
+          extras[chave.slice(0, 60)] = valor;
         }
       }
     }

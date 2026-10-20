@@ -20,6 +20,7 @@ import DashboardPage from './pages/coordenacao/DashboardPage';
 import EventosPage from './pages/coordenacao/EventosPage';
 import FormularioRespostasPage from './pages/coordenacao/FormularioRespostasPage';
 import FormulariosPage from './pages/coordenacao/FormulariosPage';
+import MatchingPage from './pages/coordenacao/MatchingPage';
 import ProgramasPage from './pages/coordenacao/ProgramasPage';
 import PucStopsPage from './pages/coordenacao/PucStopsPage';
 import RestaurantesPage from './pages/coordenacao/RestaurantesPage';
@@ -48,6 +49,7 @@ export default function App() {
               <Route index element={<DashboardPage />} />
               <Route path="cadastros" element={<RedirectCadastros />} />
               <Route path="candidaturas" element={<CandidaturasPage />} />
+              <Route path="matching" element={<MatchingPage />} />
               <Route path="usuarios" element={<UsuariosPage />} />
               <Route path="programas" element={<ProgramasPage />} />
               <Route path="formularios" element={<FormulariosPage />} />
