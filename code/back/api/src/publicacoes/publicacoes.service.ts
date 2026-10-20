@@ -76,7 +76,8 @@ export class PublicacoesService {
     }
 
     const usuario = Object.values(USUARIOS).find(
-      (item) => String(item.id) === usuarioId,
+      // id da base demo (modo x-user-id) ou e-mail (identidade do token)
+      (item) => String(item.id) === usuarioId || item.email === usuarioId,
     );
     const autor = usuario?.nome ?? corpo.autor?.trim() ?? 'Usuário';
     const registro = this.publicacoesRepository.create({

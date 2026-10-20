@@ -126,7 +126,8 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
     final ok = await confirmarAcaoCoord(
       context,
       titulo: 'Aprovar candidatura',
-      mensagem: '${_dados['nome']} passará a ser padrinho no programa.',
+      mensagem:
+          '${_dados['nome']} terá candidatura aprovada e aguardará matching. As atividades dependem de vínculo confirmado.',
       confirmar: 'Aprovar',
     );
     if (ok) {
@@ -135,18 +136,12 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
   }
 
   Future<void> _rejeitar() async {
-    final ok = await confirmarAcaoCoord(
-      context,
-      titulo: 'Rejeitar candidatura',
-      mensagem:
-          'A candidatura de ${_dados['nome']} será marcada como não '
-          'aprovada.',
-      confirmar: 'Rejeitar',
-      destrutiva: true,
+    final justificativa = await solicitarJustificativaCoord(context);
+    if (justificativa == null || !mounted) return;
+    await _executar(
+      (id) => widget.api.rejeitarCandidatura(id, justificativa: justificativa),
+      'Candidatura rejeitada.',
     );
-    if (ok) {
-      await _executar(widget.api.rejeitarCandidatura, 'Candidatura rejeitada.');
-    }
   }
 
   Future<void> _solicitarRevisao() => _executar(
@@ -236,13 +231,6 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
       ),
       (Icons.layers_outlined, 'Áreas em que pode ajudar', _lista(r['areas'])),
       ...comuns,
-      (
-        Icons.assignment_turned_in_outlined,
-        'Aprovação em AEDS I e Cálculo I',
-        r['declaraPreRequisitos'] == true
-            ? 'Declara que foi aprovado em AEDS I e Cálculo I.'
-            : 'Não declarou aprovação.',
-      ),
     ];
   }
 
@@ -252,11 +240,11 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
     final extras = _respostas['extras'] is Map
         ? Map<String, dynamic>.from(_respostas['extras'] as Map)
         : const <String, dynamic>{};
-    final criterios = (dados['criterios'] as List? ?? const []).cast<Object>();
     final historico = (dados['historico'] as List? ?? const [])
         .whereType<Map>()
         .toList();
-    final aprovado = dados['papel'] == 'padrinho';
+    final aprovado =
+        dados['status'] == 'aprovado' || dados['papel'] == 'padrinho';
 
     return Column(
       children: [
@@ -333,28 +321,27 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
                   titulo: 'Pergunta adicional ($key)',
                   valor: value is List ? value.join(', ') : '$value',
                 ),
-              if (!_ehApadrinhado && criterios.isNotEmpty) ...[
+              if (!_ehApadrinhado) ...[
                 const SizedBox(height: 6),
-                const Text(
-                  'Critérios do programa',
-                  style: TextStyle(
+                Text(
+                  'Requisitos do ciclo ${dados['programa'] ?? ''} e declaração',
+                  style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     color: AppColors.ink,
                   ),
                 ),
                 const SizedBox(height: 4),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final criterio in criterios)
-                      Chip(
-                        label: Text('$criterio'),
-                        visualDensity: VisualDensity.compact,
-                        backgroundColor: AppColors.lavender,
-                        side: BorderSide.none,
-                      ),
-                  ],
+                RequisitosDeclaradosCoord(
+                  // detalhe: foto respondida ou requisitos do ciclo DA
+                  // candidatura (registros antigos)
+                  requisitos:
+                      (dados['requisitos'] ?? _respostas['requisitos'])
+                          as List?,
+                  respondidos:
+                      dados['requisitosRespondidos'] == true ||
+                      _respostas['requisitos'] is List,
+                  legado: _respostas['declaraPreRequisitos'] == true,
+                  periodo: (dados['periodo'] as num?)?.toInt(),
                 ),
               ],
               if (historico.isNotEmpty ||
@@ -431,7 +418,7 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
                         ))
                 : aprovado || !_ehCandidato
                 ? const Text(
-                    'Candidatura aprovada — o aluno já é padrinho.',
+                    'Candidatura aprovada. As atividades dependem do vínculo confirmado.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppAccents.success),
                   )

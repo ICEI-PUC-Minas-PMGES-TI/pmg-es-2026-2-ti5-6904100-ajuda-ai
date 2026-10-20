@@ -5,6 +5,7 @@ import 'models/formulario.dart';
 import 'services/api_config.dart';
 import 'sessao_usuario.dart';
 import 'tela_candidatura_enviada.dart';
+import 'tela_revisao_padrinho.dart';
 import 'theme/colors.dart';
 import 'widgets/campos_cadastro.dart';
 import 'widgets/perguntas_adicionais.dart';
@@ -13,24 +14,25 @@ class CadastroPadrinhoPage extends StatefulWidget {
   const CadastroPadrinhoPage({
     super.key,
     required this.dados,
-    this.edicao = false,
     this.perguntasAdicionais,
+    this.requisitos,
   });
 
-  /// Dados do aluno; em [edicao], já vêm preenchidos com as respostas salvas
-  /// (`DadosCadastro.comRespostas`).
+  /// Rascunho do aluno; não altera candidaturas já enviadas.
   final DadosCadastro dados;
-
-  /// "Editar candidatura": reenvia (o backend atualiza as respostas) e volta
-  /// para a tela anterior com `true`.
-  final bool edicao;
 
   /// Perguntas extras já conhecidas (testes). Se null, busca em
   /// `GET /formularios/padrinho`.
   final List<PerguntaFormulario>? perguntasAdicionais;
 
-  static const textoDeclaracao =
-      'Declaro que fui aprovado(a) em AEDS 1 e Cálculo 1';
+  /// Requisitos do ciclo já conhecidos (testes). Se null, busca em
+  /// `GET /formularios/padrinho` (os mesmos do web, definidos pela
+  /// coordenação).
+  final List<RequisitoPadrinho>? requisitos;
+
+  static String textoDeclaracao(RequisitoPadrinho requisito) =>
+      'Declaro que cumpro: ${requisito.descricao}'
+      '${requisito.obrigatorio ? '' : ' (desejável)'}';
 
   @override
   State<CadastroPadrinhoPage> createState() => _CadastroPadrinhoPageState();
@@ -66,10 +68,16 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
   String? _genero;
   bool? _bolsistaProuni;
   bool? _deOutraCidade;
-  bool _declaraPreRequisitos = false;
+
+  /// null = carregando; lista vazia = ciclo sem disciplinas exigidas.
+  List<RequisitoPadrinho>? _requisitos;
+  String? _erroRequisitos;
+  late final Map<String, bool> _cumpridos;
   bool _validar = false;
   bool _enviando = false;
   List<PerguntaFormulario> _perguntas = const [];
+  String? _erroFormulario;
+  bool _carregandoPerguntas = false;
   late final Map<String, dynamic> _extras;
 
   final _chaveDeclaracao = GlobalKey();
@@ -88,11 +96,19 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
   bool get _faltaGenero => _genero == null;
   bool get _faltaProuni => _bolsistaProuni == null;
   bool get _faltaCidade => _deOutraCidade == null;
-  bool get _faltaDeclaracao => !_declaraPreRequisitos;
+
+  /// Ajuda visual: quem recusa requisito obrigatório não cumprido é o backend.
+  List<RequisitoPadrinho> get _requisitosFaltando => [
+    for (final r in _requisitos ?? const <RequisitoPadrinho>[])
+      if (r.obrigatorio && _cumpridos[r.id] != true) r,
+  ];
+  bool get _faltaDeclaracao =>
+      _requisitos == null || _requisitosFaltando.isNotEmpty;
   bool get _faltaExtras =>
       PerguntasAdicionais.pendentes(_perguntas, _extras).isNotEmpty;
 
   bool get _incompleto =>
+      _erroFormulario != null ||
       _faltaDeclaracao ||
       _faltaExtras ||
       _faltaMotivo ||
@@ -118,20 +134,56 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
     _genero = dados.genero;
     _bolsistaProuni = dados.bolsistaProuni;
     _deOutraCidade = dados.deOutraCidade;
-    _declaraPreRequisitos = dados.declaraPreRequisitos ?? false;
+    _cumpridos = Map.of(dados.requisitosCumpridos);
+    final requisitosConhecidos = widget.requisitos;
+    if (requisitosConhecidos != null) {
+      _requisitos = requisitosConhecidos;
+    } else {
+      _carregarRequisitos();
+    }
     _extras = Map.of(dados.extras);
 
     final conhecidas = widget.perguntasAdicionais;
     if (conhecidas != null) {
       _perguntas = conhecidas;
     } else {
-      SessaoUsuario.atual.carregarPerguntasAdicionais('padrinho').then((
-        perguntas,
-      ) {
-        if (mounted && perguntas.isNotEmpty) {
-          setState(() => _perguntas = perguntas);
-        }
-      });
+      _carregandoPerguntas = true;
+      SessaoUsuario.atual
+          .carregarPerguntasAdicionais('padrinho')
+          .then((perguntas) {
+            if (mounted) {
+              setState(() {
+                _perguntas = perguntas;
+                _carregandoPerguntas = false;
+              });
+            }
+          })
+          .catchError((Object erro) {
+            if (mounted) {
+              setState(() {
+                _erroFormulario = erro.toString();
+                _carregandoPerguntas = false;
+              });
+            }
+          });
+    }
+  }
+
+  Future<void> _carregarRequisitos() async {
+    setState(() {
+      _requisitos = null;
+      _erroRequisitos = null;
+    });
+    try {
+      final lista = await SessaoUsuario.atual.carregarRequisitosPadrinho();
+      if (mounted) setState(() => _requisitos = lista);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _erroRequisitos =
+              'Não foi possível carregar os requisitos do ciclo.',
+        );
+      }
     }
   }
 
@@ -154,6 +206,20 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
   }
 
   Future<void> _enviar() async {
+    if (_carregandoPerguntas) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Aguarde o carregamento do formulário.')),
+      );
+      return;
+    }
+    if (_erroFormulario != null || _perguntas.any((p) => !p.tipo.suportado)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_erroFormulario ?? mensagemFormularioNaoSuportado),
+        ),
+      );
+      return;
+    }
     if (_enviando) return;
 
     if (_incompleto) {
@@ -179,26 +245,34 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
 
     setState(() => _enviando = true);
     try {
-      final enviado = await SessaoUsuario.atual.registrarCandidaturaPadrinho(
-        dadosCadastro: widget.dados.comPasso2(
-          expectativaPadrinho: _motivoController.text.trim(),
-          outrasInformacoes: _experienciasController.text.trim(),
-          areasApoio: List.of(_areasInteresse),
-          disponibilidade: _disponibilidadesEscolhidas.join(', '),
-          genero: _genero,
-          bolsistaProuni: _bolsistaProuni,
-          deOutraCidade: _deOutraCidade,
-          declaraPreRequisitos: _declaraPreRequisitos,
-          extras: PerguntasAdicionais.limpar(_extras),
+      final rascunho = widget.dados.comPasso2(
+        expectativaPadrinho: _motivoController.text.trim(),
+        outrasInformacoes: _experienciasController.text.trim(),
+        areasApoio: List.of(_areasInteresse),
+        disponibilidade: _disponibilidadesEscolhidas.join(', '),
+        genero: _genero,
+        bolsistaProuni: _bolsistaProuni,
+        deOutraCidade: _deOutraCidade,
+        requisitosCumpridos: {
+          for (final r in _requisitos ?? const <RequisitoPadrinho>[])
+            r.id: _cumpridos[r.id] == true,
+        },
+        extras: PerguntasAdicionais.limpar(_extras),
+      );
+      final confirmou = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => RevisaoPadrinhoPage(
+            dados: rascunho,
+            perguntas: _perguntas,
+            requisitos: _requisitos ?? const [],
+          ),
         ),
       );
+      if (!mounted) return;
+      setState(() => _enviando = false);
+      if (confirmou != true) return;
 
       if (!mounted) return;
-      if (!enviado) mostrarSalvoLocalmente(context);
-      if (widget.edicao) {
-        Navigator.of(context).pop(true);
-        return;
-      }
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const CandidaturaEnviadaPage()),
         (_) => false,
@@ -208,6 +282,8 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
       setState(() => _enviando = false);
       final mensagem = erro is ApiException
           ? 'Não foi possível enviar sua candidatura: ${erro.mensagem}'
+          : erro is ApiIndisponivelException
+          ? 'Sem conexão com o servidor. Sua candidatura ainda não foi enviada.'
           : 'Não foi possível enviar sua candidatura. Tente novamente.';
       mostrarErroComRetentativa(context, mensagem, _enviar);
     }
@@ -226,17 +302,34 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
               'no Ajuda-aí.',
         ),
         const SizedBox(height: 18),
-        const AvisoCadastro(child: _PreRequisitosPadrinho()),
+        AvisoCadastro(
+          child: _PreRequisitosPadrinho(
+            requisitos: _requisitos,
+            erro: _erroRequisitos,
+            onTentarNovamente: _carregarRequisitos,
+          ),
+        ),
         const SizedBox(height: 10),
         KeyedSubtree(
           key: _chaveDeclaracao,
-          child: CampoDeclaracao(
-            texto: CadastroPadrinhoPage.textoDeclaracao,
-            valor: _declaraPreRequisitos,
-            erro: _validar && _faltaDeclaracao,
-            mensagemErro:
-                'Confirme que você cumpre os pré-requisitos para ser padrinho.',
-            onChanged: (valor) => setState(() => _declaraPreRequisitos = valor),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final requisito
+                  in _requisitos ?? const <RequisitoPadrinho>[])
+                CampoDeclaracao(
+                  texto: CadastroPadrinhoPage.textoDeclaracao(requisito),
+                  valor: _cumpridos[requisito.id] == true,
+                  erro:
+                      _validar &&
+                      requisito.obrigatorio &&
+                      _cumpridos[requisito.id] != true,
+                  mensagemErro:
+                      'Requisito obrigatório para se candidatar neste ciclo.',
+                  onChanged: (valor) =>
+                      setState(() => _cumpridos[requisito.id] = valor),
+                ),
+            ],
           ),
         ),
         KeyedSubtree(
@@ -364,6 +457,8 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
             ],
           ),
         ),
+        if (_erroFormulario != null)
+          Text(_erroFormulario!, style: const TextStyle(color: Colors.red)),
         KeyedSubtree(
           key: _chaveExtras,
           child: PerguntasAdicionais(
@@ -377,7 +472,7 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
         ),
         const SizedBox(height: 22),
         BotaoEnvio(
-          texto: widget.edicao ? 'Salvar alterações' : 'Enviar candidatura',
+          texto: 'Revisar candidatura',
           enviando: _enviando,
           onPressed: _enviar,
         ),
@@ -405,21 +500,46 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
 }
 
 class _PreRequisitosPadrinho extends StatelessWidget {
-  const _PreRequisitosPadrinho();
+  const _PreRequisitosPadrinho({
+    required this.requisitos,
+    required this.erro,
+    required this.onTentarNovamente,
+  });
 
-  static const _itens = [
-    'Não estar no 1º período',
-    'Ter sido aprovado em AEDS 1',
-    'Ter sido aprovado em Cálculo 1',
-  ];
+  /// Do backend; null enquanto carrega.
+  final List<RequisitoPadrinho>? requisitos;
+  final String? erro;
+  final VoidCallback onTentarNovamente;
+
+  static const _estilo = TextStyle(
+    fontFamily: 'Inter',
+    color: AppColors.ink,
+    fontSize: 12,
+    height: 1.35,
+  );
+
+  Widget _item(String texto) => Padding(
+    padding: const EdgeInsets.only(bottom: 3),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 6, right: 8),
+          child: CircleAvatar(radius: 2.5, backgroundColor: AppColors.primary),
+        ),
+        Expanded(child: Text(texto, style: _estilo)),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
+    final lista = requisitos;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Pré-requisitos para ser padrinho',
+          'Pré-requisitos para ser padrinho neste semestre',
           style: TextStyle(
             fontFamily: 'Inter',
             color: AppColors.primary,
@@ -428,33 +548,34 @@ class _PreRequisitosPadrinho extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 6),
-        for (final item in _itens)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 3),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.only(top: 6, right: 8),
-                  child: CircleAvatar(
-                    radius: 2.5,
-                    backgroundColor: AppColors.primary,
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    item,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      color: AppColors.ink,
-                      fontSize: 12,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+        _item('Estar a partir do 2º período'),
+        if (lista != null)
+          for (final r in lista)
+            _item('${r.descricao}${r.obrigatorio ? '' : ' (desejável)'}'),
+        if (lista == null && erro == null)
+          const Text('Carregando requisitos do ciclo...', style: _estilo),
+        if (lista != null && lista.isEmpty)
+          const Text(
+            'Este ciclo não exige disciplinas específicas.',
+            style: _estilo,
           ),
+        if (erro != null) ...[
+          Text(erro!, style: _estilo.copyWith(color: const Color(0xFFB91C1C))),
+          TextButton(
+            onPressed: onTentarNovamente,
+            child: const Text('Tentar novamente'),
+          ),
+        ],
+        const SizedBox(height: 4),
+        const Text(
+          'Cumprir os requisitos não aprova a candidatura: a coordenação '
+          'analisa cada caso.',
+          style: TextStyle(
+            fontFamily: 'Inter',
+            color: AppColors.muted,
+            fontSize: 11,
+          ),
+        ),
       ],
     );
   }

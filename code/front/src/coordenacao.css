@@ -95,6 +95,17 @@
 .decision.approve:hover:not(:disabled) { background: var(--purple-deep); }
 .decision.reject { border-color: #f1a9b9; color: #c2334f; background: #fff5f7; }
 .decision.review { border-color: var(--border); color: var(--ink); background: #f4f3fb; }
+.program-requirements { margin: 12px 0; }
+.program-requirements h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: .9rem; }
+.editor-requirements { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; }
+.editor-requirements legend { padding: 0 6px; font-weight: 700; }
+.requirement-list { display: grid; gap: 8px; margin: 10px 0; padding: 0; list-style: none; }
+.requirement-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.requirement-list li > span { flex: 1; min-width: 160px; }
+.requirement-flag { display: inline-flex; align-items: center; gap: 6px; font-size: .82rem; }
+.requirement-add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.requirement-add .editor-field { flex: 1; min-width: 200px; }
+.check-list li.nao-cumpre { color: #b42318; }
 .detail-textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; color: var(--ink); resize: vertical; font-size: .86rem; line-height: 1.45; }
 .obs-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; color: var(--muted); font-size: .76rem; }
 .private-note { display: flex; gap: 8px; margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; color: #5c5678; background: #f4f2ff; font-size: .76rem; line-height: 1.4; }
@@ -182,6 +193,8 @@
 .program-card { padding: 18px; border: 1px solid var(--border); border-radius: 18px; background: #fff; box-shadow: 0 4px 14px rgba(36, 23, 131, .04); }
 .program-card.focus { border-color: #b9adf5; box-shadow: 0 8px 22px rgba(74, 52, 207, .1); }
 .program-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.program-overflow summary { cursor: pointer; color: var(--primary, #5b3cc4); font-weight: 700; }
+.program-overflow[open] { display: flex; flex-direction: column; gap: 8px; }
 .program-card-head h2 { margin: 0 0 8px; color: var(--ink); font-family: Poppins, Inter, sans-serif; font-size: 1.15rem; font-weight: 800; }
 .program-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
 .program-totals div { padding: 10px 12px; border-radius: 12px; background: #f8f7fd; }

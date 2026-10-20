@@ -56,6 +56,8 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
   bool? _deOutraCidade;
   bool _validar = false;
   List<PerguntaFormulario> _perguntas = const [];
+  String? _erroFormulario;
+  bool _carregandoPerguntas = false;
   late final Map<String, dynamic> _extras;
 
   bool get _faltaExpectativa => _expectativaController.text.trim().isEmpty;
@@ -69,6 +71,7 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
       PerguntasAdicionais.pendentes(_perguntas, _extras).isNotEmpty;
 
   bool get _incompleto =>
+      _erroFormulario != null ||
       _faltaExtras ||
       _faltaExpectativa ||
       _faltaAreas ||
@@ -96,13 +99,25 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
     if (conhecidas != null) {
       _perguntas = conhecidas;
     } else {
-      SessaoUsuario.atual.carregarPerguntasAdicionais('apadrinhado').then((
-        perguntas,
-      ) {
-        if (mounted && perguntas.isNotEmpty) {
-          setState(() => _perguntas = perguntas);
-        }
-      });
+      _carregandoPerguntas = true;
+      SessaoUsuario.atual
+          .carregarPerguntasAdicionais('apadrinhado')
+          .then((perguntas) {
+            if (mounted) {
+              setState(() {
+                _perguntas = perguntas;
+                _carregandoPerguntas = false;
+              });
+            }
+          })
+          .catchError((Object erro) {
+            if (mounted) {
+              setState(() {
+                _erroFormulario = erro.toString();
+                _carregandoPerguntas = false;
+              });
+            }
+          });
     }
   }
 
@@ -114,6 +129,20 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
   }
 
   void _continuar() {
+    if (_carregandoPerguntas) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Aguarde o carregamento do formulário.')),
+      );
+      return;
+    }
+    if (_erroFormulario != null || _perguntas.any((p) => !p.tipo.suportado)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_erroFormulario ?? mensagemFormularioNaoSuportado),
+        ),
+      );
+      return;
+    }
     if (_incompleto) {
       setState(() => _validar = true);
       ScaffoldMessenger.of(context)
@@ -244,6 +273,8 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
           opcoes: _simNao,
           onChanged: (valor) => setState(() => _deOutraCidade = valor),
         ),
+        if (_erroFormulario != null)
+          Text(_erroFormulario!, style: const TextStyle(color: Colors.red)),
         PerguntasAdicionais(
           perguntas: _perguntas,
           respostas: _extras,

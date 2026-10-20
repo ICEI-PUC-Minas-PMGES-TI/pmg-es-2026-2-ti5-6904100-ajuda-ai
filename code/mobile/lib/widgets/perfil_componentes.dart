@@ -97,6 +97,19 @@ class CardSituacaoPerfil extends StatelessWidget {
     final grupo = sessao.grupo;
 
     return switch (sessao.status) {
+      StatusParticipacao.padrinhoPendente ||
+      StatusParticipacao.padrinhoAguardandoMatching => CardStatusPerfil(
+        titulo: sessao.status.titulo,
+        selo: sessao.status.selo,
+        icone: Icons.fact_check_outlined,
+        descricao: sessao.status == StatusParticipacao.padrinhoPendente
+            ? 'Recebemos sua candidatura. Aguarde a análise da coordenação.'
+            : 'Aguardando definição do seu grupo. As atividades serão liberadas após o vínculo confirmado.',
+        corSelo: AppColors.primary,
+        fundoSelo: AppColors.lavender,
+        infos: [infoPrograma],
+        acao: _link('Acompanhar status', onAcompanharStatus),
+      ),
       StatusParticipacao.padrinhoEmAnalise => CardStatusPerfil(
         titulo: 'Candidatura de padrinho',
         selo: 'Em análise',
@@ -144,17 +157,14 @@ class CardSituacaoPerfil extends StatelessWidget {
         titulo: 'Candidatura não aprovada',
         selo: 'Não aprovada',
         icone: Icons.info_outline,
-        descricao:
-            'Sua candidatura não foi aprovada neste ciclo. Você poderá '
-            'tentar novamente em uma próxima abertura.',
+        descricao: sessao.motivoRejeicao == null
+            ? 'Sua candidatura não foi aprovada neste ciclo. Você poderá '
+                  'tentar novamente em uma próxima abertura.'
+            : 'Sua candidatura não foi aprovada. Motivo: '
+                  '${sessao.motivoRejeicao}',
         corSelo: const Color(0xFFB45309),
         fundoSelo: const Color(0xFFFFF7ED),
-        acao: Wrap(
-          children: [
-            _link('Ver opções', onCandidatarPadrinho),
-            _link('Ver status', onAcompanharStatus),
-          ],
-        ),
+        acao: Wrap(children: [_link('Ver status', onAcompanharStatus)]),
       ),
       StatusParticipacao.apadrinhadoAtivo => CardStatusPerfil(
         titulo: 'Apadrinhado ativo',
@@ -172,6 +182,36 @@ class CardSituacaoPerfil extends StatelessWidget {
           (Icons.emoji_events_outlined, grupo ?? 'A definir', 'Seu grupo'),
           infoPrograma,
         ],
+      ),
+      StatusParticipacao.apadrinhadoPendente => CardStatusPerfil(
+        titulo: 'Cadastro em análise',
+        selo: 'Aguardando aprovação',
+        icone: Icons.fact_check_outlined,
+        descricao:
+            'Recebemos seu cadastro de apadrinhado. Ele aguarda a aprovação '
+            'da coordenação; depois disso você entra na formação dos grupos.',
+        corSelo: AppColors.primary,
+        fundoSelo: AppColors.lavender,
+        meta: enviadaEm == null
+            ? null
+            : 'Enviado em: ${formatarData(enviadaEm)}',
+        infos: [
+          infoPrograma,
+          (Icons.hourglass_empty, 'Aguardando', 'aprovação'),
+          (Icons.school_outlined, '${sessao.periodo}º período', 'Seu semestre'),
+        ],
+      ),
+      StatusParticipacao.apadrinhadoRejeitado => CardStatusPerfil(
+        titulo: 'Cadastro não aprovado',
+        selo: 'Não aprovado',
+        icone: Icons.info_outline,
+        descricao: sessao.motivoRejeicao == null
+            ? 'A coordenação não aprovou seu cadastro. Em caso de dúvida, '
+                  'procure a coordenação do programa.'
+            : 'A coordenação não aprovou seu cadastro. Motivo: '
+                  '${sessao.motivoRejeicao}',
+        corSelo: const Color(0xFFB45309),
+        fundoSelo: const Color(0xFFFFF7ED),
       ),
       StatusParticipacao.apadrinhadoAguardandoMatch => CardStatusPerfil(
         titulo: 'Aguardando padrinho',
@@ -570,9 +610,7 @@ class SecaoJornada extends StatelessWidget {
     final ProgramaSituacao? programa = sessao.situacao?.programa;
     final status = sessao.status;
     final ehPadrinho =
-        status == StatusParticipacao.padrinhoAtivo ||
-        status == StatusParticipacao.padrinhoEmAnalise ||
-        status == StatusParticipacao.padrinhoRejeitado;
+        status == StatusParticipacao.padrinhoAtivo || status.candidatura;
     final enviada = sessao.candidaturaEnviadaEm;
 
     final tiles = <(IconData, Color, Color, String, String)>[

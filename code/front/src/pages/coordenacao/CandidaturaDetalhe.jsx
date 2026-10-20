@@ -3,7 +3,7 @@ import { api } from '../../api/client';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import { textoResposta } from '../../components/PerguntasAdicionais';
-import { Avatar, badgeClass, dataCurta, DefinirPadrinho } from './comum';
+import { Avatar, badgeClass, dataCurta, DefinirPadrinho, RequisitosDeclarados } from './comum';
 
 function simNao(valor) {
   if (valor === true) return 'Sim';
@@ -33,6 +33,7 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
   const [obsSalvas, setObsSalvas] = useState(false);
   const [acao, setAcao] = useState('');
   const [erroAcao, setErroAcao] = useState('');
+  const [justificativa, setJustificativa] = useState('');
   const [confirmarRejeicao, setConfirmarRejeicao] = useState(false);
   const [perguntas, setPerguntas] = useState({});
   const statusId = useId();
@@ -108,7 +109,7 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
 
   const r = detalhe.respostas || {};
   const ehApadrinhado = detalhe.papel === 'apadrinhado';
-  const aprovada = detalhe.papel === 'padrinho';
+  const aprovada = detalhe.status === 'aprovado' || detalhe.papel === 'padrinho';
   const rejeitada = detalhe.status === 'nao_aprovado';
   const decidida = aprovada || rejeitada;
   const extras = r.extras || {};
@@ -141,19 +142,8 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
         <div className="detail-main">
           {!ehApadrinhado && (
             <>
-              <Bloco icon="info" titulo="Critérios deste semestre" extra={<span className="detail-note">Programa {detalhe.programa}</span>}>
-                <ul className="check-list">{detalhe.criterios.map((c) => <li key={c}><Icon name="check" size={14} /> {c}</li>)}</ul>
-              </Bloco>
-              <Bloco icon="checkCircle" titulo="Autoavaliação do candidato">
-                {r.declaraPreRequisitos ? (
-                  <ul className="check-list">
-                    <li><Icon name="check" size={14} /> Declarou aprovação em AEDS 1.</li>
-                    <li><Icon name="check" size={14} /> Declarou aprovação em Cálculo 1.</li>
-                    <li><Icon name="check" size={14} /> {detalhe.periodo && detalhe.periodo > 1 ? `Está no ${detalhe.periodo}º período.` : 'Período informado no perfil.'}</li>
-                  </ul>
-                ) : (
-                  <p className="detail-warn"><Icon name="alert" size={15} /> O candidato não declarou os pré-requisitos.</p>
-                )}
+              <Bloco icon="checkCircle" titulo="Requisitos do ciclo e declaração do candidato" extra={<span className="detail-note">Programa {detalhe.programa}</span>}>
+                <RequisitosDeclarados requisitos={detalhe.requisitos} respondidos={detalhe.requisitosRespondidos} legado={r.declaraPreRequisitos} periodo={detalhe.periodo} />
               </Bloco>
               <Bloco icon="file" titulo="Motivação"><p className="detail-text">{r.motivacao || 'Não informada.'}</p></Bloco>
               <Bloco icon="star" titulo="Experiências relevantes"><p className="detail-text">{r.experiencias || 'Não informadas.'}</p></Bloco>
@@ -241,7 +231,7 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
                   <Icon name="refresh" size={17} /> {acao === 'revisao' ? 'Enviando…' : 'Solicitar revisão'}
                 </button>
               </div>
-              {decidida && <p className="detail-muted small">{aprovada ? 'Candidatura aprovada: o candidato já é padrinho neste ciclo.' : 'Candidatura rejeitada neste ciclo.'}</p>}
+              {decidida && <p className="detail-muted small">{aprovada ? detalhe.status === 'aprovado' ? 'Candidatura aprovada. Aguardando matching; atividade depende do vínculo confirmado.' : 'Vínculo confirmado neste ciclo.' : 'Candidatura rejeitada neste ciclo.'}</p>}
             </section>
           )}
 
@@ -281,16 +271,17 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
               <button
                 type="button"
                 className="danger-button"
+                disabled={!justificativa.trim() || Boolean(acao)}
                 onClick={() => {
                   setConfirmarRejeicao(false);
-                  executar('rejeitar', () => api.rejeitarCandidatura(id), `Candidatura de ${detalhe.nome} rejeitada.`);
+                  executar('rejeitar', () => api.rejeitarCandidatura(id, justificativa.trim()), `Candidatura de ${detalhe.nome} rejeitada.`);
                 }}
               >
                 Rejeitar
               </button>
             </>
           )}
-        />
+        ><label>Justificativa visível ao candidato<textarea required maxLength={1000} value={justificativa} onChange={e => setJustificativa(e.target.value)}/></label></Modal>
       )}
     </article>
   );

@@ -17,7 +17,8 @@ class SuporteConfigPage extends StatelessWidget {
     ),
     (
       'Quem pode ser padrinho?',
-      'Alunos a partir do 2º período aprovados em AEDS 1 e Cálculo 1.',
+      'Alunos a partir do 2º período que cumpram os requisitos definidos '
+          'pela coordenação para o semestre (mostrados na candidatura).',
     ),
     (
       'Quando vou saber quem é meu padrinho?',

@@ -1,8 +1,4 @@
-/**
- * Identidade demo do aluno. Ainda não há login real: o aluno é identificado
- * pelo e-mail institucional (padrão Fernanda, ou `?email=` na URL) e os
- * dados do cadastro ficam salvos neste navegador.
- */
+/** Preferências e rascunhos locais. A identidade e a participação são consultadas na API. */
 export const EMAIL_PADRAO = 'fernanda.soares@pucminas.edu.br';
 
 const SESSAO_KEY = 'ajudaai.aluno';

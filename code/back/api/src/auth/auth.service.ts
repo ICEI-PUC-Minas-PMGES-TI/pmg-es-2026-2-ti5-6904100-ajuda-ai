@@ -1,23 +1,48 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Usuario, USUARIOS } from '../dados/dados.js';
+import {
+  buscarCoordenadorPorEmail,
+  buscarUsuarioPorEmail,
+  Usuario,
+} from '../dados/dados.js';
+import type { UsuarioEntity } from '../usuarios/entities/usuario.entity.js';
+import {
+  serializarUsuario,
+  UsuarioSerializado,
+  UsuariosService,
+} from '../usuarios/usuarios.service.js';
+import type { AccessTokenPayload } from './authenticated-request.js';
 import { MicrosoftTokenVerifier } from './microsoft-token.verifier.js';
 
 export interface LoginResponse {
+  situacao: 'autenticado';
   accessToken: string;
   tokenType: 'Bearer';
   expiresIn: number;
-  usuario: Usuario;
+  usuario: Usuario | UsuarioSerializado;
 }
+
+export interface OnboardingResponse {
+  situacao: 'onboarding';
+  tokenType: 'Bearer';
+  expiresIn: number;
+  onboardingToken: string;
+  identidade: { nome: string; email: string };
+}
+
+const ONBOARDING_SEGUNDOS = 15 * 60;
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly microsoftTokenVerifier: MicrosoftTokenVerifier,
+    private readonly usuariosService: UsuariosService,
   ) {}
 
-  async autenticarComMicrosoft(idToken: string): Promise<LoginResponse> {
+  async autenticarComMicrosoft(
+    idToken: string,
+  ): Promise<LoginResponse | OnboardingResponse> {
     const identidade = await this.microsoftTokenVerifier.verificar(idToken);
     const email = identidade.email.trim().toLowerCase();
     const dominioPermitido = (
@@ -30,45 +55,134 @@ export class AuthService {
       );
     }
 
-    const usuario = Object.values(USUARIOS).find(
-      (item) => item.email.toLowerCase() === email,
-    );
-
-    if (!usuario) {
-      throw new UnauthorizedException(
-        'Usuário autenticado, mas não cadastrado no Ajuda-aí.',
-      );
+    const coordenador = buscarCoordenadorPorEmail(email);
+    if (coordenador) {
+      return this.assinar(coordenador, coordenador);
     }
+    const usuario = await this.usuariosService.buscarPorEmail(email);
+    if (usuario) return this.emitirSessao(usuario);
 
-    return this.emitirSessao(usuario);
+    const nome = identidade.name?.trim() || email.split('@')[0];
+    const onboardingToken = await this.jwtService.signAsync(
+      {
+        sub: identidade.subject,
+        email,
+        nome,
+        escopo: 'onboarding',
+      },
+      { expiresIn: ONBOARDING_SEGUNDOS },
+    );
+    return {
+      situacao: 'onboarding',
+      tokenType: 'Bearer',
+      expiresIn: ONBOARDING_SEGUNDOS,
+      onboardingToken,
+      identidade: { nome, email },
+    };
   }
 
   /**
-   * Login de desenvolvimento para o painel web (sem Microsoft).
-   * Ativo apenas quando AUTH_DEMO_ENABLED=true.
+   * E-mail comprovado por um JWT de onboarding ou por uma sessão normal.
+   * O corpo do cadastro não escolhe essa conta.
+   */
+  async identidadeDoCadastro(
+    autorizacao?: string,
+  ): Promise<{ email: string; nome?: string }> {
+    const token = autorizacao?.startsWith('Bearer ')
+      ? autorizacao.slice('Bearer '.length).trim()
+      : '';
+    if (!token) {
+      throw new UnauthorizedException(
+        'Conclua o login Microsoft antes de enviar o cadastro.',
+      );
+    }
+    try {
+      const payload =
+        await this.jwtService.verifyAsync<AccessTokenPayload>(token);
+      const email = payload.email?.trim().toLowerCase();
+      if (!email) {
+        throw new UnauthorizedException('Token de cadastro sem e-mail.');
+      }
+      if (payload.escopo && payload.escopo !== 'onboarding' && payload.escopo !== 'acesso') {
+        throw new UnauthorizedException('Token de cadastro inválido.');
+      }
+      return { email, nome: payload.nome };
+    } catch (erro) {
+      if (erro instanceof UnauthorizedException) throw erro;
+      throw new UnauthorizedException('Token de cadastro inválido ou expirado.');
+    }
+  }
+
+  /**
+   * Login de desenvolvimento, sem Microsoft e sem senha. Só aceita um e-mail
+   * da base demo (`USUARIOS`). Ativo apenas com AUTH_DEMO_ENABLED=true e fora
+   * de produção. Aluno demo precisa existir em `usuarios` (`npm run seed:demo`).
    */
   async autenticarDemo(emailInformado: string): Promise<LoginResponse> {
     if (process.env.AUTH_DEMO_ENABLED !== 'true') {
       throw new UnauthorizedException('Login demo desabilitado.');
     }
-    const email = emailInformado.trim().toLowerCase();
-    const usuario = Object.values(USUARIOS).find(
-      (item) => item.email.toLowerCase() === email,
+    if (process.env.NODE_ENV === 'production') {
+      throw new UnauthorizedException('Login demo indisponível em produção.');
+    }
+    const demo = buscarUsuarioPorEmail(emailInformado);
+    if (!demo) {
+      throw new UnauthorizedException('Usuário demo não autorizado.');
+    }
+    return this.entrar(
+      demo.email,
+      'Usuário demo ainda não está no banco. Execute npm run seed:demo uma vez.',
     );
+  }
+
+  /**
+   * Sessão de um aluno do banco. Usada também logo após o cadastro: alunos
+   * pendentes/rejeitados recebem token para acompanhar o próprio cadastro;
+   * as permissões de participante são checadas rota a rota.
+   */
+  async emitirSessao(usuario: UsuarioEntity): Promise<LoginResponse> {
+    return this.assinar(
+      {
+        id: usuario.id,
+        email: usuario.email,
+        perfil: usuario.tipoParticipacao,
+      },
+      serializarUsuario(usuario),
+    );
+  }
+
+  private async entrar(
+    emailInformado: string,
+    mensagemNaoCadastrado: string,
+  ): Promise<LoginResponse> {
+    const email = emailInformado.trim().toLowerCase();
+    const coordenador = buscarCoordenadorPorEmail(email);
+    if (coordenador) {
+      return this.assinar(coordenador, coordenador);
+    }
+    const usuario = await this.usuariosService.buscarPorEmail(email);
     if (!usuario) {
-      throw new UnauthorizedException('Usuário não cadastrado no Ajuda-aí.');
+      throw new UnauthorizedException(mensagemNaoCadastrado);
     }
     return this.emitirSessao(usuario);
   }
 
-  private async emitirSessao(usuario: Usuario): Promise<LoginResponse> {
-    const accessToken = await this.jwtService.signAsync({
-      sub: String(usuario.id),
-      email: usuario.email,
-      perfil: usuario.perfil,
-    });
+  private async assinar(
+    identidade: Pick<Usuario, 'id' | 'email' | 'perfil'>,
+    usuario: Usuario | UsuarioSerializado,
+  ): Promise<LoginResponse> {
+    const accessToken = await this.jwtService.signAsync(
+      {
+        sub: String(identidade.id),
+        email: identidade.email,
+        perfil: identidade.perfil,
+        escopo: 'acesso',
+      },
+      { expiresIn: 3600 },
+    );
 
     return {
+      situacao: 'autenticado',
       accessToken,
       tokenType: 'Bearer',
       expiresIn: 3600,

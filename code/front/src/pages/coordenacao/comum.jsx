@@ -12,7 +12,7 @@ export function dataCurta(iso) {
 }
 
 export function badgeClass(status, papel) {
-  if (papel === 'padrinho') return 'aprovada';
+  if (papel === 'padrinho' || status === 'aprovado') return 'aprovada';
   if (status === 'pendente') return 'nova';
   if (status === 'em_analise') return 'analise';
   if (status === 'nao_aprovado') return 'rejeitada';
@@ -25,7 +25,10 @@ export const ROTULO_SITUACAO_COORD = {
   candidatura_pendente: 'Candidatura nova',
   candidatura_em_analise: 'Candidatura em análise',
   candidatura_rejeitada: 'Candidatura rejeitada',
+  candidatura_aprovada_aguardando_matching: 'Aprovado aguardando matching',
   padrinho_ativo: 'Padrinho ativo',
+  apadrinhado_pendente: 'Cadastro aguardando aprovação',
+  apadrinhado_rejeitado: 'Cadastro rejeitado',
   apadrinhado_aguardando: 'Aguardando padrinho',
   apadrinhado_ativo: 'Apadrinhado com padrinho',
   concluido: 'Concluído',
@@ -33,10 +36,52 @@ export const ROTULO_SITUACAO_COORD = {
 
 export function situacaoTom(situacao) {
   if (situacao === 'apadrinhado_aguardando') return 'analise';
+  if (situacao === 'apadrinhado_pendente') return 'nova';
+  if (situacao === 'apadrinhado_rejeitado') return 'rejeitada';
   if (situacao === 'candidatura_pendente') return 'nova';
   if (situacao === 'candidatura_em_analise') return 'analise';
   if (situacao === 'candidatura_rejeitada') return 'rejeitada';
   return 'aprovada';
+}
+
+export const ROTULO_STATUS_CADASTRO = {
+  pendente: 'Aguardando análise',
+  aprovado: 'Aprovado',
+  rejeitado: 'Rejeitado',
+};
+
+export function statusCadastroTom(status) {
+  if (status === 'pendente') return 'nova';
+  if (status === 'rejeitado') return 'rejeitada';
+  return 'aprovada';
+}
+
+/**
+ * Requisitos do ciclo com a declaração do candidato (foto do envio). Registros
+ * antigos, sem a foto, mostram a declaração única de pré-requisitos (legado).
+ */
+export function RequisitosDeclarados({ requisitos, respondidos = true, legado, periodo }) {
+  return (
+    <>
+      <ul className="check-list">
+        <li><Icon name={periodo > 1 ? 'check' : 'alert'} size={14} /> {periodo ? `Está no ${periodo}º período` : 'Período não informado'} (mínimo: 2º).</li>
+        {(requisitos || []).map((r) => (
+          <li key={r.id} className={respondidos && !r.cumpre ? 'nao-cumpre' : undefined}>
+            <Icon name={!respondidos ? 'info' : r.cumpre ? 'check' : 'close'} size={14} />{' '}
+            {r.descricao}{r.obrigatorio ? '' : ' (desejável)'}
+            {respondidos ? (r.cumpre ? ' — declarou que cumpre' : ' — declarou que NÃO cumpre') : ''}
+          </li>
+        ))}
+      </ul>
+      {!respondidos && (
+        <p className={legado ? 'detail-muted small' : 'detail-warn'}>
+          <Icon name={legado ? 'info' : 'alert'} size={15} /> Candidatura anterior aos requisitos por ciclo: {legado ? 'o candidato declarou cumprir os pré-requisitos da época.' : 'o candidato não declarou os pré-requisitos.'}
+        </p>
+      )}
+      {respondidos && !requisitos?.length && <p className="detail-muted small">O ciclo não exigia disciplinas.</p>}
+      <p className="detail-muted small">Declaração do próprio aluno; não há verificação automática do histórico acadêmico.</p>
+    </>
+  );
 }
 
 export function Avatar({ pessoa, tamanho = 'sm' }) {

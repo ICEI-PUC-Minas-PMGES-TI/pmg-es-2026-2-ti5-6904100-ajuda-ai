@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
-import PerguntasAdicionais, { TIPOS_PERGUNTA } from '../../components/PerguntasAdicionais';
+import PerguntasAdicionais, { TIPOS_PERGUNTA, tipoPerguntaSuportado } from '../../components/PerguntasAdicionais';
 import Toggle from '../../components/Toggle';
 import { useToast } from '../../components/Toast';
 
@@ -129,6 +129,10 @@ export default function FormulariosPage() {
   }
 
   async function salvar() {
+    if (rascunho.perguntas.some((p) => !tipoPerguntaSuportado(p.tipo))) {
+      setErroSalvar('Tipo não suportado: remova ou substitua a pergunta antes de salvar ou publicar.');
+      return;
+    }
     setSalvando(true);
     setErroSalvar('');
     try {
@@ -264,7 +268,7 @@ export default function FormulariosPage() {
   );
 }
 
-function PerguntaEditor({ pergunta, indice, total, onChange, onMover, onRemover }) {
+export function PerguntaEditor({ pergunta, indice, total, onChange, onMover, onRemover }) {
   const enunciadoId = useId();
   const tipoId = useId();
   const [confirmar, setConfirmar] = useState(false);
@@ -294,10 +298,11 @@ function PerguntaEditor({ pergunta, indice, total, onChange, onMover, onRemover 
       {!pergunta.enunciado.trim() && <span className="error-message">O enunciado é obrigatório.</span>}
 
       <label className="q-label" htmlFor={tipoId}>Tipo de resposta</label>
+      {!tipoPerguntaSuportado(pergunta.tipo) && <p className="error-message" role="alert">Tipo não suportado ({String(pergunta.tipo)}). Remova ou substitua esta pergunta.</p>}
       <select id={tipoId} className="q-select" value={pergunta.tipo} onChange={(e) => onChange({ tipo: e.target.value })}>
+        {!tipoPerguntaSuportado(pergunta.tipo) && <option value={pergunta.tipo} disabled>Tipo não suportado ({String(pergunta.tipo)})</option>}
         {TIPOS_PERGUNTA.map((t) => <option key={t.valor} value={t.valor}>{t.rotulo}</option>)}
       </select>
-      {pergunta.tipo === 'upload' && <p className="q-hint"><Icon name="info" size={14} /> O envio de arquivos ainda não está disponível para os alunos: o campo aparece desabilitado e não é obrigatório.</p>}
 
       {precisaOpcoes && (
         <fieldset className="q-options">

@@ -7,12 +7,17 @@ class SituacaoParticipacao {
     this.grupo,
     this.padrinho,
     this.apadrinhados = const [],
+    this.cadastro,
   });
 
   /// nenhuma | candidatura_pendente | candidatura_em_analise |
-  /// candidatura_rejeitada | padrinho_ativo | apadrinhado_aguardando |
-  /// apadrinhado_ativo | concluido
+  /// candidatura_rejeitada | padrinho_ativo | apadrinhado_pendente |
+  /// apadrinhado_rejeitado | apadrinhado_aguardando | apadrinhado_ativo |
+  /// concluido
   final String situacao;
+
+  /// Cadastro global do aluno (null se não há cadastro).
+  final CadastroSituacao? cadastro;
   final ProgramaSituacao? programa;
   final Map<String, dynamic>? registro;
   final String? grupo;
@@ -34,7 +39,11 @@ class SituacaoParticipacao {
     final programa = json['programa'];
     final registro = json['registro'];
     final padrinho = json['padrinho'];
+    final cadastro = json['cadastro'];
     return SituacaoParticipacao(
+      cadastro: cadastro is Map
+          ? CadastroSituacao.fromJson(Map<String, dynamic>.from(cadastro))
+          : null,
       situacao: '${json['situacao'] ?? 'nenhuma'}',
       programa: programa is Map
           ? ProgramaSituacao.fromJson(Map<String, dynamic>.from(programa))
@@ -52,6 +61,36 @@ class SituacaoParticipacao {
           .toList(),
     );
   }
+}
+
+/// Estado do cadastro global (`cadastro` em `GET /participacoes/situacao`).
+class CadastroSituacao {
+  const CadastroSituacao({
+    required this.status,
+    required this.tipoParticipacao,
+    this.motivoRejeicao,
+  });
+
+  /// pendente | aprovado | rejeitado
+  final String status;
+
+  /// padrinho | apadrinhado
+  final String tipoParticipacao;
+  final String? motivoRejeicao;
+
+  bool get pendente => status == 'pendente';
+  bool get aprovado => status == 'aprovado';
+  bool get rejeitado => status == 'rejeitado';
+
+  factory CadastroSituacao.fromJson(Map<String, dynamic> json) =>
+      CadastroSituacao(
+        status: '${json['status'] ?? 'pendente'}',
+        tipoParticipacao: '${json['tipoParticipacao'] ?? ''}',
+        motivoRejeicao:
+            (json['motivoRejeicao'] as String?)?.trim().isEmpty == true
+            ? null
+            : json['motivoRejeicao'] as String?,
+      );
 }
 
 class ProgramaSituacao {

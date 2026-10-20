@@ -23,7 +23,7 @@ export default function PerfilStep({ profile, photo, errors, onUpdate, onToggle,
         <label className="photo-picker">
           <input type="file" accept="image/*" onChange={(event) => {
             const file = event.target.files?.[0];
-            if (file) onPhoto(URL.createObjectURL(file));
+            if (file) onPhoto(URL.createObjectURL(file), file);
           }} />
           <span className="photo-circle">
             {photo ? <img src={photo} alt="Foto de perfil" /> : <Icon name="person" size={37} />}

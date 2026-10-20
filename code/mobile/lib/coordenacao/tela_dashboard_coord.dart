@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/coordenacao_api.dart';
+import '../services/api_config.dart';
 import '../theme/colors.dart';
 
 class TelaDashboardCoord extends StatefulWidget {
@@ -11,13 +12,16 @@ class TelaDashboardCoord extends StatefulWidget {
     required this.onProgramaChanged,
     required this.onVerCandidaturas,
     this.onAbrirDestino,
+    this.mostrarSeletor = true,
   });
 
   final CoordenacaoApi api;
-  final String? programa;
+  final bool mostrarSeletor;
+  final String programa;
   final ValueChanged<String> onProgramaChanged;
   final void Function({String? status}) onVerCandidaturas;
-  final void Function(String destino, Map<String, String> query)? onAbrirDestino;
+  final void Function(String destino, Map<String, String> query)?
+  onAbrirDestino;
 
   @override
   State<TelaDashboardCoord> createState() => _TelaDashboardCoordState();
@@ -27,6 +31,7 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
   Map<String, dynamic>? _dados;
   String? _erro;
   bool _carregando = true;
+  int _consulta = 0;
 
   @override
   void initState() {
@@ -43,47 +48,48 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
   }
 
   Future<void> _carregar() async {
+    final consulta = ++_consulta;
     setState(() {
+      _dados = null;
       _carregando = true;
       _erro = null;
     });
     try {
       final dados = await widget.api.dashboard(widget.programa);
-      if (!mounted) return;
+      if (!mounted || consulta != _consulta) return;
       final codigo = (dados['programa'] as Map?)?['codigo'] as String?;
-      if (codigo != null && codigo != widget.programa) {
-        widget.onProgramaChanged(codigo);
+      if (codigo == null) {
+        throw const ApiException('Programa indisponível.', statusCode: 404);
+      }
+      if (codigo != widget.programa) {
+        throw const ApiException('O dashboard retornou outro programa.');
       }
       setState(() {
         _dados = dados;
         _carregando = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || consulta != _consulta) return;
       setState(() {
-        _erro = e.toString().replaceFirst('Exception: ', '');
+        _erro = e is ApiException && e.statusCode == 404
+            ? 'O programa selecionado não está disponível. Atualize os programas e selecione outro ciclo.'
+            : 'Não foi possível carregar o dashboard. Verifique sua conexão e tente novamente.';
         _carregando = false;
       });
     }
   }
 
-  Future<void> _abrirNovoCiclo() async {
+  void _abrirNovoCiclo() {
     final acoes = _dados?['acoes'] as Map?;
     if (acoes?['podeAbrirNovoCiclo'] == false) return;
-    try {
-      final criado = await widget.api.criarPrograma();
-      final codigo = criado['codigo'] as String?;
-      if (codigo != null) widget.onProgramaChanged(codigo);
-      await _carregar();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-      );
-    }
+    final abrir = widget.onAbrirDestino;
+    if (abrir == null) return;
+    abrir('programas', const {'novo': '1'});
   }
 
-  Future<void> _abrirSeletorPrograma(List<Map<String, dynamic>> programas) async {
+  Future<void> _abrirSeletorPrograma(
+    List<Map<String, dynamic>> programas,
+  ) async {
     final selecionado = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -122,11 +128,14 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                       final p = programas[index];
                       final codigo = '${p['codigo'] ?? ''}';
                       final ativo = codigo == atual;
-                      final status = '${p['statusRotulo'] ?? p['etapaAtual'] ?? ''}';
+                      final status =
+                          '${p['statusRotulo'] ?? p['etapaAtual'] ?? ''}';
                       final vigente = p['vigente'] == true;
                       final encerrado = p['encerrado'] == true;
                       return Material(
-                        color: ativo ? const Color(0xFFEBE4FF) : Colors.transparent,
+                        color: ativo
+                            ? const Color(0xFFEBE4FF)
+                            : Colors.transparent,
                         borderRadius: BorderRadius.circular(12),
                         child: ListTile(
                           shape: RoundedRectangleBorder(
@@ -145,11 +154,20 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                               if (vigente) 'vigente',
                               if (encerrado) 'encerrado',
                             ].join(' · '),
-                            style: const TextStyle(color: Color(0xFF5C5678), fontSize: 12),
+                            style: const TextStyle(
+                              color: Color(0xFF5C5678),
+                              fontSize: 12,
+                            ),
                           ),
                           trailing: ativo
-                              ? const Icon(Icons.check, color: AppColors.primary)
-                              : const Icon(Icons.chevron_right, color: AppColors.muted),
+                              ? const Icon(
+                                  Icons.check,
+                                  color: AppColors.primary,
+                                )
+                              : const Icon(
+                                  Icons.chevron_right,
+                                  color: AppColors.muted,
+                                ),
                           onTap: () => Navigator.pop(context, codigo),
                         ),
                       );
@@ -192,7 +210,9 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
             if (_carregando && _dados == null)
               const SliverFillRemaining(
                 hasScrollBody: false,
-                child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+                child: Center(
+                  child: CircularProgressIndicator(color: AppColors.primary),
+                ),
               )
             else if (_erro != null && _dados == null)
               SliverFillRemaining(hasScrollBody: false, child: _estadoErro())
@@ -244,7 +264,7 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
               ),
             ],
           ),
-          if (programa != null)
+          if (widget.mostrarSeletor && programa != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 0, 0, 0),
               child: Material(
@@ -252,17 +272,26 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                 borderRadius: BorderRadius.circular(12),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                  onTap: programas.isEmpty ? null : () => _abrirSeletorPrograma(programas),
+                  onTap: programas.isEmpty
+                      ? null
+                      : () => _abrirSeletorPrograma(programas),
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: AppAccents.cardBorder),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.calendar_month_outlined, size: 18, color: AppColors.primary),
+                        const Icon(
+                          Icons.calendar_month_outlined,
+                          size: 18,
+                          color: AppColors.primary,
+                        ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Column(
@@ -345,7 +374,9 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
 
   List<Widget> _conteudo() {
     final ind = Map<String, dynamic>.from(_dados!['indicadores'] as Map);
-    final chart = Map<String, dynamic>.from(_dados!['candidaturasVisaoGeral'] as Map);
+    final chart = Map<String, dynamic>.from(
+      _dados!['candidaturasVisaoGeral'] as Map,
+    );
     final recentes = (_dados!['candidaturasRecentes'] as List? ?? const [])
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
@@ -381,7 +412,8 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
             _Kpi(
               titulo: 'Candidaturas pendentes',
               valor: '${pendentes['valor'] ?? 0}',
-              contexto: '${pendentes['detalhe'] ?? '${pendentes['valor'] ?? 0} de ${pendentes['total'] ?? 0}'}',
+              contexto:
+                  '${pendentes['detalhe'] ?? '${pendentes['valor'] ?? 0} de ${pendentes['total'] ?? 0}'}',
               icon: Icons.assignment_outlined,
               cor: AppColors.primary,
               onTap: () => widget.onVerCandidaturas(status: 'aguardando'),
@@ -389,7 +421,8 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
             _Kpi(
               titulo: 'Padrinhos aprovados',
               valor: '${padrinhos['valor'] ?? 0}',
-              contexto: '${padrinhos['detalhe'] ?? '${padrinhos['valor'] ?? 0} de ${padrinhos['total'] ?? 0}'}',
+              contexto:
+                  '${padrinhos['detalhe'] ?? '${padrinhos['valor'] ?? 0} de ${padrinhos['total'] ?? 0}'}',
               icon: Icons.check_circle_outline,
               cor: AppAccents.success,
               onTap: () => widget.onVerCandidaturas(status: 'aprovadas'),
@@ -397,7 +430,8 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
             _Kpi(
               titulo: 'Apadrinhados ativos',
               valor: '${apadrinhados['valor'] ?? 0}',
-              contexto: '${apadrinhados['detalhe'] ?? '${apadrinhados['valor'] ?? 0} de ${apadrinhados['total'] ?? 0} vagas'}',
+              contexto:
+                  '${apadrinhados['detalhe'] ?? '${apadrinhados['valor'] ?? 0} de ${apadrinhados['total'] ?? 0} vagas'}',
               icon: Icons.person_outline,
               cor: AppAccents.iconeAzul,
               onTap: () => widget.onAbrirDestino?.call('usuarios', const {}),
@@ -405,10 +439,13 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
             _Kpi(
               titulo: 'Grupos formados',
               valor: '${grupos['valor'] ?? 0}',
-              contexto: '${grupos['detalhe'] ?? '${grupos['valor'] ?? 0} de ${grupos['total'] ?? 0} previstos'}',
+              contexto:
+                  '${grupos['detalhe'] ?? '${grupos['valor'] ?? 0} de ${grupos['total'] ?? 0} previstos'}',
               icon: Icons.groups_outlined,
               cor: AppAccents.iconeLaranja,
-              onTap: () => widget.onAbrirDestino?.call('programas', {'pendencia': 'grupos'}),
+              onTap: () => widget.onAbrirDestino?.call('programas', {
+                'pendencia': 'grupos',
+              }),
             ),
           ]),
         ),
@@ -434,7 +471,10 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                   'Pendentes no card = novas + em análise '
                   '(${(chart['pendentes'] as num?)?.toInt() ?? 0} + '
                   '${(chart['emAnalise'] as num?)?.toInt() ?? 0}).',
-                  style: const TextStyle(fontSize: 11, color: Color(0xFF5C5678)),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF5C5678),
+                  ),
                 ),
               ],
             ),
@@ -486,10 +526,8 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                       child: _AcaoRapida(
                         label: 'Comunicado',
                         icon: Icons.campaign_outlined,
-                        onTap: () => widget.onAbrirDestino?.call(
-                          'comunicado',
-                          const {},
-                        ),
+                        onTap: () =>
+                            widget.onAbrirDestino?.call('comunicado', const {}),
                       ),
                     ),
                   ],
@@ -528,19 +566,30 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                               foregroundColor: AppColors.primary,
                               child: Text(
                                 '${item['iniciais'] ?? '?'}',
-                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 11,
+                                ),
                               ),
                             ),
                             title: Text(
                               '${item['nome'] ?? ''}',
-                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
                             ),
                             subtitle: Text(
                               '${item['curso'] ?? ''}'
                               '${item['periodo'] != null ? ' · ${item['periodo']}º período' : ''}',
-                              style: const TextStyle(fontSize: 11, color: Color(0xFF5C5678)),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF5C5678),
+                              ),
                             ),
-                            trailing: _statusPill('${item['statusRotulo'] ?? item['status'] ?? ''}'),
+                            trailing: _statusPill(
+                              '${item['statusRotulo'] ?? item['status'] ?? ''}',
+                            ),
                           ),
                         )
                         .toList(),
@@ -576,7 +625,10 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                     ),
                     subtitle: Text(
                       '${e['periodoTexto'] ?? ''}',
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF5C5678)),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF5C5678),
+                      ),
                     ),
                   );
                 }).toList(),
@@ -592,76 +644,91 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
             child: _erro != null && atencao.isEmpty
                 ? Column(
                     children: [
-                      Text(_erro!, style: const TextStyle(color: Color(0xFFB42318))),
-                      TextButton(onPressed: _carregar, child: const Text('Tentar novamente')),
+                      Text(
+                        _erro!,
+                        style: const TextStyle(color: Color(0xFFB42318)),
+                      ),
+                      TextButton(
+                        onPressed: _carregar,
+                        child: const Text('Tentar novamente'),
+                      ),
                     ],
                   )
                 : atencao.isEmpty
-                    ? const _AtencaoVazia()
-                    : Column(
-                        children: atencao
-                            .map(
-                              (p) => Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(10),
-                                  onTap: () => _abrirAtencao(p),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
-                                    child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Container(
-                                          width: 34,
-                                          height: 34,
-                                          decoration: BoxDecoration(
-                                            color: p['severidade'] == 'alta'
-                                                ? const Color(0xFFFFE8E8)
-                                                : const Color(0xFFFFF4E5),
-                                            borderRadius: BorderRadius.circular(10),
-                                          ),
-                                          child: Icon(
-                                            _iconeAtencao('${p['icon'] ?? 'alert'}'),
-                                            size: 18,
-                                            color: p['severidade'] == 'alta'
-                                                ? const Color(0xFFB42318)
-                                                : AppAccents.iconeLaranja,
-                                          ),
+                ? const _AtencaoVazia()
+                : Column(
+                    children: atencao
+                        .map(
+                          (p) => Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () => _abrirAtencao(p),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      width: 34,
+                                      height: 34,
+                                      decoration: BoxDecoration(
+                                        color: p['severidade'] == 'alta'
+                                            ? const Color(0xFFFFE8E8)
+                                            : const Color(0xFFFFF4E5),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Icon(
+                                        _iconeAtencao(
+                                          '${p['icon'] ?? 'alert'}',
                                         ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                '${p['titulo'] ?? p['texto'] ?? ''}',
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w800,
-                                                  fontSize: 13,
-                                                  color: AppColors.ink,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                '${p['descricao'] ?? p['texto'] ?? ''}',
-                                                style: const TextStyle(
-                                                  fontSize: 12,
-                                                  color: Color(0xFF5C5678),
-                                                  height: 1.35,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const Icon(Icons.chevron_right, color: AppColors.muted, size: 18),
-                                      ],
+                                        size: 18,
+                                        color: p['severidade'] == 'alta'
+                                            ? const Color(0xFFB42318)
+                                            : AppAccents.iconeLaranja,
+                                      ),
                                     ),
-                                  ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '${p['titulo'] ?? p['texto'] ?? ''}',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 13,
+                                              color: AppColors.ink,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            '${p['descricao'] ?? p['texto'] ?? ''}',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Color(0xFF5C5678),
+                                              height: 1.35,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.chevron_right,
+                                      color: AppColors.muted,
+                                      size: 18,
+                                    ),
+                                  ],
                                 ),
                               ),
-                            )
-                            .toList(),
-                      ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
           ),
         ),
       ),
@@ -714,7 +781,10 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                       const SizedBox(height: 2),
                       Text(
                         subtitle,
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF5C5678)),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF5C5678),
+                        ),
                       ),
                     ],
                   ],
@@ -772,7 +842,10 @@ class _AtencaoVazia extends StatelessWidget {
               children: [
                 Text(
                   'Nenhuma pendência no momento',
-                  style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.ink),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.ink,
+                  ),
                 ),
                 SizedBox(height: 2),
                 Text(
@@ -822,7 +895,10 @@ class _AcaoRapida extends StatelessWidget {
                   Expanded(
                     child: Text(
                       label,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 ],
@@ -895,7 +971,11 @@ class _Kpi extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Icon(Icons.chevron_right, size: 15, color: Colors.grey.shade400),
+                  Icon(
+                    Icons.chevron_right,
+                    size: 15,
+                    color: Colors.grey.shade400,
+                  ),
                 ],
               ),
               const SizedBox(height: 4),
@@ -936,9 +1016,21 @@ class _Barras extends StatelessWidget {
   Widget build(BuildContext context) {
     final itens = [
       ('Novas', (chart['pendentes'] as num?)?.toInt() ?? 0, AppColors.primary),
-      ('Análise', (chart['emAnalise'] as num?)?.toInt() ?? 0, const Color(0xFF9B7ED9)),
-      ('Aprovadas', (chart['aprovadas'] as num?)?.toInt() ?? 0, AppAccents.success),
-      ('Rejeitadas', (chart['rejeitadas'] as num?)?.toInt() ?? 0, const Color(0xFFE11D48)),
+      (
+        'Análise',
+        (chart['emAnalise'] as num?)?.toInt() ?? 0,
+        const Color(0xFF9B7ED9),
+      ),
+      (
+        'Aprovadas',
+        (chart['aprovadas'] as num?)?.toInt() ?? 0,
+        AppAccents.success,
+      ),
+      (
+        'Rejeitadas',
+        (chart['rejeitadas'] as num?)?.toInt() ?? 0,
+        const Color(0xFFE11D48),
+      ),
     ];
     final max = itens.map((e) => e.$2).fold<int>(1, (a, b) => a > b ? a : b);
     const chartHeight = 100.0;
@@ -956,7 +1048,10 @@ class _Barras extends StatelessWidget {
                 children: [
                   Text(
                     '${item.$2}',
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   SizedBox(
@@ -964,7 +1059,9 @@ class _Barras extends StatelessWidget {
                     child: Align(
                       alignment: Alignment.bottomCenter,
                       child: Container(
-                        height: item.$2 == 0 ? 0 : chartHeight * (item.$2 / max).clamp(0.12, 1.0),
+                        height: item.$2 == 0
+                            ? 0
+                            : chartHeight * (item.$2 / max).clamp(0.12, 1.0),
                         width: double.infinity,
                         decoration: BoxDecoration(
                           color: item.$3,

@@ -146,6 +146,90 @@ class CabecalhoCoord extends StatelessWidget {
   }
 }
 
+/// Requisitos do ciclo com a declaração do candidato (foto do envio).
+/// Registros antigos, sem a foto, mostram a declaração única (legado).
+class RequisitosDeclaradosCoord extends StatelessWidget {
+  const RequisitosDeclaradosCoord({
+    super.key,
+    required this.requisitos,
+    required this.respondidos,
+    required this.legado,
+    this.periodo,
+  });
+
+  final List<dynamic>? requisitos;
+  final bool respondidos;
+  final bool legado;
+  final int? periodo;
+
+  @override
+  Widget build(BuildContext context) {
+    final lista = (requisitos ?? const []).whereType<Map>().toList();
+    Widget linha(IconData icone, Color cor, String texto) => Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icone, size: 16, color: cor),
+          const SizedBox(width: 6),
+          Expanded(child: Text(texto, style: const TextStyle(fontSize: 13))),
+        ],
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        linha(
+          (periodo ?? 0) > 1 ? Icons.check : Icons.warning_amber,
+          (periodo ?? 0) > 1 ? AppAccents.success : corErroCoord,
+          '${periodo == null ? 'Período não informado' : 'Está no $periodoº período'} (mínimo: 2º)',
+        ),
+        for (final r in lista)
+          linha(
+            !respondidos
+                ? Icons.info_outline
+                : r['cumpre'] == true
+                ? Icons.check
+                : Icons.close,
+            !respondidos
+                ? AppColors.primary
+                : r['cumpre'] == true
+                ? AppAccents.success
+                : corErroCoord,
+            '${r['descricao']}${r['obrigatorio'] == false ? ' (desejável)' : ''}'
+            '${!respondidos
+                ? ''
+                : r['cumpre'] == true
+                ? ' — declarou que cumpre'
+                : ' — declarou que NÃO cumpre'}',
+          ),
+        if (!respondidos)
+          Text(
+            legado
+                ? 'Candidatura anterior aos requisitos por ciclo: declarou '
+                      'cumprir os pré-requisitos da época.'
+                : 'Candidatura anterior aos requisitos por ciclo: não '
+                      'declarou os pré-requisitos.',
+            style: const TextStyle(
+              fontSize: 12,
+              color: corTextoSecundarioCoord,
+            ),
+          ),
+        if (respondidos && lista.isEmpty)
+          const Text(
+            'O ciclo não exigia disciplinas.',
+            style: TextStyle(fontSize: 12, color: corTextoSecundarioCoord),
+          ),
+        const Text(
+          'Declaração do próprio aluno; não há verificação automática do '
+          'histórico acadêmico.',
+          style: TextStyle(fontSize: 11, color: corTextoSecundarioCoord),
+        ),
+      ],
+    );
+  }
+}
+
 /// Selo colorido do status de uma participação.
 class SeloStatusCoord extends StatelessWidget {
   const SeloStatusCoord({super.key, required this.item});
@@ -270,7 +354,16 @@ class _SeletorPadrinho extends StatefulWidget {
 
 class _SeletorPadrinhoState extends State<_SeletorPadrinho> {
   late final Future<List<Map<String, dynamic>>> _padrinhos = widget.api
-      .usuarios(programa: widget.programa, papel: 'padrinho');
+      .usuarios(programa: widget.programa)
+      .then(
+        (usuarios) => usuarios
+            .where(
+              (u) =>
+                  u['situacao'] == 'candidatura_aprovada_aguardando_matching' ||
+                  u['situacao'] == 'padrinho_ativo',
+            )
+            .toList(),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -351,4 +444,37 @@ class _SeletorPadrinhoState extends State<_SeletorPadrinho> {
       ),
     );
   }
+}
+
+Future<String?> solicitarJustificativaCoord(BuildContext context) async {
+  var justificativa = '';
+  final resultado = await showDialog<String>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: const Text('Justificativa da rejeição'),
+        content: TextField(
+          maxLength: 1000,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Justificativa visível ao candidato',
+          ),
+          onChanged: (valor) => setState(() => justificativa = valor),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: justificativa.trim().isEmpty
+                ? null
+                : () => Navigator.pop(context, justificativa.trim()),
+            child: const Text('Rejeitar'),
+          ),
+        ],
+      ),
+    ),
+  );
+  return resultado;
 }

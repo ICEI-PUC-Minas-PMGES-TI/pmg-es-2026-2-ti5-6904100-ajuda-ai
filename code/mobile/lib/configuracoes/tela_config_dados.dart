@@ -8,13 +8,7 @@ import 'tela_configuracoes.dart';
 class DadosConfigPage extends StatelessWidget {
   const DadosConfigPage({super.key});
 
-  void _voltarAoLogin(BuildContext context) {
-    SessaoUsuario.atual.limpar();
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginPage()),
-      (_) => false,
-    );
-  }
+  void _voltarAoLogin(BuildContext context) => encerrarSessao(context);
 
   Future<void> _limpar(BuildContext context) async {
     final confirmar = await showDialog<bool>(

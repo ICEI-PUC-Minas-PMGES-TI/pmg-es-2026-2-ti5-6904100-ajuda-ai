@@ -1,21 +1,14 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ParticipacoesService } from '../participacoes/participacoes.service.js';
+import { ProgramaEntity } from '../programas/entities/programa.entity.js';
+import { ProgramasService } from '../programas/programas.service.js';
 import {
   FormularioEntity,
   PerguntaFormulario,
   TipoFormulario,
-  TipoPergunta,
+  tipoPerguntaSuportado,
 } from './entities/formulario.entity.js';
-
-const TIPOS_PERGUNTA: TipoPergunta[] = [
-  'texto_curto',
-  'texto_longo',
-  'checklist',
-  'dropdown',
-  'upload',
-];
 
 /** Perguntas sugeridas quando o programa ainda não tem formulário salvo. */
 const PADRAO: Record<TipoFormulario, PerguntaFormulario[]> = {
@@ -69,6 +62,7 @@ export class FormulariosService {
   constructor(
     @InjectRepository(FormularioEntity)
     private readonly formularios: Repository<FormularioEntity>,
+    private readonly programasService: ProgramasService,
   ) {}
 
   static validarTipo(tipo: string): TipoFormulario {
@@ -80,7 +74,12 @@ export class FormulariosService {
 
   /** Formulário do programa (o salvo ou o padrão, ainda não publicado). */
   async obter(tipo: TipoFormulario, programa?: string) {
-    const codigo = programa?.trim() || ParticipacoesService.programaAtual();
+    const ciclo = await this.programasService.resolverConsulta(programa);
+    if (!ciclo)
+      throw new BadRequestException(
+        'Nenhum ciclo cadastrado para o formulário.',
+      );
+    const codigo = ciclo.codigo;
     const salvo = await this.formularios.findOne({
       where: { programa: codigo, tipo },
     });
@@ -96,32 +95,115 @@ export class FormulariosService {
     };
   }
 
-  /** Visão do aluno: só devolve perguntas quando o formulário foi publicado. */
+  /**
+   * Visão do aluno: só devolve perguntas quando o formulário foi publicado.
+   * Para padrinho, inclui SEMPRE os requisitos do ciclo (web e mobile leem
+   * daqui), mesmo sem perguntas extras publicadas.
+   */
   async obterPublicado(tipo: TipoFormulario, programa?: string) {
     const formulario = await this.obter(tipo, programa);
-    if (!formulario.publicado) {
-      return { ...formulario, perguntas: [] };
+    if (formulario.publicado)
+      this.exigirPerguntasSuportadas(formulario.perguntas ?? []);
+    const requisitos =
+      tipo === 'padrinho'
+        ? await this.programasService.requisitosPadrinho(formulario.programa)
+        : [];
+    return {
+      ...formulario,
+      perguntas: formulario.publicado ? formulario.perguntas : [],
+      ...(tipo === 'padrinho' ? { requisitos } : {}),
+    };
+  }
+
+  async validarRespostasPadrinho(programa: string, extras: unknown) {
+    const formulario = await this.obter('padrinho', programa);
+    if (!formulario.publicado)
+      throw new BadRequestException('Formulário de padrinho não publicado.');
+    if (
+      extras != null &&
+      (typeof extras !== 'object' || Array.isArray(extras))
+    ) {
+      throw new BadRequestException('Respostas adicionais inválidas.');
     }
-    return formulario;
+    const respostas = (extras ?? {}) as Record<string, unknown>;
+    const perguntas = formulario.perguntas ?? [];
+    this.exigirPerguntasSuportadas(perguntas);
+    for (const chave of Object.keys(respostas)) {
+      if (!perguntas.some((q) => q.id === chave))
+        throw new BadRequestException('Pergunta desconhecida no formulário.');
+    }
+    for (const q of perguntas) {
+      const valor = respostas[q.id];
+      const vazio =
+        valor == null ||
+        valor === '' ||
+        (typeof valor === 'string' && !valor.trim()) ||
+        (Array.isArray(valor) && !valor.length);
+      if (vazio) {
+        if (q.obrigatoria)
+          throw new BadRequestException(`Responda: ${q.enunciado}.`);
+        continue;
+      }
+      if (q.tipo === 'checklist') {
+        if (
+          !Array.isArray(valor) ||
+          valor.length > 20 ||
+          valor.some((v) => typeof v !== 'string' || !q.opcoes.includes(v))
+        ) {
+          throw new BadRequestException(`Opção inválida: ${q.enunciado}.`);
+        }
+      } else if (
+        typeof valor !== 'string' ||
+        valor.length > (q.tipo === 'texto_longo' ? 1000 : 300) ||
+        (q.tipo === 'dropdown' && !q.opcoes.includes(valor))
+      ) {
+        throw new BadRequestException(`Resposta inválida: ${q.enunciado}.`);
+      }
+    }
+    return {
+      id: formulario.id,
+      programa,
+      perguntas: structuredClone(perguntas),
+      atualizadoEm: formulario.atualizadoEm,
+    };
   }
 
   async salvar(
     tipo: TipoFormulario,
     corpo: { programa?: string; publicado?: boolean; perguntas?: unknown },
   ) {
-    const programa =
-      corpo.programa?.trim() || ParticipacoesService.programaAtual();
+    const ciclo = await this.programasService.resolverConsulta(corpo.programa);
+    if (!ciclo)
+      throw new BadRequestException(
+        'Nenhum ciclo cadastrado para o formulário.',
+      );
+    const programa = ciclo.codigo;
     const perguntas = this.validarPerguntas(corpo.perguntas);
-    const existente = await this.formularios.findOne({
-      where: { programa, tipo },
+    return this.formularios.manager.transaction(async (manager) => {
+      const cicloAtual = await manager
+        .getRepository(ProgramaEntity)
+        .findOne({
+          where: { codigo: programa },
+          lock: { mode: 'pessimistic_write' },
+        });
+      if (!cicloAtual) throw new BadRequestException('Ciclo não cadastrado.');
+      const repo = manager.getRepository(FormularioEntity);
+      const existente = await repo.findOne({ where: { programa, tipo } });
+      const registro =
+        existente ?? repo.create({ programa, tipo, publicado: false });
+      registro.perguntas = perguntas;
+      if (typeof corpo.publicado === 'boolean')
+        registro.publicado = corpo.publicado;
+      return this.serializar(await repo.save(registro));
     });
-    const registro =
-      existente ?? this.formularios.create({ programa, tipo, publicado: false });
-    registro.perguntas = perguntas;
-    if (typeof corpo.publicado === 'boolean') {
-      registro.publicado = corpo.publicado;
+  }
+
+  private exigirPerguntasSuportadas(perguntas: PerguntaFormulario[]): void {
+    if (perguntas.some((q) => !q || !tipoPerguntaSuportado(q.tipo))) {
+      throw new BadRequestException(
+        'Formulário contém tipo de pergunta não suportado. A coordenação deve remover ou substituir a pergunta.',
+      );
     }
-    return this.serializar(await this.formularios.save(registro));
   }
 
   private validarPerguntas(entrada: unknown): PerguntaFormulario[] {
@@ -141,8 +223,8 @@ export class FormulariosService {
           `A pergunta ${index + 1} precisa de um enunciado.`,
         );
       }
-      const tipo = item.tipo as TipoPergunta;
-      if (!TIPOS_PERGUNTA.includes(tipo)) {
+      const tipo = item.tipo;
+      if (!tipoPerguntaSuportado(tipo)) {
         throw new BadRequestException(
           `Tipo de resposta inválido na pergunta ${index + 1}.`,
         );
@@ -185,6 +267,9 @@ export class FormulariosService {
       perguntas: registro.perguntas ?? [],
       atualizadoEm: registro.atualizadoEm,
       salvo: true,
+      perguntasNaoSuportadas: (registro.perguntas ?? [])
+        .filter((q) => !tipoPerguntaSuportado(q.tipo))
+        .map((q) => ({ id: q.id, tipo: q.tipo })),
     };
   }
 }

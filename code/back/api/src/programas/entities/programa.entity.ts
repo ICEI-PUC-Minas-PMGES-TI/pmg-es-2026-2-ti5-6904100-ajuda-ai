@@ -7,12 +7,19 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+/**
+ * Requisito que a coordenação exige de quem se candidata a padrinho naquele
+ * ciclo (ex.: uma disciplina em que o candidato precisa ter sido aprovado).
+ */
+export interface RequisitoPadrinho {
+  id: string;
+  descricao: string;
+  /** Obrigatório bloqueia a candidatura se não cumprido; senão só informa. */
+  obrigatorio: boolean;
+}
+
 export type EtapaPrograma =
-  | 'inscricoes'
-  | 'analise'
-  | 'formacao'
-  | 'andamento'
-  | 'encerramento';
+  'inscricoes' | 'analise' | 'formacao' | 'andamento' | 'encerramento';
 
 @Entity({ name: 'programas' })
 @Unique('uq_programa_codigo', ['codigo'])
@@ -71,6 +78,13 @@ export class ProgramaEntity {
 
   @Column({ name: 'encerramento_em', type: 'date', nullable: true })
   encerramentoEm!: string;
+
+  /**
+   * Requisitos para padrinho DESTE ciclo, definidos pela coordenação.
+   * null = nunca configurado; [] = ciclo sem requisitos de disciplina.
+   */
+  @Column({ name: 'requisitos_padrinho', type: 'jsonb', nullable: true })
+  requisitosPadrinho!: RequisitoPadrinho[] | null;
 
   @CreateDateColumn({ name: 'criado_em', type: 'timestamptz' })
   criadoEm!: Date;

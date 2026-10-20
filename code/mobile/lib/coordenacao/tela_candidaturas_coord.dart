@@ -163,18 +163,29 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
       'rejeitar' => ('Rejeitar candidaturas', 'Rejeitar', 'rejeitada(s)'),
       _ => ('Marcar em análise', 'Marcar', 'marcada(s) em análise'),
     };
-    final ok = await confirmarAcaoCoord(
-      context,
-      titulo: titulo,
-      mensagem: '$verbo ${ids.length} candidatura(s) selecionada(s)?',
-      confirmar: verbo,
-      destrutiva: acao == 'rejeitar',
-    );
+    final justificativa = acao == 'rejeitar'
+        ? await solicitarJustificativaCoord(context)
+        : null;
+    if (acao == 'rejeitar' && justificativa == null) return;
+    if (!mounted) return;
+    final ok =
+        acao == 'rejeitar' ||
+        await confirmarAcaoCoord(
+          context,
+          titulo: titulo,
+          mensagem: '$verbo ${ids.length} candidatura(s) selecionada(s)?',
+          confirmar: verbo,
+          destrutiva: acao == 'rejeitar',
+        );
     if (!ok || !mounted) return;
 
     setState(() => _processando = true);
     try {
-      final resultado = await widget.api.acoesEmMassa(ids: ids, acao: acao);
+      final resultado = await widget.api.acoesEmMassa(
+        ids: ids,
+        acao: acao,
+        justificativa: justificativa,
+      );
       if (!mounted) return;
       final sucesso = (resultado['sucesso'] as num?)?.toInt() ?? 0;
       final falhas = (resultado['falhas'] as List? ?? const [])
