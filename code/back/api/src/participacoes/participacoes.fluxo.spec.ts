@@ -16,7 +16,10 @@ const ciclos = () =>
         '2026/2',
         ParticipacoesService.programaAtual(),
       ]),
-    ].map((codigo, i) => ({ id: i + 1, codigo }) as ProgramaEntity),
+    ].map(
+      (codigo, i) =>
+        ({ id: i + 1, codigo, etapaAtual: 'formacao' }) as ProgramaEntity,
+    ),
   );
 
 /** Fluxo completo: cadastro → análise → aprovação/rejeição → vínculo. */

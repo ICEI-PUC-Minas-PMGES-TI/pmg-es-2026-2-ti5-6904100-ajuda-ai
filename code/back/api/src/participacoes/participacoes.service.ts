@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
+import { matchingLiberado } from '../programas/etapas.js';
 import {
   PapelParticipacao,
   ParticipacaoEntity,
@@ -389,6 +390,10 @@ export class ParticipacoesService {
       });
       if (!programa || programa.etapaAtual === 'encerramento')
         throw new BadRequestException('Ciclo indisponível para matching.');
+      if (!matchingLiberado(programa))
+        throw new BadRequestException(
+          'Matching ainda não foi liberado para este ciclo.',
+        );
       const registros = [];
       for (const id of [apadrinhadoId, padrinhoId].sort((a, b) => a - b)) {
         registros.push(

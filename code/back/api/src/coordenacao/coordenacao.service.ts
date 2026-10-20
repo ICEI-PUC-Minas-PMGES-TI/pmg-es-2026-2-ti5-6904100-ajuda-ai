@@ -14,6 +14,7 @@ import { ParticipacoesService } from '../participacoes/participacoes.service.js'
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import {
   formatarData,
+  matchingLiberado,
   montarEtapas,
   ROTULOS_STATUS_PROGRAMA,
 } from '../programas/etapas.js';
@@ -480,6 +481,14 @@ export class CoordenacaoService implements OnModuleInit {
       inscricoesAbertas: programa.inscricoesAbertas,
       formularioPublicado: programa.formularioPublicado,
       matchingPendente: programa.matchingPendente,
+      matchingLiberado: matchingLiberado(programa),
+      podeEncerrarInscricoes:
+        programa.etapaAtual !== 'encerramento' &&
+        (programa.inscricoesAbertas || programa.etapaAtual === 'inscricoes'),
+      podeLiberarMatching:
+        programa.etapaAtual === 'analise' &&
+        !programa.inscricoesAbertas &&
+        !matchingLiberado(programa),
       vagasApadrinhados: programa.vagasApadrinhados,
       gruposPrevistos: programa.gruposPrevistos,
       inscricoesFim: programa.inscricoesFim,
@@ -748,6 +757,59 @@ export class CoordenacaoService implements OnModuleInit {
       atualizado,
       ParticipacoesService.programaAtual(),
     );
+  }
+
+  async obterPrograma(codigo: string) {
+    const ciclo = ProgramasService.validarCodigoCiclo(codigo);
+    const programas = await this.listarProgramas();
+    const encontrado = programas.find((p) => p.codigo === ciclo);
+    if (!encontrado) throw new NotFoundException(`Programa ${ciclo} não encontrado.`);
+    return encontrado;
+  }
+
+  async encerrarInscricoes(codigo: string) {
+    const atualizado = await this.programasService.encerrarInscricoes(codigo);
+    return this.serializarPrograma(
+      atualizado,
+      ParticipacoesService.programaAtual(),
+    );
+  }
+
+  async liberarMatching(codigo: string) {
+    const atualizado = await this.programasService.liberarMatching(codigo);
+    return this.serializarPrograma(
+      atualizado,
+      ParticipacoesService.programaAtual(),
+    );
+  }
+
+  /** Pool para vínculos manuais; não calcula pontuação nem cria grupos. */
+  async obterMatching(programaCodigo?: string) {
+    const programa = await this.resolverPrograma(programaCodigo);
+    this.programasService.exigirMatchingLiberado(programa);
+    const registros = await this.participacoesService.listarPorPrograma({
+      programa: programa.codigo,
+    });
+    const padrinhos = registros.filter(
+      (r) =>
+        (r.papel === 'candidato' && r.status === 'aprovado') ||
+        r.papel === 'padrinho',
+    );
+    const apadrinhados = registros.filter(
+      (r) => r.papel === 'apadrinhado' && r.status === 'em_andamento',
+    );
+    return {
+      programa: this.serializarPrograma(
+        programa,
+        ParticipacoesService.programaAtual(),
+      ),
+      matchingLiberado: true,
+      padrinhos: padrinhos.map((r) => this.enriquecerCandidatura(r)),
+      apadrinhados: apadrinhados.map((r) => ({
+        ...this.enriquecerCandidatura(r),
+        vinculado: ParticipacoesService.vinculoValido(r, registros),
+      })),
+    };
   }
 
   obterFormulario(tipo: string, programa?: string) {

@@ -181,6 +181,32 @@ export class CoordenacaoController {
     return this.coordenacaoService.atualizarPrograma(codigo ?? '', corpo);
   }
 
+  @Get('programas/item')
+  programa(@Query('codigo') codigo: string) {
+    return this.coordenacaoService.obterPrograma(codigo ?? '');
+  }
+
+  /** Fecha inscrições sem aprovar candidatos nem gerar matching. */
+  @Post('programas/encerrar-inscricoes')
+  encerrarInscricoes(@Query('codigo') codigo: string) {
+    return this.coordenacaoService.encerrarInscricoes(codigo ?? '');
+  }
+
+  /** Libera a formação de grupos após o encerramento e o conjunto de aprovados. */
+  @Post('programas/liberar-matching')
+  liberarMatching(@Query('codigo') codigo: string) {
+    return this.coordenacaoService.liberarMatching(codigo ?? '');
+  }
+
+  /**
+   * Conjunto elegível para vínculos manuais. Recusa se o matching não foi
+   * liberado — o bloqueio vale mesmo chamando o endpoint direto.
+   */
+  @Get('matching')
+  matching(@Query('programa') programa?: string) {
+    return this.coordenacaoService.obterMatching(programa);
+  }
+
   @Get('formularios/:tipo')
   formulario(
     @Param('tipo') tipo: string,
