@@ -35,6 +35,9 @@ describe('AuthService', () => {
     });
 
     const resposta = await service.autenticarComMicrosoft('id-token-valido');
+    if (resposta.situacao !== 'autenticado') {
+      throw new Error('Esperada uma sessão autenticada para a conta cadastrada.');
+    }
     const payload = await jwtService.verifyAsync(resposta.accessToken);
 
     expect(resposta.tokenType).toBe('Bearer');

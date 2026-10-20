@@ -31,10 +31,11 @@ No emulador, `localhost` é o próprio Android. O app em debug usa `http://10.0.
 flutter run --dart-define=API_BASE_URL=http://IP_DA_MAQUINA:3000
 ```
 
-No VS Code, a configuração **Ajuda-aí (Android Emulator)** já abre o projeto mobile em debug. O SDK usado por este workspace é `C:\Users\gabri\flutter`. O terminal integrado do VS Code enxerga o comando `flutter`. Um PowerShell aberto fora do VS Code continua sem esse comando, a menos que o PATH do Windows seja ajustado à mão:
+O comando `flutter` precisa estar no PATH da sessão. Escolha o destino listado
+por `flutter devices`:
 
 ```powershell
-& "C:\Users\gabri\flutter\bin\flutter.bat" run -d emulator-5554
+flutter run -d <device-id>
 ```
 
 ## Login demo

@@ -1,0 +1,137 @@
+# Banco e migrations
+
+Estrutura por migrations em `code/back/api/src/migrations/`; importação de
+dados geográficos é separada. O CLI usa `DB_*` e o arquivo `code/back/api/.env`.
+`DB_SCHEMA` configura o schema do programa e da tabela de controle de migrations
+(padrão `feed`).
+
+## Baseline e bancos existentes
+
+`BaselineFeed1791900000000` representa as tabelas anteriores à incremental
+`UsuariosERequisitosPadrinho1791944105933`:
+
+- Nenhuma tabela da baseline: cria a estrutura.
+- Todas as tabelas/colunas esperadas: reconhece a estrutura sem reescrevê-la.
+- Estado parcial: falha sem prosseguir.
+
+A incremental também reconhece as duas mudanças já existentes
+(`usuarios` e `programas.requisitos_padrinho`) e recusa estado parcial.
+Isso permite convergir bancos locais criados por `synchronize` sem marcar
+migrations manualmente ou ocultar divergências com `IF NOT EXISTS`.
+A baseline pode estar pendente mesmo com uma incremental posterior registrada;
+conferir o plano completo com o CLI.
+
+## Aplicação
+
+Em banco vazio, criar antes o schema configurado, pois o TypeORM cria sua tabela
+de migrations antes de executar a baseline:
+
+```sql
+CREATE SCHEMA IF NOT EXISTS feed;
+```
+
+Em `code/back/api`:
+
+```powershell
+npm run migration:show
+npm run migration:run
+```
+
+Os scripts compilam o backend antes de chamar o CLI.
+Não usar `DB_SYNCHRONIZE=true` nem seed automático em banco compartilhado.
+Migrations não publicam GLBs nem importam conteúdo administrativo.
+
+## Organização
+
+- `BaselineFeed`: estrutura/reconhecimento do domínio de programa.
+- `UsuariosERequisitosPadrinho`: usuários e requisitos de programa.
+- `HabilitaPostgisESchemaMapa`: PostGIS, unaccent e schema `mapa`.
+- `CriaTabelasMapa`: versões, prédios, salas, áreas e grafo.
+- `PucStopsEXpGlobal`: PucStops e schema `gamificacao`.
+- `EventosRestaurantesCardapios`: conteúdo administrativo do campus.
+
+Modelos e regras têm fonte em [dados geoespaciais](../mapa/dados-geo.md),
+[PucStops](../mapa/pucstops.md), [XP](../gamificacao/xp.md) e
+[conteúdo](../mapa/eventos-cantinas.md).
+
+## PostGIS e ambiente local
+
+O Compose em `code/` usa `postgis/postgis:16-3.5-alpine`, projeto
+`ajuda-ai`, volume persistente e porta padrão 5433 no host.
+
+```powershell
+cd code
+docker compose -p ajuda-ai up -d postgres
+```
+
+`postgres-init/` substitui o init da imagem para não instalar extensões
+automaticamente em `public`. PostGIS e unaccent são instalados por migration
+em `extensions`; se já existirem em outro schema, permanecem onde estão.
+
+Migrations, importador e SQL de runtime descobrem o schema real da extensão
+em `pg_extension` e qualificam funções/tipos. Ferramentas que leem geometria
+por TypeORM precisam incluir esse schema no `search_path`.
+`installExtensions: false` impede instalação implícita ao conectar.
+pgRouting não é requisito: [rotas](../mapa/rotas.md) são calculadas em memória.
+
+Preservar o volume ao recriar o container; `docker compose down -v` o apaga.
+Uma troca de versão/base da imagem exige backup e validação de compatibilidade,
+não apenas manter o mesmo nome de volume.
+
+## Banco compartilhado e backup
+
+Antes de executar migrations, conferir alvo, pendências, SQL e backup restaurável.
+Não inferir o estado remoto a partir desta documentação ou de uma execução anterior.
+Verificar privilégios de `feed`, `mapa` e `gamificacao`: acesso público deve
+passar pela API NestJS, sem grants acidentais para papéis clientes do provedor.
+
+Para backup Supabase com host direto IPv6 indisponível, usar Session pooler
+IPv4 em modo de sessão (porta 5432), com `pg_dump` compatível com o servidor
+e TLS `verify-full`/CA do provedor. `SUPABASE_POOLER_URL` é configuração
+administrativa, não substitui as variáveis da API. Passar credenciais por ambiente
+seguro, nunca imprimir a URL em logs.
+
+Incluir os schemas afetados (`feed`, `mapa`, `gamificacao`) e um dump de
+estrutura. Guardar fora do Git: backups contêm dados de usuários. Restaurar em
+PostgreSQL/PostGIS descartável e comparar estrutura, constraints, índices,
+triggers e conteúdo antes de confiar no arquivo.
+
+Na comparação entre servidores, fixar ordenação e `extra_float_digits` iguais:
+a representação textual de `double precision` pode gerar hashes diferentes
+para o mesmo valor. Casts equivalentes em CHECKs de arrays também podem ser
+normalizados pelo `pg_restore`; conferir semântica além do texto.
+
+## Rollback e compatibilidade
+
+`npm run migration:revert` reverte a última migration registrada, não uma
+selecionada por domínio. Conferir a ordem antes de executar.
+
+- A baseline sempre recusa `down`, pois pode ter apenas reconhecido estrutura.
+- A incremental e migrations de domínio recusam descarte quando há dados.
+- `MIGRATION_DOWN_DESCARTAR_DADOS=true` libera descarte explícito; não é
+  procedimento normal de atualização de banco compartilhado.
+- A migration de extensões remove apenas o schema `mapa` vazio; preserva
+  extensões que podem ser usadas por outros schemas.
+- Rollback de cardápios não apaga arquivos no storage.
+
+Há instalações locais antigas que podem ter registrado uma versão anterior de
+`PucStopsEXpGlobal1792279161187` com IDs texto. O CLI não detecta mudança de
+conteúdo de uma migration já registrada. Conferir UUID, constraints e função
+antes de assumir compatibilidade; qualquer reconstrução local precisa considerar
+os dados e o backup, sem aplicar descarte automático em ambiente compartilhado.
+
+## Testes
+
+Testes de catálogo e baseline: `src/migrations/migrations.spec.ts`.
+Integração cria e remove bancos próprios no servidor indicado por
+`MAPA_TEST_DB_URL`; usar exclusivamente PostgreSQL/PostGIS descartável.
+
+Em `code/back/api`, com servidor local de teste:
+
+```powershell
+$env:MAPA_TEST_DB_URL='postgres://postgres:teste@localhost:55432/postgres'
+npx vitest run test/mapa-banco.integration.spec.ts test/mapa-api.integration.spec.ts test/pucstops-xp.integration.spec.ts test/campus.integration.spec.ts
+```
+
+Sem a variável, essas suítes são puladas. Storage é substituído em memória.
+Não carregar credenciais de produção para executá-las.

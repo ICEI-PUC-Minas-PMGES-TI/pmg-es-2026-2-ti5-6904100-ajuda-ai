@@ -11,13 +11,22 @@ const NAV = [
   { to: '/coordenacao/usuarios', label: 'Usuários', icon: 'users' },
   { to: '/coordenacao/programas', label: 'Programas', icon: 'calendar' },
   { to: '/coordenacao/formularios', label: 'Formulários', icon: 'form' },
+  { to: '/coordenacao/pucstops', label: 'PucStops', icon: 'pin' },
+  { to: '/coordenacao/eventos', label: 'Eventos', icon: 'calendarEvent' },
+  { to: '/coordenacao/restaurantes', label: 'Restaurantes', icon: 'restaurant' },
   { to: '/coordenacao/configuracoes', label: 'Configurações', icon: 'settings' },
 ];
+
+/** Páginas que não dependem do programa/ciclo selecionado. */
+const SEM_PROGRAMA = ['/coordenacao/programas', '/coordenacao/pucstops', '/coordenacao/eventos', '/coordenacao/restaurantes'];
+/** Dentre elas, as que nem usam o seletor de programa (valem para todos os ciclos). */
+const SEM_SELETOR = ['/coordenacao/pucstops', '/coordenacao/eventos', '/coordenacao/restaurantes'];
 
 export default function CoordLayout() {
   const { autenticado, ehCoordenador, usuario, logout } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
+  const rota = location.pathname.replace(/\/+$/, '');
   const [programas, setProgramas] = useState(null);
   const [erroProgramas, setErroProgramas] = useState('');
   const [exigirSelecao, setExigirSelecao] = useState(false);
@@ -172,12 +181,12 @@ export default function CoordLayout() {
         )}
 
         <div className="coord-content">
-          <label>Programa/ciclo <select aria-label="Programa/ciclo" value={programas?.some(p => p.codigo === programa) ? programa : ''} onChange={e => {
+          {!SEM_SELETOR.includes(rota) && <label>Programa/ciclo <select aria-label="Programa/ciclo" value={programas?.some(p => p.codigo === programa) ? programa : ''} onChange={e => {
             setExigirSelecao(false); const novos = new URLSearchParams(searchParams);
             if(e.target.value) novos.set('programa', e.target.value); else novos.delete('programa');
             setSearchParams(novos);
-          }}><option value="">Selecione o programa/ciclo</option>{programas?.map(p => <option key={p.codigo} value={p.codigo}>{p.titulo || p.nome}</option>)}</select></label>
-          {location.pathname === '/coordenacao/programas' ? <Outlet context={{programaQ: programa, programaExcluido, carregarProgramas}}/>
+          }}><option value="">Selecione o programa/ciclo</option>{programas?.map(p => <option key={p.codigo} value={p.codigo}>{p.titulo || p.nome}</option>)}</select></label>}
+          {SEM_PROGRAMA.includes(rota) ? <Outlet context={{programaQ: programa, programaExcluido, carregarProgramas}}/>
             : erroProgramas ? <p role="alert">{erroProgramas}<button onClick={carregarProgramas}>Tentar novamente</button></p>
             : programas === null ? <p role="status">Carregando programas…</p>
             : !programa || !programas.some(p => p.codigo === programa) ? <p>{programas.length ? 'Selecione um programa/ciclo para administrar.' : 'Nenhum programa cadastrado. Abra um ciclo em Programas.'}</p>

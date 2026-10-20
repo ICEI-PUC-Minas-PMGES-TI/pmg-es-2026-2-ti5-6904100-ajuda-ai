@@ -95,7 +95,7 @@ describe('Cadastro (e2e)', () => {
 
   const http = () => request(app.getHttpServer());
 
-  const postCadastro = (corpo: { email: string; nome?: string }) => {
+  const postCadastro = <T extends { email: string; nome?: string }>(corpo: T) => {
     const token = app.get(JwtService).sign({
       sub: corpo.email,
       email: corpo.email,

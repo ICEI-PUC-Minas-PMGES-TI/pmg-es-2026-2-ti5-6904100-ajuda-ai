@@ -187,13 +187,15 @@ describe('exclusão segura de programas', () => {
     });
   });
   it('bloqueia formulário mesmo vazio/rascunho e preserva perguntas', async () => {
-    formularios.push({
-      id: 1,
-      programa: codigo,
-      tipo: 'padrinho',
-      publicado: false,
-      perguntas: [],
-    } as FormularioEntity);
+    formularios.push(
+      repos.FormularioEntity.create({
+        id: 1,
+        programa: codigo,
+        tipo: 'padrinho',
+        publicado: false,
+        perguntas: [],
+      }),
+    );
     const r = await excluir().expect(409);
     expect(r.body.dependencias.formularios).toBe(1);
     expect(formularios).toHaveLength(1);

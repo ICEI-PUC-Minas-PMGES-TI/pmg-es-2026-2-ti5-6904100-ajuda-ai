@@ -1,10 +1,8 @@
 # Ajuda-aí Web
 
-Frontend em React e Vite. Inclui:
-
-- fluxo de cadastro do estudante (`/`): perfil → como quer participar (padrinho / apadrinhado / explorar) → formulário → revisão/envio;
-- área do aluno (`/aluno/perfil`, `/aluno/candidatura`, `/aluno/padrinho`, `/aluno/historico`, `/aluno/configuracoes`);
-- login demo e painel da coordenação (`/login`, `/coordenacao`: dashboard, candidaturas, usuários, programas, formulários, configurações/comunicados).
+Frontend em React e Vite para cadastro, área do aluno e coordenação.
+Regras de administração do campus estão em
+[administração do mapa](../../docs/tecnico/mapa/administracao.md).
 
 ## Executar localmente
 
@@ -39,6 +37,22 @@ Perfil e foto são editados em `/aluno/perfil/editar`; foto usa somente
 A candidatura passa por revisão e só é registrada ao confirmar o envio.
 Após o envio, respostas são imutáveis. Aprovação aguarda matching; somente
 `padrinho_ativo` libera acesso aos apadrinhados. Anexos não são suportados.
+
+### PucStops e mapa (coordenação)
+
+`/coordenacao/pucstops` administra os totens do mapa do campus (não dependem
+de programa/ciclo). A posição é escolhida clicando no mapa (Mapbox GL JS,
+carregado sob demanda), dentro da área devolvida por
+`GET /coordenacao/pucstops/campus`; o servidor revalida tudo. "Excluir"
+desativa o PucStop e preserva o histórico de coletas.
+
+- `VITE_MAPBOX_ACCESS_TOKEN`: token **público** (`pk.`) do Mapbox, o mesmo do
+  app mobile. Nunca use token secreto (`sk.`): ele iria para o bundle. As
+  restrições de URL do token precisam permitir a origem web (ex.:
+  `http://localhost:5173`). Sem ele, a página mostra "Mapa indisponível" e só
+  permite editar nome, XP e raio de PucStops existentes.
+- `VITE_MAPBOX_STYLE_URI` (opcional): estilo do mapa; padrão
+  `mapbox://styles/mapbox/streets-v12`.
 
 ### Validação
 

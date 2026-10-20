@@ -1,7 +1,12 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # PostgreSQL 16 + PostGIS 3.5, mesma base Alpine do postgres:16-alpine
+    # anterior: o volume existente continua compatível (ver
+    # docs/tecnico/banco/migrations.md). As extensões entram por migration.
+    image: postgis/postgis:16-3.5-alpine
     container_name: ajuda-ai-postgres
+    # Mesmo search_path do Supabase (papel postgres): extensões em `extensions`.
+    command: ['postgres', '-c', 'search_path="$$user", public, extensions']
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ajudaai}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ajudaai}
@@ -15,6 +20,9 @@ services:
       retries: 5
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Substitui o init da imagem (que instalaria postgis, topology e tiger
+      # em `public` num volume novo): local fica igual ao Supabase.
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
 
 volumes:
   postgres-data:

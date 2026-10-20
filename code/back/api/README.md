@@ -2,16 +2,14 @@
 
 Back-end da aplicação, desenvolvido em NestJS com TypeScript.
 
-## Estado atual
+## Visão geral
 
-Versão parcial. Os dados de usuário e os demais dados de negócio ainda são fictícios
-e mantidos em memória (`src/dados/dados.ts`). O login, porém, valida o ID token
-emitido pelo Microsoft Entra ID e emite um JWT da própria API. Somente contas do
-domínio institucional configurado e previamente cadastradas podem entrar.
+A API reúne os domínios do programa e do campus, com PostgreSQL/PostGIS e
+armazenamento de arquivos no Azure. O login valida o ID token do Microsoft Entra ID
+e emite o JWT da aplicação; dados de demonstração dependem da configuração do ambiente.
 
-O feed não contém publicações fictícias: publicações, curtidas e comentários são
-persistidos em PostgreSQL por meio do TypeORM. A mensageria permanece prevista para
-as próximas sprints.
+Arquitetura, migrations e contratos do mapa estão na
+[documentação técnica](../../../docs/tecnico/README.md).
 
 ## Pré-requisitos
 

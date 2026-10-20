@@ -91,7 +91,7 @@ export function clearAlunoSession() {
 }
 
 /** Aluno exige seu próprio JWT; consultas não usam identidade livre por e-mail. */
-async function request(path, { method = 'GET', body, token, aluno, anonimo = false } = {}) {
+async function request(path, { method = 'GET', body, token, aluno, anonimo = false, signal } = {}) {
   const headers = { Accept: 'application/json' };
   const multipart = typeof FormData !== 'undefined' && body instanceof FormData;
   if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json';
@@ -110,6 +110,7 @@ async function request(path, { method = 'GET', body, token, aluno, anonimo = fal
       method,
       headers,
       body: multipart ? body : body !== undefined ? JSON.stringify(body) : undefined,
+      ...(signal ? { signal } : {}),
     });
   } catch {
     const error = new Error('Não foi possível conectar ao servidor. Verifique sua conexão.');
@@ -119,21 +120,48 @@ async function request(path, { method = 'GET', body, token, aluno, anonimo = fal
 
   if (!response.ok) {
     let message = `Erro ${response.status}`;
+    let motivo;
     try {
       const data = await response.json();
       message = data.message || data.error || message;
       if (Array.isArray(message)) message = message.join(', ');
+      motivo = data.motivo;
     } catch {
       /* ignore */
     }
     const error = new Error(message);
     error.status = response.status;
+    // Código estável enviado pelo servidor (ex.: 'fora-do-campus'), quando houver.
+    if (motivo) error.motivo = motivo;
     throw error;
   }
 
   if (response.status === 204) return null;
   const texto = await response.text();
   return texto ? JSON.parse(texto) : null;
+}
+
+/** Limita a espera dos fluxos do mapa, inclusive a leitura do corpo. */
+async function requestMapa(path, options = {}) {
+  const controller = new AbortController();
+  let timer;
+  const upload = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  try {
+    return await Promise.race([
+      request(path, { ...options, signal: controller.signal }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const mensagem = options.method && options.method !== 'GET'
+            ? 'O servidor demorou para responder. Não foi possível confirmar a operação. Recarregue a lista antes de tentar novamente.'
+            : 'O servidor demorou para responder. Tente novamente.';
+          reject(Object.assign(new Error(mensagem), { status: 0 }));
+          controller.abort();
+        }, upload ? 60_000 : 15_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function query(params) {
@@ -264,5 +292,115 @@ export const api = {
   },
   criarComunicado(dados) {
     return request('/coordenacao/comunicados', { method: 'POST', body: dados });
+  },
+
+  /* ===== PucStops (coordenação; não dependem de programa/ciclo) ===== */
+  /** Todos os PucStops, ativos e inativos, ordenados por nome. */
+  pucstops() {
+    return requestMapa('/coordenacao/pucstops');
+  },
+  /** Área do campus onde o servidor aceita PucStops (limite, bbox e centro). */
+  campusPucStops() {
+    return requestMapa('/coordenacao/pucstops/campus');
+  },
+  pucstop(id) {
+    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}`);
+  },
+  criarPucStop(dados) {
+    return requestMapa('/coordenacao/pucstops', { method: 'POST', body: dados });
+  },
+  /** Envie só os campos alterados; latitude e longitude vão sempre juntas. */
+  atualizarPucStop(id, dados) {
+    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  /** "Excluir" = desativação lógica: some do mapa dos alunos, histórico preservado. */
+  desativarPucStop(id) {
+    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  ativarPucStop(id) {
+    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+
+  /* ===== Mapa do campus (seletores de local da coordenação) ===== */
+  /** Área do campus (limite, margem, bbox e centro) para eventos e restaurantes. */
+  campus() {
+    return requestMapa('/coordenacao/campus');
+  },
+  /** Prédios da versão ativa do mapa (público). */
+  predios() {
+    return requestMapa('/mapa/predios');
+  },
+  /** Áreas da versão ativa do mapa, com a geometria (público). */
+  areas() {
+    return requestMapa('/mapa/areas');
+  },
+
+  /* ===== Eventos do campus (coordenação; não dependem de programa/ciclo) ===== */
+  /** Todos os eventos, ativos e inativos, do início mais recente para o mais antigo. */
+  eventos() {
+    return requestMapa('/coordenacao/eventos');
+  },
+  evento(id) {
+    return requestMapa(`/coordenacao/eventos/${encodeURIComponent(id)}`);
+  },
+  /** `inicio`/`fim` em ISO 8601 com fuso; `local` com exatamente uma forma (predioId, areaId ou latitude+longitude). */
+  criarEvento(dados) {
+    return requestMapa('/coordenacao/eventos', { method: 'POST', body: dados });
+  },
+  /** Envie só os campos alterados; `local: null` remove o local. */
+  atualizarEvento(id, dados) {
+    return requestMapa(`/coordenacao/eventos/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  /** "Excluir" = desativação lógica: some do mapa dos alunos e pode ser reativado. */
+  desativarEvento(id) {
+    return requestMapa(`/coordenacao/eventos/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  ativarEvento(id) {
+    return requestMapa(`/coordenacao/eventos/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+
+  /* ===== Restaurantes e cantinas (coordenação) ===== */
+  restaurantes() {
+    return requestMapa('/coordenacao/restaurantes');
+  },
+  restaurante(id) {
+    return requestMapa(`/coordenacao/restaurantes/${encodeURIComponent(id)}`);
+  },
+  /** Prédios CAFETERIA do mapa ativo, com `cadastrado` quando já há restaurante neles. */
+  sugestoesRestaurantes() {
+    return requestMapa('/coordenacao/restaurantes/sugestoes');
+  },
+  criarRestaurante(dados) {
+    return requestMapa('/coordenacao/restaurantes', { method: 'POST', body: dados });
+  },
+  /** Envie só os campos alterados; o local não pode ser removido. */
+  atualizarRestaurante(id, dados) {
+    return requestMapa(`/coordenacao/restaurantes/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  desativarRestaurante(id) {
+    return requestMapa(`/coordenacao/restaurantes/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  ativarRestaurante(id) {
+    return requestMapa(`/coordenacao/restaurantes/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+  /** Cardápios do restaurante (arquivos públicos), da vigência mais recente para a mais antiga. */
+  cardapios(restauranteId) {
+    return requestMapa(`/coordenacao/restaurantes/${encodeURIComponent(restauranteId)}/cardapios`);
+  },
+  /**
+   * Envia o arquivo do cardápio (imagem ou PDF) em multipart. O servidor grava
+   * no armazenamento público; com `substitui`, remove o cardápio antigo depois.
+   */
+  enviarCardapio(restauranteId, { arquivo, validoDe, validoAte, substitui } = {}) {
+    const body = new FormData();
+    body.append('arquivo', arquivo);
+    body.append('validoDe', validoDe);
+    body.append('validoAte', validoAte);
+    if (substitui) body.append('substitui', substitui);
+    return requestMapa(`/coordenacao/restaurantes/${encodeURIComponent(restauranteId)}/cardapios`, { method: 'POST', body });
+  },
+  /** Remove o cardápio e o arquivo (definitivo). */
+  removerCardapio(id) {
+    return requestMapa(`/coordenacao/cardapios/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 };
