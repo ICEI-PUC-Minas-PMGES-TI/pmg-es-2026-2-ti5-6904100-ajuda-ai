@@ -1,14 +1,19 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, In, Repository } from 'typeorm';
+import { ProgramaEntity } from '../programas/entities/programa.entity.js';
+import { MatchingVinculoEntity } from '../matching/entities/matching.entity.js';
 import {
   PapelParticipacao,
   ParticipacaoEntity,
   RespostasCadastro,
+  MetadadosCandidatura,
   StatusParticipacaoRegistro,
 } from './entities/participacao.entity.js';
 
@@ -16,12 +21,19 @@ export interface RegistrarCandidaturaDto {
   usuarioId: string;
   programa?: string;
   respostas?: RespostasCadastro;
+  metadados?: MetadadosCandidatura;
 }
 
 export interface CadastrarApadrinhadoDto {
   usuarioId: string;
   programa?: string;
   respostas?: RespostasCadastro;
+  /**
+   * `pendente` (padrão) enquanto o cadastro do aluno aguarda a coordenação;
+   * `em_andamento` quando o aluno já tem cadastro aprovado (novo ciclo).
+   */
+  statusInicial?: 'pendente' | 'em_andamento';
+  metadados?: MetadadosCandidatura;
 }
 
 export interface ConfirmarParticipacaoDto {
@@ -36,6 +48,7 @@ export interface ConfirmarParticipacaoDto {
 export interface RejeitarCandidaturaDto {
   usuarioId: string;
   programa?: string;
+  justificativa?: string;
 }
 
 export type SituacaoAluno =
@@ -43,7 +56,10 @@ export type SituacaoAluno =
   | 'candidatura_pendente'
   | 'candidatura_em_analise'
   | 'candidatura_rejeitada'
+  | 'candidatura_aprovada_aguardando_matching'
   | 'padrinho_ativo'
+  | 'apadrinhado_pendente'
+  | 'apadrinhado_rejeitado'
   | 'apadrinhado_aguardando'
   | 'apadrinhado_ativo'
   | 'concluido';
@@ -53,7 +69,31 @@ export class ParticipacoesService {
   constructor(
     @InjectRepository(ParticipacaoEntity)
     private readonly participacoes: Repository<ParticipacaoEntity>,
+    @InjectRepository(ProgramaEntity)
+    private readonly programas: Repository<ProgramaEntity>,
+    @Optional()
+    @InjectDataSource()
+    private readonly dados?: DataSource,
   ) {}
+
+  private repositorioVinculos(): Repository<MatchingVinculoEntity> | null {
+    return this.dados?.isInitialized
+      ? this.dados.getRepository(MatchingVinculoEntity)
+      : null;
+  }
+
+  /**
+   * Uma participação só pode apontar para um ciclo cadastrado em `programas`.
+   * Nunca cria ciclo: quem abre o ciclo é a coordenação (Programas).
+   */
+  async exigirCiclo(codigo: string): Promise<void> {
+    const existe = await this.programas.findOne({ where: { codigo } });
+    if (!existe) {
+      throw new BadRequestException(
+        `Ciclo ${codigo} não cadastrado. A coordenação precisa abrir o ciclo em Programas.`,
+      );
+    }
+  }
 
   static programaAtual(referencia = new Date()): string {
     const ano = referencia.getFullYear();
@@ -62,16 +102,28 @@ export class ParticipacoesService {
   }
 
   /** Situação consolidada do aluno a partir dos registros de um ciclo. */
-  static situacaoDe(registro: ParticipacaoEntity | null): SituacaoAluno {
+  static situacaoDe(
+    registro: ParticipacaoEntity | null,
+    vinculoValido = false,
+  ): SituacaoAluno {
     if (!registro) return 'nenhuma';
     if (registro.status === 'concluido') return 'concluido';
-    if (registro.papel === 'padrinho') return 'padrinho_ativo';
+    if (registro.status === 'nao_aprovado')
+      return registro.papel === 'apadrinhado'
+        ? 'apadrinhado_rejeitado'
+        : 'candidatura_rejeitada';
+    if (registro.papel === 'padrinho')
+      return registro.status === 'em_andamento' && vinculoValido
+        ? 'padrinho_ativo'
+        : 'candidatura_aprovada_aguardando_matching';
     if (registro.papel === 'apadrinhado') {
-      return registro.grupo?.trim()
+      if (registro.status === 'pendente') return 'apadrinhado_pendente';
+      return registro.status === 'em_andamento' && vinculoValido
         ? 'apadrinhado_ativo'
         : 'apadrinhado_aguardando';
     }
-    if (registro.status === 'nao_aprovado') return 'candidatura_rejeitada';
+    if (registro.status === 'aprovado')
+      return 'candidatura_aprovada_aguardando_matching';
     if (registro.status === 'em_analise') return 'candidatura_em_analise';
     return 'candidatura_pendente';
   }
@@ -80,6 +132,15 @@ export class ParticipacoesService {
     const id = this.normalizarUsuario(usuarioId);
     return this.participacoes.find({
       where: { usuarioId: id },
+      order: { programa: 'DESC', criadoEm: 'DESC' },
+    });
+  }
+
+  async listarPorUsuarios(usuarioIds: string[]): Promise<ParticipacaoEntity[]> {
+    const ids = [...new Set(usuarioIds.map((id) => id.trim().toLowerCase()))];
+    if (!ids.length) return [];
+    return this.participacoes.find({
+      where: { usuarioId: In(ids) },
       order: { programa: 'DESC', criadoEm: 'DESC' },
     });
   }
@@ -115,37 +176,24 @@ export class ParticipacoesService {
   }
 
   /**
-   * Registra candidatura de padrinho no ciclo atual.
-   * Idempotente: recarregar/reenviar não duplica. Enquanto a candidatura não
-   * foi decidida, reenviar atualiza as respostas (edição da candidatura).
-   * Não cria participação ativa de padrinho.
+   * Registra uma candidatura submetida no ciclo informado.
+   * Reenvio é recusado: as respostas enviadas permanecem imutáveis.
+   * O CadastroService valida inscrições/formulário dentro da transação.
    */
   async registrarCandidaturaPadrinho(
     dto: RegistrarCandidaturaDto,
   ): Promise<ParticipacaoEntity> {
     const usuarioId = this.normalizarUsuario(dto.usuarioId);
-    const programa = dto.programa?.trim() || ParticipacoesService.programaAtual();
+    const programa = dto.programa?.trim();
+    if (!programa) throw new BadRequestException('Informe o programa.');
 
-    const padrinhoAtivo = await this.participacoes.findOne({
-      where: { usuarioId, programa, papel: 'padrinho' },
-    });
-    if (padrinhoAtivo) {
-      return padrinhoAtivo;
-    }
+    const existente = await this.registroPrincipal(usuarioId, programa);
+    if (existente)
+      throw new ConflictException(
+        'Já existe inscrição neste ciclo. Respostas submetidas não podem ser editadas.',
+      );
 
-    const existente = await this.participacoes.findOne({
-      where: { usuarioId, programa, papel: 'candidato' },
-    });
-    if (existente) {
-      const editavel =
-        existente.status === 'pendente' || existente.status === 'em_analise';
-      if (editavel && dto.respostas) {
-        existente.respostas = this.limparRespostas(dto.respostas);
-        return this.participacoes.save(existente);
-      }
-      return existente;
-    }
-
+    await this.exigirCiclo(programa);
     const registro = this.participacoes.create({
       usuarioId,
       programa,
@@ -153,42 +201,45 @@ export class ParticipacoesService {
       status: 'pendente',
       apadrinhados: 0,
       inicioEm: new Date(),
-      respostas: dto.respostas ? this.limparRespostas(dto.respostas) : null,
+      respostas: {
+        ...this.limparRespostas(dto.respostas ?? {}),
+        ...(dto.metadados ? { _servidor: dto.metadados } : {}),
+      },
     });
     return this.participacoes.save(registro);
   }
 
   /**
-   * Cadastro do apadrinhado no ciclo: fica em andamento sem grupo até a
-   * coordenação confirmar o match. Idempotente; reenviar atualiza respostas
-   * enquanto ainda não há vínculo.
+   * Cadastro do apadrinhado no ciclo: nasce `pendente` (aguardando a
+   * coordenação aprovar o cadastro) e, depois de aprovado, fica em andamento
+   * sem grupo até o match. Reenvios no mesmo ciclo são recusados.
    */
   async cadastrarApadrinhado(
     dto: CadastrarApadrinhadoDto,
   ): Promise<ParticipacaoEntity> {
     const usuarioId = this.normalizarUsuario(dto.usuarioId);
-    const programa = dto.programa?.trim() || ParticipacoesService.programaAtual();
+    const programa = dto.programa?.trim();
+    if (!programa) throw new BadRequestException('Informe o programa.');
 
-    const existente = await this.participacoes.findOne({
-      where: { usuarioId, programa, papel: 'apadrinhado' },
-    });
-    if (existente) {
-      if (!existente.grupo?.trim() && dto.respostas) {
-        existente.respostas = this.limparRespostas(dto.respostas);
-        return this.participacoes.save(existente);
-      }
-      return existente;
-    }
+    const existente = await this.registroPrincipal(usuarioId, programa);
+    if (existente)
+      throw new ConflictException('Já existe inscrição neste ciclo.');
 
+    await this.exigirCiclo(programa);
     return this.participacoes.save(
       this.participacoes.create({
         usuarioId,
         programa,
         papel: 'apadrinhado',
-        status: 'em_andamento',
+        status: dto.statusInicial ?? 'pendente',
         apadrinhados: 0,
         inicioEm: new Date(),
-        respostas: dto.respostas ? this.limparRespostas(dto.respostas) : null,
+        respostas: dto.respostas
+          ? {
+              ...this.limparRespostas(dto.respostas),
+              ...(dto.metadados ? { _servidor: dto.metadados } : {}),
+            }
+          : null,
       }),
     );
   }
@@ -232,43 +283,76 @@ export class ParticipacoesService {
   }
 
   async marcarEmAnalise(id: number): Promise<ParticipacaoEntity | null> {
-    const registro = await this.participacoes.findOne({ where: { id } });
-    if (!registro || registro.papel !== 'candidato') {
-      return null;
-    }
-    if (registro.status === 'pendente') {
-      registro.status = 'em_analise';
-      return this.participacoes.save(registro);
-    }
-    return registro;
+    return this.atualizarCandidatura(id, { status: 'em_analise' });
   }
 
-  /** Aprova uma candidatura (por id) transformando-a em padrinho ativo. */
-  async aprovarCandidatura(id: number): Promise<ParticipacaoEntity> {
-    const registro = await this.buscarPorId(id);
-    if (registro.papel === 'padrinho') return registro;
-    if (registro.papel !== 'candidato') {
-      throw new BadRequestException('Apenas candidaturas podem ser aprovadas.');
-    }
-    registro.papel = 'padrinho';
-    registro.status = 'em_andamento';
-    registro.terminoEm = null;
-    registro.inicioEm ??= new Date();
-    return this.participacoes.save(registro);
+  /**
+   * Aprovação acadêmica mantém candidato/aprovado até o matching.
+   * Apadrinhados aprovados aguardam vínculo, sem permissões ativas.
+   */
+  async aprovarCandidatura(
+    id: number,
+    coordenador?: string,
+  ): Promise<ParticipacaoEntity> {
+    return this.decidir(id, 'aprovado', undefined, coordenador);
   }
 
-  /** Rejeita uma candidatura (por id). Padrinhos já aprovados não mudam. */
-  async rejeitarCandidaturaPorId(id: number): Promise<ParticipacaoEntity> {
-    const registro = await this.buscarPorId(id);
-    if (registro.papel !== 'candidato') {
+  async rejeitarCandidaturaPorId(
+    id: number,
+    justificativa?: string,
+    coordenador?: string,
+  ): Promise<ParticipacaoEntity> {
+    return this.decidir(id, 'nao_aprovado', justificativa, coordenador);
+  }
+
+  private async decidir(
+    id: number,
+    resultado: 'aprovado' | 'nao_aprovado',
+    justificativa?: string,
+    coordenador?: string,
+  ) {
+    const motivo =
+      typeof justificativa === 'string' ? justificativa.trim() : '';
+    if (resultado === 'nao_aprovado' && (!motivo || motivo.length > 1000)) {
       throw new BadRequestException(
-        'Apenas candidaturas ainda não aprovadas podem ser rejeitadas.',
+        'Justificativa de rejeição obrigatória (até 1000 caracteres).',
       );
     }
-    if (registro.status === 'nao_aprovado') return registro;
-    registro.status = 'nao_aprovado';
-    registro.terminoEm = new Date();
-    return this.participacoes.save(registro);
+    return this.participacoes.manager.transaction(async (manager) => {
+      const repo = manager.getRepository(ParticipacaoEntity);
+      const registro = await repo.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!registro)
+        throw new NotFoundException('Participação não encontrada.');
+      if (
+        !['pendente', 'em_analise'].includes(registro.status) ||
+        registro.papel === 'padrinho'
+      ) {
+        throw new ConflictException(
+          'Apenas inscrições aguardando decisão podem ser decididas.',
+        );
+      }
+      registro.status =
+        resultado === 'aprovado' && registro.papel === 'apadrinhado'
+          ? 'em_andamento'
+          : resultado;
+      registro.terminoEm = resultado === 'nao_aprovado' ? new Date() : null;
+      registro.respostas = {
+        ...registro.respostas,
+        _servidor: {
+          ...registro.respostas?._servidor,
+          decisao: {
+            resultado,
+            justificativa: motivo || null,
+            em: new Date().toISOString(),
+            por: coordenador ?? null,
+          },
+        },
+      };
+      return repo.save(registro);
+    });
   }
 
   /** Volta a candidatura para análise (ex.: "Solicitar revisão"). */
@@ -276,59 +360,355 @@ export class ParticipacoesService {
     id: number,
     dados: { status?: 'pendente' | 'em_analise'; observacoes?: string | null },
   ): Promise<ParticipacaoEntity> {
-    const registro = await this.buscarPorId(id);
-    if (dados.status) {
-      if (registro.papel !== 'candidato') {
-        throw new BadRequestException(
-          'O status só pode ser alterado em candidaturas.',
-        );
+    return this.participacoes.manager.transaction(async (manager) => {
+      const repo = manager.getRepository(ParticipacaoEntity);
+      const registro = await repo.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!registro)
+        throw new NotFoundException('Participação não encontrada.');
+      if (dados.status) {
+        if (
+          registro.papel !== 'candidato' ||
+          !['pendente', 'em_analise'].includes(registro.status)
+        ) {
+          throw new BadRequestException(
+            'Somente candidaturas sem decisão podem entrar em análise.',
+          );
+        }
+        registro.status = dados.status;
       }
-      registro.status = dados.status;
-      registro.terminoEm = null;
-    }
-    if (dados.observacoes !== undefined) {
-      const texto = dados.observacoes?.trim() ?? '';
-      registro.observacoes = texto ? texto.slice(0, 1000) : null;
-    }
-    return this.participacoes.save(registro);
+      if (dados.observacoes !== undefined)
+        registro.observacoes = dados.observacoes?.trim().slice(0, 1000) || null;
+      return repo.save(registro);
+    });
   }
 
   /** Define o vínculo apadrinhado → padrinho, criando o grupo se preciso. */
   async vincular(
     apadrinhadoId: number,
     padrinhoId: number,
-  ): Promise<{ apadrinhado: ParticipacaoEntity; padrinho: ParticipacaoEntity }> {
-    const [apadrinhado, padrinho] = await Promise.all([
-      this.buscarPorId(apadrinhadoId),
-      this.buscarPorId(padrinhoId),
-    ]);
-    if (apadrinhado.papel !== 'apadrinhado') {
-      throw new BadRequestException('Selecione um apadrinhado válido.');
-    }
-    if (padrinho.papel !== 'padrinho') {
-      throw new BadRequestException('Selecione um padrinho aprovado.');
-    }
-    if (apadrinhado.programa !== padrinho.programa) {
+  ): Promise<{
+    apadrinhado: ParticipacaoEntity;
+    padrinho: ParticipacaoEntity;
+  }> {
+    if (apadrinhadoId === padrinhoId)
+      throw new BadRequestException('Vínculo inválido.');
+    return this.participacoes.manager.transaction(async (manager) => {
+      const repo = manager.getRepository(ParticipacaoEntity);
+      const inicial = await repo.findOne({ where: { id: padrinhoId } });
+      if (!inicial) throw new NotFoundException('Candidato não encontrado.');
+      // Lock por ciclo serializa a formação e contagem dos grupos.
+      const programa = await manager.getRepository(ProgramaEntity).findOne({
+        where: { codigo: inicial.programa },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!programa || programa.etapaAtual === 'encerramento')
+        throw new BadRequestException('Ciclo indisponível para matching.');
+      const registros = [];
+      for (const id of [apadrinhadoId, padrinhoId].sort((a, b) => a - b)) {
+        registros.push(
+          await repo.findOne({
+            where: { id },
+            lock: { mode: 'pessimistic_write' },
+          }),
+        );
+      }
+      const apadrinhado = registros.find((r) => r?.id === apadrinhadoId);
+      const padrinho = registros.find((r) => r?.id === padrinhoId);
+      if (!apadrinhado || !padrinho)
+        throw new NotFoundException('Participação não encontrada.');
+      if (
+        apadrinhado.usuarioId === padrinho.usuarioId ||
+        apadrinhado.programa !== padrinho.programa ||
+        apadrinhado.papel !== 'apadrinhado' ||
+        apadrinhado.status !== 'em_andamento'
+      ) {
+        throw new BadRequestException(
+          'Selecione um apadrinhado aprovado do mesmo ciclo.',
+        );
+      }
+      const aprovado =
+        padrinho.papel === 'candidato' && padrinho.status === 'aprovado';
+      const legadoOuAtivo =
+        padrinho.papel === 'padrinho' && padrinho.status === 'em_andamento';
+      if (!aprovado && !legadoOuAtivo)
+        throw new BadRequestException('Selecione um candidato aprovado.');
+      if (apadrinhado.grupo?.trim() && apadrinhado.grupo !== padrinho.grupo) {
+        throw new ConflictException(
+          'Apadrinhado já possui vínculo. Remanejamento não disponível.',
+        );
+      }
+      if (!padrinho.grupo?.trim()) padrinho.grupo = `Grupo-${padrinho.id}`;
+      const outrosPadrinhos = await repo.find({
+        where: {
+          programa: padrinho.programa,
+          grupo: padrinho.grupo,
+          papel: 'padrinho',
+        },
+      });
+      if (outrosPadrinhos.some((r) => r.id !== padrinho.id))
+        throw new ConflictException('Grupo já pertence a outro padrinho.');
+      if (apadrinhado.grupo?.trim() && legadoOuAtivo)
+        return { apadrinhado, padrinho };
+      apadrinhado.grupo = padrinho.grupo;
+      padrinho.papel = 'padrinho';
+      padrinho.status = 'em_andamento';
+      if (aprovado) padrinho.inicioEm = new Date();
+      await repo.save(apadrinhado);
+      padrinho.apadrinhados = (
+        await repo.find({
+          where: {
+            programa: padrinho.programa,
+            grupo: padrinho.grupo,
+            papel: 'apadrinhado',
+            status: 'em_andamento',
+          },
+        })
+      ).length;
+      await repo.save(padrinho);
+      return { apadrinhado, padrinho };
+    });
+  }
+
+  /**
+   * Remove o vínculo do apadrinhado (grupo). Se o padrinho ficar sem
+   * apadrinhados, volta a candidato aprovado aguardando matching.
+   */
+  async desvincular(apadrinhadoId: number): Promise<{
+    apadrinhado: ParticipacaoEntity;
+    padrinho: ParticipacaoEntity | null;
+  }> {
+    return this.participacoes.manager.transaction(async (manager) => {
+      const repo = manager.getRepository(ParticipacaoEntity);
+      const apadrinhado = await repo.findOne({
+        where: { id: apadrinhadoId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!apadrinhado)
+        throw new NotFoundException('Participação não encontrada.');
+      if (apadrinhado.papel !== 'apadrinhado') {
+        throw new BadRequestException(
+          'Somente apadrinhados podem ter o vínculo desfeito por este fluxo.',
+        );
+      }
+      const grupo = apadrinhado.grupo?.trim();
+      if (!grupo) {
+        throw new BadRequestException('Este apadrinhado não possui vínculo.');
+      }
+      const padrinho = await repo.findOne({
+        where: {
+          programa: apadrinhado.programa,
+          grupo,
+          papel: 'padrinho',
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      apadrinhado.grupo = null;
+      await repo.save(apadrinhado);
+      if (!padrinho) return { apadrinhado, padrinho: null };
+      const restantes = (
+        await repo.find({
+          where: {
+            programa: padrinho.programa,
+            grupo,
+            papel: 'apadrinhado',
+            status: 'em_andamento',
+          },
+        })
+      ).length;
+      padrinho.apadrinhados = restantes;
+      if (restantes === 0) {
+        padrinho.papel = 'candidato';
+        padrinho.status = 'aprovado';
+        padrinho.grupo = null;
+        padrinho.inicioEm = null;
+      }
+      await repo.save(padrinho);
+      return { apadrinhado, padrinho };
+    });
+  }
+
+  /**
+   * Retira aprovação já concedida. Exige ausência de vínculo ativo; use
+   * `desvincular` antes quando houver match.
+   */
+  async revogarAprovacao(
+    id: number,
+    justificativa: string | undefined,
+    coordenador?: string,
+  ): Promise<ParticipacaoEntity> {
+    const motivo =
+      typeof justificativa === 'string' ? justificativa.trim() : '';
+    if (!motivo || motivo.length > 1000) {
       throw new BadRequestException(
-        'Apadrinhado e padrinho precisam ser do mesmo programa.',
+        'Justificativa obrigatória para revogar a aprovação (até 1000 caracteres).',
       );
     }
+    return this.participacoes.manager.transaction(async (manager) => {
+      const repo = manager.getRepository(ParticipacaoEntity);
+      const registro = await repo.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!registro)
+        throw new NotFoundException('Participação não encontrada.');
 
-    if (!padrinho.grupo?.trim()) {
-      padrinho.grupo = await this.proximoGrupo(padrinho.programa);
-    }
-    const grupoAnterior = apadrinhado.grupo?.trim();
-    apadrinhado.grupo = padrinho.grupo;
-    await this.participacoes.save(apadrinhado);
+      const candidaturaAprovada =
+        registro.papel === 'candidato' && registro.status === 'aprovado';
+      const apadrinhadoAprovado =
+        registro.papel === 'apadrinhado' && registro.status === 'em_andamento';
+      const padrinhoAtivo =
+        registro.papel === 'padrinho' && registro.status === 'em_andamento';
 
-    if (grupoAnterior && grupoAnterior !== padrinho.grupo) {
-      await this.recontarApadrinhados(padrinho.programa, grupoAnterior);
+      if (!candidaturaAprovada && !apadrinhadoAprovado && !padrinhoAtivo) {
+        throw new ConflictException(
+          'Somente aprovações vigentes podem ser revogadas.',
+        );
+      }
+
+      if (apadrinhadoAprovado && registro.grupo?.trim()) {
+        throw new ConflictException(
+          'Este apadrinhado já tem vínculo. Desfaça o vínculo antes de revogar a aprovação.',
+        );
+      }
+
+      if (padrinhoAtivo) {
+        const vinculados = registro.grupo?.trim()
+          ? (
+              await repo.find({
+                where: {
+                  programa: registro.programa,
+                  grupo: registro.grupo,
+                  papel: 'apadrinhado',
+                  status: 'em_andamento',
+                },
+              })
+            ).length
+          : 0;
+        if (vinculados > 0) {
+          throw new ConflictException(
+            'Este padrinho ainda tem apadrinhados vinculados. Desfaça os vínculos antes de revogar a aprovação.',
+          );
+        }
+        registro.papel = 'candidato';
+        registro.grupo = null;
+        registro.apadrinhados = 0;
+        registro.inicioEm = null;
+      }
+
+      registro.status = 'nao_aprovado';
+      registro.terminoEm = new Date();
+      registro.respostas = {
+        ...registro.respostas,
+        _servidor: {
+          ...registro.respostas?._servidor,
+          decisao: {
+            resultado: 'nao_aprovado',
+            justificativa: motivo,
+            em: new Date().toISOString(),
+            por: coordenador ?? null,
+          },
+        },
+      };
+      return repo.save(registro);
+    });
+  }
+
+  async temVinculoValido(
+    registro: ParticipacaoEntity | null,
+  ): Promise<boolean> {
+    const repositorioVinculos = this.repositorioVinculos();
+    if (registro && repositorioVinculos) {
+      const campo =
+        registro.papel === 'padrinho'
+          ? { padrinhoParticipacaoId: registro.id }
+          : registro.papel === 'apadrinhado'
+            ? { apadrinhadoParticipacaoId: registro.id }
+            : null;
+      if (campo) {
+        const existe = await repositorioVinculos.exists({
+          where: { ...campo, ativo: true },
+        });
+        if (existe) return true;
+      }
     }
-    padrinho.apadrinhados = (
-      await this.listarApadrinhadosDoGrupo(padrinho.programa, padrinho.grupo)
-    ).length;
-    await this.participacoes.save(padrinho);
-    return { apadrinhado, padrinho };
+    if (
+      !registro ||
+      registro.status !== 'em_andamento' ||
+      !registro.grupo?.trim()
+    )
+      return false;
+    if (!['padrinho', 'apadrinhado'].includes(registro.papel)) return false;
+    const grupo = await this.participacoes.find({
+      where: { programa: registro.programa, grupo: registro.grupo },
+    });
+    return ParticipacoesService.vinculoValido(registro, grupo);
+  }
+
+  /** Relações canônicas F11/F12; vazio permite ao chamador usar o legado. */
+  async listarVinculados(
+    registro: ParticipacaoEntity,
+  ): Promise<Array<{ participacao: ParticipacaoEntity; vinculoId: number }>> {
+    const repositorioVinculos = this.repositorioVinculos();
+    if (!repositorioVinculos) return [];
+    const comoPadrinho = registro.papel === 'padrinho';
+    const comoApadrinhado = registro.papel === 'apadrinhado';
+    if (!comoPadrinho && !comoApadrinhado) return [];
+    const vinculos = await repositorioVinculos.find({
+      where: {
+        ...(comoPadrinho
+          ? { padrinhoParticipacaoId: registro.id }
+          : { apadrinhadoParticipacaoId: registro.id }),
+        ativo: true,
+      },
+      order: { confirmadoEm: 'ASC', id: 'ASC' },
+    });
+    if (!vinculos.length) return [];
+    const ids = vinculos.map((v) =>
+      comoPadrinho ? v.apadrinhadoParticipacaoId : v.padrinhoParticipacaoId,
+    );
+    const pessoas = await this.participacoes.find({ where: { id: In(ids) } });
+    return vinculos.flatMap((v) => {
+      const id = comoPadrinho
+        ? v.apadrinhadoParticipacaoId
+        : v.padrinhoParticipacaoId;
+      const participacao = pessoas.find((p) => p.id === id);
+      return participacao ? [{ participacao, vinculoId: v.id }] : [];
+    });
+  }
+
+  static vinculoValido(
+    registro: ParticipacaoEntity,
+    grupo: ParticipacaoEntity[],
+  ): boolean {
+    if (registro.status !== 'em_andamento' || !registro.grupo?.trim())
+      return false;
+    const ativos = grupo.filter(
+      (r) =>
+        r.programa === registro.programa &&
+        r.grupo === registro.grupo &&
+        r.status === 'em_andamento',
+    );
+    const padrinhos = ativos.filter((r) => r.papel === 'padrinho');
+    if (padrinhos.length !== 1) return false;
+    return registro.papel === 'padrinho'
+      ? ativos.some(
+          (r) =>
+            r.papel === 'apadrinhado' && r.usuarioId !== registro.usuarioId,
+        )
+      : registro.papel === 'apadrinhado' &&
+          padrinhos[0].usuarioId !== registro.usuarioId;
+  }
+
+  async situacaoDoRegistro(
+    registro: ParticipacaoEntity | null,
+  ): Promise<SituacaoAluno> {
+    return ParticipacoesService.situacaoDe(
+      registro,
+      await this.temVinculoValido(registro),
+    );
   }
 
   async buscarVarios(ids: number[]): Promise<ParticipacaoEntity[]> {
@@ -337,105 +717,39 @@ export class ParticipacoesService {
   }
 
   /**
-   * Confirma ingresso efetivo no programa (aprovação / match).
-   * Idempotente por usuarioId + programa + papel.
+   * Rota legada somente confirma a leitura de um vínculo já estabelecido.
+   * Não cria participação nem aceita grupo arbitrário como matching.
    */
   async confirmarIngresso(
     dto: ConfirmarParticipacaoDto,
   ): Promise<ParticipacaoEntity> {
-    const usuarioId = this.normalizarUsuario(dto.usuarioId);
-    const papel = dto.papel;
-    if (papel !== 'padrinho' && papel !== 'apadrinhado') {
-      throw new BadRequestException('Papel inválido para ingresso.');
+    const programa = dto.programa?.trim();
+    if (!programa) throw new BadRequestException('Informe o programa.');
+    await this.exigirCiclo(programa);
+    const registro = await this.registroPrincipal(dto.usuarioId, programa);
+    if (
+      !registro ||
+      registro.papel !== dto.papel ||
+      !(await this.temVinculoValido(registro))
+    ) {
+      throw new BadRequestException(
+        'Confirme o matching pela operação de vínculos da coordenação.',
+      );
     }
-
-    const programa = dto.programa?.trim() || ParticipacoesService.programaAtual();
-
-    const existente = await this.participacoes.findOne({
-      where: { usuarioId, programa, papel },
-    });
-    if (existente) {
-      if (existente.status === 'em_analise') {
-        existente.status = 'em_andamento';
-        existente.inicioEm ??= new Date();
-        if (dto.grupo !== undefined) existente.grupo = dto.grupo;
-        if (dto.apadrinhados !== undefined) {
-          existente.apadrinhados = dto.apadrinhados;
-        }
-        return this.participacoes.save(existente);
-      }
-      return existente;
-    }
-
-    const candidatura = await this.participacoes.findOne({
-      where: { usuarioId, programa, papel: 'candidato' },
-    });
-    if (candidatura && papel === 'padrinho') {
-      candidatura.papel = 'padrinho';
-      candidatura.status = 'em_andamento';
-      candidatura.inicioEm = dto.inicioEm
-        ? new Date(dto.inicioEm)
-        : (candidatura.inicioEm ?? new Date());
-      if (dto.grupo !== undefined) candidatura.grupo = dto.grupo;
-      candidatura.apadrinhados = dto.apadrinhados ?? candidatura.apadrinhados;
-      return this.participacoes.save(candidatura);
-    }
-
-    const registro = this.participacoes.create({
-      usuarioId,
-      programa,
-      papel,
-      status: 'em_andamento' satisfies StatusParticipacaoRegistro,
-      apadrinhados: dto.apadrinhados ?? 0,
-      inicioEm: dto.inicioEm ? new Date(dto.inicioEm) : new Date(),
-    });
-    if (dto.grupo !== undefined) {
-      registro.grupo = dto.grupo;
-    }
-    return this.participacoes.save(registro);
+    return registro;
   }
 
   async rejeitarCandidatura(
     dto: RejeitarCandidaturaDto,
-  ): Promise<ParticipacaoEntity | null> {
-    const usuarioId = this.normalizarUsuario(dto.usuarioId);
-    const programa = dto.programa?.trim() || ParticipacoesService.programaAtual();
-
-    const candidatura = await this.participacoes.findOne({
-      where: { usuarioId, programa, papel: 'candidato' },
-    });
-    if (!candidatura) {
-      return null;
-    }
-    if (candidatura.status === 'nao_aprovado') {
-      return candidatura;
-    }
-
-    candidatura.status = 'nao_aprovado';
-    candidatura.terminoEm = new Date();
-    return this.participacoes.save(candidatura);
-  }
-
-  private async proximoGrupo(programa: string): Promise<string> {
-    const padrinhos = await this.listarPorPrograma({
-      programa,
-      papel: 'padrinho',
-    });
-    const usados = new Set(
-      padrinhos.map((p) => p.grupo?.trim()).filter(Boolean) as string[],
+  ): Promise<ParticipacaoEntity> {
+    if (!dto.programa?.trim())
+      throw new BadRequestException('Informe o programa.');
+    const registro = await this.registroPrincipal(
+      dto.usuarioId,
+      dto.programa.trim(),
     );
-    let numero = 1;
-    while (usados.has(`Grupo ${String(numero).padStart(2, '0')}`)) numero++;
-    return `Grupo ${String(numero).padStart(2, '0')}`;
-  }
-
-  private async recontarApadrinhados(programa: string, grupo: string) {
-    const padrinho = await this.buscarPadrinhoDoGrupo(programa, grupo);
-    if (!padrinho) return;
-    padrinho.apadrinhados = (
-      await this.listarApadrinhadosDoGrupo(programa, grupo)
-    ).length;
-    await this.participacoes.save(padrinho);
+    if (!registro) throw new NotFoundException('Candidatura não encontrada.');
+    return this.rejeitarCandidaturaPorId(registro.id, dto.justificativa);
   }
 
   /** Mantém só campos conhecidos e limita o tamanho dos textos. */
@@ -456,13 +770,18 @@ export class ParticipacoesService {
       typeof valor === 'boolean' ? valor : undefined;
     const periodo = Number(respostas.periodo);
 
-    const extras: Record<string, string | string[]> = {};
+    const extras: Record<string, string | string[] | boolean> = {};
     if (respostas.extras && typeof respostas.extras === 'object') {
-      for (const [chave, valor] of Object.entries(respostas.extras).slice(0, 30)) {
+      for (const [chave, valor] of Object.entries(respostas.extras).slice(
+        0,
+        30,
+      )) {
         if (Array.isArray(valor)) {
           extras[chave.slice(0, 60)] = lista(valor) ?? [];
         } else if (typeof valor === 'string') {
           extras[chave.slice(0, 60)] = valor.trim().slice(0, 1000);
+        } else if (typeof valor === 'boolean') {
+          extras[chave.slice(0, 60)] = valor;
         }
       }
     }
@@ -481,6 +800,14 @@ export class ParticipacoesService {
       motivacao: texto(respostas.motivacao, 500),
       experiencias: texto(respostas.experiencias, 300),
       declaraPreRequisitos: booleano(respostas.declaraPreRequisitos),
+      requisitos: Array.isArray(respostas.requisitos)
+        ? respostas.requisitos.slice(0, 20).map((r) => ({
+            id: String(r.id).slice(0, 60),
+            descricao: String(r.descricao).slice(0, 120),
+            obrigatorio: r.obrigatorio === true,
+            cumpre: r.cumpre === true,
+          }))
+        : undefined,
       expectativa: texto(respostas.expectativa, 500),
       outrasInformacoes: texto(respostas.outrasInformacoes, 300),
       extras: Object.keys(extras).length ? extras : undefined,

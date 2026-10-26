@@ -50,7 +50,7 @@ export default function UsuariosPage() {
     setParams(novos, { replace: true });
   }
 
-  const padrinhos = useMemo(() => (usuarios || []).filter((u) => u.papel === 'padrinho'), [usuarios]);
+  const padrinhos = useMemo(() => (usuarios || []).filter((u) => u.situacao === 'candidatura_aprovada_aguardando_matching' || u.situacao === 'padrinho_ativo'), [usuarios]);
   const situacoesPresentes = useMemo(() => Array.from(new Set((usuarios || []).map((u) => u.situacao))), [usuarios]);
   const lista = useMemo(() => {
     const termo = normalizar(busca.trim());
@@ -82,7 +82,7 @@ export default function UsuariosPage() {
         <button type="button" className={`summary-tile${papel === 'candidato' ? ' active' : ''}`} onClick={() => filtrar('papel', papel === 'candidato' ? '' : 'candidato')}><strong>{contagem.candidato}</strong><span>Candidatos</span></button>
         <button type="button" className={`summary-tile${papel === 'padrinho' ? ' active' : ''}`} onClick={() => filtrar('papel', papel === 'padrinho' ? '' : 'padrinho')}><strong>{contagem.padrinho}</strong><span>Padrinhos</span></button>
         <button type="button" className={`summary-tile${papel === 'apadrinhado' ? ' active' : ''}`} onClick={() => filtrar('papel', papel === 'apadrinhado' ? '' : 'apadrinhado')}><strong>{contagem.apadrinhado}</strong><span>Apadrinhados</span></button>
-        <button type="button" className={`summary-tile warn${situacao === 'apadrinhado_aguardando' ? ' active' : ''}`} onClick={() => filtrar('situacao', situacao === 'apadrinhado_aguardando' ? '' : 'apadrinhado_aguardando')}><strong>{contagem.aguardando}</strong><span>Aguardando padrinho</span></button>
+        <button type="button" className={`summary-tile warn${situacao === 'apadrinhado_aguardando' ? ' active' : ''}`} onClick={() => filtrar('situacao', situacao === 'apadrinhado_aguardando' ? '' : 'apadrinhado_aguardando')}><strong>{contagem.aguardando}</strong><span>Aguardando matching</span></button>
       </div>
 
       <div className="cand-tools users-tools">

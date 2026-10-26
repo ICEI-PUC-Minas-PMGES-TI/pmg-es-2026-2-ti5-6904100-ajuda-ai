@@ -7,9 +7,17 @@ import { AVISO_MAPA, useToast } from '../../components/Toast';
 import { EstadoCarregando, EstadoErro, PageHeader } from './partes';
 
 export default function PerfilAlunoPage() {
-  const { email, perfil, situacao, carregando, erro, recarregar } = useOutletContext();
+  const { email, perfil, situacao, carregando, erro, recarregar, resolucao } = useOutletContext();
   const mostrarToast = useToast();
   const [historico, setHistorico] = useState(null);
+  const [foto, setFoto] = useState(null);
+  const [erroFoto, setErroFoto] = useState('');
+  useEffect(() => {
+    let ativo = true;
+    api.fotoAluno().then(f => {if (ativo) {setFoto(f?.url || null); setErroFoto('');}})
+      .catch(e => {if (ativo) setErroFoto(e.message);});
+    return () => {ativo = false;};
+  }, [email]);
 
   useEffect(() => {
     let ativo = true;
@@ -20,7 +28,7 @@ export default function PerfilAlunoPage() {
   const tipo = situacao?.situacao;
   const temPadrinho = tipo === 'apadrinhado_ativo';
   const ehPadrinho = tipo === 'padrinho_ativo';
-  const ehCandidato = ['candidatura_pendente', 'candidatura_em_analise', 'candidatura_rejeitada', 'padrinho_ativo'].includes(tipo);
+  const ehCandidato = ['candidatura_pendente', 'candidatura_em_analise', 'candidatura_rejeitada', 'candidatura_aprovada_aguardando_matching', 'padrinho_ativo'].includes(tipo);
 
   const acessos = [
     temPadrinho && { to: '/aluno/padrinho', icon: 'person', label: 'Meu padrinho' },
@@ -38,8 +46,9 @@ export default function PerfilAlunoPage() {
         <Link to="/aluno/configuracoes" className="icon-link" aria-label="Configurações"><Icon name="settings" size={22} /></Link>
       </PageHeader>
 
+      <Link to="/aluno/perfil/editar" className="text-link">Editar perfil e foto</Link>
       <section className="profile-identity" aria-label="Seus dados">
-        <span className="profile-avatar" aria-hidden="true">{iniciaisDe(perfil.nome)}</span>
+        <span className="profile-avatar" aria-hidden="true">{foto ? <img src={foto} alt="" style={{width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover'}} onError={() => {setFoto(null); setErroFoto('Foto indisponível. Abra a edição de perfil para tentar novamente.');}}/> : iniciaisDe(perfil.nome)}</span>
         <div className="profile-identity-copy">
           <h2>{perfil.nome}</h2>
           <p>{perfil.curso || 'Curso não informado'}</p>
@@ -52,12 +61,13 @@ export default function PerfilAlunoPage() {
         </div>
       </section>
 
+      {erroFoto && <p role="status">Foto: {erroFoto}</p>}
       {carregando && !situacao ? (
         <EstadoCarregando texto="Carregando sua situação no programa…" />
       ) : erro && !situacao ? (
         <EstadoErro mensagem={erro} onTentar={recarregar} />
       ) : (
-        <SituacaoCard dados={situacao} perfil={perfil} />
+        <SituacaoCard dados={situacao} perfil={perfil} resolucao={resolucao} />
       )}
 
       <section className="aluno-section" aria-labelledby="jornada-titulo">
@@ -118,7 +128,7 @@ function Meta({ icon, titulo, sub }) {
   );
 }
 
-function SituacaoCard({ dados, perfil }) {
+function SituacaoCard({ dados, perfil, resolucao }) {
   const navigate = useNavigate();
   if (!dados) return null;
   const { situacao, programa, padrinho, apadrinhados, grupo } = dados;
@@ -142,12 +152,40 @@ function SituacaoCard({ dados, perfil }) {
     );
   }
 
+  if (resolucao?.candidatura) return <section className="status-card purple" aria-label="Situação no programa">
+    <h2>{resolucao.titulo}</h2><p>{resolucao.descricao}</p>
+    <p>Ciclo: {programa?.codigo}</p>{resolucao.justificativa && <p>Justificativa: {resolucao.justificativa}</p>}
+    <Link to="/aluno/candidatura">Acompanhar status</Link>
+  </section>;
+  if (situacao === 'apadrinhado_pendente' || situacao === 'apadrinhado_rejeitado') {
+    const rejeitado = situacao === 'apadrinhado_rejeitado';
+    return (
+      <section className={`status-card ${rejeitado ? 'pink' : 'purple'}`} aria-label="Situação no programa">
+        <div className="status-card-head">
+          <span className="status-card-icon" aria-hidden="true"><Icon name={rejeitado ? 'info' : 'clipboard'} size={30} /></span>
+          <div>
+            <h2>{rejeitado ? 'Cadastro não aprovado' : 'Cadastro em análise'}</h2>
+            <p>{rejeitado
+              ? `A coordenação não aprovou seu cadastro.${dados.cadastro?.motivoRejeicao ? ` Motivo: ${dados.cadastro.motivoRejeicao}` : ''}`
+              : 'Recebemos seu cadastro de apadrinhado. Ele aguarda a aprovação da coordenação.'}</p>
+          </div>
+          <Link to="/aluno/candidatura" className="icon-link" aria-label="Ver status do cadastro"><Icon name="chevron" size={20} /></Link>
+        </div>
+        <div className="status-meta">
+          {programaMeta}
+          <Meta icon="clock" titulo={rejeitado ? 'Não aprovado' : 'Aguardando aprovação'} sub="Status" />
+          <Meta icon="school" titulo={rotuloPeriodo(perfil.periodo)} sub="Seu semestre" />
+        </div>
+      </section>
+    );
+  }
+
   if (situacao === 'apadrinhado_aguardando') {
     return (
       <section className="status-card blue" aria-label="Situação no programa">
         <div className="status-card-head">
           <span className="status-card-icon" aria-hidden="true"><Icon name="userSearch" size={30} /></span>
-          <div><h2>Aguardando padrinho</h2><p>Seu cadastro no programa foi concluído. Estamos buscando o melhor match para você.</p></div>
+          <div><h2>Aprovado — aguardando matching</h2><p>Seu cadastro foi aprovado. Estamos buscando o melhor match para você.</p></div>
         </div>
         <div className="status-meta">
           {programaMeta}
@@ -238,9 +276,9 @@ function SituacaoCard({ dados, perfil }) {
       </div>
       <div className="status-actions">
         {periodo > 1 ? (
-          <button type="button" className="primary-button inline" onClick={() => navigate('/?passo=escolha')}>Quero ser padrinho <Icon name="arrow" size={17} /></button>
+          <button type="button" className="primary-button inline" disabled={!resolucao?.podePadrinho && !resolucao?.podeApadrinhado} onClick={() => navigate('/?passo=escolha')}>Quero ser padrinho <Icon name="arrow" size={17} /></button>
         ) : (
-          <button type="button" className="primary-button inline" onClick={() => navigate('/?passo=escolha')}>Quero ser apadrinhado <Icon name="arrow" size={17} /></button>
+          <button type="button" className="primary-button inline" disabled={!resolucao?.podePadrinho && !resolucao?.podeApadrinhado} onClick={() => navigate('/?passo=escolha')}>Quero ser apadrinhado <Icon name="arrow" size={17} /></button>
         )}
         <button type="button" className="ghost-button" onClick={() => navigate('/?refazer=1')}>Atualizar meu perfil</button>
       </div>

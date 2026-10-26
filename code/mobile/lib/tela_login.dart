@@ -1,74 +1,346 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_appauth/flutter_appauth.dart';
+import 'package:http/http.dart' as http;
 
 import 'coordenacao/tela_coordenacao.dart';
+import 'services/auth_api.dart';
+import 'services/microsoft_auth.dart';
+import 'sessao_usuario.dart';
 import 'tela_cadastro.dart';
+import 'tela_entrada_aluno.dart';
+import 'services/participacoes_api.dart';
 import 'theme/colors.dart';
+import 'usuarios_demo.dart';
 import 'widgets/campus_photo.dart';
-import 'widgets/login_success_transition.dart';
+
+/// Encerra qualquer sessão (demo ou Microsoft) e deixa o login como única rota.
+void encerrarSessao(
+  BuildContext context, {
+  http.Client? client,
+  String? baseUrl,
+}) {
+  SessaoUsuario.atual.limpar();
+  Navigator.of(context).pushAndRemoveUntil(
+    MaterialPageRoute<void>(
+      builder: (_) => LoginPage(client: client, baseUrl: baseUrl),
+    ),
+    (_) => false,
+  );
+}
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({
+    super.key,
+    this.obterIdToken,
+    this.client,
+    this.baseUrl,
+    this.modoDemo = kDebugMode,
+  });
+
+  /// Testes injetam o ID token. Em produção, vem do Entra ID via PKCE.
+  final Future<String> Function()? obterIdToken;
+  final http.Client? client;
+  final String? baseUrl;
+
+  /// Seletor de usuários de teste. Em release fica desligado.
+  final bool modoDemo;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
-  bool _showTransition = false;
+  bool _entrando = false;
+
+  Future<void> _entrarMicrosoft() async {
+    if (_entrando) return;
+    setState(() => _entrando = true);
+    try {
+      final obter = widget.obterIdToken ?? obterIdTokenMicrosoft;
+      final idToken = await obter();
+      final api = AuthApi(client: widget.client, baseUrl: widget.baseUrl);
+      final resultado = await api.loginMicrosoft(idToken);
+      {
+        SessaoUsuario.atual.configurarApi(
+          ParticipacoesApi(client: widget.client, baseUrl: api.baseUrl),
+        );
+      }
+      if (!mounted) return;
+
+      if (resultado.ehOnboarding) {
+        SessaoUsuario.atual.iniciarOnboarding(
+          nome: resultado.nome!,
+          email: resultado.email!,
+          token: resultado.onboardingToken!,
+        );
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(builder: (_) => const CadastroPage()),
+        );
+        return;
+      }
+
+      final sessao = resultado.sessao!;
+      var perfil = sessao.usuario;
+      try {
+        perfil = await api.meuPerfil(sessao.accessToken);
+      } catch (_) {
+        perfil = sessao.usuario;
+      }
+      if (!mounted) return;
+      SessaoUsuario.atual.assumirSessao(
+        accessToken: sessao.accessToken,
+        nome: perfil['nome'] as String? ?? sessao.nome,
+        email: perfil['email'] as String? ?? sessao.email,
+        curso: perfil['curso'] as String?,
+        periodo: (perfil['periodo'] as num?)?.toInt(),
+        turno: perfil['turno'] as String?,
+        interesses: (perfil['interesses'] as List?)
+            ?.whereType<String>()
+            .toList(),
+      );
+      final coordenador =
+          perfil['perfil'] == 'coordenador' || sessao.ehCoordenador;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute<void>(
+          builder: (_) => coordenador
+              ? TelaCoordenacao(
+                  sessaoAutenticada: sessao,
+                  client: widget.client,
+                  baseUrl: api.baseUrl,
+                )
+              : const EntradaAlunoPage(),
+        ),
+        (_) => false,
+      );
+    } on MicrosoftNaoConfigurado {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Login Microsoft indisponível'),
+          content: const Text(
+            'Falta configurar o app público no Entra ID '
+            '(MICROSOFT_CLIENT_ID, MICROSOFT_TENANT_ID e o redirect '
+            'br.pucminas.ajudaai://auth). Nenhuma conta é aberta. '
+            'Em desenvolvimento, “Entrar como usuário de teste” abre '
+            'somente as contas demo já definidas.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Entendi'),
+            ),
+          ],
+        ),
+      );
+    } on FlutterAppAuthUserCancelledException {
+      // A pessoa fechou a tela da Microsoft.
+    } catch (erro) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(erro.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _entrando = false);
+    }
+  }
+
+  Future<void> _abrirSeletorDemo() async {
+    final escolhido = await showModalBottomSheet<UsuarioDemo>(
+      context: context,
+      backgroundColor: AppColors.background,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final altura = MediaQuery.sizeOf(sheetContext).height * 0.85;
+        final grupos = <String, List<UsuarioDemo>>{};
+        for (final usuario in usuariosDemo) {
+          grupos.putIfAbsent(usuario.grupo, () => []).add(usuario);
+        }
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: altura),
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(4, 0, 4, 12),
+                  child: Text(
+                    'Usuário de teste',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      color: AppColors.ink,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                for (final grupo in grupos.entries) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
+                    child: Text(
+                      grupo.key.toUpperCase(),
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        color: AppColors.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                  ),
+                  for (final usuario in grupo.value)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Material(
+                        color: AppColors.lavender,
+                        borderRadius: BorderRadius.circular(14),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () => Navigator.of(sheetContext).pop(usuario),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        usuario.nome,
+                                        style: const TextStyle(
+                                          fontFamily: 'Inter',
+                                          color: AppColors.ink,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        usuario.papel,
+                                        style: const TextStyle(
+                                          fontFamily: 'Inter',
+                                          color: AppColors.muted,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Icon(
+                                  Icons.chevron_right,
+                                  color: AppColors.primary,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (escolhido == null || !mounted) return;
+    await _entrarDemo(escolhido);
+  }
+
+  Future<void> _entrarDemo(UsuarioDemo usuario) async {
+    if (_entrando) return;
+    setState(() => _entrando = true);
+    try {
+      final api = AuthApi(client: widget.client, baseUrl: widget.baseUrl);
+      final sessao = await api.loginDemo(usuario.email);
+      SessaoUsuario.atual.limpar();
+      {
+        SessaoUsuario.atual.configurarApi(
+          ParticipacoesApi(client: widget.client, baseUrl: api.baseUrl),
+        );
+      }
+      if (!mounted) return;
+      if (sessao.ehCoordenador) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute<void>(
+            builder: (_) => TelaCoordenacao(
+              emailDemo: usuario.email,
+              sessaoAutenticada: sessao,
+              client: widget.client,
+              baseUrl: api.baseUrl,
+            ),
+          ),
+          (_) => false,
+        );
+        return;
+      }
+      SessaoUsuario.atual.assumirSessao(
+        accessToken: sessao.accessToken,
+        nome: sessao.nome,
+        email: sessao.email,
+        curso: sessao.usuario['curso'] as String?,
+        periodo: (sessao.usuario['periodo'] as num?)?.toInt(),
+        turno: sessao.usuario['turno'] as String?,
+        interesses: (sessao.usuario['interesses'] as List?)
+            ?.whereType<String>()
+            .toList(),
+      );
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute<void>(builder: (_) => const EntradaAlunoPage()),
+        (_) => false,
+      );
+    } catch (erro) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(erro.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _entrando = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
-
-    late final Widget loginScreen;
-    loginScreen = Scaffold(
+    return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         children: [
           const _BackgroundShapes(),
-          const Positioned(left: 0, right: 0, bottom: 0, child: CampusPhoto()),
           SafeArea(
-            child: _LoginContent(
-              bottomInset: bottomInset,
-              onMicrosoftPressed: () {
-                // TODO: iniciar a transição após autenticação da Microsoft.
-                if (_showTransition) return;
-                _showTransition = true;
-                Navigator.of(context).pushReplacement(
-                  PageRouteBuilder<void>(
-                    pageBuilder: (context, animation, secondaryAnimation) =>
-                        LoginSuccessTransition(
-                          background: loginScreen,
-                          destination: const CadastroPage(),
-                        ),
-                    transitionDuration: Duration.zero,
-                  ),
+            bottom: false,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final natural = CampusPhoto.heightFor(context);
+                final foto = (constraints.maxHeight - 500).clamp(96.0, natural);
+                return Column(
+                  children: [
+                    Expanded(
+                      child: _LoginContent(
+                        modoDemo: widget.modoDemo,
+                        onMicrosoftPressed: _entrarMicrosoft,
+                        onDemoPressed: _abrirSeletorDemo,
+                      ),
+                    ),
+                    CampusPhoto(height: foto),
+                  ],
                 );
               },
-            ),
-          ),
-          // Fora do fluxo vertical para não comprimir a ilustração.
-          SafeArea(
-            child: Align(
-              alignment: Alignment.topRight,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 2, right: 6),
-                child: _LinkCoordenacao(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const TelaCoordenacao(),
-                      ),
-                    );
-                  },
-                ),
-              ),
             ),
           ),
         ],
       ),
     );
-    return loginScreen;
   }
 }
 
@@ -98,39 +370,16 @@ class _BackgroundShapes extends StatelessWidget {
   );
 }
 
-class _LinkCoordenacao extends StatelessWidget {
-  const _LinkCoordenacao({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextButton.icon(
-      onPressed: onPressed,
-      icon: const Icon(Icons.admin_panel_settings_outlined, size: 16),
-      label: const Text('Área da coordenação'),
-      style: TextButton.styleFrom(
-        foregroundColor: AppColors.primary,
-        visualDensity: VisualDensity.compact,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        textStyle: const TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-}
-
 class _LoginContent extends StatelessWidget {
   const _LoginContent({
     required this.onMicrosoftPressed,
-    required this.bottomInset,
+    required this.onDemoPressed,
+    required this.modoDemo,
   });
 
   final VoidCallback onMicrosoftPressed;
-  final double bottomInset;
+  final VoidCallback onDemoPressed;
+  final bool modoDemo;
 
   @override
   Widget build(BuildContext context) {
@@ -158,11 +407,11 @@ class _LoginContent extends StatelessWidget {
               const Expanded(child: _HeroImage()),
               SizedBox(height: aroundHero),
               _MicrosoftButton(onPressed: onMicrosoftPressed),
+              if (modoDemo) ...[
+                SizedBox(height: afterButton),
+                _EntradaDemo(onPressed: onDemoPressed),
+              ],
               SizedBox(height: afterButton),
-              SizedBox(
-                height: (CampusPhoto.heightFor(context) * 0.98 - bottomInset)
-                    .clamp(0.0, double.infinity),
-              ),
             ],
           ),
         );
@@ -217,8 +466,8 @@ class _Welcome extends StatelessWidget {
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 340),
           child: const Text(
-            'Entre com sua credencial @pucminas.edu.br\n'
-            'para acessar o Ajuda-aí.',
+            'Entre com sua conta institucional.\n'
+            'No primeiro acesso, você poderá completar seu cadastro no Ajuda-aí.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: 'Inter',
@@ -264,6 +513,55 @@ class _HeroImage extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _EntradaDemo extends StatelessWidget {
+  const _EntradaDemo({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        const Divider(height: 1, thickness: 1, color: Color(0xFFE4DFF0)),
+        const SizedBox(height: 12),
+        const Text(
+          'Modo de desenvolvimento',
+          style: TextStyle(
+            fontFamily: 'Inter',
+            color: AppColors.ink,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: OutlinedButton(
+            onPressed: onPressed,
+            style: OutlinedButton.styleFrom(
+              backgroundColor: AppColors.lavender,
+              foregroundColor: AppColors.primary,
+              side: const BorderSide(color: AppColors.primary, width: 1.4),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+            child: const Text(
+              'Entrar como usuário de teste',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -126,7 +126,8 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
     final ok = await confirmarAcaoCoord(
       context,
       titulo: 'Aprovar candidatura',
-      mensagem: '${_dados['nome']} passará a ser padrinho no programa.',
+      mensagem:
+          '${_dados['nome']} terá candidatura aprovada e aguardará matching. As atividades dependem de vínculo confirmado.',
       confirmar: 'Aprovar',
     );
     if (ok) {
@@ -135,18 +136,12 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
   }
 
   Future<void> _rejeitar() async {
-    final ok = await confirmarAcaoCoord(
-      context,
-      titulo: 'Rejeitar candidatura',
-      mensagem:
-          'A candidatura de ${_dados['nome']} será marcada como não '
-          'aprovada.',
-      confirmar: 'Rejeitar',
-      destrutiva: true,
+    final justificativa = await solicitarJustificativaCoord(context);
+    if (justificativa == null || !mounted) return;
+    await _executar(
+      (id) => widget.api.rejeitarCandidatura(id, justificativa: justificativa),
+      'Candidatura rejeitada.',
     );
-    if (ok) {
-      await _executar(widget.api.rejeitarCandidatura, 'Candidatura rejeitada.');
-    }
   }
 
   Future<void> _solicitarRevisao() => _executar(
@@ -176,6 +171,42 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
       widget.onAlterado();
       await _carregar();
     }
+  }
+
+  Future<void> _desvincular() async {
+    final id = _id;
+    if (id == null || _processando) return;
+    final ok = await confirmarAcaoCoord(
+      context,
+      titulo: 'Desfazer vínculo?',
+      mensagem:
+          'O apadrinhado voltará a aguardar matching sem padrinho definido.',
+      confirmar: 'Desfazer vínculo',
+      destrutiva: true,
+    );
+    if (!ok || !mounted) return;
+    setState(() => _processando = true);
+    try {
+      await widget.api.desvincularCandidatura(id);
+      if (!mounted) return;
+      widget.onAlterado();
+      mostrarMensagemCoord(context, 'Vínculo desfeito.');
+      await _carregar();
+    } catch (erro) {
+      if (!mounted) return;
+      mostrarMensagemCoord(context, mensagemDeErro(erro));
+    } finally {
+      if (mounted) setState(() => _processando = false);
+    }
+  }
+
+  Future<void> _revogar() async {
+    final justificativa = await solicitarJustificativaCoord(context);
+    if (justificativa == null || !mounted) return;
+    await _executar(
+      (id) => widget.api.revogarAprovacao(id, justificativa: justificativa),
+      'Aprovação revogada.',
+    );
   }
 
   static String _lista(Object? valor) =>
@@ -236,13 +267,6 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
       ),
       (Icons.layers_outlined, 'Áreas em que pode ajudar', _lista(r['areas'])),
       ...comuns,
-      (
-        Icons.assignment_turned_in_outlined,
-        'Aprovação em AEDS I e Cálculo I',
-        r['declaraPreRequisitos'] == true
-            ? 'Declara que foi aprovado em AEDS I e Cálculo I.'
-            : 'Não declarou aprovação.',
-      ),
     ];
   }
 
@@ -252,11 +276,11 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
     final extras = _respostas['extras'] is Map
         ? Map<String, dynamic>.from(_respostas['extras'] as Map)
         : const <String, dynamic>{};
-    final criterios = (dados['criterios'] as List? ?? const []).cast<Object>();
     final historico = (dados['historico'] as List? ?? const [])
         .whereType<Map>()
         .toList();
-    final aprovado = dados['papel'] == 'padrinho';
+    final aprovado =
+        dados['status'] == 'aprovado' || dados['papel'] == 'padrinho';
 
     return Column(
       children: [
@@ -327,34 +351,75 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
                 const LinearProgressIndicator(color: AppColors.primary),
               for (final (icone, titulo, valor) in _itens())
                 _ItemDetalhe(icone: icone, titulo: titulo, valor: valor),
+              if (_ehApadrinhado)
+                _ItemDetalhe(
+                  icone: Icons.verified_user_outlined,
+                  titulo: 'Declaração de 1º período',
+                  valor: _respostas['declaraPrimeiroPeriodo'] == true
+                      ? 'Declarado'
+                      : 'Envio legado — confira no sistema da faculdade',
+                ),
+              () {
+                final form = dados['formularioRespondido'];
+                if (form is! Map) {
+                  return _ItemDetalhe(
+                    icone: Icons.dynamic_form_outlined,
+                    titulo: 'Formulário respondido',
+                    valor: 'Sem versão registrada',
+                  );
+                }
+                return _ItemDetalhe(
+                  icone: Icons.dynamic_form_outlined,
+                  titulo: 'Formulário respondido',
+                  valor:
+                      'v${form['versao'] ?? '—'} · ${form['programa'] ?? dados['programa'] ?? ''}',
+                );
+              }(),
+              () {
+                final decisao = dados['decisao'];
+                if (decisao is! Map) return const SizedBox.shrink();
+                return _ItemDetalhe(
+                  icone: Icons.history,
+                  titulo: 'Registro da verificação',
+                  valor: [
+                    decisao['resultado'] == 'aprovado'
+                        ? 'Aprovado'
+                        : 'Não aprovado',
+                    if (decisao['em'] != null)
+                      'em ${formatarDataCoord(decisao['em'])}',
+                    if (decisao['por'] != null) 'por ${decisao['por']}',
+                    if (decisao['justificativa'] != null)
+                      'Justificativa: ${decisao['justificativa']}',
+                  ].join(' · '),
+                );
+              }(),
               for (final MapEntry(:key, :value) in extras.entries)
                 _ItemDetalhe(
                   icone: Icons.help_outline,
                   titulo: 'Pergunta adicional ($key)',
                   valor: value is List ? value.join(', ') : '$value',
                 ),
-              if (!_ehApadrinhado && criterios.isNotEmpty) ...[
+              if (!_ehApadrinhado) ...[
                 const SizedBox(height: 6),
-                const Text(
-                  'Critérios do programa',
-                  style: TextStyle(
+                Text(
+                  'Requisitos do ciclo ${dados['programa'] ?? ''} e declaração',
+                  style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     color: AppColors.ink,
                   ),
                 ),
                 const SizedBox(height: 4),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final criterio in criterios)
-                      Chip(
-                        label: Text('$criterio'),
-                        visualDensity: VisualDensity.compact,
-                        backgroundColor: AppColors.lavender,
-                        side: BorderSide.none,
-                      ),
-                  ],
+                RequisitosDeclaradosCoord(
+                  // detalhe: foto respondida ou requisitos do ciclo DA
+                  // candidatura (registros antigos)
+                  requisitos:
+                      (dados['requisitos'] ?? _respostas['requisitos'])
+                          as List?,
+                  respondidos:
+                      dados['requisitosRespondidos'] == true ||
+                      _respostas['requisitos'] is List,
+                  legado: _respostas['declaraPreRequisitos'] == true,
+                  periodo: (dados['periodo'] as num?)?.toInt(),
                 ),
               ],
               if (historico.isNotEmpty ||
@@ -414,8 +479,11 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
             child: _ehApadrinhado
-                ? (dados['grupo'] == null
-                      ? FilledButton.icon(
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (dados['grupo'] == null)
+                        FilledButton.icon(
                           onPressed: _processando ? null : _definirPadrinho,
                           icon: const Icon(Icons.link),
                           label: const Text('Definir padrinho'),
@@ -424,16 +492,44 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
                             minimumSize: const Size.fromHeight(48),
                           ),
                         )
-                      : Text(
+                      else ...[
+                        Text(
                           'Vinculado ao ${dados['grupo']}.',
                           textAlign: TextAlign.center,
                           style: const TextStyle(color: AppAccents.success),
-                        ))
+                        ),
+                        TextButton(
+                          onPressed: _processando ? null : _desvincular,
+                          child: const Text('Desfazer vínculo'),
+                        ),
+                      ],
+                      if (aprovado || dados['status'] == 'em_andamento')
+                        TextButton(
+                          onPressed: _processando ? null : _revogar,
+                          child: const Text(
+                            'Revogar aprovação',
+                            style: TextStyle(color: corErroCoord),
+                          ),
+                        ),
+                    ],
+                  )
                 : aprovado || !_ehCandidato
-                ? const Text(
-                    'Candidatura aprovada — o aluno já é padrinho.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: AppAccents.success),
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Candidatura aprovada. As atividades dependem do vínculo confirmado.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppAccents.success),
+                      ),
+                      TextButton(
+                        onPressed: _processando ? null : _revogar,
+                        child: const Text(
+                          'Revogar aprovação',
+                          style: TextStyle(color: corErroCoord),
+                        ),
+                      ),
+                    ],
                   )
                 : Column(
                     mainAxisSize: MainAxisSize.min,

@@ -56,6 +56,8 @@ const iconPaths = {
   history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></>,
   userSearch: <><circle cx="10" cy="8" r="3.5" /><path d="M3.5 20c.5-3.3 3-5 6.5-5 1 0 1.9.1 2.7.4" /><circle cx="17" cy="17" r="2.5" /><path d="m19 19 2 2" /></>,
   link: <><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></>,
+  calendarEvent: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M8 3v4M16 3v4M3 11h18" /><path d="m12 13.2.9 1.8 2 .3-1.45 1.4.35 2-1.8-.95-1.8.95.35-2L9.1 15.3l2-.3.9-1.8Z" /></>,
+  restaurant: <><path d="M7 3v8M4.5 3v5a2.5 2.5 0 0 0 5 0V3M7 11v10" /><path d="M17 21V3c-2.2 1.2-3.5 3.6-3.5 6.5V14H17" /></>,
 };
 
 export default function Icon({ name, size = 18, className = '' }) {

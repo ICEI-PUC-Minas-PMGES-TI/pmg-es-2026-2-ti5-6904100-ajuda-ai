@@ -9,9 +9,12 @@ import 'package:http/http.dart' as http;
 /// Override em qualquer máquina/dispositivo:
 /// `flutter run --dart-define=API_BASE_URL=http://SEU_IP:3000`
 ///
-/// Padrões:
-/// - Web / iOS simulator: localhost
-/// - Android (emulador): 10.0.2.2 (host da máquina)
+/// Padrões de desenvolvimento (sem URL de produção):
+/// - `API_BASE_URL` via --dart-define tem prioridade em qualquer plataforma.
+/// - Web: localhost. O simulador de iOS também usa localhost quando o alvo é web.
+/// - Android, inclusive o emulador: `http://10.0.2.2:3000` (o localhost da máquina).
+///   No emulador, `localhost` seria o próprio Android, não o Windows.
+/// - Celular físico: passe o IP da máquina em `API_BASE_URL`.
 const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
   defaultValue: kIsWeb ? 'http://localhost:3000' : 'http://10.0.2.2:3000',
@@ -87,7 +90,9 @@ class ApiIndisponivelException implements Exception {
   final Object? detalhe;
 
   @override
-  String toString() => 'Não foi possível conectar ao servidor.';
+  String toString() =>
+      'Não foi possível conectar ao servidor.\n'
+      'Verifique se a API está rodando e tente novamente.';
 }
 
 /// Extrai a mensagem legível do corpo `{message, error, statusCode}`.

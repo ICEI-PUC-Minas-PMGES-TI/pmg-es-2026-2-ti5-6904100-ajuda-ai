@@ -55,5 +55,6 @@ export function serializarParticipacao(item: ParticipacaoEntity) {
     criadoEm: item.criadoEm,
     atualizadoEm: item.atualizadoEm,
     respostas: item.respostas ?? null,
+    decisao: item.respostas?._servidor?.decisao ?? null,
   };
 }

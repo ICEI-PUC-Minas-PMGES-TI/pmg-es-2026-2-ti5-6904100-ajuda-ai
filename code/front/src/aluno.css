@@ -67,11 +67,22 @@
 .extras-section { margin: 6px 0 4px; padding: 12px 14px 4px; border: 1px solid var(--border); border-radius: 10px; background: #fbfaff; }
 .extras-section > legend { padding: 0 6px; color: var(--purple-deep); font-family: Poppins, Inter, sans-serif; font-weight: 800; font-size: 13px; }
 .extras-desc { margin: 0 0 8px; color: #77799b; font-size: 10px; }
+.extras-secao { margin: 10px 0 6px; padding-top: 8px; border-top: 1px solid var(--border); color: var(--purple-deep); font-size: 12px; font-weight: 800; }
+.extras-group:first-of-type .extras-secao { margin-top: 0; padding-top: 0; border-top: 0; }
+.extra-help { display: block; margin: 0 0 6px; color: #77799b; font-size: 11px; }
 .extra-field { display: flex; flex-direction: column; gap: 5px; margin: 0 0 12px; padding: 0; border: 0; min-width: 0; }
 .extra-label { padding: 0; color: #373278; font-size: 11px; font-weight: 600; line-height: 1.35; }
 .extra-req { color: #c63d66; }
 .extra-opt { color: #9495b2; font-weight: 400; }
 .extra-input { width: 100%; min-height: 37px; padding: 8px 10px; border: 1px solid #e0dffa; border-radius: 7px; color: #303062; background: #fff; font-size: 11px; }
+select.extra-input {
+  min-height: 37px;
+  padding: 0 32px 0 10px;
+  border-color: #e0dffa;
+  border-radius: 7px;
+  font-size: 11px;
+  background-position: right 10px center;
+}
 textarea.extra-input { resize: vertical; line-height: 1.45; }
 .extra-field.has-error .extra-input { border-color: #df718d; }
 .extra-checks { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -79,8 +90,6 @@ textarea.extra-input { resize: vertical; line-height: 1.45; }
 .extra-check.selected { border-color: #cfc6ff; color: #4032b0; background: #efedff; }
 .extra-check input { accent-color: var(--purple); }
 .extra-field.has-error .extra-checks { outline: 1px solid #df718d; outline-offset: 4px; border-radius: 8px; }
-.extra-upload { display: flex; align-items: center; gap: 8px; min-height: 37px; padding: 0 10px; border: 1px dashed #cfcbe3; border-radius: 7px; color: #8b89a8; background: #f6f5fb; font-size: 11px; }
-.extra-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
 /* ===================================================================
    Cadastro (complementos)
@@ -88,6 +97,9 @@ textarea.extra-input { resize: vertical; line-height: 1.45; }
 .existing-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid #cfe0ff; border-radius: 10px; color: #33427a; background: #eff5ff; font-size: 11px; line-height: 1.4; }
 .existing-notice .icon { color: #3b6ded; }
 .existing-notice span { flex: 1; min-width: 200px; }
+.cadastro-notice { margin-bottom: 18px; font-size: 13px; }
+.cadastro-notice.rejeitado { border-color: #f5c2c7; color: #7a2633; background: #fff1f2; }
+.cadastro-notice.rejeitado .icon { color: #d6455d; }
 .three-cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .prereq-box ul { margin: 6px 0 0; padding-left: 18px; }
 .prereq-box li { margin: 2px 0; }
@@ -479,3 +491,5 @@ html.a11y-sem-animacao *, html.a11y-sem-animacao *::before, html.a11y-sem-animac
 @media (max-width: 420px) {
   .topbar:not(.aluno-topbar) .account-name { display: none; }
 }
+.requisitos-declaracao { margin: 8px 0 0; padding: 0; border: 0; }
+.requisitos-declaracao legend { margin-bottom: 4px; color: #2a267d; font-size: 12px; font-weight: 700; }

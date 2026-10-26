@@ -14,7 +14,8 @@ class TelaMaisCoord extends StatelessWidget {
 
   final String nomeCoordenador;
 
-  /// Destino: formularios | usuarios | programas | comunicado | sem_vinculo.
+  /// Destino: formularios | usuarios | matching | programas | comunicado |
+  /// configuracoes | sem_vinculo.
   final ValueChanged<String> onAbrir;
   final VoidCallback onSair;
 
@@ -22,7 +23,7 @@ class TelaMaisCoord extends StatelessWidget {
     (
       Icons.dynamic_form_outlined,
       'Formulários',
-      'Perguntas adicionais dos cadastros',
+      'Perguntas adicionais das candidaturas',
       'formularios',
     ),
     (
@@ -30,6 +31,12 @@ class TelaMaisCoord extends StatelessWidget {
       'Usuários',
       'Participantes, situação e vínculos',
       'usuarios',
+    ),
+    (
+      Icons.auto_awesome_outlined,
+      'Matching',
+      'Critérios, sugestões e decisões individuais',
+      'matching',
     ),
     (
       Icons.link,
@@ -45,9 +52,15 @@ class TelaMaisCoord extends StatelessWidget {
     ),
     (
       Icons.campaign_outlined,
-      'Criar comunicado',
-      'Aviso para padrinhos e/ou apadrinhados',
+      'Comunicados',
+      'Notificações para padrinhos e/ou apadrinhados',
       'comunicado',
+    ),
+    (
+      Icons.settings_outlined,
+      'Configurações',
+      'Conta da coordenação e sessão',
+      'configuracoes',
     ),
   ];
 

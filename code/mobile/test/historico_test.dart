@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:ajuda_ai/models/ciclo_participacao.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/services/participacoes_api.dart';
 import 'package:ajuda_ai/tela_historico.dart';

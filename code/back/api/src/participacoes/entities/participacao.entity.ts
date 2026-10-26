@@ -12,15 +12,50 @@ export type PapelParticipacao = 'padrinho' | 'apadrinhado' | 'candidato';
 export type StatusParticipacaoRegistro =
   | 'pendente'
   | 'em_analise'
+  | 'aprovado'
   | 'em_andamento'
   | 'concluido'
   | 'nao_aprovado';
+
+/** Resposta do candidato a um requisito do ciclo (foto do momento do envio). */
+export interface RequisitoRespondido {
+  id: string;
+  descricao: string;
+  obrigatorio: boolean;
+  /** Declaração do próprio aluno (não há verificação no histórico da PUC). */
+  cumpre: boolean;
+}
 
 /**
  * Dados enviados pelo aluno no cadastro. Todos opcionais porque registros
  * antigos (e a semente demo) podem não ter respostas.
  */
+export interface MetadadosCandidatura {
+  /**
+   * Foto do formulário respondido: perguntas exatas e versão. Ausente em
+   * envios antigos e quando não havia formulário publicado.
+   */
+  formulario?: {
+    id: number | null;
+    programa: string;
+    /** Público do formulário; ausente nos envios anteriores à F06. */
+    tipo?: 'padrinho' | 'apadrinhado';
+    /** Versão respondida; ausente nos envios anteriores à F06. */
+    versao?: number;
+    perguntas: unknown[];
+    atualizadoEm: Date | null;
+  };
+  decisao?: {
+    resultado: 'aprovado' | 'nao_aprovado';
+    justificativa: string | null;
+    em: string;
+    por: string | null;
+  };
+}
+
 export interface RespostasCadastro {
+  /** Exclusivo do servidor. Nunca copiado do payload do aluno. */
+  _servidor?: MetadadosCandidatura;
   nome?: string;
   curso?: string;
   periodo?: number;
@@ -35,13 +70,23 @@ export interface RespostasCadastro {
   motivacao?: string;
   /** Padrinho: experiências relevantes. */
   experiencias?: string;
-  /** Padrinho: declara ter cumprido os pré-requisitos. */
+  /**
+   * LEGADO: declaração única de pré-requisitos dos registros antigos.
+   * Os envios novos usam `requisitos` (configurados por ciclo).
+   */
   declaraPreRequisitos?: boolean;
+  /** Padrinho: requisitos do ciclo e a declaração do candidato para cada um. */
+  requisitos?: RequisitoRespondido[];
   /** Apadrinhado: o que espera do padrinho. */
   expectativa?: string;
   outrasInformacoes?: string;
+  /**
+   * Apadrinhado: declaração explícita de que está no 1º período / é calouro
+   * elegível ao programa.
+   */
+  declaraPrimeiroPeriodo?: boolean;
   /** Respostas às perguntas extras do formulário publicado (id → valor). */
-  extras?: Record<string, string | string[]>;
+  extras?: Record<string, string | string[] | boolean>;
 }
 
 @Entity({ name: 'participacoes' })
@@ -70,13 +115,13 @@ export class ParticipacaoEntity {
   status!: StatusParticipacaoRegistro;
 
   @Column({ name: 'grupo', type: 'varchar', length: 40, nullable: true })
-  grupo!: string;
+  grupo!: string | null;
 
   @Column({ type: 'int', default: 0 })
   apadrinhados!: number;
 
   @Column({ name: 'inicio_em', type: 'timestamptz', nullable: true })
-  inicioEm!: Date;
+  inicioEm!: Date | null;
 
   @Column({ name: 'termino_em', type: 'timestamptz', nullable: true })
   terminoEm!: Date | null;

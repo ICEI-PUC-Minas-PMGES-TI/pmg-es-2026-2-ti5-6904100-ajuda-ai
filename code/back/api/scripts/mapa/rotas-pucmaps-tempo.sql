@@ -1,0 +1,14 @@
+-- Referência TEMPO para test/mapa-rotas.pucmaps.spec.ts (somente leitura).
+-- Roda no banco do PUCMaps (docker `pucmaps-postgres`, que tem pgRouting),
+-- NUNCA no Ajuda-aí: o Ajuda-aí não instala pgRouting.
+--
+-- Mesmo critério do código atual do PUCMaps (commit 69b2de0,
+-- dijkstra.strategy.ts): pgr_dijkstra dirigido, custo walkingTimeSeconds,
+-- acessível = só arestas accessible. Todos os pares nó → nó da versão 12.
+--
+-- Uso (Git Bash):
+--   MSYS_NO_PATHCONV=1 docker exec -i pucmaps-postgres \
+--     psql -U pucmaps -d pucmaps -v ON_ERROR_STOP=1 -At \
+--     < scripts/mapa/rotas-pucmaps-tempo.sql > /tmp/pgr_tempo.csv
+-- Colunas: origem, destino, acessivel (0/1), distancia_m, tempo_s, nos.
+\copy (WITH nos AS (SELECT array_agg("routingId") a FROM graph_nodes WHERE "mapVersionId" = 'c8eaec70-bbfa-4380-8abd-52a9b600e65b'), r AS (SELECT false AS acc, p.* FROM nos, pgr_dijkstra('SELECT e."routingId" AS id, n1."routingId" AS source, n2."routingId" AS target, e."walkingTimeSeconds" AS cost FROM graph_edges e JOIN graph_nodes n1 ON e."fromNodeId" = n1.id AND e."mapVersionId" = n1."mapVersionId" JOIN graph_nodes n2 ON e."toNodeId" = n2.id AND e."mapVersionId" = n2."mapVersionId" WHERE e."mapVersionId" = ''c8eaec70-bbfa-4380-8abd-52a9b600e65b''', nos.a, nos.a, directed := true) p UNION ALL SELECT true, p.* FROM nos, pgr_dijkstra('SELECT e."routingId" AS id, n1."routingId" AS source, n2."routingId" AS target, e."walkingTimeSeconds" AS cost FROM graph_edges e JOIN graph_nodes n1 ON e."fromNodeId" = n1.id AND e."mapVersionId" = n1."mapVersionId" JOIN graph_nodes n2 ON e."toNodeId" = n2.id AND e."mapVersionId" = n2."mapVersionId" WHERE e."mapVersionId" = ''c8eaec70-bbfa-4380-8abd-52a9b600e65b'' AND e.accessible = true', nos.a, nos.a, directed := true) p) SELECT ns.id, nd.id, r.acc::int, sum(e."distanceMeters"), max(r.agg_cost)::int, count(*) FROM r JOIN graph_nodes ns ON ns."routingId" = r.start_vid JOIN graph_nodes nd ON nd."routingId" = r.end_vid LEFT JOIN graph_edges e ON e."routingId" = r.edge GROUP BY ns.id, nd.id, r.acc ORDER BY 1, 2, 3) TO STDOUT WITH (FORMAT csv)

@@ -103,13 +103,13 @@ class _ApadrinhamentoConfigPageState extends State<ApadrinhamentoConfigPage> {
           ),
         ),
         const SizedBox(height: 12),
-        if (status == StatusParticipacao.padrinhoEmAnalise ||
-            status == StatusParticipacao.padrinhoRejeitado)
+        if (status.candidatura)
           _Acao(
             icone: Icons.fact_check_outlined,
             titulo: 'Status da candidatura',
             onTap: () => _abrir(const StatusCandidaturaPage()),
           ),
+        // Só com cadastro aprovado (pendente/rejeitado não têm padrinho).
         if (status == StatusParticipacao.apadrinhadoAtivo ||
             status == StatusParticipacao.apadrinhadoAguardandoMatch)
           _Acao(

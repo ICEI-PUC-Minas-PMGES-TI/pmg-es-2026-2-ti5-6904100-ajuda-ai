@@ -9,9 +9,8 @@ import 'package:http/testing.dart';
 
 void main() {
   // Resposta real de GET /coordenacao/dashboard (seed da API).
-  final dashboard = File(
-    'test/fixtures/coordenacao_dashboard.json',
-  ).readAsStringSync();
+  final dashboard = File('test/fixtures/coordenacao_dashboard.json')
+      .readAsStringSync();
   final api = CoordenacaoApi(
     accessToken: 'teste',
     client: MockClient(
@@ -42,9 +41,9 @@ void main() {
               home: Scaffold(
                 body: TelaDashboardCoord(
                   api: api,
-                  programa: null,
+                  programa: '2026/2',
                   onProgramaChanged: (_) {},
-                  onVerCandidaturas: ({status}) {},
+                  onVerCandidaturas: ({status, publico}) {},
                   onAbrirDestino: (_, _) {},
                 ),
               ),

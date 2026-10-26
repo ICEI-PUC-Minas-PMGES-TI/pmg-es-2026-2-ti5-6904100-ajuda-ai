@@ -104,6 +104,22 @@ class _ParticipacaoPageState extends State<ParticipacaoPage> {
       return;
     }
 
+    final sessao = SessaoUsuario.atual;
+    if (_escolha != null &&
+        _escolha != Participacao.explorar &&
+        !(_escolha == Participacao.padrinho
+            ? sessao.podeCandidatarPadrinho
+            : sessao.podeCandidatarApadrinhado)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Inscrição indisponível neste ciclo. Consulte seu perfil.',
+          ),
+        ),
+      );
+      return;
+    }
+
     switch (_escolha) {
       case null:
         ScaffoldMessenger.of(context)
@@ -153,6 +169,36 @@ class _ParticipacaoPageState extends State<ParticipacaoPage> {
           titulo: 'Como você quer participar?',
           subtitulo: 'Escolha a opção que mais combina com você neste momento.',
         ),
+        if (SessaoUsuario.atual.programas.isNotEmpty)
+          DropdownButton<String>(
+            hint: const Text('Selecione o ciclo'),
+            value:
+                SessaoUsuario.atual.programas.any(
+                  (p) => p['codigo'] == SessaoUsuario.atual.programaAtual,
+                )
+                ? SessaoUsuario.atual.programaAtual
+                : null,
+            items: SessaoUsuario.atual.programas
+                .map(
+                  (p) => DropdownMenuItem(
+                    value: p['codigo'] as String,
+                    child: Text('${p['titulo']}'),
+                  ),
+                )
+                .toList(),
+            onChanged: (codigo) async {
+              if (codigo == null) return;
+              try {
+                await SessaoUsuario.atual.selecionarPrograma(codigo);
+                if (mounted) setState(() {});
+              } catch (erro) {
+                if (mounted) {
+                  ScaffoldMessenger.of(this.context)
+                      .showSnackBar(SnackBar(content: Text('$erro')));
+                }
+              }
+            },
+          ),
         const SizedBox(height: 18),
         for (final opcao in Participacao.values)
           _CardOpcao(

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -8,18 +9,25 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
+import { CadastroService } from '../cadastro/cadastro.service.js';
+import { RejeitarCadastroDto } from '../cadastro/dto/rejeitar-cadastro.dto.js';
 import { CoordenacaoService } from './coordenacao.service.js';
 
 @Controller('coordenacao')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('coordenador')
 export class CoordenacaoController {
-  constructor(private readonly coordenacaoService: CoordenacaoService) {}
+  constructor(
+    private readonly coordenacaoService: CoordenacaoService,
+    private readonly cadastroService: CadastroService,
+  ) {}
 
   @Get('dashboard')
   dashboard(@Query('programa') programa?: string) {
@@ -45,8 +53,11 @@ export class CoordenacaoController {
   }
 
   @Post('candidaturas/acoes')
-  acaoEmMassa(@Body() corpo: { ids?: unknown; acao?: string }) {
-    return this.coordenacaoService.acaoEmMassa(corpo);
+  acaoEmMassa(
+    @Req() requisicao: AuthenticatedRequest,
+    @Body() corpo: { ids?: unknown; acao?: string; justificativa?: string },
+  ) {
+    return this.coordenacaoService.acaoEmMassa(corpo, requisicao.user.email);
   }
 
   @Get('candidaturas/:id')
@@ -63,13 +74,88 @@ export class CoordenacaoController {
   }
 
   @Post('candidaturas/:id/aprovar')
-  aprovar(@Param('id', ParseIntPipe) id: number) {
-    return this.coordenacaoService.aprovarCandidatura(id);
+  aprovar(
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.coordenacaoService.aprovarCandidatura(
+      id,
+      requisicao.user.email,
+    );
   }
 
   @Post('candidaturas/:id/rejeitar')
-  rejeitar(@Param('id', ParseIntPipe) id: number) {
-    return this.coordenacaoService.rejeitarCandidatura(id);
+  rejeitar(
+    @Body() corpo: { justificativa?: string },
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.coordenacaoService.rejeitarCandidatura(
+      id,
+      requisicao.user.email,
+      corpo.justificativa,
+    );
+  }
+
+  @Post('candidaturas/:id/desvincular')
+  desvincular(@Param('id', ParseIntPipe) id: number) {
+    return this.coordenacaoService.desvincularCandidatura(id);
+  }
+
+  @Post('candidaturas/:id/revogar')
+  revogar(
+    @Body() corpo: { justificativa?: string },
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.coordenacaoService.revogarAprovacao(
+      id,
+      requisicao.user.email,
+      corpo.justificativa,
+    );
+  }
+
+  /* ===== Solicitações de cadastro (padrinhos e apadrinhados) ===== */
+
+  /** `status=pendente|aprovado|rejeitado`; sem status, todos. */
+  @Get('cadastros')
+  cadastros(
+    @Query('status') status?: string,
+    @Query('programa') programa?: string,
+  ) {
+    return this.cadastroService.listar(status, programa);
+  }
+
+  @Get('cadastros/:id')
+  cadastro(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('programa') programa?: string,
+  ) {
+    return this.cadastroService.detalhar(id, programa);
+  }
+
+  @Post('cadastros/:id/aprovar')
+  aprovarCadastro(
+    @Query('programa') programa: string | undefined,
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.cadastroService.aprovar(id, requisicao.user.email, programa);
+  }
+
+  @Post('cadastros/:id/rejeitar')
+  rejeitarCadastro(
+    @Query('programa') programa: string | undefined,
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() corpo: RejeitarCadastroDto,
+  ) {
+    return this.cadastroService.rejeitar(
+      id,
+      corpo.motivo,
+      requisicao.user.email,
+      programa,
+    );
   }
 
   @Get('usuarios')
@@ -91,8 +177,17 @@ export class CoordenacaoController {
   }
 
   @Post('programas')
-  criarPrograma(@Body() corpo: { codigo?: string }) {
-    return this.coordenacaoService.criarNovoCiclo(corpo.codigo);
+  criarPrograma(@Body() corpo: { codigo?: string } & Record<string, unknown>) {
+    return this.coordenacaoService.criarNovoCiclo(corpo.codigo, corpo);
+  }
+
+  /** O código contém barra; segue o padrão PATCH com ?codigo=AAAA/semestre. */
+  @Delete('programas')
+  excluirPrograma(
+    @Query('codigo') codigo: string,
+    @Body() corpo: { confirmacao?: unknown },
+  ) {
+    return this.coordenacaoService.excluirPrograma(codigo, corpo?.confirmacao);
   }
 
   /** O código tem barra (2026/2), então vem em query: ?codigo=2026/2 */
@@ -102,6 +197,51 @@ export class CoordenacaoController {
     @Body() corpo: Record<string, unknown>,
   ) {
     return this.coordenacaoService.atualizarPrograma(codigo ?? '', corpo);
+  }
+
+  @Get('formularios')
+  formularios(@Query('programa') programa?: string) {
+    return this.coordenacaoService.listarFormularios(programa);
+  }
+
+  @Delete('formularios/:tipo')
+  excluirFormulario(
+    @Param('tipo') tipo: string,
+    @Query('programa') programa?: string,
+  ) {
+    return this.coordenacaoService.excluirFormulario(tipo, programa);
+  }
+
+  @Post('formularios/:tipo/encerrar')
+  encerrarFormulario(
+    @Param('tipo') tipo: string,
+    @Body() corpo: { programa?: string },
+  ) {
+    return this.coordenacaoService.encerrarFormulario(tipo, corpo?.programa);
+  }
+
+  @Post('formularios/:tipo/duplicar')
+  duplicarFormulario(
+    @Param('tipo') tipo: string,
+    @Body() corpo: { programaOrigem?: string; programaDestino?: string },
+  ) {
+    return this.coordenacaoService.duplicarFormulario(tipo, corpo ?? {});
+  }
+
+  @Get('formularios/:tipo/respostas')
+  respostasFormulario(
+    @Param('tipo') tipo: string,
+    @Query('programa') programa?: string,
+  ) {
+    return this.coordenacaoService.respostasFormulario(tipo, programa);
+  }
+
+  @Get('formularios/:tipo/respostas/por-pergunta')
+  respostasPorPergunta(
+    @Param('tipo') tipo: string,
+    @Query('programa') programa?: string,
+  ) {
+    return this.coordenacaoService.respostasPorPergunta(tipo, programa);
   }
 
   @Get('formularios/:tipo')
