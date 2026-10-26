@@ -18,19 +18,40 @@ export function repositorioEmMemoria<
       return atual === valor;
     });
 
+  type Filtro = Record<string, unknown> | Record<string, unknown>[];
+  /** `where` em lista = OU entre os filtros, como no TypeORM. */
+  const atende = (registro: T, where?: Filtro) =>
+    Array.isArray(where)
+      ? where.some((w) => corresponde(registro, w))
+      : corresponde(registro, where);
+
+  const salvar = async (entidade: T) => {
+    if (!entidade.id) {
+      entidade.id = proximoId++;
+      entidade.criadoEm = new Date(Date.now() + entidade.id);
+      registros.push(entidade);
+    }
+    const anterior = registros.find((r) => r.id === entidade.id);
+    if (anterior && anterior !== entidade) Object.assign(anterior, entidade);
+    entidade.atualizadoEm = new Date();
+    return entidade;
+  };
+
   const repo = {
     create: (dados: Partial<T>) => ({ ...dados }) as T,
-    save: async (entidade: T) => {
-      if (!entidade.id) {
-        entidade.id = proximoId++;
-        entidade.criadoEm = new Date(Date.now() + entidade.id);
-        registros.push(entidade);
-      }
-      const anterior = registros.find((r) => r.id === entidade.id);
-      if (anterior && anterior !== entidade) Object.assign(anterior, entidade);
-      entidade.atualizadoEm = new Date();
-      return entidade;
+    save: async (entidade: T | T[]) =>
+      Array.isArray(entidade)
+        ? Promise.all(entidade.map((e) => salvar(e)))
+        : salvar(entidade),
+    update: async (where: Record<string, unknown>, dados: Partial<T>) => {
+      const alvos = registros.filter((r) => corresponde(r, where));
+      for (const alvo of alvos) Object.assign(alvo, dados);
+      return { affected: alvos.length };
     },
+    count: async (opcoes?: { where?: Filtro }) =>
+      registros.filter((r) => atende(r, opcoes?.where)).length,
+    exists: async (opcoes?: { where?: Filtro }) =>
+      registros.some((r) => atende(r, opcoes?.where)),
     delete: async (where: Record<string, unknown>) => {
       let affected = 0;
       for (let i = registros.length - 1; i >= 0; i--) {
@@ -41,8 +62,8 @@ export function repositorioEmMemoria<
       }
       return { affected };
     },
-    find: async (opcoes?: { where?: Record<string, unknown> }) =>
-      registros.filter((r) => corresponde(r, opcoes?.where)),
+    find: async (opcoes?: { where?: Filtro }) =>
+      registros.filter((r) => atende(r, opcoes?.where)),
     findOne: async (opcoes: { where: Record<string, unknown> }) =>
       registros.find((r) => corresponde(r, opcoes.where)) ?? null,
   } as unknown as Repository<T>;

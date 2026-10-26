@@ -4,6 +4,8 @@ import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import { textoResposta } from '../../components/PerguntasAdicionais';
 import { Avatar, badgeClass, dataCurta, DefinirPadrinho, RequisitosDeclarados } from './comum';
+import ConferenciaAcademica, { conferenciaLiberaAprovacao, justificativaDaConferencia } from './ConferenciaAcademica';
+import VinculosAtivos from './VinculosAtivos';
 
 function simNao(valor) {
   if (valor === true) return 'Sim';
@@ -119,6 +121,19 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
   const formRespondido = detalhe.formularioRespondido;
   const decisao = detalhe.decisao;
   const podeRevogar = aprovada && !rejeitada;
+  const temVinculos = (detalhe.vinculos?.length ?? 0) > 0;
+  const liberada = conferenciaLiberaAprovacao(detalhe.conferencia);
+
+  function aoMudarConferenciaOuVinculo(atualizado, mensagem) {
+    if (atualizado) setDetalhe((atual) => ({ ...atualizado, observacoes: atual?.observacoes ?? atualizado.observacoes }));
+    else carregar();
+    onAtualizado?.(atualizado, mensagem);
+  }
+
+  function abrirRejeicao() {
+    if (!justificativa.trim()) setJustificativa(justificativaDaConferencia(detalhe.conferencia));
+    setConfirmarRejeicao(true);
+  }
 
   return (
     <article className="cand-detail" aria-labelledby={`cand-${id}-nome`}>
@@ -146,6 +161,11 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
 
       <div className={`detail-grid${ehApadrinhado ? ' is-apadrinhado' : ''}`}>
         <div className="detail-main">
+          <ConferenciaAcademica
+            participacaoId={id}
+            conferencia={detalhe.conferencia}
+            onRegistrada={(atualizado) => aoMudarConferenciaOuVinculo(atualizado, `Conferência acadêmica de ${detalhe.nome} registrada.`)}
+          />
           {!ehApadrinhado && (
             <>
               <Bloco icon="checkCircle" titulo="Requisitos do ciclo e declaração do candidato" extra={<span className="detail-note">Programa {detalhe.programa}</span>}>
@@ -220,7 +240,9 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
           {modoApadrinhado || ehApadrinhado ? (
             <section className="detail-block">
               <h3><Icon name="link" size={17} /> Vínculo</h3>
-              {detalhe.grupo ? (
+              {temVinculos ? (
+                <p className="detail-muted">Padrinho definido. Veja os vínculos ativos abaixo.</p>
+              ) : detalhe.grupo ? (
                 <>
                   <p className="detail-text">Já vinculado ao {detalhe.grupo}.</p>
                   <div className="decision-buttons">
@@ -258,7 +280,7 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
               )}
               {podeRevogar && (
                 <div className="decision-buttons" style={{ marginTop: 12 }}>
-                  <button type="button" className="decision reject" disabled={Boolean(acao)} onClick={() => setConfirmarRevogar(true)}>
+                  <button type="button" className="decision reject" disabled={Boolean(acao) || temVinculos} title={temVinculos ? 'Encerre os vínculos ativos antes de revogar.' : undefined} onClick={() => setConfirmarRevogar(true)}>
                     <Icon name="close" size={17} /> Revogar aprovação
                   </button>
                 </div>
@@ -280,28 +302,37 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
                 <option value="em_analise">Em análise</option>
               </select>
               <div className="decision-buttons">
-                <button type="button" className="decision approve" disabled={aprovada || Boolean(acao)} onClick={() => executar('aprovar', () => api.aprovarCandidatura(id), `Candidatura de ${detalhe.nome} aprovada.`)}>
+                <button type="button" className="decision approve" disabled={aprovada || Boolean(acao) || (!decidida && !liberada)} onClick={() => executar('aprovar', () => api.aprovarCandidatura(id), `Candidatura de ${detalhe.nome} aprovada.`)}>
                   <Icon name="check" size={17} /> {acao === 'aprovar' ? 'Aprovando…' : aprovada ? 'Aprovada' : 'Aprovar candidatura'}
                 </button>
-                <button type="button" className="decision reject" disabled={decidida || Boolean(acao)} onClick={() => setConfirmarRejeicao(true)}>
+                <button type="button" className="decision reject" disabled={decidida || Boolean(acao)} onClick={abrirRejeicao}>
                   <Icon name="close" size={17} /> {rejeitada ? 'Rejeitada' : 'Rejeitar candidatura'}
                 </button>
                 <button type="button" className="decision review" disabled={decidida || detalhe.status === 'em_analise' || Boolean(acao)} onClick={() => executar('revisao', () => api.atualizarCandidatura(id, { status: 'em_analise' }), 'Candidatura marcada para revisão (em análise).')}>
                   <Icon name="refresh" size={17} /> {acao === 'revisao' ? 'Enviando…' : 'Solicitar revisão'}
                 </button>
                 {podeRevogar && (
-                  <button type="button" className="decision reject" disabled={Boolean(acao)} onClick={() => setConfirmarRevogar(true)}>
+                  <button type="button" className="decision reject" disabled={Boolean(acao) || temVinculos} title={temVinculos ? 'Encerre os vínculos ativos antes de revogar.' : undefined} onClick={() => setConfirmarRevogar(true)}>
                     <Icon name="close" size={17} /> Revogar aprovação
                   </button>
                 )}
               </div>
+              {!decidida && !liberada && (
+                <p className="detail-muted small">
+                  {detalhe.conferencia?.verificacao
+                    ? 'A conferência registrou requisitos obrigatórios não atendidos: aprovação bloqueada.'
+                    : 'Registre a conferência acadêmica com os requisitos atendidos para liberar a aprovação.'}
+                </p>
+              )}
               {decidida && <p className="detail-muted small">{aprovada ? detalhe.status === 'aprovado' ? 'Candidatura aprovada. Aguardando matching; atividade depende do vínculo confirmado.' : 'Vínculo confirmado neste ciclo.' : 'Candidatura rejeitada neste ciclo.'}</p>}
             </section>
           )}
 
+          <VinculosAtivos detalhe={detalhe} onAlterado={aoMudarConferenciaOuVinculo} />
+
           {decisao && (
             <section className="detail-block">
-              <h3><Icon name="history" size={17} /> Registro da verificação</h3>
+              <h3><Icon name="history" size={17} /> Registro da decisão</h3>
               <dl className="detail-facts">
                 <div><dt>Resultado</dt><dd>{decisao.resultado === 'aprovado' ? 'Aprovado' : 'Não aprovado'}</dd></div>
                 <div><dt>Data</dt><dd>{decisao.em ? dataCurta(decisao.em) : '—'}</dd></div>

@@ -15,6 +15,7 @@ import {
   COLUNAS_CATALOGO_CRITERIOS,
   TABELAS_CATALOGO_CRITERIOS,
 } from './1792600000000-CatalogoCriteriosMatching.js';
+import { VerificacaoAcademicaParticipacoes1792700000000 } from './1792700000000-VerificacaoAcademicaParticipacoes.js';
 
 /** QueryRunner falso: responde o catálogo com as colunas dadas e grava o SQL. */
 function runner(colunas: Array<[string, string]>) {
@@ -297,5 +298,58 @@ describe('CatalogoCriteriosMatching', () => {
     const completo = runnerTabelas([...TABELAS_CATALOGO_CRITERIOS]);
     await migration.up(completo.qr);
     expect(completo.executado).toEqual([]);
+  });
+});
+
+describe('VerificacaoAcademicaParticipacoes', () => {
+  const migration = new VerificacaoAcademicaParticipacoes1792700000000();
+
+  it('adiciona participacoes.verificacao (jsonb, opcional)', async () => {
+    const { qr, executado } = runner([]);
+    await migration.up(qr);
+    expect(executado).toEqual([
+      'ALTER TABLE "feed"."participacoes" ADD "verificacao" jsonb',
+    ]);
+  });
+
+  it('banco criado por synchronize: reconhece a coluna e não altera nada', async () => {
+    const { qr, executado } = runner([['participacoes', 'verificacao']]);
+    await migration.up(qr);
+    expect(executado).toEqual([]);
+  });
+
+  describe('rollback', () => {
+    const comConferencias = (usados: number) => {
+      const executado: string[] = [];
+      const qr = {
+        connection: { options: { schema: 'feed' } },
+        query: async (sql: string) => {
+          executado.push(sql);
+          return sql.startsWith('SELECT count') ? [{ usados }] : [];
+        },
+      } as unknown as QueryRunner;
+      return { qr, executado };
+    };
+
+    afterEach(() => {
+      delete process.env.MIGRATION_DOWN_DESCARTAR_DADOS;
+    });
+
+    it('recusa descartar conferências já registradas', async () => {
+      const { qr, executado } = comConferencias(3);
+      await expect(migration.down(qr)).rejects.toThrow(/Rollback recusado/);
+      expect(executado).toHaveLength(1);
+    });
+
+    it('sem conferências, remove a coluna; com a variável, descarta mesmo assim', async () => {
+      const vazio = comConferencias(0);
+      await migration.down(vazio.qr);
+      expect(vazio.executado[1]).toMatch(/DROP COLUMN "verificacao"/);
+
+      process.env.MIGRATION_DOWN_DESCARTAR_DADOS = 'true';
+      const forcado = comConferencias(3);
+      await migration.down(forcado.qr);
+      expect(forcado.executado).toHaveLength(2);
+    });
   });
 });

@@ -238,8 +238,9 @@ export const api = {
   dashboard(programa) {
     return request(`/coordenacao/dashboard${query({ programa })}`);
   },
-  candidaturas(programa, status) {
-    return request(`/coordenacao/candidaturas${query({ programa, status })}`);
+  /** papel: candidato|apadrinhado; conferencia: pendente|requisitos_atendidos|requisitos_nao_atendidos. */
+  candidaturas(programa, status, { papel, conferencia } = {}) {
+    return request(`/coordenacao/candidaturas${query({ programa, status, papel, conferencia })}`);
   },
   candidatura(id) {
     return request(`/coordenacao/candidaturas/${id}`);
@@ -258,6 +259,13 @@ export const api = {
   },
   revogarAprovacao(id, justificativa) {
     return request(`/coordenacao/candidaturas/${id}/revogar`, { method: 'POST', body: { justificativa } });
+  },
+  /** Conferência acadêmica (F09): itens = [{ id, atende }]. Devolve o detalhe atualizado. */
+  registrarVerificacao(id, itens, observacoes) {
+    return request(`/coordenacao/candidaturas/${id}/verificacao`, { method: 'PUT', body: { itens, observacoes } });
+  },
+  encerrarVinculo(id, vinculoId) {
+    return request(`/coordenacao/candidaturas/${id}/vinculos/${vinculoId}/encerrar`, { method: 'POST' });
   },
   cadastros(status, programa) {
     return request(`/coordenacao/cadastros${query({ status, programa })}`);

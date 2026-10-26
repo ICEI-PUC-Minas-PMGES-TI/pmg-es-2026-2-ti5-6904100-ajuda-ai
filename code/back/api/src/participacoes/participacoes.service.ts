@@ -6,9 +6,12 @@ import {
   Optional,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
-import { MatchingVinculoEntity } from '../matching/entities/matching.entity.js';
+import {
+  MatchingSugestaoEntity,
+  MatchingVinculoEntity,
+} from '../matching/entities/matching.entity.js';
 import {
   PapelParticipacao,
   ParticipacaoEntity,
@@ -16,6 +19,14 @@ import {
   MetadadosCandidatura,
   StatusParticipacaoRegistro,
 } from './entities/participacao.entity.js';
+import {
+  acrescentarVerificacao,
+  EntradaVerificacao,
+  exigirConferenciaParaAprovar,
+  ItemConferencia,
+  itensDaConferencia,
+  montarVerificacao,
+} from './verificacao-academica.js';
 
 export interface RegistrarCandidaturaDto {
   usuarioId: string;
@@ -80,6 +91,69 @@ export class ParticipacoesService {
     return this.dados?.isInitialized
       ? this.dados.getRepository(MatchingVinculoEntity)
       : null;
+  }
+
+  /** Tabelas do matching (F11/F12) só existem com o banco real conectado. */
+  private matchingDisponivel(): boolean {
+    return Boolean(this.dados?.isInitialized);
+  }
+
+  /**
+   * Itens da conferência acadêmica do registro. Padrinho usa a foto dos
+   * requisitos respondida no envio; envios antigos usam os do ciclo.
+   */
+  async itensDaConferencia(
+    registro: ParticipacaoEntity,
+  ): Promise<ItemConferencia[]> {
+    if (registro.papel === 'apadrinhado') {
+      return itensDaConferencia('apadrinhado');
+    }
+    const requisitos =
+      registro.respostas?.requisitos ??
+      (await this.programas.findOne({ where: { codigo: registro.programa } }))
+        ?.requisitosPadrinho ??
+      [];
+    return itensDaConferencia(registro.papel, requisitos);
+  }
+
+  /**
+   * Registra a conferência feita no sistema da faculdade. Só vale antes da
+   * decisão; a candidatura a padrinho nova passa a "em análise".
+   */
+  async registrarVerificacao(
+    id: number,
+    entrada: EntradaVerificacao,
+    coordenador?: string,
+  ): Promise<ParticipacaoEntity> {
+    return this.participacoes.manager.transaction(async (manager) => {
+      const repo = manager.getRepository(ParticipacaoEntity);
+      const registro = await repo.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!registro)
+        throw new NotFoundException('Participação não encontrada.');
+      if (
+        registro.papel === 'padrinho' ||
+        !['pendente', 'em_analise'].includes(registro.status)
+      ) {
+        throw new ConflictException(
+          'A conferência acadêmica é registrada antes da decisão. Esta inscrição já foi decidida.',
+        );
+      }
+      const verificacao = montarVerificacao(
+        await this.itensDaConferencia(registro),
+        entrada,
+        coordenador,
+      );
+      registro.verificacao = acrescentarVerificacao(
+        registro.verificacao,
+        verificacao,
+      );
+      if (registro.papel === 'candidato' && registro.status === 'pendente')
+        registro.status = 'em_analise';
+      return repo.save(registro);
+    });
   }
 
   /**
@@ -334,6 +408,12 @@ export class ParticipacoesService {
           'Apenas inscrições aguardando decisão podem ser decididas.',
         );
       }
+      if (resultado === 'aprovado') {
+        exigirConferenciaParaAprovar(
+          registro.verificacao,
+          await this.itensDaConferencia(registro),
+        );
+      }
       registro.status =
         resultado === 'aprovado' && registro.papel === 'apadrinhado'
           ? 'em_andamento'
@@ -473,8 +553,9 @@ export class ParticipacoesService {
   }
 
   /**
-   * Remove o vínculo do apadrinhado (grupo). Se o padrinho ficar sem
-   * apadrinhados, volta a candidato aprovado aguardando matching.
+   * Desfaz os vínculos do apadrinhado: encerra os pares do matching (F11/F12)
+   * e limpa o grupo legado. O padrinho que ficar sem apadrinhados volta a
+   * candidato aprovado aguardando matching.
    */
   async desvincular(apadrinhadoId: number): Promise<{
     apadrinhado: ParticipacaoEntity;
@@ -493,41 +574,187 @@ export class ParticipacoesService {
           'Somente apadrinhados podem ter o vínculo desfeito por este fluxo.',
         );
       }
+      const canonicos = this.matchingDisponivel()
+        ? await manager.getRepository(MatchingVinculoEntity).find({
+            where: { apadrinhadoParticipacaoId: apadrinhado.id, ativo: true },
+          })
+        : [];
       const grupo = apadrinhado.grupo?.trim();
-      if (!grupo) {
+      if (!grupo && !canonicos.length) {
         throw new BadRequestException('Este apadrinhado não possui vínculo.');
       }
-      const padrinho = await repo.findOne({
-        where: {
-          programa: apadrinhado.programa,
-          grupo,
-          papel: 'padrinho',
-        },
-        lock: { mode: 'pessimistic_write' },
-      });
-      apadrinhado.grupo = null;
-      await repo.save(apadrinhado);
-      if (!padrinho) return { apadrinhado, padrinho: null };
-      const restantes = (
-        await repo.find({
-          where: {
-            programa: padrinho.programa,
-            grupo,
-            papel: 'apadrinhado',
-            status: 'em_andamento',
-          },
-        })
-      ).length;
-      padrinho.apadrinhados = restantes;
-      if (restantes === 0) {
-        padrinho.papel = 'candidato';
-        padrinho.status = 'aprovado';
-        padrinho.grupo = null;
-        padrinho.inicioEm = null;
+      let padrinho: ParticipacaoEntity | null = null;
+      for (const vinculo of canonicos) {
+        padrinho = (await this.encerrarPar(manager, vinculo)).padrinho;
       }
-      await repo.save(padrinho);
+      if (grupo && apadrinhado.grupo?.trim()) {
+        const doGrupo = await repo.findOne({
+          where: {
+            programa: apadrinhado.programa,
+            grupo,
+            papel: 'padrinho',
+          },
+          lock: { mode: 'pessimistic_write' },
+        });
+        apadrinhado.grupo = null;
+        await repo.save(apadrinhado);
+        if (doGrupo) padrinho = await this.recalcularPadrinho(manager, doGrupo);
+      }
       return { apadrinhado, padrinho };
     });
+  }
+
+  /**
+   * Encerra um vínculo do matching ligado à participação. É o tratamento
+   * exigido antes de retirar uma aprovação que já foi usada.
+   */
+  async encerrarVinculo(
+    participacaoId: number,
+    vinculoId: number,
+  ): Promise<{
+    apadrinhado: ParticipacaoEntity | null;
+    padrinho: ParticipacaoEntity | null;
+  }> {
+    if (!this.matchingDisponivel()) {
+      throw new BadRequestException(
+        'Vínculos do matching indisponíveis neste ambiente.',
+      );
+    }
+    return this.participacoes.manager.transaction(async (manager) => {
+      const vinculo = await manager
+        .getRepository(MatchingVinculoEntity)
+        .findOne({
+          where: { id: vinculoId },
+          lock: { mode: 'pessimistic_write' },
+        });
+      if (
+        !vinculo ||
+        (vinculo.padrinhoParticipacaoId !== participacaoId &&
+          vinculo.apadrinhadoParticipacaoId !== participacaoId)
+      ) {
+        throw new NotFoundException(
+          'Vínculo não encontrado para esta participação.',
+        );
+      }
+      if (!vinculo.ativo)
+        throw new ConflictException('Este vínculo já foi encerrado.');
+      const programa = await manager
+        .getRepository(ProgramaEntity)
+        .findOne({ where: { id: vinculo.programaId } });
+      if (programa?.etapaAtual === 'encerramento') {
+        throw new BadRequestException(
+          'Programa encerrado: os vínculos são históricos.',
+        );
+      }
+      return this.encerrarPar(manager, vinculo);
+    });
+  }
+
+  /** Encerra o par canônico e recalcula o padrinho, na transação do chamador. */
+  private async encerrarPar(
+    manager: EntityManager,
+    vinculo: MatchingVinculoEntity,
+  ): Promise<{
+    apadrinhado: ParticipacaoEntity | null;
+    padrinho: ParticipacaoEntity | null;
+  }> {
+    const repo = manager.getRepository(ParticipacaoEntity);
+    const pessoas: ParticipacaoEntity[] = [];
+    for (const id of [
+      vinculo.padrinhoParticipacaoId,
+      vinculo.apadrinhadoParticipacaoId,
+    ].sort((a, b) => a - b)) {
+      const pessoa = await repo.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (pessoa) pessoas.push(pessoa);
+    }
+    const apadrinhado =
+      pessoas.find((p) => p.id === vinculo.apadrinhadoParticipacaoId) ?? null;
+    let padrinho =
+      pessoas.find((p) => p.id === vinculo.padrinhoParticipacaoId) ?? null;
+    vinculo.ativo = false;
+    vinculo.encerradoEm = new Date();
+    await manager.getRepository(MatchingVinculoEntity).save(vinculo);
+    // Par legado convertido pela migration F11/F12: o grupo também é desfeito.
+    if (
+      apadrinhado?.grupo?.trim() &&
+      padrinho?.grupo?.trim() &&
+      apadrinhado.grupo === padrinho.grupo
+    ) {
+      apadrinhado.grupo = null;
+      await repo.save(apadrinhado);
+    }
+    if (padrinho) padrinho = await this.recalcularPadrinho(manager, padrinho);
+    return { apadrinhado, padrinho };
+  }
+
+  /**
+   * Conta os apadrinhados do padrinho (pares do matching + grupo legado).
+   * Sem nenhum, volta a candidato aprovado aguardando matching.
+   */
+  private async recalcularPadrinho(
+    manager: EntityManager,
+    padrinho: ParticipacaoEntity,
+  ): Promise<ParticipacaoEntity> {
+    const repo = manager.getRepository(ParticipacaoEntity);
+    const ids = new Set<number>();
+    if (this.matchingDisponivel()) {
+      const pares = await manager.getRepository(MatchingVinculoEntity).find({
+        where: { padrinhoParticipacaoId: padrinho.id, ativo: true },
+      });
+      for (const par of pares) ids.add(par.apadrinhadoParticipacaoId);
+    }
+    if (padrinho.grupo?.trim()) {
+      const doGrupo = await repo.find({
+        where: {
+          programa: padrinho.programa,
+          grupo: padrinho.grupo,
+          papel: 'apadrinhado',
+          status: 'em_andamento',
+        },
+      });
+      for (const item of doGrupo) ids.add(item.id);
+    }
+    padrinho.apadrinhados = ids.size;
+    if (ids.size === 0 && padrinho.papel === 'padrinho') {
+      padrinho.papel = 'candidato';
+      padrinho.status = 'aprovado';
+      padrinho.grupo = null;
+      padrinho.inicioEm = null;
+    }
+    return repo.save(padrinho);
+  }
+
+  /** Sugestões pendentes deixam de valer quando a aprovação é retirada. */
+  private async retirarDoMatching(
+    manager: EntityManager,
+    registro: ParticipacaoEntity,
+  ): Promise<void> {
+    if (!this.matchingDisponivel()) return;
+    const sugestoes = manager.getRepository(MatchingSugestaoEntity);
+    const pendentes = await sugestoes.find({
+      where: [
+        { padrinhoParticipacaoId: registro.id, status: 'pendente' },
+        { apadrinhadoParticipacaoId: registro.id, status: 'pendente' },
+      ],
+    });
+    if (!pendentes.length) return;
+    for (const sugestao of pendentes) {
+      sugestao.status = 'obsoleta';
+      sugestao.motivoDecisao =
+        'Aprovação da candidatura revogada pela coordenação.';
+    }
+    await sugestoes.save(pendentes);
+    for (const programaId of new Set(pendentes.map((s) => s.programaId))) {
+      const restantes = await sugestoes.count({
+        where: { programaId, status: 'pendente' },
+      });
+      await manager
+        .getRepository(ProgramaEntity)
+        .update({ id: programaId }, { matchingPendente: restantes > 0 });
+    }
   }
 
   /**
@@ -566,6 +793,24 @@ export class ParticipacoesService {
         throw new ConflictException(
           'Somente aprovações vigentes podem ser revogadas.',
         );
+      }
+
+      if (this.matchingDisponivel()) {
+        const ativos = await manager
+          .getRepository(MatchingVinculoEntity)
+          .count({
+            where: {
+              ...(apadrinhadoAprovado
+                ? { apadrinhadoParticipacaoId: registro.id }
+                : { padrinhoParticipacaoId: registro.id }),
+              ativo: true,
+            },
+          });
+        if (ativos > 0) {
+          throw new ConflictException(
+            `Esta aprovação já foi usada no matching (${ativos} vínculo(s) ativo(s)). Encerre os vínculos antes de revogar a aprovação.`,
+          );
+        }
       }
 
       if (apadrinhadoAprovado && registro.grupo?.trim()) {
@@ -612,7 +857,9 @@ export class ParticipacoesService {
           },
         },
       };
-      return repo.save(registro);
+      const salvo = await repo.save(registro);
+      await this.retirarDoMatching(manager, salvo);
+      return salvo;
     });
   }
 

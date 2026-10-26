@@ -7,6 +7,7 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
+import type { RegistroVerificacao } from '../verificacao-academica.js';
 
 export type PapelParticipacao = 'padrinho' | 'apadrinhado' | 'candidato';
 export type StatusParticipacaoRegistro =
@@ -133,6 +134,13 @@ export class ParticipacaoEntity {
   /** Anotações privadas da coordenação sobre a candidatura. */
   @Column({ type: 'text', nullable: true })
   observacoes!: string | null;
+
+  /**
+   * Conferência acadêmica (F09) registrada pela coordenação. Fica fora de
+   * `respostas` para não ser devolvida ao aluno junto com o formulário.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  verificacao!: RegistroVerificacao | null;
 
   @CreateDateColumn({ name: 'criado_em', type: 'timestamptz' })
   criadoEm!: Date;

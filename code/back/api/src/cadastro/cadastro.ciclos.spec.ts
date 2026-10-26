@@ -10,6 +10,7 @@ import {
   type RespostasCadastro,
 } from '../participacoes/entities/participacao.entity.js';
 import { ParticipacoesService } from '../participacoes/participacoes.service.js';
+import { conferirTudo } from '../../test/helpers/conferencia-academica.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ProgramasService } from '../programas/programas.service.js';
 import { UsuarioEntity } from '../usuarios/entities/usuario.entity.js';
@@ -139,6 +140,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
 
   async function aprovadoEm2026_2() {
     const { participacao } = await cadastro.registrar(padrinho('2026/2'));
+    await conferirTudo(participacoesService, participacao.id);
     await coordenacao.aprovarCandidatura(participacao.id, COORD);
     expect(usuario().statusCadastro).toBe('aprovado');
     return usuario().analisadoEm;
@@ -318,6 +320,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
 
   it('aprovação inicial decide somente a candidatura', async () => {
     const { participacao } = await cadastro.registrar(padrinho('2026/2'));
+    await conferirTudo(participacoesService, participacao.id);
     await coordenacao.aprovarCandidatura(participacao.id, COORD);
     expect(usuario()).toMatchObject({
       statusCadastro: 'aprovado',
@@ -368,8 +371,20 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     });
 
     const { participacao: f2 } = await cadastro.registrar(padrinho('2027/2'));
+    // Aprovação em massa também exige a conferência acadêmica (F09).
+    const semConferencia = await coordenacao.acaoEmMassa(
+      { ids: [f2.id], acao: 'aprovar' },
+      COORD,
+    );
+    expect(semConferencia.sucesso).toBe(0);
+    expect(semConferencia.falhas[0].erro).toMatch(/conferência acadêmica/);
+    // a falha desfaz a transação: relê o registro em vez de usar `f2`
+    const atual = () => participacoes.find((p) => p.id === f2.id)!;
+    expect(atual().status).toBe('pendente');
+
+    await conferirTudo(participacoesService, f2.id);
     await coordenacao.acaoEmMassa({ ids: [f2.id], acao: 'aprovar' }, COORD);
-    expect(f2).toMatchObject({ papel: 'candidato', status: 'aprovado' });
+    expect(atual()).toMatchObject({ papel: 'candidato', status: 'aprovado' });
     expect(usuario()).toMatchObject({
       statusCadastro: 'aprovado',
       analisadoEm,
@@ -402,6 +417,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       programa: '2026/2',
       respostas: respostasApadrinhado,
     });
+    await conferirTudo(participacoesService, participacao.id);
     await cadastro.aprovar(u.id, COORD);
     expect(participacao.status).toBe('em_andamento');
     return { usuario: u, apadrinhado: participacao };
@@ -440,6 +456,8 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     await apadrinhadoAprovadoEm2026_2();
     const analisadoEm = usuario().analisadoEm;
     const { participacao } = await cadastro.registrar(padrinho('2027/1', 2));
+
+    await conferirTudo(participacoesService, participacao.id);
 
     await coordenacao.aprovarCandidatura(participacao.id, COORD);
 
@@ -497,5 +515,132 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       status: 'pendente',
     });
     expect(participacoes).toHaveLength(2);
+  });
+
+  /* ---------- F09: verificação acadêmica e aprovação ---------- */
+
+  const ITENS_2026_2 = [
+    'matricula_ativa',
+    'periodo_minimo',
+    'programa:calculo-i',
+  ];
+  const marcar = (naoAtende: string[] = []) =>
+    ITENS_2026_2.map((id) => ({ id, atende: !naoAtende.includes(id) }));
+
+  it('F09: detalhe traz os dados para conferência e os itens do papel e do programa', async () => {
+    const { participacao } = await cadastro.registrar(padrinho('2026/2'));
+    const detalhe = await coordenacao.detalharCandidatura(participacao.id);
+    expect(detalhe.conferencia.itens.map((i) => i.id)).toEqual(ITENS_2026_2);
+    expect(detalhe.conferencia).toMatchObject({
+      verificacao: null,
+      anteriores: [],
+      podeRegistrar: true,
+      dadosParaConsulta: {
+        nome: 'Veterano',
+        email: EMAIL,
+        curso: 'SI',
+        periodo: 4,
+        programa: '2026/2',
+        papel: 'Candidato a padrinho',
+      },
+    });
+    expect(detalhe.vinculos).toEqual([]);
+  });
+
+  it('F09: registra a conferência e só aprova com os requisitos atendidos', async () => {
+    const { participacao } = await cadastro.registrar(padrinho('2026/2'));
+    await expect(
+      coordenacao.aprovarCandidatura(participacao.id, COORD),
+    ).rejects.toThrow(/conferência acadêmica/);
+
+    const naoAtende = await coordenacao.registrarVerificacao(
+      participacao.id,
+      {
+        itens: marcar(['programa:calculo-i']),
+        observacoes: 'Histórico sem Cálculo I.',
+      },
+      COORD,
+    );
+    expect(naoAtende.status).toBe('em_analise');
+    expect(naoAtende.conferencia.verificacao).toMatchObject({
+      resultado: 'requisitos_nao_atendidos',
+      observacoes: 'Histórico sem Cálculo I.',
+      por: COORD,
+    });
+    expect(
+      Number.isNaN(Date.parse(naoAtende.conferencia.verificacao!.em)),
+    ).toBe(false);
+    await expect(
+      coordenacao.aprovarCandidatura(participacao.id, COORD),
+    ).rejects.toThrow(/não atendidos/);
+
+    // "situação da análise" na listagem
+    const comPendencia = await coordenacao.listarCandidaturas(
+      '2026/2',
+      undefined,
+      'candidato',
+      'requisitos_nao_atendidos',
+    );
+    expect(comPendencia.map((c) => [c.id, c.conferencia])).toEqual([
+      [participacao.id, 'requisitos_nao_atendidos'],
+    ]);
+    expect(
+      await coordenacao.listarCandidaturas(
+        '2026/2',
+        undefined,
+        'candidato',
+        'pendente',
+      ),
+    ).toEqual([]);
+
+    const corrigida = await coordenacao.registrarVerificacao(
+      participacao.id,
+      { itens: marcar() },
+      COORD,
+    );
+    expect(corrigida.conferencia.verificacao?.resultado).toBe(
+      'requisitos_atendidos',
+    );
+    expect(corrigida.conferencia.anteriores).toHaveLength(1);
+
+    const aprovada = await coordenacao.aprovarCandidatura(
+      participacao.id,
+      COORD,
+    );
+    expect(aprovada).toMatchObject({
+      status: 'aprovado',
+      conferencia: { podeRegistrar: false },
+      decisao: { resultado: 'aprovado', por: COORD },
+    });
+  });
+
+  it('F09: lista candidaturas por papel e valida os filtros', async () => {
+    await cadastro.registrar(padrinho('2026/2'));
+    await cadastro.registrar({
+      email: 'calouro@pucminas.edu.br',
+      nome: 'Calouro',
+      curso: 'SI',
+      periodo: 1,
+      tipoParticipacao: 'apadrinhado',
+      programa: '2026/2',
+      respostas: respostasApadrinhado,
+    });
+    const apadrinhados = await coordenacao.listarCandidaturas(
+      '2026/2',
+      'aguardando',
+      'apadrinhado',
+    );
+    expect(apadrinhados.map((c) => [c.papel, c.email])).toEqual([
+      ['apadrinhado', 'calouro@pucminas.edu.br'],
+    ]);
+    expect(
+      (await coordenacao.listarCandidaturas('2026/2')).map((c) => c.papel),
+    ).toEqual(['candidato']);
+    await expect(
+      coordenacao.listarCandidaturas('2026/2', undefined, 'coordenador'),
+    ).rejects.toThrow(/Papel inválido/);
+    await expect(
+      coordenacao.listarCandidaturas('2026/2', undefined, undefined, 'talvez'),
+    ).rejects.toThrow(/Conferência inválida/);
   });
 });

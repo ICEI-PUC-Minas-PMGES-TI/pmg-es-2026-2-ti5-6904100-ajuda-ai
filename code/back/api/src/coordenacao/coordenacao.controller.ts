@@ -34,10 +34,13 @@ export class CoordenacaoController {
     return this.coordenacaoService.obterDashboard(programa);
   }
 
+  /** Filtros: programa, papel (candidato|apadrinhado), status e conferencia. */
   @Get('candidaturas')
   candidaturas(
     @Query('programa') programa?: string,
     @Query('status') status?: string,
+    @Query('papel') papel?: string,
+    @Query('conferencia') conferencia?: string,
   ) {
     const ciclo = programa?.trim();
     if (!ciclo) {
@@ -46,10 +49,17 @@ export class CoordenacaoController {
         return this.coordenacaoService.listarCandidaturas(
           dash.programa.codigo,
           status,
+          papel,
+          conferencia,
         );
       });
     }
-    return this.coordenacaoService.listarCandidaturas(ciclo, status);
+    return this.coordenacaoService.listarCandidaturas(
+      ciclo,
+      status,
+      papel,
+      conferencia,
+    );
   }
 
   @Post('candidaturas/acoes')
@@ -71,6 +81,28 @@ export class CoordenacaoController {
     @Body() corpo: { status?: string; observacoes?: string | null },
   ) {
     return this.coordenacaoService.atualizarCandidatura(id, corpo);
+  }
+
+  /** Conferência acadêmica: `{ itens: [{ id, atende }], observacoes? }`. */
+  @Put('candidaturas/:id/verificacao')
+  registrarVerificacao(
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() corpo: { itens?: unknown; observacoes?: unknown },
+  ) {
+    return this.coordenacaoService.registrarVerificacao(
+      id,
+      corpo,
+      requisicao.user.email,
+    );
+  }
+
+  @Post('candidaturas/:id/vinculos/:vinculoId/encerrar')
+  encerrarVinculo(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('vinculoId', ParseIntPipe) vinculoId: number,
+  ) {
+    return this.coordenacaoService.encerrarVinculo(id, vinculoId);
   }
 
   @Post('candidaturas/:id/aprovar')

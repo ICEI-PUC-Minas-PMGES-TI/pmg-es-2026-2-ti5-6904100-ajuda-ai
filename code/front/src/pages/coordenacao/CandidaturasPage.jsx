@@ -7,6 +7,7 @@ import { useToast } from '../../components/Toast';
 import CadastroDetalhe from './CadastroDetalhe';
 import CandidaturaDetalhe from './CandidaturaDetalhe';
 import { Avatar, badgeClass, dataCurta, ROTULO_STATUS_CADASTRO, statusCadastroTom } from './comum';
+import { conferenciaTom, ROTULO_CONFERENCIA } from './ConferenciaAcademica';
 
 const PUBLICOS = [
   { valor: 'padrinho', rotulo: 'Padrinhos' },
@@ -28,6 +29,14 @@ const FILTROS_APADRINHADO = [
   { valor: 'sem_vinculo', rotulo: 'Sem vínculo' },
   { valor: 'aprovado', rotulo: 'Aprovados' },
   { valor: 'rejeitado', rotulo: 'Rejeitados' },
+];
+
+/** Situação da conferência acadêmica (F09), filtrada na lista de padrinhos. */
+const FILTROS_CONFERENCIA = [
+  { valor: '', rotulo: 'Conferência: todas' },
+  { valor: 'pendente', rotulo: 'Conferência pendente' },
+  { valor: 'requisitos_atendidos', rotulo: 'Requisitos atendidos' },
+  { valor: 'requisitos_nao_atendidos', rotulo: 'Requisitos não atendidos' },
 ];
 
 const ACOES_MASSA = {
@@ -62,6 +71,10 @@ export default function CandidaturasPage() {
     ? statusParam
     : 'pendente';
   const statusPadrinho = FILTROS_PADRINHO.some((f) => f.valor === statusParam) ? statusParam : '';
+  const conferenciaParam = params.get('conferencia') || '';
+  const filtroConferencia = !modoApadrinhado && FILTROS_CONFERENCIA.some((f) => f.valor === conferenciaParam)
+    ? conferenciaParam
+    : '';
 
   const [itens, setItens] = useState([]);
   const [erro, setErro] = useState('');
@@ -126,12 +139,15 @@ export default function CandidaturasPage() {
 
   const filtrados = useMemo(() => {
     const termo = normalizar(busca.trim());
-    if (!termo) return itens;
-    return itens.filter((item) =>
+    const porConferencia = filtroConferencia
+      ? itens.filter((item) => (filtroConferencia === 'pendente' ? !item.conferencia : item.conferencia === filtroConferencia))
+      : itens;
+    if (!termo) return porConferencia;
+    return porConferencia.filter((item) =>
       [item.nome, item.curso, item.email, item.periodo ? `${item.periodo}º período` : '', item.periodo]
         .some((campo) => normalizar(campo).includes(termo)),
     );
-  }, [itens, busca]);
+  }, [itens, busca, filtroConferencia]);
 
   function atualizarParam(chave, valor, extras = {}) {
     const novos = new URLSearchParams(params);
@@ -238,6 +254,15 @@ export default function CandidaturasPage() {
               {filtros.map((f) => <option key={f.valor || 'todas'} value={f.valor}>{f.rotulo}</option>)}
             </select>
           </label>
+          {!modoApadrinhado && (
+            <label className="filter-select cand-conferencia-filtro">
+              <Icon name="userSearch" size={16} />
+              <span className="sr-only">Filtrar pela conferência acadêmica</span>
+              <select value={filtroConferencia} onChange={(e) => atualizarParam('conferencia', e.target.value)}>
+                {FILTROS_CONFERENCIA.map((f) => <option key={f.valor || 'todas'} value={f.valor}>{f.rotulo}</option>)}
+              </select>
+            </label>
+          )}
         </div>
         <div className="filter-chips" role="group" aria-label="Filtrar por status">
           {filtros.map((f) => (
@@ -340,6 +365,11 @@ export default function CandidaturasPage() {
                     </span>
                   </span>
                   <span>{item.curso}{item.periodo ? ` • ${item.periodo}º período` : ''}</span>
+                  {!modoApadrinhado && item.papel === 'candidato' && ['pendente', 'em_analise'].includes(item.status) && (
+                    <span className={`status-pill cand-conferencia ${conferenciaTom(item.conferencia)}`}>
+                      {item.conferencia ? ROTULO_CONFERENCIA[item.conferencia] : 'Conferência pendente'}
+                    </span>
+                  )}
                   <small>
                     {modoSemVinculo || modoCadastroApadrinhado
                       ? `Cadastro em ${dataCurta(item.criadoEm)}`
@@ -386,7 +416,13 @@ export default function CandidaturasPage() {
       {confirmacao && (
         <Modal
           titulo={`${ACOES_MASSA[confirmacao].rotulo} ${marcados.length} candidatura(s)?`}
-          descricao={confirmacao === 'rejeitar' ? 'As candidaturas selecionadas serão marcadas como não aprovadas. Candidaturas já aprovadas não podem ser rejeitadas.' : 'A ação será aplicada a todas as candidaturas selecionadas.'}
+          descricao={
+            confirmacao === 'rejeitar'
+              ? 'As candidaturas selecionadas serão marcadas como não aprovadas. Candidaturas já aprovadas não podem ser rejeitadas.'
+              : confirmacao === 'aprovar'
+                ? 'Só são aprovadas as candidaturas com conferência acadêmica registrada e requisitos atendidos; as demais aparecem como falha.'
+                : 'A ação será aplicada a todas as candidaturas selecionadas.'
+          }
           onFechar={() => !processando && setConfirmacao(null)}
           acoes={(
             <>

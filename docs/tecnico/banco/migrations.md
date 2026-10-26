@@ -59,6 +59,11 @@ Migrations não publicam GLBs nem importam conteúdo administrativo.
   A unicidade parcial impede duplicar um par ativo; FKs apontam para programa,
   participações, execução e configuração. O rollback recusa dados sem
   `MIGRATION_DOWN_DESCARTAR_DADOS=true`.
+- `VerificacaoAcademicaParticipacoes`: `participacoes.verificacao` (jsonb)
+  com a conferência acadêmica da F09 (itens conferidos, resultado,
+  observações, responsável, data e histórico). Fica fora de `respostas` para
+  não voltar ao aluno. Reconhece bancos de `synchronize` e recusa `down` se
+  houver conferências registradas.
 
 Modelos e regras têm fonte em [dados geoespaciais](../mapa/dados-geo.md),
 [PucStops](../mapa/pucstops.md), [XP](../gamificacao/xp.md) e

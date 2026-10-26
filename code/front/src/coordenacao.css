@@ -542,3 +542,28 @@
   .cand-tools .filter-select { min-width: 0; flex: 1; }
   .cand-list-pane .filter-chips { display: none; }
 }
+
+/* ===== F09: conferência acadêmica e vínculos ativos ===== */
+.conferencia h3 .status-pill { margin-left: auto; }
+.conferencia .detail-sub { display: block; }
+.conferencia-dados .mini-btn { margin-top: 8px; }
+.conferencia-form { margin-top: 4px; }
+.conferencia-itens { display: grid; gap: 8px; margin: 0 0 10px; padding: 0; list-style: none; }
+.conferencia-itens li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.conferencia-itens li.nao-atende { border-color: #f6cbd6; background: #fff5f7; }
+.conferencia-desc { display: grid; gap: 2px; min-width: 180px; flex: 1; color: #2f2b63; font-size: .86rem; font-weight: 600; }
+.conferencia-desc small { color: #8a87a8; font-size: .72rem; font-weight: 500; }
+.conferencia-opcoes { display: inline-flex; flex-wrap: wrap; gap: 12px; }
+.conferencia-opcoes label { display: inline-flex; align-items: center; gap: 6px; color: #3c3965; font-size: .82rem; cursor: pointer; }
+.conferencia-opcoes input { accent-color: var(--purple); }
+.conferencia-registro { margin-top: 12px; }
+.conferencia-registro .check-list, .conferencia-registro .detail-text { margin-top: 8px; }
+.conferencia .link-btn { margin-top: 6px; padding-left: 0; font-size: .8rem; }
+/* A conferência não tem chips equivalentes: o select aparece também no desktop. */
+.cand-list-pane .cand-tools .filter-select.cand-conferencia-filtro { display: flex; flex: 1 1 100%; }
+.cand-copy .cand-conferencia { justify-self: start; margin-top: 3px; font-size: .68rem; }
+.vinculos-lista { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.vinculos-lista li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.vinculo-copy { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.vinculo-copy strong { color: var(--ink); font-size: .86rem; overflow-wrap: anywhere; }
+.vinculo-copy small { color: #8a87a8; font-size: .74rem; }
