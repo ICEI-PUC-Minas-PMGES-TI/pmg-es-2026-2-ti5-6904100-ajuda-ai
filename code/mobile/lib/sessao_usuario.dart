@@ -229,6 +229,8 @@ class SessaoUsuario {
   }
 
   void _aplicarPerfil(Map<String, dynamic> perfil) {
+    // "Sobre mim" ainda não é salvo no servidor: mantém o texto local da conta.
+    final sobreLocal = dados?.email == identidade!.email ? dados?.sobre : null;
     dados = DadosCadastro(
       nome: '${perfil['nome'] ?? identidade?.nome ?? ''}',
       email: identidade!.email,
@@ -238,6 +240,7 @@ class SessaoUsuario {
       interesses: (perfil['interesses'] as List? ?? [])
           .whereType<String>()
           .toList(),
+      sobre: sobreLocal,
     );
   }
 
@@ -266,6 +269,10 @@ class SessaoUsuario {
     } else {
       _aplicarPerfil(resposta);
     }
+    dados = dados?.copyWith(
+      sobre: perfil.sobre,
+      limparSobre: perfil.sobre == null,
+    );
     onboardingToken = null;
   }
 
