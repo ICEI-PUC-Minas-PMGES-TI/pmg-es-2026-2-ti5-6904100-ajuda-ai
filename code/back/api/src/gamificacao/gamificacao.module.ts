@@ -9,6 +9,11 @@ import {
 import { PucStopsService } from './pucstops/pucstops.service.js';
 import { XpController } from './xp/xp.controller.js';
 import { XpService } from './xp/xp.service.js';
+import {
+  LojinhaController,
+  RecompensasAdminController,
+} from './lojinha/lojinha.controller.js';
+import { LojinhaService } from './lojinha/lojinha.service.js';
 
 /**
  * XP global por usuário e PucStops (ADR-0002): leitura pública e coleta em
@@ -23,7 +28,9 @@ import { XpService } from './xp/xp.service.js';
     MinhasColetasController,
     XpController,
     PucStopsAdminController,
+    LojinhaController,
+    RecompensasAdminController,
   ],
-  providers: [PucStopsService, XpService, PucStopsAdminService],
+  providers: [PucStopsService, XpService, PucStopsAdminService, LojinhaService],
 })
 export class GamificacaoModule {}

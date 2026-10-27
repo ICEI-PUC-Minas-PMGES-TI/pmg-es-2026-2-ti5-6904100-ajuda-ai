@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'services/lojinha_api.dart';
+import 'sessao_usuario.dart';
 import 'theme/colors.dart';
 import 'widgets/cabecalho_logos.dart';
 
@@ -11,15 +13,26 @@ class ItemResgate {
     required this.descricao,
     required this.custoXp,
     this.estoque,
+    this.condicoesRetirada = '',
   });
 
-  final int id;
+  final Object id;
   final String nome;
   final String descricao;
   final int custoXp;
 
   /// `null` quando o item não tem limite de unidades.
   final int? estoque;
+  final String condicoesRetirada;
+
+  factory ItemResgate.fromJson(Map<String, dynamic> json) => ItemResgate(
+    id: json['id'] as String,
+    nome: json['nome'] as String,
+    descricao: json['descricao'] as String,
+    custoXp: json['custoXp'] as int,
+    estoque: json['estoque'] as int?,
+    condicoesRetirada: json['condicoesRetirada'] as String? ?? '',
+  );
 
   bool get esgotado => estoque != null && estoque! <= 0;
 }
@@ -29,17 +42,122 @@ String formatarXp(int valor) => valor.toString().replaceAllMapped(
   (encontrado) => '${encontrado[1]}.',
 );
 
-class ResgatarPage extends StatelessWidget {
-  const ResgatarPage({
-    super.key,
-    required this.saldoXp,
-    this.itens = const [],
-  });
+class ResgatarPage extends StatefulWidget {
+  const ResgatarPage({super.key, required this.saldoXp, this.itens, this.api});
 
   final int saldoXp;
 
   /// Enquanto a coordenação não cadastra itens, a lista fica vazia.
-  final List<ItemResgate> itens;
+  final List<ItemResgate>? itens;
+  final LojinhaApi? api;
+
+  @override
+  State<ResgatarPage> createState() => _ResgatarPageState();
+}
+
+class _ResgatarPageState extends State<ResgatarPage> {
+  late final LojinhaApi _api = widget.api ?? LojinhaApi();
+  List<ItemResgate> _itens = const [];
+  bool _carregando = false;
+  bool _resgatando = false;
+  String? _erro;
+  String? _chavePendente;
+  String? _itemPendente;
+  late int _saldoXp = widget.saldoXp;
+
+  @override
+  void initState() {
+    super.initState();
+    _itens = widget.itens ?? const [];
+    if (widget.itens == null && SessaoUsuario.atual.accessToken != null) {
+      _carregar();
+    }
+  }
+
+  Future<void> _carregar() async {
+    final token = SessaoUsuario.atual.accessToken;
+    if (token == null) return;
+    setState(() {
+      _carregando = true;
+      _erro = null;
+    });
+    try {
+      final itens = await _api.listar(token);
+      if (!mounted || SessaoUsuario.atual.accessToken != token) return;
+      setState(() {
+        _itens = itens.map(ItemResgate.fromJson).toList();
+        _carregando = false;
+      });
+    } catch (erro) {
+      if (!mounted) return;
+      setState(() {
+        _erro = '$erro';
+        _carregando = false;
+      });
+    }
+  }
+
+  Future<void> _confirmar(ItemResgate item) async {
+    final confirmou = await showDialog<bool>(
+      context: context,
+      builder: (contexto) => AlertDialog(
+        title: Text('Resgatar ${item.nome}?'),
+        content: Text(
+          'Serão descontados ${formatarXp(item.custoXp)} XP do seu saldo.\n\n'
+          'Retirada: ${item.condicoesRetirada.isEmpty ? 'Consulte a coordenação' : item.condicoesRetirada}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(contexto).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(contexto).pop(true),
+            child: const Text('Resgatar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmou != true || !mounted || _resgatando) return;
+    final token = SessaoUsuario.atual.accessToken;
+    if (token == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Entre na sua conta para resgatar.')),
+      );
+      return;
+    }
+    if (_itemPendente != item.id.toString()) {
+      _itemPendente = item.id.toString();
+      _chavePendente = LojinhaApi.novaChave();
+    }
+    setState(() => _resgatando = true);
+    try {
+      final resgate = await _api.resgatar(
+        token,
+        item.id.toString(),
+        _chavePendente!,
+      );
+      if (!mounted || SessaoUsuario.atual.accessToken != token) return;
+      _chavePendente = null;
+      _itemPendente = null;
+      final saldo = resgate['saldoAtual'] as int;
+      SessaoUsuario.atual.xp.value = saldo;
+      setState(() {
+        _saldoXp = saldo;
+        _resgatando = false;
+      });
+      await _carregar();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Resgate confirmado: ${resgate['id']}')),
+      );
+    } catch (erro) {
+      if (!mounted) return;
+      setState(() => _resgatando = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('$erro')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,13 +190,24 @@ class ResgatarPage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 20),
-              _CardSaldo(saldoXp: saldoXp),
+              _CardSaldo(saldoXp: _saldoXp),
               const SizedBox(height: 24),
-              if (itens.isEmpty)
+              if (_carregando)
+                const Center(child: CircularProgressIndicator())
+              else if (_erro != null)
+                TextButton(
+                  onPressed: _carregar,
+                  child: Text('$_erro — Tentar novamente'),
+                )
+              else if (_itens.isEmpty)
                 const _SemItens()
               else
-                for (final item in itens) ...[
-                  _CardItem(item: item, saldoXp: saldoXp),
+                for (final item in _itens) ...[
+                  _CardItem(
+                    item: item,
+                    saldoXp: _saldoXp,
+                    onResgatar: _resgatando ? null : _confirmar,
+                  ),
                   const SizedBox(height: 12),
                 ],
             ],
@@ -199,10 +328,15 @@ class _SemItens extends StatelessWidget {
 }
 
 class _CardItem extends StatelessWidget {
-  const _CardItem({required this.item, required this.saldoXp});
+  const _CardItem({
+    required this.item,
+    required this.saldoXp,
+    required this.onResgatar,
+  });
 
   final ItemResgate item;
   final int saldoXp;
+  final Future<void> Function(ItemResgate)? onResgatar;
 
   @override
   Widget build(BuildContext context) {
@@ -283,7 +417,9 @@ class _CardItem extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           FilledButton(
-            onPressed: disponivel ? () => _confirmar(context) : null,
+            onPressed: disponivel && onResgatar != null
+                ? () => onResgatar!(item)
+                : null,
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.primary,
               minimumSize: const Size(0, 40),
@@ -303,34 +439,6 @@ class _CardItem extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-
-  Future<void> _confirmar(BuildContext context) async {
-    final confirmou = await showDialog<bool>(
-      context: context,
-      builder: (contexto) => AlertDialog(
-        title: Text('Resgatar ${item.nome}?'),
-        content: Text(
-          'Serão descontados ${formatarXp(item.custoXp)} XP do seu saldo.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(contexto).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(contexto).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
-            child: const Text('Resgatar'),
-          ),
-        ],
-      ),
-    );
-    if (confirmou != true || !context.mounted) return;
-    // TODO: enviar o resgate para a API quando o cadastro de itens existir.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Resgate: em breve!')),
     );
   }
 }
