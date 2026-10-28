@@ -41,7 +41,7 @@
 - Elaboração da ata da reunião semanal.
 
 ### Sprint 5
-### Semana 9 (20/10 - 27/10)
+### Semana 8 (20/10 - 27/10)
 
 - Implementação da verificação acadêmica e aprovação das candidaturas na coordenação (F09 – #31);
 - Criação da migration de conferência acadêmica em `participacoes`;
