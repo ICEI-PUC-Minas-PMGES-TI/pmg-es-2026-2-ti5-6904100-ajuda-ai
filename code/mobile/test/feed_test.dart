@@ -48,7 +48,7 @@ void main() {
       email: 'ana.souza@pucminas.edu.br',
     );
     addTearDown(SessaoUsuario.atual.limpar);
-    final backend = _FeedBackendFake();
+    final backend = _FeedBackendFake()..podePublicar = true;
     final client = MockClient(backend.responder);
     addTearDown(client.close);
 
@@ -131,6 +131,7 @@ void main() {
 }
 
 class _FeedBackendFake {
+  bool podePublicar = false;
   final List<Map<String, dynamic>> publicacoes = [];
   int _proximoId = 1;
 
@@ -151,6 +152,10 @@ class _FeedBackendFake {
   Future<http.Response> responder(http.Request request) async {
     final usuarioId = request.headers['x-user-id'] ?? 'visitante';
     expect(request.headers['x-user-id'], isNot('1'));
+
+    if (request.url.path == '/publicacoes/permissoes') {
+      return _json(200, {'podePublicar': podePublicar});
+    }
 
     if (request.method == 'GET' && request.url.path == '/publicacoes') {
       return _json(
@@ -193,7 +198,7 @@ class _FeedBackendFake {
 
   Map<String, dynamic> _novoRegistro(Map<String, dynamic> corpo) => {
     'id': _proximoId++,
-    'autor': corpo['autor'] ?? '',
+    'autor': 'Ana Souza',
     'iniciais': corpo['iniciais'] ?? '',
     'descricaoAutor': corpo['descricaoAutor'] ?? '',
     'tempo': 'agora',

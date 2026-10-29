@@ -5,6 +5,7 @@ import {api} from '../../api/client';
 import Icon from '../../components/Icon';
 
 const NAV = [
+  { to: '/coordenacao/feed', label: 'Feed', icon: 'megaphone' },
   { to: '/coordenacao', end: true, label: 'Dashboard', icon: 'home' },
   { to: '/coordenacao/cadastros', label: 'Cadastros', icon: 'userSearch' },
   { to: '/coordenacao/candidaturas', label: 'Candidaturas', icon: 'clipboard' },
@@ -18,9 +19,9 @@ const NAV = [
 ];
 
 /** Páginas que não dependem do programa/ciclo selecionado. */
-const SEM_PROGRAMA = ['/coordenacao/programas', '/coordenacao/pucstops', '/coordenacao/eventos', '/coordenacao/restaurantes'];
+const SEM_PROGRAMA = ['/coordenacao/feed', '/coordenacao/programas', '/coordenacao/pucstops', '/coordenacao/eventos', '/coordenacao/restaurantes'];
 /** Dentre elas, as que nem usam o seletor de programa (valem para todos os ciclos). */
-const SEM_SELETOR = ['/coordenacao/pucstops', '/coordenacao/eventos', '/coordenacao/restaurantes'];
+const SEM_SELETOR = ['/coordenacao/feed', '/coordenacao/pucstops', '/coordenacao/eventos', '/coordenacao/restaurantes'];
 
 export default function CoordLayout() {
   const { autenticado, ehCoordenador, usuario, logout } = useAuth();

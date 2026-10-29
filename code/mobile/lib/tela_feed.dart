@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -5,28 +6,18 @@ import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 
 import 'services/api_config.dart';
+import 'services/feed_events.dart';
 import 'sessao_usuario.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
 import 'widgets/navegacao_app.dart';
 
 const double _feedGutter = 20;
-const String _apiBaseUrl = apiBaseUrl;
-
-/// Identidade nas rotas do feed: com o token do aluno, só `Authorization`.
-/// Sem token, o e-mail da sessão. Nunca um id fixo de usuário demo.
-Map<String, String> _identidade() {
-  final token = SessaoUsuario.atual.accessToken;
-  if (token != null) return {'authorization': 'Bearer $token'};
-  final email = SessaoUsuario.atual.identidade?.email;
-  if (email != null && email.isNotEmpty) return {'x-user-id': email};
-  return const {};
-}
 
 String _nomeAutorAtual() => SessaoUsuario.atual.nomeExibicao ?? '';
 
-String _iniciaisAtuais() {
-  final partes = _nomeAutorAtual()
+String _iniciaisDoNome(String nome) {
+  final partes = nome
       .split(RegExp(r'\s+'))
       .where((parte) => parte.isNotEmpty)
       .take(2);
@@ -34,51 +25,130 @@ String _iniciaisAtuais() {
   return letras;
 }
 
-String _cursoAtual() => SessaoUsuario.atual.dados?.curso ?? '';
-
 class FeedPage extends StatefulWidget {
-  const FeedPage({super.key, this.client});
+  const FeedPage({
+    super.key,
+    this.client,
+    this.eventsClientFactory,
+    this.accessToken,
+    this.baseUrl,
+    this.nomeAutor,
+    this.coordenacao = false,
+  });
 
   final http.Client? client;
+  final http.Client Function()? eventsClientFactory;
+
+  /// Sessão explícita da coordenação; o aluno usa a sessão existente por padrão.
+  final String? accessToken;
+  final String? baseUrl;
+  final String? nomeAutor;
+
+  /// Ajusta somente a navegação. Permissões são consultadas e validadas na API.
+  final bool coordenacao;
 
   @override
   State<FeedPage> createState() => _FeedPageState();
 }
 
-class _FeedPageState extends State<FeedPage> {
+class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   int _filtroSelecionado = 0;
   final List<_Publicacao> _publicacoes = [];
   bool _carregandoPublicacoes = true;
   bool _falhaAoCarregar = false;
   late final http.Client _client;
   late final bool _deveFecharClient;
+  late final FeedEvents _eventos;
+  final _mudancas = ValueNotifier<int>(0);
+  bool _podePublicar = false;
+  bool _consultaAtiva = false;
+  bool _consultaPendente = false;
+  String _estadoTempoReal = 'Conectando às atualizações…';
+  String get _apiBaseUrl => widget.baseUrl ?? apiBaseUrl;
+  String? get _token => widget.accessToken ?? SessaoUsuario.atual.accessToken;
+  Map<String, String> _identidade() => {
+    if (_token != null) 'authorization': 'Bearer $_token',
+  };
 
   @override
   void initState() {
     super.initState();
     _deveFecharClient = widget.client == null;
     _client = widget.client ?? http.Client();
+    WidgetsBinding.instance.addObserver(this);
+    _eventos = FeedEvents(
+      token: () => _token,
+      baseUrl: _apiBaseUrl,
+      clientFactory: widget.eventsClientFactory,
+      onEstado: (estado) {
+        if (mounted) setState(() => _estadoTempoReal = estado);
+      },
+      onEvento: (tipo, dados) {
+        if (tipo != 'feed.heartbeat') {
+          unawaited(_carregarPublicacoes(silencioso: true));
+        }
+      },
+    );
+    _eventos.iniciar();
+    _carregarPermissoes();
     _carregarPublicacoes();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _eventos.fechar();
+    _mudancas.dispose();
     if (_deveFecharClient) _client.close();
     super.dispose();
   }
 
-  Future<void> _carregarPublicacoes() async {
-    if (mounted) {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _eventos.fechar();
+      _eventos.iniciar();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _eventos.fechar();
+    }
+  }
+
+  Future<void> _carregarPermissoes() async {
+    try {
+      final resposta = await _client
+          .get(
+            Uri.parse('$_apiBaseUrl/publicacoes/permissoes'),
+            headers: _identidade(),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (resposta.statusCode == 200 && mounted) {
+        final dados = jsonDecode(resposta.body);
+        if (dados is Map) {
+          setState(() => _podePublicar = dados['podePublicar'] == true);
+        }
+      }
+    } catch (_) {
+      /* O servidor verifica a permissão novamente no comando. */
+    }
+  }
+
+  Future<void> _carregarPublicacoes({bool silencioso = false}) async {
+    if (_consultaAtiva) {
+      _consultaPendente = true;
+      return;
+    }
+    _consultaAtiva = true;
+    if (mounted && !silencioso) {
       setState(() {
         _carregandoPublicacoes = true;
         _falhaAoCarregar = false;
       });
     }
     try {
-      final resposta = await _client.get(
-        Uri.parse('$_apiBaseUrl/publicacoes'),
-        headers: _identidade(),
-      );
+      final resposta = await _client
+          .get(Uri.parse('$_apiBaseUrl/publicacoes'), headers: _identidade())
+          .timeout(const Duration(seconds: 15));
       if (resposta.statusCode != 200) throw Exception('Falha ao carregar feed');
       final dados = jsonDecode(resposta.body) as List<dynamic>;
       final publicacoes = dados
@@ -93,30 +163,47 @@ class _FeedPageState extends State<FeedPage> {
         _carregandoPublicacoes = false;
         _falhaAoCarregar = false;
       });
+      _mudancas.value++;
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _publicacoes.clear();
+        if (!silencioso) _publicacoes.clear();
         _carregandoPublicacoes = false;
-        _falhaAoCarregar = true;
+        if (!silencioso) _falhaAoCarregar = true;
       });
+    } finally {
+      _consultaAtiva = false;
+      if (_consultaPendente && mounted) {
+        _consultaPendente = false;
+        unawaited(_carregarPublicacoes(silencioso: true));
+      }
     }
   }
 
-  Future<_Publicacao?> _salvarNoBackend(_Publicacao publicacao) async {
-    try {
-      final resposta = await _client.post(
-        Uri.parse('$_apiBaseUrl/publicacoes'),
-        headers: {'Content-Type': 'application/json', ..._identidade()},
-        body: jsonEncode(publicacao.toJson()),
-      );
-      if (resposta.statusCode < 200 || resposta.statusCode >= 300) return null;
-      return _Publicacao.fromJson(
-        jsonDecode(resposta.body) as Map<String, dynamic>,
-      );
-    } catch (_) {
-      return null;
-    }
+  Future<_Publicacao> _salvarNoBackend(_Publicacao publicacao) async {
+    final corpo = jsonEncode({
+      'texto': publicacao.texto,
+      'categoria': publicacao.categoria,
+      'imagens': await _enviarImagens(publicacao.midias),
+    });
+    final headers = {'Content-Type': 'application/json', ..._identidade()};
+    final resposta = await executarRequisicao(
+      () => publicacao.id == null
+          ? _client.post(
+              Uri.parse('$_apiBaseUrl/publicacoes'),
+              headers: headers,
+              body: corpo,
+            )
+          : _client.patch(
+              Uri.parse('$_apiBaseUrl/publicacoes/${publicacao.id}'),
+              headers: headers,
+              body: corpo,
+            ),
+      erroPadrao: 'Não foi possível salvar a publicação',
+    );
+    return _Publicacao.fromJson(
+      jsonDecode(resposta.body) as Map<String, dynamic>,
+    );
   }
 
   Future<bool> _removerDoBackend(_Publicacao publicacao) async {
@@ -181,37 +268,73 @@ class _FeedPageState extends State<FeedPage> {
     setState(() => _publicacoes[indice] = atualizada);
   }
 
-  Future<void> _abrirCriacao() async {
-    final publicacao = await showModalBottomSheet<_Publicacao>(
+  Future<void> _abrirCriacao() => _abrirEditor();
+
+  Future<void> _abrirEditor([_Publicacao? original]) async {
+    if (!_podePublicar || (original != null && !original.podeAdministrar)) {
+      return;
+    }
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
+      isDismissible: false,
+      enableDrag: false,
       backgroundColor: Colors.transparent,
-      builder: (_) => const _CriarPublicacaoSheet(),
+      builder: (_) => _CriarPublicacaoSheet(
+        original: original,
+        nomeAutor: widget.nomeAutor ?? _nomeAutorAtual(),
+        onSalvar: (rascunho) async {
+          final salva = await _salvarNoBackend(rascunho);
+          if (!mounted) return;
+          setState(() {
+            final indice = _publicacoes.indexWhere((p) => p.id == salva.id);
+            if (indice >= 0) {
+              _publicacoes[indice] = salva;
+            } else {
+              _publicacoes.insert(0, salva);
+            }
+            _filtroSelecionado = 0;
+          });
+          _mudancas.value++;
+        },
+      ),
     );
+  }
 
-    if (publicacao == null || !mounted) return;
-
-    final publicacaoSalva = await _salvarNoBackend(publicacao);
-    if (!mounted) return;
-
-    if (publicacaoSalva == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Não foi possível publicar. Verifique se a API está ativa e tente novamente.',
-          ),
-        ),
+  Future<List<String>> _enviarImagens(List<String> imagens) async {
+    final chaves = <String>[];
+    for (final imagem in imagens) {
+      if (!imagem.startsWith('data:')) {
+        chaves.add(imagem);
+        continue;
+      }
+      final uri = UriData.parse(imagem);
+      final pedido =
+          http.MultipartRequest(
+              'POST',
+              Uri.parse('$_apiBaseUrl/publicacoes/midias'),
+            )
+            ..headers.addAll(_identidade())
+            ..files.add(
+              http.MultipartFile.fromBytes(
+                'arquivo',
+                uri.contentAsBytes(),
+                filename: 'imagem',
+              ),
+            );
+      final resposta = await _client
+          .send(pedido)
+          .then(http.Response.fromStream)
+          .timeout(const Duration(seconds: 60));
+      if (resposta.statusCode != 201) {
+        throw Exception('Não foi possível enviar a imagem.');
+      }
+      chaves.add(
+        (jsonDecode(resposta.body) as Map<String, dynamic>)['chave'] as String,
       );
-      return;
     }
-    setState(() {
-      _publicacoes.insert(0, publicacaoSalva);
-      _filtroSelecionado = 0;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Publicação compartilhada no feed!')),
-    );
+    return chaves;
   }
 
   void _abrirComentarios(_Publicacao publicacao) {
@@ -221,7 +344,13 @@ class _FeedPageState extends State<FeedPage> {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _ComentariosSheet(
-        comentarios: publicacao.comentariosTexto,
+        mudancas: _mudancas,
+        comentarios: () =>
+            _publicacoes
+                .where((p) => p.id == publicacao.id)
+                .firstOrNull
+                ?.comentariosTexto ??
+            const [],
         onSubmit: (texto) async {
           final atualizada = await _salvarComentarioNoBackend(
             publicacao,
@@ -274,6 +403,9 @@ class _FeedPageState extends State<FeedPage> {
         : _publicacoes.where((post) => post.categoria == filtro).toList();
 
     return Scaffold(
+      appBar: widget.coordenacao
+          ? AppBar(title: const Text('Feed do programa'))
+          : null,
       backgroundColor: Colors.white,
       body: CustomScrollView(
         slivers: [
@@ -303,14 +435,25 @@ class _FeedPageState extends State<FeedPage> {
                           onSelected: (indice) =>
                               setState(() => _filtroSelecionado = indice),
                         ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(
-                            _feedGutter,
-                            4,
-                            _feedGutter,
-                            14,
+                        if (_podePublicar)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              _feedGutter,
+                              4,
+                              _feedGutter,
+                              14,
+                            ),
+                            child: _CriarPublicacaoCard(onTap: _abrirCriacao),
                           ),
-                          child: _CriarPublicacaoCard(onTap: _abrirCriacao),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: _feedGutter,
+                            vertical: 8,
+                          ),
+                          child: Text(
+                            _estadoTempoReal,
+                            style: const TextStyle(fontSize: 12),
+                          ),
                         ),
                         if (_filtroSelecionado == 0) const _DicaDaSemana(),
                       ],
@@ -373,12 +516,13 @@ class _FeedPageState extends State<FeedPage> {
                   onDelete: () {
                     _apagarPublicacao(publicacoesVisiveis[indice]);
                   },
+                  onEdit: () => _abrirEditor(publicacoesVisiveis[indice]),
                 ),
               ),
             ),
         ],
       ),
-      bottomNavigationBar: const _BarraFeed(),
+      bottomNavigationBar: widget.coordenacao ? null : const _BarraFeed(),
     );
   }
 }
@@ -737,12 +881,14 @@ class _PublicacaoCard extends StatefulWidget {
     required this.onComment,
     required this.onLike,
     required this.onDelete,
+    required this.onEdit,
   });
 
   final _Publicacao publicacao;
   final VoidCallback onComment;
   final Future<bool> Function(int) onLike;
   final VoidCallback onDelete;
+  final VoidCallback onEdit;
 
   @override
   State<_PublicacaoCard> createState() => _PublicacaoCardState();
@@ -865,6 +1011,9 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                   ),
                   onSelected: (opcao) {
                     switch (opcao) {
+                      case 'editar':
+                        widget.onEdit();
+                        break;
                       case 'apagar':
                         widget.onDelete();
                         break;
@@ -872,8 +1021,12 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                         _mensagem(context, opcao);
                     }
                   },
-                  itemBuilder: (_) => post.isOwn
+                  itemBuilder: (_) => post.podeAdministrar
                       ? const [
+                          PopupMenuItem(
+                            value: 'editar',
+                            child: Text('Editar publicação'),
+                          ),
                           PopupMenuItem(
                             value: 'apagar',
                             child: Text('Apagar publicação'),
@@ -1114,6 +1267,11 @@ class _ImagemDaFonte extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final esquema = Uri.tryParse(fonte)?.scheme;
+    if (esquema == 'https' || esquema == 'http') {
+      return Image.network(fonte, fit: fit, alignment: alignment);
+    }
+
     if (!fonte.startsWith('data:')) {
       return Image.asset(fonte, fit: fit, alignment: alignment);
     }
@@ -1284,7 +1442,14 @@ class _BarraFeed extends StatelessWidget {
 }
 
 class _CriarPublicacaoSheet extends StatefulWidget {
-  const _CriarPublicacaoSheet();
+  const _CriarPublicacaoSheet({
+    required this.nomeAutor,
+    required this.onSalvar,
+    this.original,
+  });
+  final String nomeAutor;
+  final _Publicacao? original;
+  final Future<void> Function(_Publicacao) onSalvar;
 
   @override
   State<_CriarPublicacaoSheet> createState() => _CriarPublicacaoSheetState();
@@ -1294,7 +1459,22 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
   final _controller = TextEditingController();
   final _imagemController = PageController();
   final List<String> _imagens = [];
+  final List<String> _referencias = [];
   String _categoria = 'Dicas acadêmicas';
+  bool _salvando = false;
+  String? _erro;
+
+  @override
+  void initState() {
+    super.initState();
+    final original = widget.original;
+    if (original != null) {
+      _controller.text = original.texto;
+      _categoria = original.categoria;
+      _imagens.addAll(original.imagens);
+      _referencias.addAll(original.midias);
+    }
+  }
 
   @override
   void dispose() {
@@ -1304,10 +1484,11 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
   }
 
   Future<void> _adicionarImagem() async {
-    if (_imagens.length >= 10) return;
+    if (_salvando || _imagens.length >= 10) return;
 
     final resultado = await FilePicker.pickFiles(
-      type: FileType.image,
+      type: FileType.custom,
+      allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp'],
       allowMultiple: true,
       withData: true,
     );
@@ -1319,12 +1500,14 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
         .map((arquivo) {
           final bytes = arquivo.bytes;
           if (bytes == null || bytes.isEmpty) return null;
+          if (bytes.length > 5 * 1024 * 1024) {
+            setState(() => _erro = 'Cada imagem deve ter até 5 MB.');
+            return null;
+          }
           final extensao = (arquivo.extension ?? 'jpg').toLowerCase();
           final mime = switch (extensao) {
             'png' => 'image/png',
-            'gif' => 'image/gif',
             'webp' => 'image/webp',
-            'heic' => 'image/heic',
             _ => 'image/jpeg',
           };
           return 'data:$mime;base64,${base64Encode(bytes)}';
@@ -1333,288 +1516,346 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
         .toList();
 
     if (novasImagens.isNotEmpty) {
-      setState(() => _imagens.addAll(novasImagens));
+      setState(() {
+        _imagens.addAll(novasImagens);
+        _referencias.addAll(novasImagens);
+      });
     }
   }
 
-  void _publicar() {
+  Future<void> _publicar() async {
     final texto = _controller.text.trim();
-    if (texto.isEmpty) return;
-
-    Navigator.of(context).pop(
-      _Publicacao(
-        autor: _nomeAutorAtual(),
-        iniciais: _iniciaisAtuais(),
-        descricaoAutor: _cursoAtual(),
-        tempo: 'agora',
-        categoria: _categoria,
-        texto: texto,
-        imagens: List.unmodifiable(_imagens),
-        curtidas: 0,
-        comentarios: 0,
-        corAvatar: AppColors.primary,
-        isOwn: true,
-      ),
-    );
+    if (_salvando || (texto.isEmpty && _imagens.isEmpty)) return;
+    setState(() {
+      _salvando = true;
+      _erro = null;
+    });
+    try {
+      await widget.onSalvar(
+        _Publicacao(
+          id: widget.original?.id,
+          autor: widget.original?.autor ?? widget.nomeAutor,
+          iniciais:
+              widget.original?.iniciais ?? _iniciaisDoNome(widget.nomeAutor),
+          descricaoAutor:
+              widget.original?.descricaoAutor ?? 'Administração do programa',
+          tempo: 'agora',
+          categoria: _categoria,
+          texto: texto,
+          imagens: List.unmodifiable(_imagens),
+          midias: List.unmodifiable(_referencias),
+          curtidas: 0,
+          comentarios: 0,
+          corAvatar: AppColors.primary,
+          podeAdministrar: true,
+        ),
+      );
+      if (mounted) Navigator.of(context).pop();
+    } catch (erro) {
+      if (mounted) setState(() => _erro = erro.toString());
+    } finally {
+      if (mounted) setState(() => _salvando = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final teclado = MediaQuery.viewInsetsOf(context).bottom;
 
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
-      padding: EdgeInsets.only(bottom: teclado),
-      child: Material(
-        color: Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        clipBehavior: Clip.antiAlias,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 22),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD7D1E3),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Criar publicação',
-                      style: TextStyle(
-                        color: AppColors.ink,
-                        fontSize: 21,
-                        fontWeight: FontWeight.w800,
-                      ),
+    return PopScope(
+      canPop: !_salvando,
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        padding: EdgeInsets.only(bottom: teclado),
+        child: Material(
+          color: Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          clipBehavior: Clip.antiAlias,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD7D1E3),
+                      borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Fechar',
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close_rounded),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.original == null
+                            ? 'Criar publicação'
+                            : 'Editar publicação',
+                        style: const TextStyle(
+                          color: AppColors.ink,
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Fechar',
+                      onPressed: _salvando
+                          ? null
+                          : () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    _Avatar(
+                      iniciais: _iniciaisDoNome(widget.nomeAutor),
+                      cor: AppColors.primary,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.nomeAutor,
+                            style: TextStyle(
+                              color: AppColors.ink,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _categoria,
+                              isDense: true,
+                              borderRadius: BorderRadius.circular(14),
+                              style: const TextStyle(
+                                color: AppColors.primary,
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              items:
+                                  {
+                                        _categoria,
+                                        'Comunicados',
+                                        'Dicas acadêmicas',
+                                        'Campus',
+                                        'Oportunidades',
+                                      }
+                                      .map(
+                                        (c) => DropdownMenuItem(
+                                          value: c,
+                                          child: Text(c),
+                                        ),
+                                      )
+                                      .toList(),
+                              onChanged: _salvando
+                                  ? null
+                                  : (valor) {
+                                      if (valor != null) {
+                                        setState(() => _categoria = valor);
+                                      }
+                                    },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _controller,
+                  enabled: !_salvando,
+                  maxLength: 10000,
+                  autofocus: true,
+                  minLines: 4,
+                  maxLines: 7,
+                  onChanged: (_) => setState(() {}),
+                  style: const TextStyle(
+                    color: AppColors.ink,
+                    fontFamily: 'Inter',
+                    fontSize: 15,
+                    height: 1.4,
                   ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  _Avatar(
-                    iniciais: _iniciaisAtuais(),
-                    cor: AppColors.primary,
+                  decoration: InputDecoration(
+                    hintText: 'O que você quer compartilhar?',
+                    hintStyle: const TextStyle(color: AppColors.muted),
+                    filled: true,
+                    fillColor: const Color(0xFFF8F7FB),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(18),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+                if (_imagens.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Stack(
                       children: [
-                        Text(
-                          _nomeAutorAtual(),
-                          style: TextStyle(
-                            color: AppColors.ink,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
+                        AspectRatio(
+                          aspectRatio: 2.1,
+                          child: PageView.builder(
+                            controller: _imagemController,
+                            itemCount: _imagens.length,
+                            itemBuilder: (_, indice) => _ImagemDaFonte(
+                              fonte: _imagens[indice],
+                              fit: BoxFit.cover,
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 3),
-                        DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: _categoria,
-                            isDense: true,
-                            borderRadius: BorderRadius.circular(14),
-                            style: const TextStyle(
-                              color: AppColors.primary,
-                              fontFamily: 'Inter',
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
+                        if (_imagens.length > 1)
+                          Positioned.fill(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                _SetaImagem(
+                                  icone: Icons.chevron_left_rounded,
+                                  onTap: () {
+                                    final pagina =
+                                        (_imagemController.page ?? 0).round() -
+                                        1;
+                                    if (pagina >= 0) {
+                                      _imagemController.animateToPage(
+                                        pagina,
+                                        duration: const Duration(
+                                          milliseconds: 220,
+                                        ),
+                                        curve: Curves.easeOut,
+                                      );
+                                    }
+                                  },
+                                ),
+                                _SetaImagem(
+                                  icone: Icons.chevron_right_rounded,
+                                  onTap: () {
+                                    final pagina =
+                                        (_imagemController.page ?? 0).round() +
+                                        1;
+                                    if (pagina < _imagens.length) {
+                                      _imagemController.animateToPage(
+                                        pagina,
+                                        duration: const Duration(
+                                          milliseconds: 220,
+                                        ),
+                                        curve: Curves.easeOut,
+                                      );
+                                    }
+                                  },
+                                ),
+                              ],
                             ),
-                            items: const [
-                              DropdownMenuItem(
-                                value: 'Dicas acadêmicas',
-                                child: Text('Dicas acadêmicas'),
+                          ),
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: Material(
+                            color: AppColors.ink.withValues(alpha: 0.75),
+                            shape: const CircleBorder(),
+                            child: IconButton(
+                              tooltip: 'Remover imagem',
+                              onPressed: _salvando
+                                  ? null
+                                  : () {
+                                      if (_imagens.isNotEmpty) {
+                                        final indice =
+                                            (_imagemController.hasClients
+                                                    ? (_imagemController.page ??
+                                                              0)
+                                                          .round()
+                                                    : 0)
+                                                .clamp(0, _imagens.length - 1);
+                                        setState(() {
+                                          _imagens.removeAt(indice);
+                                          _referencias.removeAt(indice);
+                                        });
+                                      }
+                                    },
+                              icon: const Icon(
+                                Icons.close_rounded,
+                                color: Colors.white,
+                                size: 19,
                               ),
-                              DropdownMenuItem(
-                                value: 'Campus',
-                                child: Text('Campus'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'Oportunidades',
-                                child: Text('Oportunidades'),
-                              ),
-                            ],
-                            onChanged: (valor) {
-                              if (valor != null) {
-                                setState(() => _categoria = valor);
-                              }
-                            },
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _controller,
-                autofocus: true,
-                minLines: 4,
-                maxLines: 7,
-                onChanged: (_) => setState(() {}),
-                style: const TextStyle(
-                  color: AppColors.ink,
-                  fontFamily: 'Inter',
-                  fontSize: 15,
-                  height: 1.4,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'O que você quer compartilhar?',
-                  hintStyle: const TextStyle(color: AppColors.muted),
-                  filled: true,
-                  fillColor: const Color(0xFFF8F7FB),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              if (_imagens.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Stack(
-                    children: [
-                      AspectRatio(
-                        aspectRatio: 2.1,
-                        child: PageView.builder(
-                          controller: _imagemController,
-                          itemCount: _imagens.length,
-                          itemBuilder: (_, indice) => _ImagemDaFonte(
-                            fonte: _imagens[indice],
-                            fit: BoxFit.cover,
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _salvando || _imagens.length >= 10
+                            ? null
+                            : _adicionarImagem,
+                        icon: const Icon(Icons.image_outlined, size: 19),
+                        label: Text('Adicionar foto (${_imagens.length}/10)'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: Color(0xFFD9CDEB)),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
                           ),
                         ),
                       ),
-                      if (_imagens.length > 1)
-                        Positioned.fill(
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              _SetaImagem(
-                                icone: Icons.chevron_left_rounded,
-                                onTap: () {
-                                  final pagina =
-                                      (_imagemController.page ?? 0).round() - 1;
-                                  if (pagina >= 0) {
-                                    _imagemController.animateToPage(
-                                      pagina,
-                                      duration: const Duration(
-                                        milliseconds: 220,
-                                      ),
-                                      curve: Curves.easeOut,
-                                    );
-                                  }
-                                },
-                              ),
-                              _SetaImagem(
-                                icone: Icons.chevron_right_rounded,
-                                onTap: () {
-                                  final pagina =
-                                      (_imagemController.page ?? 0).round() + 1;
-                                  if (pagina < _imagens.length) {
-                                    _imagemController.animateToPage(
-                                      pagina,
-                                      duration: const Duration(
-                                        milliseconds: 220,
-                                      ),
-                                      curve: Curves.easeOut,
-                                    );
-                                  }
-                                },
-                              ),
-                            ],
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed:
+                            _salvando ||
+                                (_controller.text.trim().isEmpty &&
+                                    _imagens.isEmpty)
+                            ? null
+                            : _publicar,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          disabledBackgroundColor: const Color(0xFFD7D1E3),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                      Positioned(
-                        right: 8,
-                        top: 8,
-                        child: Material(
-                          color: AppColors.ink.withValues(alpha: 0.75),
-                          shape: const CircleBorder(),
-                          child: IconButton(
-                            tooltip: 'Remover imagem',
-                            onPressed: () {
-                              if (_imagens.isNotEmpty) {
-                                setState(() => _imagens.removeLast());
-                              }
-                            },
-                            icon: const Icon(
-                              Icons.close_rounded,
-                              color: Colors.white,
-                              size: 19,
-                            ),
+                        child: Text(
+                          _salvando
+                              ? 'Salvando…'
+                              : widget.original == null
+                              ? 'Publicar'
+                              : 'Salvar alterações',
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+                if (_erro != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      _erro!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
               ],
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _imagens.length >= 10
-                          ? null
-                          : _adicionarImagem,
-                      icon: const Icon(Icons.image_outlined, size: 19),
-                      label: Text('Adicionar foto (${_imagens.length}/10)'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.primary,
-                        side: const BorderSide(color: Color(0xFFD9CDEB)),
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: _controller.text.trim().isEmpty
-                          ? null
-                          : _publicar,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        disabledBackgroundColor: const Color(0xFFD7D1E3),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: const Text(
-                        'Publicar',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1623,9 +1864,14 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
 }
 
 class _ComentariosSheet extends StatefulWidget {
-  const _ComentariosSheet({required this.comentarios, required this.onSubmit});
+  const _ComentariosSheet({
+    required this.comentarios,
+    required this.onSubmit,
+    required this.mudancas,
+  });
 
-  final List<String> comentarios;
+  final List<String> Function() comentarios;
+  final ValueNotifier<int> mudancas;
   final Future<bool> Function(String) onSubmit;
 
   @override
@@ -1634,17 +1880,22 @@ class _ComentariosSheet extends StatefulWidget {
 
 class _ComentariosSheetState extends State<_ComentariosSheet> {
   final _controller = TextEditingController();
-  late final List<String> _comentarios;
+  List<String> get _comentarios => widget.comentarios();
   bool _enviando = false;
 
   @override
   void initState() {
     super.initState();
-    _comentarios = List.of(widget.comentarios);
+    widget.mudancas.addListener(_atualizar);
+  }
+
+  void _atualizar() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    widget.mudancas.removeListener(_atualizar);
     _controller.dispose();
     super.dispose();
   }
@@ -1658,7 +1909,6 @@ class _ComentariosSheetState extends State<_ComentariosSheet> {
     setState(() {
       _enviando = false;
       if (salvo) {
-        _comentarios.add(texto);
         _controller.clear();
       }
     });
@@ -1806,7 +2056,7 @@ class _FeedVazio extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             const Text(
-              'Seja a primeira pessoa a publicar nesta categoria.',
+              'As publicações da administração aparecerão aqui.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppColors.muted,
@@ -1873,7 +2123,8 @@ class _Publicacao {
     required this.comentarios,
     required this.corAvatar,
     this.verificado = false,
-    this.isOwn = false,
+    this.podeAdministrar = false,
+    this.midias = const [],
     this.comentariosTexto = const [],
     this.curtidoPeloUsuario = false,
   });
@@ -1886,12 +2137,13 @@ class _Publicacao {
   final String categoria;
   final String texto;
   final List<String> imagens;
+  final List<String> midias;
   final int curtidas;
   final bool curtidoPeloUsuario;
   final int comentarios;
   final Color corAvatar;
   final bool verificado;
-  final bool isOwn;
+  final bool podeAdministrar;
   final List<String> comentariosTexto;
 
   factory _Publicacao.fromJson(Map<String, dynamic> json) {
@@ -1912,11 +2164,12 @@ class _Publicacao {
       categoria: json['categoria'] as String? ?? 'Dicas acadêmicas',
       texto: json['texto'] as String? ?? '',
       imagens: imagens,
+      midias: (json['midias'] as List? ?? imagens).whereType<String>().toList(),
       curtidas: (json['curtidas'] as num?)?.toInt() ?? 0,
       comentarios:
           (json['comentarios'] as num?)?.toInt() ?? comentariosTexto.length,
       corAvatar: AppColors.primary,
-      isOwn: json['isOwn'] as bool? ?? true,
+      podeAdministrar: json['podeAdministrar'] as bool? ?? false,
       curtidoPeloUsuario: json['curtidoPeloUsuario'] as bool? ?? false,
       comentariosTexto: comentariosTexto,
     );
@@ -1946,12 +2199,13 @@ class _Publicacao {
     categoria: categoria,
     texto: texto,
     imagens: imagens,
+    midias: midias,
     curtidas: curtidas ?? this.curtidas,
     curtidoPeloUsuario: curtidoPeloUsuario ?? this.curtidoPeloUsuario,
     comentarios: comentarios ?? this.comentarios,
     corAvatar: corAvatar,
     verificado: verificado,
-    isOwn: isOwn,
+    podeAdministrar: podeAdministrar,
     comentariosTexto: comentariosTexto ?? this.comentariosTexto,
   );
 }

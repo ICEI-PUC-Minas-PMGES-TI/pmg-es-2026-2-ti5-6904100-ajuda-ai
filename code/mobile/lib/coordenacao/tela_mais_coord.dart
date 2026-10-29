@@ -21,6 +21,12 @@ class TelaMaisCoord extends StatelessWidget {
 
   static const _itens = <(IconData, String, String, String)>[
     (
+      Icons.dynamic_feed_outlined,
+      'Feed do programa',
+      'Publicar notícias, imagens e acompanhar comentários',
+      'feed',
+    ),
+    (
       Icons.how_to_reg_outlined,
       'Cadastros',
       'Aprovar ou rejeitar padrinhos e apadrinhados',

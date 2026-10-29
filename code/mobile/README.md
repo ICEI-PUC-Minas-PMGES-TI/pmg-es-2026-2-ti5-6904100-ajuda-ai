@@ -57,3 +57,15 @@ Renata abre a área da coordenação. Os demais abrem a home do aluno. Para os a
 ### Android
 
 O scheme do redirect está em `android/app/build.gradle.kts` (`appAuthRedirectScheme`).
+
+## Feed em tempo real
+
+A tela existente recebe eventos SSE autenticados e atualiza publicações, curtidas
+e comentários abertos. O stream fecha ao sair da tela ou entrar em segundo plano.
+Para executar em celular físico, use `--dart-define=API_BASE_URL=http://IP_DO_NOTEBOOK:3000`.
+Configuração e demonstração completas: [guia do feed](../../docs/tecnico/feed.md).
+
+O fluxo principal do feed funciona entre dois celulares Flutter. A coordenação
+abre **Feed do programa** no cabeçalho ou em **Mais** para criar com imagens,
+editar, remover imagens e excluir publicações. A permissão vem da API; o aluno
+comum interage e recebe SSE. A demonstração completa está no guia acima.
