@@ -4,8 +4,10 @@ import { filter, firstValueFrom, timeout } from 'rxjs';
 import { PublicacaoEntity } from '../src/publicacoes/entities/publicacao.entity.js';
 import { ComentarioEntity } from '../src/publicacoes/entities/comentario.entity.js';
 import { CurtidaEntity } from '../src/publicacoes/entities/curtida.entity.js';
+import { CurtidaComentarioEntity } from '../src/publicacoes/entities/curtida-comentario.entity.js';
 import { FeedOutboxEntity } from '../src/publicacoes/entities/feed-outbox.entity.js';
 import { FeedTempoReal1793300000000 } from '../src/migrations/1793300000000-FeedTempoReal.js';
+import { ThreadsComentariosFeed1793400000000 } from '../src/migrations/1793400000000-ThreadsComentariosFeed.js';
 import { PublicacoesService } from '../src/publicacoes/publicacoes.service.js';
 import { FeedPolicy } from '../src/publicacoes/feed-policy.js';
 import { FeedStreamService } from '../src/publicacoes/feed-stream.service.js';
@@ -35,6 +37,7 @@ describe.skipIf(!db || !amqp)(
           PublicacaoEntity,
           ComentarioEntity,
           CurtidaEntity,
+          CurtidaComentarioEntity,
           FeedOutboxEntity,
         ],
         synchronize: false,
@@ -46,6 +49,35 @@ describe.skipIf(!db || !amqp)(
       const runner = dados.createQueryRunner();
       try {
         await new FeedTempoReal1793300000000().up(runner);
+        // Simula o schema anterior: a migration nova deve preservar comentários já existentes.
+        await dados.query(`DROP TABLE "${schema}".curtidas_comentarios`);
+        await dados.query(
+          `ALTER TABLE "${schema}".comentarios DROP COLUMN pai_id CASCADE`,
+        );
+        const [legado] = (await dados.query(`INSERT INTO "${schema}".publicacoes
+          (autor, iniciais, descricao_autor, categoria, texto, owner_id)
+          VALUES ('Autor legado', 'AL', 'Programa', 'Comunicados', 'Legado', 'legado') RETURNING id`)) as {
+          id: number;
+        }[];
+        await dados.query(
+          `INSERT INTO "${schema}".comentarios(publicacao_id, autor_id, texto)
+          VALUES ($1, 'legado', 'Comentário anterior à migration')`,
+          [legado.id],
+        );
+        await new ThreadsComentariosFeed1793400000000().up(runner);
+        const [comentarioLegado] = await dados.query(
+          `SELECT texto, pai_id FROM "${schema}".comentarios WHERE publicacao_id = $1`,
+          [legado.id],
+        );
+        expect(comentarioLegado).toEqual({
+          texto: 'Comentário anterior à migration',
+          pai_id: null,
+        });
+        await dados.query(`DELETE FROM "${schema}".publicacoes WHERE id = $1`, [
+          legado.id,
+        ]);
+        await new ThreadsComentariosFeed1793400000000().down(runner);
+        await new ThreadsComentariosFeed1793400000000().up(runner);
       } finally {
         await runner.release();
       }
@@ -71,7 +103,10 @@ describe.skipIf(!db || !amqp)(
         dados.getRepository(PublicacaoEntity),
         dados,
         new FeedPolicy(),
-        { buscarPorEmail: async () => null } as unknown as UsuariosService,
+        {
+          buscarPorEmail: async () => null,
+          buscarAutoresPorEmails: async () => [],
+        } as unknown as UsuariosService,
         {
           validar: async () => {},
           urls: (keys: string[]) => keys,
@@ -147,6 +182,70 @@ describe.skipIf(!db || !amqp)(
             v.evento.publicacaoId === post.id,
         ),
       ).toHaveLength(1);
+    });
+    it('threads, cascade, curtidas concorrentes e evento de comentário chegam às duas instâncias SSE', async () => {
+      const post = await service.criar(
+        { texto: 'Thread integrada' },
+        coordenador,
+      );
+      const raiz = (await service.comentar(post.id, 'Raiz', aluno))
+        .comentariosDetalhes[0];
+      const reply = (
+        await service.comentar(post.id, 'Resposta', coordenador, raiz.id)
+      ).comentariosDetalhes[1];
+      await service.comentar(post.id, 'Resposta de resposta', aluno, reply.id);
+      const recebendo = streams.map((stream) =>
+        firstValueFrom(
+          stream.observar(Date.now() + 10000).pipe(
+            filter(
+              (e) =>
+                e.type === 'feed.comment.like.updated' &&
+                (e.data as { publicacaoId: number }).publicacaoId === post.id,
+            ),
+            timeout(5000),
+          ),
+        ),
+      );
+      await Promise.all(
+        Array.from({ length: 10 }, () =>
+          service.curtirComentario(post.id, reply.id, 1, aluno),
+        ),
+      );
+      const r = await service.obter(post.id, aluno);
+      expect(r.comentariosDetalhes.map((c) => c.paiId)).toEqual([
+        null,
+        raiz.id,
+        raiz.id,
+      ]);
+      expect(r.comentariosDetalhes[1].curtidas).toBe(1);
+      expect(r.curtidas).toBe(0);
+      await outbox.despachar();
+      await Promise.all(recebendo);
+      const eventos = await dados.getRepository(FeedOutboxEntity).find();
+      expect(
+        eventos.filter(
+          (e) =>
+            e.evento.publicacaoId === post.id &&
+            e.evento.tipo === 'feed.comment.like.updated',
+        ),
+      ).toHaveLength(1);
+      const runner = dados.createQueryRunner();
+      try {
+        await expect(
+          new ThreadsComentariosFeed1793400000000().down(runner),
+        ).rejects.toThrow('Rollback recusado');
+      } finally {
+        await runner.release();
+      }
+      const final = await service.removerComentario(
+        post.id,
+        raiz.id,
+        coordenador,
+      );
+      expect(final.comentarios).toBe(0);
+      expect(await dados.getRepository(CurtidaComentarioEntity).count()).toBe(
+        0,
+      );
     });
   },
 );

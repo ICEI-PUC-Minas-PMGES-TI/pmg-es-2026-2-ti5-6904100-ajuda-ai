@@ -111,6 +111,48 @@ describe('Feed HTTP e SSE autenticados', () => {
       .send({ texto: 'X', autor: 'Forjado' })
       .expect(400);
   });
+  it('contrato de resposta, curtida de comentário e exclusão autorizada', async () => {
+    const p = (
+      await request(app.getHttpServer())
+        .post('/publicacoes')
+        .set('Authorization', auth(coordenador))
+        .send({ texto: 'Teste' })
+        .expect(201)
+    ).body;
+    const c = (
+      await request(app.getHttpServer())
+        .post(`/publicacoes/${p.id}/comentarios`)
+        .set('Authorization', auth())
+        .send({ texto: 'Raiz' })
+        .expect(201)
+    ).body.comentariosDetalhes[0];
+    expect(c.autor.nome).toBe('Camila Duarte');
+    await request(app.getHttpServer())
+      .post(`/publicacoes/${p.id}/comentarios`)
+      .set('Authorization', auth())
+      .send({ texto: 'Forjado', autor: { nome: 'Fake' } })
+      .expect(400);
+    const r = await request(app.getHttpServer())
+      .post(`/publicacoes/${p.id}/comentarios`)
+      .set('Authorization', auth(coordenador))
+      .send({ texto: 'Resposta', paiId: c.id })
+      .expect(201);
+    expect(r.body.comentariosDetalhes[1].paiId).toBe(c.id);
+    await request(app.getHttpServer())
+      .post(`/publicacoes/${p.id}/comentarios/${c.id}/curtidas`)
+      .set('Authorization', auth())
+      .send({ delta: 1 })
+      .expect(201);
+    await request(app.getHttpServer())
+      .delete(`/publicacoes/${p.id}/comentarios/${c.id}`)
+      .set('Authorization', auth({ ...aluno, email: 'outra@pucminas.edu.br' }))
+      .expect(403);
+    const removido = await request(app.getHttpServer())
+      .delete(`/publicacoes/${p.id}/comentarios/${c.id}`)
+      .set('Authorization', auth(coordenador))
+      .expect(200);
+    expect(removido.body.comentarios).toBe(0);
+  });
   it('stream autenticado entrega ready e evento sem manter listener após desconexão', async () => {
     await app.listen(0, '127.0.0.1');
     const abort = new AbortController();

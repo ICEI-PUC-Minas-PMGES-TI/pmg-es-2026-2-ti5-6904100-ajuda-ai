@@ -7,6 +7,11 @@ import 'package:http/http.dart' as http;
 
 import 'services/api_config.dart';
 import 'services/feed_events.dart';
+import 'services/feed_image_save.dart';
+import 'services/feed_media.dart';
+import 'widgets/app_feedback.dart';
+import 'widgets/feed_comments_sheet.dart';
+import 'models/feed_comment.dart';
 import 'sessao_usuario.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
@@ -60,6 +65,10 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   late final bool _deveFecharClient;
   late final FeedEvents _eventos;
   final _mudancas = ValueNotifier<int>(0);
+  final _fontes = <String, FeedMedia>{};
+  final _cards = <int, ValueNotifier<_Publicacao>>{};
+  final _consultas = <int, Future<void>>{};
+  final _pendentes = <int>{};
   bool _podePublicar = false;
   bool _consultaAtiva = false;
   bool _consultaPendente = false;
@@ -84,7 +93,15 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
         if (mounted) setState(() => _estadoTempoReal = estado);
       },
       onEvento: (tipo, dados) {
-        if (tipo != 'feed.heartbeat') {
+        final id = (dados['publicacaoId'] as num?)?.toInt();
+        if (tipo == 'feed.post.deleted' && id != null) {
+          if (mounted) {
+            setState(() => _publicacoes.removeWhere((p) => p.id == id));
+          }
+          _mudancas.value++;
+        } else if (id != null) {
+          unawaited(_atualizarUma(id));
+        } else if (tipo != 'feed.heartbeat') {
           unawaited(_carregarPublicacoes(silencioso: true));
         }
       },
@@ -99,6 +116,12 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _eventos.fechar();
     _mudancas.dispose();
+    for (final fonte in _fontes.values) {
+      fonte.dispose();
+    }
+    for (final card in _cards.values) {
+      card.dispose();
+    }
     if (_deveFecharClient) _client.close();
     super.dispose();
   }
@@ -153,13 +176,16 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
       final dados = jsonDecode(resposta.body) as List<dynamic>;
       final publicacoes = dados
           .whereType<Map<String, dynamic>>()
-          .map(_Publicacao.fromJson)
+          .map(_lerPublicacao)
           .toList();
       if (!mounted) return;
       setState(() {
         _publicacoes
           ..clear()
           ..addAll(publicacoes);
+        for (final p in publicacoes) {
+          _estadoCard(p).value = p;
+        }
         _carregandoPublicacoes = false;
         _falhaAoCarregar = false;
       });
@@ -201,9 +227,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
             ),
       erroPadrao: 'Não foi possível salvar a publicação',
     );
-    return _Publicacao.fromJson(
-      jsonDecode(resposta.body) as Map<String, dynamic>,
-    );
+    return _lerPublicacao(jsonDecode(resposta.body) as Map<String, dynamic>);
   }
 
   Future<bool> _removerDoBackend(_Publicacao publicacao) async {
@@ -223,6 +247,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   Future<_Publicacao?> _salvarComentarioNoBackend(
     _Publicacao publicacao,
     String comentario,
+    int? paiId,
   ) async {
     final id = publicacao.id;
     if (id == null) return null;
@@ -230,12 +255,10 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
       final resposta = await _client.post(
         Uri.parse('$_apiBaseUrl/publicacoes/$id/comentarios'),
         headers: {'Content-Type': 'application/json', ..._identidade()},
-        body: jsonEncode({'texto': comentario}),
+        body: jsonEncode({'texto': comentario, 'paiId': ?paiId}),
       );
       if (resposta.statusCode < 200 || resposta.statusCode >= 300) return null;
-      return _Publicacao.fromJson(
-        jsonDecode(resposta.body) as Map<String, dynamic>,
-      );
+      return _lerPublicacao(jsonDecode(resposta.body) as Map<String, dynamic>);
     } catch (_) {
       return null;
     }
@@ -254,9 +277,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
         body: jsonEncode({'delta': delta}),
       );
       if (resposta.statusCode < 200 || resposta.statusCode >= 300) return null;
-      return _Publicacao.fromJson(
-        jsonDecode(resposta.body) as Map<String, dynamic>,
-      );
+      return _lerPublicacao(jsonDecode(resposta.body) as Map<String, dynamic>);
     } catch (_) {
       return null;
     }
@@ -264,8 +285,99 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
 
   void _atualizarPublicacao(_Publicacao atualizada) {
     final indice = _publicacoes.indexWhere((item) => item.id == atualizada.id);
-    if (indice < 0 || !mounted) return;
-    setState(() => _publicacoes[indice] = atualizada);
+    if (!mounted) return;
+    if (indice < 0) {
+      setState(() {
+        _publicacoes.insert(0, atualizada);
+        _estadoCard(atualizada);
+      });
+    } else {
+      final mudouCategoria =
+          _publicacoes[indice].categoria != atualizada.categoria;
+      _publicacoes[indice] = atualizada;
+      _estadoCard(atualizada).value = atualizada;
+      if (mudouCategoria) setState(() {});
+    }
+    _mudancas.value++;
+  }
+
+  ValueNotifier<_Publicacao> _estadoCard(_Publicacao p) =>
+      _cards.putIfAbsent(p.id!, () => ValueNotifier(p));
+
+  _Publicacao _lerPublicacao(Map<String, dynamic> json) {
+    final p = _Publicacao.fromJson(json);
+    if (!mounted) return p;
+    final urls = <String>[];
+    for (var i = 0; i < p.imagens.length; i++) {
+      final ref = i < p.midias.length ? p.midias[i] : p.imagens[i];
+      final fonte = _fontes.putIfAbsent(
+        ref,
+        () => FeedMedia(ref, p.imagens[i], () => _atualizarUma(p.id!)),
+      );
+      fonte.receber(p.imagens[i]);
+      urls.add(fonte.value);
+    }
+    return p.copyWith(imagens: urls);
+  }
+
+  Future<void> _atualizarUma(int id) {
+    final ativa = _consultas[id];
+    if (ativa != null) {
+      _pendentes.add(id);
+      return ativa;
+    }
+    final trabalho = _consultarUma(id);
+    _consultas[id] = trabalho;
+    return trabalho;
+  }
+
+  Future<void> _consultarUma(int id) async {
+    try {
+      do {
+        _pendentes.remove(id);
+        final r = await _client
+            .get(
+              Uri.parse('$_apiBaseUrl/publicacoes/$id'),
+              headers: _identidade(),
+            )
+            .timeout(const Duration(seconds: 15));
+        if (!mounted) return;
+        if (r.statusCode == 404) {
+          setState(() => _publicacoes.removeWhere((p) => p.id == id));
+          _mudancas.value++;
+        } else if (r.statusCode == 200) {
+          _atualizarPublicacao(
+            _lerPublicacao(jsonDecode(r.body) as Map<String, dynamic>),
+          );
+        }
+      } while (_pendentes.contains(id) && mounted);
+    } catch (_) {
+      // A reconexão/refresh faz a reconciliação sem apagar conteúdo já exibido.
+    } finally {
+      _consultas.remove(id);
+    }
+  }
+
+  Future<bool> _acaoComentario(_Publicacao p, int id, {int? delta}) async {
+    try {
+      final uri = Uri.parse(
+        '$_apiBaseUrl/publicacoes/${p.id}/comentarios/$id${delta == null ? '' : '/curtidas'}',
+      );
+      final r = delta == null
+          ? await _client.delete(uri, headers: _identidade())
+          : await _client.post(
+              uri,
+              headers: {'Content-Type': 'application/json', ..._identidade()},
+              body: jsonEncode({'delta': delta}),
+            );
+      if (r.statusCode < 200 || r.statusCode >= 300 || !mounted) return false;
+      _atualizarPublicacao(
+        _lerPublicacao(jsonDecode(r.body) as Map<String, dynamic>),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _abrirCriacao() => _abrirEditor();
@@ -273,6 +385,21 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   Future<void> _abrirEditor([_Publicacao? original]) async {
     if (!_podePublicar || (original != null && !original.podeAdministrar)) {
       return;
+    }
+    if (original != null) {
+      final fontes = [for (final ref in original.midias) _fontes[ref]]
+          .whereType<FeedMedia>()
+          .toList();
+      await Future.wait(fontes.map((fonte) => fonte.garantirValida()));
+      if (!mounted) return;
+      original = original.copyWith(
+        imagens: [
+          for (var i = 0; i < original.imagens.length; i++)
+            i < original.midias.length
+                ? _fontes[original.midias[i]]?.value ?? original.imagens[i]
+                : original.imagens[i],
+        ],
+      );
     }
     await showModalBottomSheet<void>(
       context: context,
@@ -294,6 +421,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
             } else {
               _publicacoes.insert(0, salva);
             }
+            _estadoCard(salva).value = salva;
             _filtroSelecionado = 0;
           });
           _mudancas.value++;
@@ -343,23 +471,27 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _ComentariosSheet(
+      builder: (_) => FeedCommentsSheet(
         mudancas: _mudancas,
         comentarios: () =>
             _publicacoes
                 .where((p) => p.id == publicacao.id)
                 .firstOrNull
-                ?.comentariosTexto ??
+                ?.comentariosDetalhes ??
             const [],
-        onSubmit: (texto) async {
+        onSubmit: (texto, paiId) async {
           final atualizada = await _salvarComentarioNoBackend(
             publicacao,
             texto,
+            paiId,
           );
           if (atualizada == null) return false;
           _atualizarPublicacao(atualizada);
           return true;
         },
+        onLike: (comentario, delta) =>
+            _acaoComentario(publicacao, comentario.id, delta: delta),
+        onDelete: (comentario) => _acaoComentario(publicacao, comentario.id),
       ),
     );
   }
@@ -486,37 +618,47 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
               sliver: SliverList.separated(
                 itemCount: publicacoesVisiveis.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 14),
-                itemBuilder: (_, indice) => _PublicacaoCard(
+                itemBuilder: (_, indice) => ValueListenableBuilder<_Publicacao>(
                   key: ValueKey(publicacoesVisiveis[indice].id),
-                  publicacao: publicacoesVisiveis[indice],
-                  onComment: () =>
-                      _abrirComentarios(publicacoesVisiveis[indice]),
-                  onLike: (delta) async {
-                    final indiceReal = _publicacoes.indexOf(
-                      publicacoesVisiveis[indice],
-                    );
-                    if (indiceReal < 0) return false;
-                    final atual = _publicacoes[indiceReal];
-                    final atualizada = await _salvarCurtidaNoBackend(
-                      atual,
-                      delta,
-                    );
-                    if (atualizada == null) {
-                      if (context.mounted) {
-                        _mensagem(
-                          context,
-                          'Não foi possível registrar a curtida. Tente novamente.',
-                        );
+                  valueListenable: _estadoCard(publicacoesVisiveis[indice]),
+                  builder: (_, post, _) => _PublicacaoCard(
+                    publicacao: post,
+                    fontes: [
+                      for (var i = 0; i < post.imagens.length; i++)
+                        _fontes[i < post.midias.length
+                            ? post.midias[i]
+                            : post.imagens[i]]!,
+                    ],
+                    onComment: () => _abrirComentarios(post),
+                    onLike: (delta) async {
+                      final indiceReal = _publicacoes.indexWhere(
+                        (p) => p.id == post.id,
+                      );
+                      if (indiceReal < 0) return false;
+                      final atual = _publicacoes[indiceReal];
+                      final atualizada = await _salvarCurtidaNoBackend(
+                        atual,
+                        delta,
+                      );
+                      if (atualizada == null) {
+                        if (context.mounted) {
+                          _mensagem(
+                            context,
+                            'Não foi possível registrar a curtida. Tente novamente.',
+                          );
+                        }
+                        return false;
                       }
-                      return false;
-                    }
-                    _atualizarPublicacao(atualizada);
-                    return true;
-                  },
-                  onDelete: () {
-                    _apagarPublicacao(publicacoesVisiveis[indice]);
-                  },
-                  onEdit: () => _abrirEditor(publicacoesVisiveis[indice]),
+                      _atualizarPublicacao(atualizada);
+                      return true;
+                    },
+                    onDelete: () {
+                      _apagarPublicacao(post);
+                    },
+                    onEdit: () => _abrirEditor(post),
+                    onSaveImage: (fonte) =>
+                        salvarImagemDoFeed(fonte, client: _client),
+                  ),
                 ),
               ),
             ),
@@ -876,12 +1018,13 @@ class _DicaDaSemana extends StatelessWidget {
 
 class _PublicacaoCard extends StatefulWidget {
   const _PublicacaoCard({
-    super.key,
     required this.publicacao,
     required this.onComment,
     required this.onLike,
     required this.onDelete,
     required this.onEdit,
+    required this.onSaveImage,
+    required this.fontes,
   });
 
   final _Publicacao publicacao;
@@ -889,6 +1032,8 @@ class _PublicacaoCard extends StatefulWidget {
   final Future<bool> Function(int) onLike;
   final VoidCallback onDelete;
   final VoidCallback onEdit;
+  final Future<void> Function(String) onSaveImage;
+  final List<FeedMedia> fontes;
 
   @override
   State<_PublicacaoCard> createState() => _PublicacaoCardState();
@@ -900,7 +1045,6 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
   late int _curtidas;
   bool _curtido = false;
   bool _alterandoCurtida = false;
-  bool _salvo = false;
 
   @override
   void initState() {
@@ -916,7 +1060,6 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
       _pagina = 0;
       _curtidas = widget.publicacao.curtidas;
       _curtido = widget.publicacao.curtidoPeloUsuario;
-      _salvo = false;
     }
   }
 
@@ -1074,9 +1217,40 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                     controller: _imagemController,
                     itemCount: post.imagens.length,
                     onPageChanged: (pagina) => setState(() => _pagina = pagina),
-                    itemBuilder: (_, indice) => _ImagemFeed(
-                      imagem: post.imagens[indice],
-                      indice: indice,
+                    itemBuilder: (_, indice) => Semantics(
+                      button: true,
+                      label:
+                          'Abrir imagem ${indice + 1} de ${post.imagens.length}',
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => Navigator.of(context).push<void>(
+                          PageRouteBuilder<void>(
+                            transitionDuration: const Duration(
+                              milliseconds: 250,
+                            ),
+                            reverseTransitionDuration: const Duration(
+                              milliseconds: 200,
+                            ),
+                            pageBuilder: (_, _, _) => _ImagemTelaCheia(
+                              fonte: post.imagens[indice],
+                              heroTag: (this, indice),
+                              salvarImagem: widget.onSaveImage,
+                              midia: widget.fontes[indice],
+                            ),
+                            transitionsBuilder: (_, animation, _, child) =>
+                                FadeTransition(
+                                  opacity: animation,
+                                  child: child,
+                                ),
+                          ),
+                        ),
+                        child: _ImagemFeed(
+                          imagem: post.imagens[indice],
+                          indice: indice,
+                          heroTag: (this, indice),
+                          midia: widget.fontes[indice],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -1168,16 +1342,8 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                     total: post.imagens.length,
                     selecionado: _pagina,
                   ),
+                  const SizedBox(width: 10),
                 ],
-                const Spacer(),
-                _AcaoPost(
-                  tooltip: _salvo ? 'Remover dos salvos' : 'Salvar',
-                  icone: _salvo
-                      ? Icons.bookmark_rounded
-                      : Icons.bookmark_border_rounded,
-                  cor: _salvo ? AppColors.primary : AppColors.ink,
-                  onTap: () => setState(() => _salvo = !_salvo),
-                ),
               ],
             ),
           ),
@@ -1259,17 +1425,56 @@ class _ImagemDaFonte extends StatelessWidget {
     required this.fonte,
     required this.fit,
     this.alignment = Alignment.center,
+    this.midia,
   });
 
   final String fonte;
   final BoxFit fit;
   final Alignment alignment;
+  final FeedMedia? midia;
 
   @override
   Widget build(BuildContext context) {
+    final atual = midia;
+    if (atual != null) {
+      return ValueListenableBuilder<String>(
+        valueListenable: atual,
+        builder: (_, url, _) => _renderizar(url),
+      );
+    }
+    return _renderizar(fonte);
+  }
+
+  Widget _renderizar(String fonte) {
     final esquema = Uri.tryParse(fonte)?.scheme;
     if (esquema == 'https' || esquema == 'http') {
-      return Image.network(fonte, fit: fit, alignment: alignment);
+      return Image.network(
+        fonte,
+        fit: fit,
+        alignment: alignment,
+        errorBuilder: (_, _, _) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            unawaited(midia?.garantirValida(erro: true, urlComErro: fonte));
+          });
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.broken_image_outlined, color: Colors.grey),
+                  SizedBox(height: 8),
+                  Text(
+                    'Não foi possível carregar a imagem.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
     }
 
     if (!fonte.startsWith('data:')) {
@@ -1288,11 +1493,124 @@ class _ImagemDaFonte extends StatelessWidget {
   }
 }
 
+class _ImagemTelaCheia extends StatefulWidget {
+  const _ImagemTelaCheia({
+    required this.fonte,
+    required this.heroTag,
+    required this.salvarImagem,
+    required this.midia,
+  });
+
+  final String fonte;
+  final Object heroTag;
+  final Future<void> Function(String) salvarImagem;
+  final FeedMedia midia;
+
+  @override
+  State<_ImagemTelaCheia> createState() => _ImagemTelaCheiaState();
+}
+
+class _ImagemTelaCheiaState extends State<_ImagemTelaCheia> {
+  final _transformacao = TransformationController();
+  bool _salvando = false;
+
+  @override
+  void dispose() {
+    _transformacao.dispose();
+    super.dispose();
+  }
+
+  Future<void> _salvar() async {
+    if (_salvando) return;
+    setState(() => _salvando = true);
+    var mensagem = 'Imagem salva na galeria';
+    try {
+      await widget.midia.garantirValida();
+      final url = widget.midia.value;
+      try {
+        await widget.salvarImagem(url);
+      } on FeedImageDownloadException catch (erro) {
+        if (erro.statusCode != 401 && erro.statusCode != 403) rethrow;
+        await widget.midia.garantirValida(erro: true, urlComErro: url);
+        if (widget.midia.value == url) rethrow;
+        await widget.salvarImagem(widget.midia.value);
+      }
+    } catch (_) {
+      mensagem = 'Não foi possível salvar a imagem';
+    } finally {
+      if (mounted) {
+        setState(() => _salvando = false);
+        mostrarFeedback(
+          context,
+          mensagem,
+          erro: mensagem != 'Imagem salva na galeria',
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          tooltip: 'Fechar imagem',
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Salvar imagem',
+            onPressed: _salvando ? null : _salvar,
+            icon: _salvando
+                ? const SizedBox.square(
+                    dimension: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                      semanticsLabel: 'Salvando imagem',
+                    ),
+                  )
+                : const Icon(Icons.download_outlined),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: InteractiveViewer(
+          transformationController: _transformacao,
+          minScale: 1,
+          maxScale: 5,
+          child: SizedBox.expand(
+            child: Hero(
+              tag: widget.heroTag,
+              child: _ImagemDaFonte(
+                fonte: widget.fonte,
+                fit: BoxFit.contain,
+                midia: widget.midia,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ImagemFeed extends StatelessWidget {
-  const _ImagemFeed({required this.imagem, required this.indice});
+  const _ImagemFeed({
+    required this.imagem,
+    required this.indice,
+    required this.heroTag,
+    required this.midia,
+  });
 
   final String imagem;
   final int indice;
+  final Object heroTag;
+  final FeedMedia midia;
 
   @override
   Widget build(BuildContext context) {
@@ -1300,10 +1618,16 @@ class _ImagemFeed extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         Container(color: AppColors.lavender),
-        _ImagemDaFonte(
-          fonte: imagem,
-          fit: imagem.contains('pucjardim') ? BoxFit.cover : BoxFit.contain,
-          alignment: indice.isEven ? Alignment.center : Alignment.bottomCenter,
+        Hero(
+          tag: heroTag,
+          child: _ImagemDaFonte(
+            fonte: imagem,
+            midia: midia,
+            fit: imagem.contains('pucjardim') ? BoxFit.cover : BoxFit.contain,
+            alignment: indice.isEven
+                ? Alignment.center
+                : Alignment.bottomCenter,
+          ),
         ),
         if (imagem.contains('pucjardim'))
           const DecoratedBox(
@@ -1863,164 +2187,6 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
   }
 }
 
-class _ComentariosSheet extends StatefulWidget {
-  const _ComentariosSheet({
-    required this.comentarios,
-    required this.onSubmit,
-    required this.mudancas,
-  });
-
-  final List<String> Function() comentarios;
-  final ValueNotifier<int> mudancas;
-  final Future<bool> Function(String) onSubmit;
-
-  @override
-  State<_ComentariosSheet> createState() => _ComentariosSheetState();
-}
-
-class _ComentariosSheetState extends State<_ComentariosSheet> {
-  final _controller = TextEditingController();
-  List<String> get _comentarios => widget.comentarios();
-  bool _enviando = false;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.mudancas.addListener(_atualizar);
-  }
-
-  void _atualizar() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  void dispose() {
-    widget.mudancas.removeListener(_atualizar);
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _enviar() async {
-    final texto = _controller.text.trim();
-    if (texto.isEmpty || _enviando) return;
-    setState(() => _enviando = true);
-    final salvo = await widget.onSubmit(texto);
-    if (!mounted) return;
-    setState(() {
-      _enviando = false;
-      if (salvo) {
-        _controller.clear();
-      }
-    });
-    if (!salvo) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Não foi possível salvar o comentário. Tente novamente.',
-          ),
-        ),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: Material(
-        color: Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD7D1E3),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Comentários',
-                style: TextStyle(
-                  color: AppColors.ink,
-                  fontSize: 19,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 16),
-              ..._comentarios.map(
-                (comentario) => Padding(
-                  padding: const EdgeInsets.only(bottom: 13),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const _Avatar(iniciais: 'AL', cor: Color(0xFF3B82F6)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF8F7FB),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Text(
-                            comentario,
-                            style: const TextStyle(
-                              color: AppColors.ink,
-                              fontFamily: 'Inter',
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      onSubmitted: (_) => _enviar(),
-                      decoration: InputDecoration(
-                        hintText: 'Escreva um comentário...',
-                        filled: true,
-                        fillColor: const Color(0xFFF8F7FB),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 11,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    onPressed: _enviando ? null : _enviar,
-                    style: IconButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                    ),
-                    icon: const Icon(Icons.send_rounded),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _FeedVazio extends StatelessWidget {
   const _FeedVazio();
 
@@ -2126,6 +2292,7 @@ class _Publicacao {
     this.podeAdministrar = false,
     this.midias = const [],
     this.comentariosTexto = const [],
+    this.comentariosDetalhes = const [],
     this.curtidoPeloUsuario = false,
   });
 
@@ -2145,6 +2312,7 @@ class _Publicacao {
   final bool verificado;
   final bool podeAdministrar;
   final List<String> comentariosTexto;
+  final List<FeedComment> comentariosDetalhes;
 
   factory _Publicacao.fromJson(Map<String, dynamic> json) {
     final imagens = (json['imagens'] as List<dynamic>? ?? const [])
@@ -2172,6 +2340,20 @@ class _Publicacao {
       podeAdministrar: json['podeAdministrar'] as bool? ?? false,
       curtidoPeloUsuario: json['curtidoPeloUsuario'] as bool? ?? false,
       comentariosTexto: comentariosTexto,
+      comentariosDetalhes: json['comentariosDetalhes'] is List
+          ? (json['comentariosDetalhes'] as List)
+                .whereType<Map<String, dynamic>>()
+                .map(FeedComment.fromJson)
+                .toList()
+          : [
+              for (var i = 0; i < comentariosTexto.length; i++)
+                FeedComment(
+                  id: -i - 1,
+                  texto: comentariosTexto[i],
+                  autorId: '',
+                  nome: 'Usuário indisponível',
+                ),
+            ],
     );
   }
 
@@ -2186,6 +2368,7 @@ class _Publicacao {
   };
 
   _Publicacao copyWith({
+    List<String>? imagens,
     int? curtidas,
     bool? curtidoPeloUsuario,
     int? comentarios,
@@ -2198,7 +2381,7 @@ class _Publicacao {
     tempo: tempo,
     categoria: categoria,
     texto: texto,
-    imagens: imagens,
+    imagens: imagens ?? this.imagens,
     midias: midias,
     curtidas: curtidas ?? this.curtidas,
     curtidoPeloUsuario: curtidoPeloUsuario ?? this.curtidoPeloUsuario,
@@ -2207,5 +2390,6 @@ class _Publicacao {
     verificado: verificado,
     podeAdministrar: podeAdministrar,
     comentariosTexto: comentariosTexto ?? this.comentariosTexto,
+    comentariosDetalhes: comentariosDetalhes,
   );
 }

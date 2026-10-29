@@ -90,6 +90,10 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.byTooltip('Curtir'));
+    expect(find.byTooltip('Comentar'), findsOneWidget);
+    expect(find.byTooltip('Compartilhar'), findsOneWidget);
+    expect(find.byTooltip('Salvar'), findsNothing);
+    expect(find.byIcon(Icons.bookmark_border_rounded), findsNothing);
     await tester.tap(find.byTooltip('Curtir'));
     await tester.pumpAndSettle();
 

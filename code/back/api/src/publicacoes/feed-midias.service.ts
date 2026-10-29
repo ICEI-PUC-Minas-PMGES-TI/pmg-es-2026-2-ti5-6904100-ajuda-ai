@@ -5,6 +5,17 @@ import { AzureBlobStorageService } from '../storage/azure-blob-storage.service.j
 
 @Injectable()
 export class FeedMidiasService {
+  async fotoAutor(id: number): Promise<string | null> {
+    const chave = `usuarios/${id}/avatar.img`;
+    try {
+      return (await this.storage.existe('profiles', chave))
+        ? this.storage.sasLeitura('profiles', chave).url
+        : null;
+    } catch {
+      // Foto opcional: indisponibilidade do storage não deve impedir comentários.
+      return null;
+    }
+  }
   constructor(private readonly storage: AzureBlobStorageService) {}
   private pasta(email: string): string {
     return `publicacoes/${createHash('sha256').update(email).digest('hex').slice(0, 24)}/`;

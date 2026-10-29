@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module.js';
 import { ComentarioEntity } from './entities/comentario.entity.js';
 import { CurtidaEntity } from './entities/curtida.entity.js';
+import { CurtidaComentarioEntity } from './entities/curtida-comentario.entity.js';
 import { PublicacaoEntity } from './entities/publicacao.entity.js';
 import { PublicacoesController } from './publicacoes.controller.js';
 import { PublicacoesService } from './publicacoes.service.js';
@@ -24,6 +25,7 @@ import { FeedOutboxEntity } from './entities/feed-outbox.entity.js';
       PublicacaoEntity,
       ComentarioEntity,
       CurtidaEntity,
+      CurtidaComentarioEntity,
       FeedOutboxEntity,
     ]),
   ],

@@ -92,7 +92,7 @@ export class PublicacoesController {
     @Body() corpo: ComentarioDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.publicacoes.comentar(id, corpo.texto, req.user);
+    return this.publicacoes.comentar(id, corpo.texto, req.user, corpo.paiId);
   }
   @Delete(':id/comentarios/:comentarioId')
   removerComentario(
@@ -109,5 +109,19 @@ export class PublicacoesController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.publicacoes.curtir(id, corpo.delta, req.user);
+  }
+  @Post(':id/comentarios/:comentarioId/curtidas')
+  curtirComentario(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('comentarioId', ParseIntPipe) comentarioId: number,
+    @Body() corpo: CurtidaDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.publicacoes.curtirComentario(
+      id,
+      comentarioId,
+      corpo.delta,
+      req.user,
+    );
   }
 }

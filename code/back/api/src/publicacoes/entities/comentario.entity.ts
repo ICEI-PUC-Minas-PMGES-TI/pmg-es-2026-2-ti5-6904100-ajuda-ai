@@ -23,6 +23,13 @@ export class ComentarioEntity {
   @Column({ type: 'text' })
   texto: string;
 
+  @Column({ name: 'pai_id', type: 'int', nullable: true })
+  paiId: number | null;
+
+  @ManyToOne(() => ComentarioEntity, { nullable: true, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'pai_id' })
+  pai: Relation<ComentarioEntity> | null;
+
   @CreateDateColumn({ name: 'criado_em', type: 'timestamptz' })
   criadoEm: Date;
 

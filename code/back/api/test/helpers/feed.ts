@@ -25,11 +25,14 @@ export function criarFeedTeste() {
     PublicacaoEntity: [],
     ComentarioEntity: [],
     CurtidaEntity: [],
+    CurtidaComentarioEntity: [],
     FeedOutboxEntity: [],
   };
   const repos: Record<string, any> = {};
   const corresponde = (v: any, where: any) =>
-    Object.entries(where ?? {}).every(([k, val]) => v[k] === val);
+    Object.entries(where ?? {}).every(([k, val]: [string, any]) =>
+      val?._type === 'in' ? val._value.includes(v[k]) : v[k] === val,
+    );
   const completar = (v: any, relacoes: unknown) => {
     if (v && relacoes)
       return {
@@ -63,6 +66,21 @@ export function criarFeedTeste() {
         ),
       remove: async (v: any) => {
         tabelas[nome] = tabelas[nome].filter((p) => p.id !== v.id);
+        if (nome === 'ComentarioEntity') {
+          const ids = [
+            v.id,
+            ...tabelas.ComentarioEntity.filter((c) => c.paiId === v.id).map(
+              (c) => c.id,
+            ),
+          ];
+          tabelas.ComentarioEntity = tabelas.ComentarioEntity.filter(
+            (c) => !ids.includes(c.id),
+          );
+          tabelas.CurtidaComentarioEntity =
+            tabelas.CurtidaComentarioEntity.filter(
+              (c) => !ids.includes(c.comentarioId),
+            );
+        }
         return v;
       },
     };
@@ -70,6 +88,7 @@ export function criarFeedTeste() {
     getRepository: (entity: { name: string }) => repos[entity.name],
   };
   const dados = {
+    getRepository: manager.getRepository,
     transaction: async (acao: any) => {
       const snapshot = structuredClone(tabelas);
       try {
@@ -81,6 +100,7 @@ export function criarFeedTeste() {
     },
   } as unknown as DataSource;
   const midias = {
+    fotoAutor: async () => null,
     validar: async () => {},
     urls: (chaves: string[]) => chaves,
   } as unknown as FeedMidiasService;
@@ -88,7 +108,13 @@ export function criarFeedTeste() {
     repos.PublicacaoEntity as Repository<PublicacaoEntity>,
     dados,
     new FeedPolicy(),
-    { buscarPorEmail: async () => null } as unknown as UsuariosService,
+    {
+      buscarPorEmail: async () => null,
+      buscarAutoresPorEmails: async (emails: string[]) =>
+        emails
+          .filter((e) => e === aluno.email)
+          .map((email) => ({ id: 1, nome: 'Camila Duarte', email })),
+    } as unknown as UsuariosService,
     midias,
   );
   return { service, tabelas, repos, dados, midias };

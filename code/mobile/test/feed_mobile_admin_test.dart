@@ -84,6 +84,11 @@ class _Backend {
     if (path == '/publicacoes' && r.method == 'GET') {
       return json(posts.map((p) => apresentar(p, admin)).toList());
     }
+    if (path == '/publicacoes/1' && r.method == 'GET') {
+      return posts.isEmpty
+          ? json({'message': 'Não encontrado'}, 404)
+          : json(apresentar(posts.first, admin));
+    }
     if (path == '/publicacoes/midias') {
       if (!admin) return json({'message': 'Sem permissão'}, 403);
       expect(r.headers['content-type'], startsWith('multipart/form-data'));

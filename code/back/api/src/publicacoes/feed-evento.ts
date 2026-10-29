@@ -6,6 +6,7 @@ export const TIPOS_EVENTO_FEED = [
   'feed.post.deleted',
   'feed.comment.created',
   'feed.comment.deleted',
+  'feed.comment.like.updated',
   'feed.like.updated',
 ] as const;
 export type TipoEventoFeed = (typeof TIPOS_EVENTO_FEED)[number];

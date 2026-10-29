@@ -2,6 +2,8 @@ import {
   ArrayMaxSize,
   IsArray,
   IsIn,
+  IsInt,
+  Min,
   IsOptional,
   IsString,
   MaxLength,
@@ -19,6 +21,22 @@ export class PublicacaoDto {
 }
 export class ComentarioDto {
   @IsString() @MinLength(1) @MaxLength(2000) texto: string;
+  @IsOptional() @IsInt() @Min(1) paiId?: number;
+}
+export interface AutorComentarioDto {
+  id: string;
+  nome: string;
+  fotoUrl: string | null;
+}
+export interface ComentarioRespostaDto {
+  id: number;
+  texto: string;
+  paiId: number | null;
+  criadoEm: Date;
+  autor: AutorComentarioDto;
+  podeExcluir: boolean;
+  curtidas: number;
+  curtidoPorMim: boolean;
 }
 export class CurtidaDto {
   @IsIn([1, -1]) delta: number;

@@ -5,12 +5,18 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { createHash } from 'node:crypto';
 import type { AccessTokenPayload } from '../auth/authenticated-request.js';
 import { buscarCoordenadorPorEmail } from '../dados/dados.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
 import { ComentarioEntity } from './entities/comentario.entity.js';
 import { CurtidaEntity } from './entities/curtida.entity.js';
+import { CurtidaComentarioEntity } from './entities/curtida-comentario.entity.js';
+import type {
+  AutorComentarioDto,
+  ComentarioRespostaDto,
+} from './publicacoes.dto.js';
 import { FeedOutboxEntity } from './entities/feed-outbox.entity.js';
 import { PublicacaoEntity } from './entities/publicacao.entity.js';
 import { novoEventoFeed, type TipoEventoFeed } from './feed-evento.js';
@@ -39,7 +45,10 @@ export class PublicacoesService {
       relations: { curtidas: true, comentarios: true },
       order: { criadoEm: 'DESC', id: 'DESC' },
     });
-    return itens.map((item) => this.apresentar(item, usuario));
+    const autores = await this.autores(itens);
+    return Promise.all(
+      itens.map((item) => this.apresentar(item, usuario, autores)),
+    );
   }
 
   async obter(id: number, usuario: AccessTokenPayload) {
@@ -48,7 +57,7 @@ export class PublicacoesService {
       relations: { curtidas: true, comentarios: true },
     });
     if (!item) throw new NotFoundException('Publicação não encontrada.');
-    return this.apresentar(item, usuario);
+    return this.apresentar(item, usuario, await this.autores([item]));
   }
 
   async criar(corpo: DadosPublicacao, usuario: AccessTokenPayload) {
@@ -112,7 +121,12 @@ export class PublicacoesService {
     return { removido: true };
   }
 
-  async comentar(id: number, texto: string, usuario: AccessTokenPayload) {
+  async comentar(
+    id: number,
+    texto: string,
+    usuario: AccessTokenPayload,
+    paiId?: number,
+  ) {
     const comentario = texto?.trim();
     if (!comentario || comentario.length > 2000)
       throw new BadRequestException(
@@ -120,11 +134,26 @@ export class PublicacoesService {
       );
     await this.alterar(id, 'feed.comment.created', async (manager) => {
       const repo = manager.getRepository(ComentarioEntity);
+      let raiz: number | null = null;
+      if (paiId != null) {
+        if (!Number.isSafeInteger(paiId) || paiId < 1)
+          throw new BadRequestException('Comentário pai inválido.');
+        const pai = await repo.findOne({
+          where: { id: paiId, publicacaoId: id },
+        });
+        if (!pai)
+          throw new NotFoundException(
+            'Comentário pai não encontrado nesta publicação.',
+          );
+        // Responder a uma resposta mantém a profundidade em apenas um nível.
+        raiz = pai.paiId ?? pai.id;
+      }
       await repo.save(
         repo.create({
           publicacaoId: id,
           autorId: usuario.email,
           texto: comentario,
+          paiId: raiz,
         }),
       );
     });
@@ -165,6 +194,34 @@ export class PublicacoesService {
           repo.create({ publicacaoId: id, usuarioId: usuario.email }),
         );
       } else if (delta === -1 && existente) await repo.remove(existente);
+      else return false;
+    });
+    return this.obter(id, usuario);
+  }
+
+  async curtirComentario(
+    id: number,
+    comentarioId: number,
+    delta: number,
+    usuario: AccessTokenPayload,
+  ) {
+    if (delta !== 1 && delta !== -1)
+      throw new BadRequestException('Ação de curtida inválida.');
+    await this.alterar(id, 'feed.comment.like.updated', async (manager) => {
+      const comentario = await manager.getRepository(ComentarioEntity).findOne({
+        where: { id: comentarioId, publicacaoId: id },
+      });
+      if (!comentario)
+        throw new NotFoundException('Comentário não encontrado.');
+      const repo = manager.getRepository(CurtidaComentarioEntity);
+      const existente = await repo.findOne({
+        where: { comentarioId, usuarioId: usuario.email },
+      });
+      if (delta === 1 && !existente)
+        await repo.save(
+          repo.create({ comentarioId, usuarioId: usuario.email }),
+        );
+      else if (delta === -1 && existente) await repo.remove(existente);
       else return false;
     });
     return this.obter(id, usuario);
@@ -219,7 +276,48 @@ export class PublicacoesService {
     return { texto, categoria, imagens: [...new Set(imagens)] };
   }
 
-  private apresentar(item: PublicacaoEntity, usuario: AccessTokenPayload) {
+  private async autores(itens: PublicacaoEntity[]) {
+    const emails = [
+      ...new Set(
+        itens.flatMap((p) => (p.comentarios ?? []).map((c) => c.autorId)),
+      ),
+    ];
+    const usuarios = await this.usuarios.buscarAutoresPorEmails(emails);
+    const autores = new Map<string, AutorComentarioDto>();
+    await Promise.all(
+      emails.map(async (email) => {
+        const coordenador = buscarCoordenadorPorEmail(email);
+        const usuario = usuarios.find((u) => u.email === email);
+        autores.set(
+          email,
+          coordenador
+            ? {
+                id: `coordenador:${coordenador.id}`,
+                nome: coordenador.nome,
+                fotoUrl: coordenador.fotoUrl ?? null,
+              }
+            : usuario
+              ? {
+                  id: `usuario:${usuario.id}`,
+                  nome: usuario.nome,
+                  fotoUrl: await this.midias.fotoAutor(usuario.id),
+                }
+              : {
+                  id: `indisponivel:${createHash('sha256').update(email).digest('hex').slice(0, 24)}`,
+                  nome: 'Usuário indisponível',
+                  fotoUrl: null,
+                },
+        );
+      }),
+    );
+    return autores;
+  }
+
+  private async apresentar(
+    item: PublicacaoEntity,
+    usuario: AccessTokenPayload,
+    autores: Map<string, AutorComentarioDto>,
+  ) {
     const curtidas = item.curtidas ?? [];
     const comentarios = [...(item.comentarios ?? [])].sort(
       (a, b) => a.criadoEm.getTime() - b.criadoEm.getTime() || a.id - b.id,
@@ -228,6 +326,24 @@ export class PublicacoesService {
       0,
       Math.floor((Date.now() - item.criadoEm.getTime()) / 60_000),
     );
+    const likes = comentarios.length
+      ? await this.dados.getRepository(CurtidaComentarioEntity).find({
+          where: { comentarioId: In(comentarios.map((c) => c.id)) },
+        })
+      : [];
+    const detalhes: ComentarioRespostaDto[] = comentarios.map((c) => ({
+      id: c.id,
+      texto: c.texto,
+      paiId: c.paiId ?? null,
+      criadoEm: c.criadoEm,
+      autor: autores.get(c.autorId)!,
+      podeExcluir:
+        c.autorId === usuario.email || this.policy.podePublicar(usuario),
+      curtidas: likes.filter((v) => v.comentarioId === c.id).length,
+      curtidoPorMim: likes.some(
+        (v) => v.comentarioId === c.id && v.usuarioId === usuario.email,
+      ),
+    }));
     return {
       id: item.id,
       autor: item.autor,
@@ -250,12 +366,7 @@ export class PublicacoesService {
       curtidoPeloUsuario: curtidas.some((c) => c.usuarioId === usuario.email),
       comentarios: comentarios.length,
       comentariosTexto: comentarios.map((c) => c.texto),
-      comentariosDetalhes: comentarios.map((c) => ({
-        id: c.id,
-        texto: c.texto,
-        podeExcluir:
-          c.autorId === usuario.email || this.policy.podePublicar(usuario),
-      })),
+      comentariosDetalhes: detalhes,
       isOwn: item.ownerId === usuario.email,
       podeAdministrar: this.policy.podePublicar(usuario),
     };

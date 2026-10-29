@@ -5,6 +5,7 @@ import 'package:ajuda_ai/services/feed_events.dart';
 import 'package:ajuda_ai/services/participacoes_api.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/tela_feed.dart';
+import 'package:ajuda_ai/widgets/feed_comments_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -48,7 +49,11 @@ void main() {
       final client = MockClient(
         (r) async => http.Response(
           jsonEncode(
-            r.url.path.endsWith('permissoes') ? {'podePublicar': false} : posts,
+            r.url.path.endsWith('permissoes')
+                ? {'podePublicar': false}
+                : r.url.path == '/publicacoes/1'
+                ? posts.first
+                : posts,
           ),
           200,
         ),
@@ -91,9 +96,58 @@ void main() {
       await tester.pumpAndSettle();
       posts.first['comentariosTexto'] = ['Comentário de outro celular'];
       posts.first['comentarios'] = 1;
+      posts.first['comentariosDetalhes'] = [
+        {
+          'id': 10,
+          'texto': 'Comentário de outro celular',
+          'paiId': null,
+          'autor': {'id': 'usuario:2', 'nome': 'Ana Souza', 'fotoUrl': null},
+          'curtidas': 0,
+          'curtidoPorMim': false,
+          'podeExcluir': false,
+        },
+      ];
       stream.evento('feed.comment.created');
       await tester.pumpAndSettle();
       expect(find.text('Comentário de outro celular'), findsOneWidget);
+      expect(find.text('Ana Souza'), findsOneWidget);
+      final detalhes = posts.first['comentariosDetalhes'] as List;
+      detalhes[0]['curtidas'] = 1;
+      stream.evento('feed.comment.like.updated');
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byType(FeedCommentsSheet),
+          matching: find.byIcon(Icons.favorite_border_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(FeedCommentsSheet),
+          matching: find.text('1'),
+        ),
+        findsOneWidget,
+      );
+      detalhes.add({
+        'id': 11,
+        'texto': 'Resposta ao vivo',
+        'paiId': 10,
+        'autor': {
+          'id': 'coordenador:3',
+          'nome': 'Renata Martins',
+          'fotoUrl': null,
+        },
+      });
+      posts.first['comentarios'] = 2;
+      stream.evento('feed.comment.created');
+      await tester.pumpAndSettle();
+      expect(find.text('Resposta ao vivo'), findsOneWidget);
+      detalhes.clear();
+      posts.first['comentarios'] = 0;
+      stream.evento('feed.comment.deleted');
+      await tester.pumpAndSettle();
+      expect(find.text('Resposta ao vivo'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
       expect(stream.fechado, isTrue);
