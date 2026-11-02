@@ -349,7 +349,7 @@ export default function DashboardPage() {
             <button
               type="button"
               disabled={acoes?.podeCriarComunicado === false}
-              onClick={() => ir('configuracoes', { secao: 'comunicados' })}
+              onClick={() => ir('feed')}
             >
               <Icon name="megaphone" size={20} />
               <span>Criar comunicado</span>

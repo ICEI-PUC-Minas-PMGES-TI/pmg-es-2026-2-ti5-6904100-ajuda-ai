@@ -65,7 +65,7 @@ class _Backend {
   );
   Map<String, dynamic> apresentar(Map<String, dynamic> post, bool admin) => {
     ...post,
-    'autor': 'Renata Martins',
+    'autor': post['autor'] ?? 'Renata Martins',
     'iniciais': 'RM',
     'descricaoAutor': 'Coordenação',
     'tempo': 'agora',
@@ -73,24 +73,38 @@ class _Backend {
     'curtidas': post['curtidas'] ?? 0,
     'comentarios': (post['comentariosTexto'] as List).length,
     'podeAdministrar': admin,
+    'podeInteragir': true,
     'curtidoPeloUsuario': !admin && (post['curtidas'] as int) > 0,
   };
   late final client = MockClient((r) async {
     pedidos.add(r);
     final admin = r.headers['authorization'] == 'Bearer coord';
+    final padrinho = r.headers['authorization'] == 'Bearer padrinho';
+    final podePublicar = admin || padrinho;
+    final podeInteragir = r.headers['authorization'] != 'Bearer nenhuma';
+    Map<String, dynamic> respostaPost(Map<String, dynamic> post) => {
+      ...apresentar(post, admin),
+      'podeInteragir': podeInteragir,
+    };
     final path = r.url.path;
     if (path == '/coordenacao/programas') return json([]);
-    if (path == '/publicacoes/permissoes') return json({'podePublicar': admin});
+    if (path == '/publicacoes/permissoes') {
+      return json({
+        'podePublicar': podePublicar,
+        'podeInteragir': podeInteragir,
+        'podeAdministrar': admin,
+      });
+    }
     if (path == '/publicacoes' && r.method == 'GET') {
-      return json(posts.map((p) => apresentar(p, admin)).toList());
+      return json(posts.map(respostaPost).toList());
     }
     if (path == '/publicacoes/1' && r.method == 'GET') {
       return posts.isEmpty
           ? json({'message': 'Não encontrado'}, 404)
-          : json(apresentar(posts.first, admin));
+          : json(respostaPost(posts.first));
     }
     if (path == '/publicacoes/midias') {
-      if (!admin) return json({'message': 'Sem permissão'}, 403);
+      if (!podePublicar) return json({'message': 'Sem permissão'}, 403);
       expect(r.headers['content-type'], startsWith('multipart/form-data'));
       expect(r.bodyBytes, containsAllInOrder(png));
       uploads++;
@@ -100,10 +114,11 @@ class _Backend {
       }, 201);
     }
     if (path == '/publicacoes' && r.method == 'POST') {
-      if (!admin) return json({'message': 'Sem permissão'}, 403);
+      if (!podePublicar) return json({'message': 'Sem permissão'}, 403);
       final body = jsonDecode(r.body) as Map<String, dynamic>;
       expect(body.containsKey('autor'), isFalse);
       final post = {
+        'autor': padrinho ? 'Pedro Santos' : 'Renata Martins',
         'id': posts.length + 1,
         'texto': body['texto'],
         'categoria': body['categoria'],
@@ -165,6 +180,83 @@ void main() {
     await tester.ensureVisible(finder);
     await tester.tap(finder);
     await tester.pumpAndSettle();
+  }
+
+  for (final perfil in ['coord', 'padrinho', 'apadrinhado', 'nenhuma']) {
+    testWidgets('permissões e categorias no Flutter: $perfil', (tester) async {
+      tamanho(tester);
+      final backend = _Backend();
+      backend.posts.add({
+        'id': 1,
+        'texto': 'Aviso oficial',
+        'categoria': 'Comunicados',
+        'midias': <String>[],
+        'curtidas': 0,
+        'comentariosTexto': <String>[],
+      });
+      backend.posts.add({
+        'id': 2,
+        'texto': 'Conheça o campus',
+        'categoria': 'Campus',
+        'midias': <String>[],
+        'curtidas': 0,
+        'comentariosTexto': <String>[],
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FeedPage(
+            accessToken: perfil,
+            nomeAutor: perfil == 'padrinho' ? 'Pedro Santos' : 'Renata Martins',
+            coordenacao: perfil == 'coord',
+            client: backend.client,
+            eventsClientFactory: backend.abrirStream,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final publica = perfil == 'coord' || perfil == 'padrinho';
+      expect(
+        find.text('Compartilhe algo com a comunidade...'),
+        publica ? findsOneWidget : findsNothing,
+      );
+      await tocar(tester, find.byTooltip('Mais opções').first);
+      expect(
+        find.text('Editar publicação'),
+        perfil == 'coord' ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.text('Apagar publicação'),
+        perfil == 'coord' ? findsOneWidget : findsNothing,
+      );
+      await tester.tapAt(const Offset(1, 1));
+      await tester.pumpAndSettle();
+      expect(
+        find.byTooltip('Curtir'),
+        perfil == 'nenhuma' ? findsNothing : findsWidgets,
+      );
+      await tocar(tester, find.widgetWithText(ChoiceChip, 'Comunicados'));
+      expect(find.text('Aviso oficial'), findsOneWidget);
+      expect(find.text('Conheça o campus'), findsNothing);
+      if (publica) {
+        await tocar(tester, find.text('Compartilhe algo com a comunidade...'));
+        await tester.enterText(
+          find.byType(TextField).first,
+          'Publicação do $perfil',
+        );
+        await tocar(tester, find.byType(DropdownButton<String>));
+        await tocar(tester, find.text('Comunicados').last);
+        await tocar(tester, find.text('Adicionar foto (0/10)'));
+        await tocar(tester, find.text('Publicar'));
+        expect(backend.posts.first['categoria'], 'Comunicados');
+        expect(backend.posts.first['texto'], 'Publicação do $perfil');
+        expect(backend.uploads, 1);
+      } else if (perfil == 'nenhuma') {
+        await tocar(tester, find.byTooltip('Ver comentários'));
+        expect(find.byType(TextField), findsNothing);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    });
   }
 
   setUp(() {
@@ -235,6 +327,46 @@ void main() {
       expect(backend.streams.single.fechado, isTrue);
     },
   );
+
+  testWidgets('atalho Criar comunicado abre o Feed sem exigir ciclo', (
+    tester,
+  ) async {
+    tamanho(tester);
+    final backend = _Backend();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TelaCoordenacao(
+          sessaoAutenticada: const SessaoAuth(
+            accessToken: 'coord',
+            usuario: {
+              'nome': 'Renata Martins',
+              'email': 'renata@pucminas.edu.br',
+              'perfil': 'coordenador',
+            },
+          ),
+          client: backend.client,
+          baseUrl: 'http://notebook.test:3000',
+          feedEventsClientFactory: backend.abrirStream,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tocar(tester, find.text('Mais').last);
+    await tester.scrollUntilVisible(find.text('Criar comunicado'), 250);
+    await tocar(tester, find.text('Criar comunicado'));
+    expect(find.text('Feed do programa'), findsOneWidget);
+    expect(find.text('Compartilhe algo com a comunidade...'), findsOneWidget);
+    expect(
+      backend.pedidos.any((r) => r.url.path == '/coordenacao/comunicados'),
+      isFalse,
+    );
+    expect(
+      backend.streams.single.request!.headers['Authorization'],
+      'Bearer coord',
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
 
   testWidgets(
     'coordenador cria com imagem, edita mantendo referência, remove mídia e exclui',

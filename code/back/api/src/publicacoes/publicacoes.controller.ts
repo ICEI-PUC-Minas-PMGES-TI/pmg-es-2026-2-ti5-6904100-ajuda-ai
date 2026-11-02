@@ -16,10 +16,11 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
-import { FeedPolicy, FeedPublishGuard } from './feed-policy.js';
+import { FeedAdminGuard, FeedPolicy, FeedPublishGuard } from './feed-policy.js';
 import { FeedMidiasService } from './feed-midias.service.js';
 import { FeedStreamService } from './feed-stream.service.js';
 import { ComentarioDto, CurtidaDto, PublicacaoDto } from './publicacoes.dto.js';
+import type { FeedPermissoesDto } from './publicacoes.dto.js';
 import { PublicacoesService } from './publicacoes.service.js';
 
 @Controller('publicacoes')
@@ -36,8 +37,12 @@ export class PublicacoesController {
     return this.publicacoes.listar(req.user);
   }
   @Get('permissoes')
-  permissoes(@Req() req: AuthenticatedRequest) {
-    return { podePublicar: this.policy.podePublicar(req.user) };
+  permissoes(@Req() req: AuthenticatedRequest): FeedPermissoesDto {
+    return {
+      podePublicar: this.policy.podePublicar(req.user),
+      podeAdministrar: this.policy.podeAdministrar(req.user),
+      podeInteragir: this.policy.podeInteragir(req.user),
+    };
   }
   @Sse('events')
   eventos(@Req() req: AuthenticatedRequest) {
@@ -70,7 +75,7 @@ export class PublicacoesController {
     return this.publicacoes.criar(corpo, req.user);
   }
   @Patch(':id')
-  @UseGuards(FeedPublishGuard)
+  @UseGuards(FeedAdminGuard)
   atualizar(
     @Param('id', ParseIntPipe) id: number,
     @Body() corpo: PublicacaoDto,
@@ -79,7 +84,7 @@ export class PublicacoesController {
     return this.publicacoes.atualizar(id, corpo, req.user);
   }
   @Delete(':id')
-  @UseGuards(FeedPublishGuard)
+  @UseGuards(FeedAdminGuard)
   remover(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: AuthenticatedRequest,

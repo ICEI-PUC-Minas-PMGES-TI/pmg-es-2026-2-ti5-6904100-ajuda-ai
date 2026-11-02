@@ -1,12 +1,18 @@
 import { ForbiddenException } from '@nestjs/common';
-import { criarFeedTeste, coordenador, aluno } from '../../test/helpers/feed.js';
+import {
+  criarFeedTeste,
+  coordenador,
+  aluno,
+  padrinho,
+  somenteMapa,
+} from '../../test/helpers/feed.js';
 
 describe('PublicacoesService', () => {
   it('mantém o feed vazio sem conteúdo fictício', async () => {
     const { service } = criarFeedTeste();
     expect(await service.listar(aluno)).toEqual([]);
   });
-  it('somente coordenador publica e autoria vem do servidor', async () => {
+  it('coordenador publica e autoria vem do servidor; apadrinhado não publica', async () => {
     const { service, tabelas } = criarFeedTeste();
     await expect(service.criar({ texto: 'Teste' }, aluno)).rejects.toThrow(
       ForbiddenException,
@@ -19,6 +25,91 @@ describe('PublicacoesService', () => {
       coordenador.email,
     );
     expect((await service.listar(aluno))[0].podeAdministrar).toBe(false);
+  });
+  it('padrinho publica com autoria e categoria próprias sem ganhar administração', async () => {
+    const { service, tabelas } = criarFeedTeste();
+    const post = await service.criar(
+      { texto: 'Dica', categoria: 'Campus' },
+      padrinho,
+    );
+    expect(post).toMatchObject({
+      autor: 'Pedro Santos',
+      descricaoAutor: 'Padrinho do programa',
+      categoria: 'Campus',
+      isOwn: true,
+      podeAdministrar: false,
+      podeInteragir: true,
+    });
+    expect(tabelas.FeedOutboxEntity[0].evento.tipo).toBe('feed.post.created');
+    expect((await service.obter(post.id, coordenador)).podeAdministrar).toBe(
+      true,
+    );
+    await expect(
+      service.atualizar(post.id, { texto: 'X' }, padrinho),
+    ).rejects.toThrow(ForbiddenException);
+    await expect(service.remover(post.id, padrinho)).rejects.toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it.each([padrinho, aluno])(
+    '$perfil interage e exclui o próprio comentário, sem moderar terceiros',
+    async (usuario) => {
+      const { service } = criarFeedTeste();
+      const post = await service.criar({ texto: 'Teste' }, coordenador);
+      const comentada = await service.comentar(
+        post.id,
+        'Meu comentário',
+        usuario,
+      );
+      const c = comentada.comentariosDetalhes[0];
+      expect(c.podeExcluir).toBe(true);
+      expect((await service.curtir(post.id, 1, usuario)).curtidas).toBe(1);
+      expect((await service.curtir(post.id, -1, usuario)).curtidas).toBe(0);
+      expect(
+        (await service.curtirComentario(post.id, c.id, 1, usuario))
+          .comentariosDetalhes[0].curtidas,
+      ).toBe(1);
+      const outro = usuario === padrinho ? aluno : padrinho;
+      expect(
+        (await service.obter(post.id, outro)).comentariosDetalhes[0]
+          .podeExcluir,
+      ).toBe(false);
+      await expect(
+        service.removerComentario(post.id, c.id, outro),
+      ).rejects.toThrow(ForbiddenException);
+      expect(
+        (await service.removerComentario(post.id, c.id, usuario)).comentarios,
+      ).toBe(0);
+    },
+  );
+
+  it('somente mapa pode consultar, mas não publicar/comentar/curtir; conserva exclusão própria', async () => {
+    const { service } = criarFeedTeste();
+    const post = await service.criar({ texto: 'Teste' }, coordenador);
+    expect((await service.listar(somenteMapa))[0].podeInteragir).toBe(false);
+    await expect(service.criar({ texto: 'X' }, somenteMapa)).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(service.comentar(post.id, 'X', somenteMapa)).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(service.curtir(post.id, 1, somenteMapa)).rejects.toThrow(
+      ForbiddenException,
+    );
+    const c = (await service.comentar(post.id, 'Anterior', aluno))
+      .comentariosDetalhes[0];
+    await expect(
+      service.curtirComentario(post.id, c.id, 1, somenteMapa),
+    ).rejects.toThrow(ForbiddenException);
+    expect(
+      (
+        await service.removerComentario(post.id, c.id, {
+          ...aluno,
+          perfil: 'nenhuma',
+        })
+      ).comentarios,
+    ).toBe(0);
   });
   it('aluno comenta, curte e descurte com eventos na mesma transação', async () => {
     const { service, tabelas } = criarFeedTeste();

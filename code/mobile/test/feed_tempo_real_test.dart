@@ -77,6 +77,7 @@ void main() {
         'tempo': 'agora',
         'categoria': 'Comunicados',
         'texto': 'Notícia recebida ao vivo',
+        'podeInteragir': true,
         'imagens': <String>[],
         'curtidas': 0,
         'comentarios': 0,

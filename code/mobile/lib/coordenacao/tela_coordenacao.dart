@@ -8,7 +8,6 @@ import '../tela_login.dart';
 import '../tela_feed.dart';
 import '../theme/colors.dart';
 import 'tela_candidaturas_coord.dart';
-import 'tela_comunicado_coord.dart';
 import 'tela_dashboard_coord.dart';
 import 'tela_cadastros_coord.dart';
 import 'tela_formularios_coord.dart';
@@ -204,6 +203,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
 
   /// Destinos do dashboard (pontos de atenção / ações rápidas) e da aba Mais.
   void _abrirDestino(String destino, Map<String, String> query) {
+    if (destino == 'comunicado') destino = 'feed';
     final api = _api;
     if (api == null) return;
     if (_programa == null && destino != 'programas' && destino != 'feed') {
@@ -240,7 +240,6 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       ),
       'usuarios' => TelaUsuariosCoord(api: api, programa: _programa),
       'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
-      'comunicado' => TelaComunicadoCoord(api: api),
       _ => TelaProgramasCoord(
         api: api,
         pendencia: query['pendencia'],

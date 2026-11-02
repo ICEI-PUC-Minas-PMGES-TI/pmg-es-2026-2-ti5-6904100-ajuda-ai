@@ -46,11 +46,34 @@ Comando REST autenticado
   → React / Flutter consultam o estado atualizado por REST
 ```
 
-`FeedPolicy` é o ponto único da decisão de administrar/publicar no feed. Hoje
-autoriza coordenadores. Uma futura concessão `FEED_PUBLISH` pode ser consultada
-nessa policy sem alterar cada controller ou promover um aluno a coordenador.
-Nenhuma concessão persistida ou nova role foi criada agora. A autoria da publicação
-é obtida pelo servidor; o cliente não escolhe nome nem identidade de outro autor.
+`FeedPolicy` separa publicação, interação e administração conforme as decisões de
+02/11/2026, que substituem as regras de feed do PDF de 14/10/2026:
+
+- Coordenação e padrinhos publicam e enviam imagens; apadrinhados não publicam.
+- Coordenação, padrinhos e apadrinhados curtem/descurtem e comentam.
+- Perfil `nenhuma` (ou ausente/desconhecido) mantém leitura autenticada, sem novas
+  interações. Nenhuma regra de matching/candidatura é alterada.
+- Qualquer autor pode excluir seu próprio comentário, mesmo após mudar de perfil;
+  somente a coordenação pode excluir comentários alheios.
+- Edição/exclusão de publicações continua administrativa, exclusiva da coordenação.
+  Poder publicar não concede administração de posts ou comentários alheios.
+- Comunicados oficiais são publicações do próprio feed com categoria `Comunicados`.
+  React e Flutter permitem selecionar e filtrar as categorias, inclusive legadas.
+
+O formulário separado de comunicados nas configurações React foi substituído por
+acesso ao Feed; o atalho do dashboard também abre o Feed. No Flutter, o atalho
+`Criar comunicado` abre o mesmo Feed e a tela separada foi retirada. Registros e
+endpoints legados de `avisos` são preservados para compatibilidade/histórico;
+não houve migração nem exclusão desses dados nesta alteração.
+
+A autoria é obtida pelo servidor; posts de padrinhos são identificados como
+`Padrinho do programa`, sem o rótulo da coordenação. Não se cria concessão ou role nova.
+
+**Pendência:** moderação de comentários de apadrinhados vinculados por padrinhos.
+A participação existente depende de ciclo/grupo e o post ainda não identifica esse
+contexto; não é seguro inferir vínculo por nome ou pelo papel do JWT. Quando o
+contrato de vínculos/contexto estiver finalizado, estender `podeExcluirComentario`
+com a consulta autorizada. Até lá, padrinhos só excluem seus próprios comentários.
 
 O publicador usa `amqplib` e `amqp-connection-manager`, bibliotecas indicadas na
 [documentação RabbitMQ do NestJS](https://docs.nestjs.com/microservices/rabbitmq).
@@ -83,11 +106,11 @@ Todos exigem `Authorization: Bearer <JWT da API>`:
 
 - `GET /publicacoes`: feed e contadores personalizados para a identidade autenticada.
 - `GET /publicacoes/:id`: estado atual de uma publicação.
-- `GET /publicacoes/permissoes`: `{ podePublicar }`, calculado pela policy.
+- `GET /publicacoes/permissoes`: `{ podePublicar, podeAdministrar, podeInteragir }`, calculado pela policy.
 - `GET /publicacoes/events`: `text/event-stream` autenticado.
 - `POST /publicacoes`: cria; exige permissão de publicação.
-- `PATCH /publicacoes/:id`: edita; exige permissão de publicação.
-- `DELETE /publicacoes/:id`: exclui com seus comentários/curtidas; exige permissão.
+- `PATCH /publicacoes/:id`: edita; exige administração da coordenação.
+- `DELETE /publicacoes/:id`: exclui com seus comentários/curtidas; exige administração.
 - `POST /publicacoes/midias`: multipart, campo `arquivo`; exige permissão.
 - `POST /publicacoes/:id/comentarios`: `{ texto }`, até 2000 caracteres.
 - `DELETE /publicacoes/:id/comentarios/:comentarioId`: autor do comentário ou administração.
@@ -209,8 +232,9 @@ selecionado. O feed usa explicitamente o JWT/base URL dessa sessão; não reutil
 uma sessão de aluno anterior que possa estar em memória.
 
 No **celular B**, entre como aluno existente e abra o feed pela navegação normal.
-Os dois celulares consultam a permissão no backend; o aluno comum não recebe os
-controles de publicação/edição/exclusão, e tentativas diretas à API recebem 403.
+Os dois celulares consultam a permissão no backend. Apadrinhados não recebem
+criação/edição/exclusão de posts e recebem 403 ao tentar essas ações diretamente.
+Padrinhos recebem criação/upload, mas a administração de posts continua da coordenação.
 
 5. No celular A, toque em **Criar**, escreva e adicione uma imagem PNG/JPEG/WebP.
 Toque em **Publicar**. O upload vai pelo backend ao serviço Azure existente; a
@@ -309,8 +333,8 @@ testes não precisam de banco, Azure ou RabbitMQ externos.
 
 ## Limitações e operação
 
-- A concessão de publicação a alunos está preparada na policy, mas sua interface
-  e persistência são trabalho futuro.
+- Moderação de apadrinhados vinculados por padrinhos depende do contexto/vínculo
+  definitivo; publicação pelo perfil `padrinho` já está habilitada.
 - Mídias novas são imagens PNG/JPEG/WebP. Vídeo, PDF e notificações push com o app
   fechado não foram implementados; SSE atende clientes com a tela aberta.
 - Uploads abandonados e blobs de imagens removidas são preservados. Não há limpeza

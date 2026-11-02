@@ -59,7 +59,7 @@ class TelaMaisCoord extends StatelessWidget {
     (
       Icons.campaign_outlined,
       'Criar comunicado',
-      'Aviso para padrinhos e/ou apadrinhados',
+      'Publicação na categoria Comunicados do Feed',
       'comunicado',
     ),
   ];

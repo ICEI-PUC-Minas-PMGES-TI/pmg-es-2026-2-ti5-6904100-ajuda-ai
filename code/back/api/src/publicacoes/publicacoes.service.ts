@@ -81,7 +81,9 @@ export class PublicacoesService {
             .map((p) => p[0])
             .join('')
             .toUpperCase(),
-          descricaoAutor: 'Coordenação do programa',
+          descricaoAutor: this.policy.podeAdministrar(usuario)
+            ? 'Coordenação do programa'
+            : 'Padrinho do programa',
           ownerId: usuario.email,
         }),
       );
@@ -96,7 +98,7 @@ export class PublicacoesService {
     corpo: DadosPublicacao,
     usuario: AccessTokenPayload,
   ) {
-    this.policy.exigirPublicacao(usuario);
+    this.policy.exigirAdministracao(usuario);
     await this.alterar(id, 'feed.post.updated', async (manager, item) => {
       const valores = this.validar({
         texto: corpo.texto ?? item.texto,
@@ -114,7 +116,7 @@ export class PublicacoesService {
   }
 
   async remover(id: number, usuario: AccessTokenPayload) {
-    this.policy.exigirPublicacao(usuario);
+    this.policy.exigirAdministracao(usuario);
     await this.alterar(id, 'feed.post.deleted', async (manager, item) => {
       await manager.getRepository(PublicacaoEntity).remove(item);
     });
@@ -127,6 +129,7 @@ export class PublicacoesService {
     usuario: AccessTokenPayload,
     paiId?: number,
   ) {
+    this.policy.exigirInteracao(usuario);
     const comentario = texto?.trim();
     if (!comentario || comentario.length > 2000)
       throw new BadRequestException(
@@ -172,14 +175,15 @@ export class PublicacoesService {
       });
       if (!comentario)
         throw new NotFoundException('Comentário não encontrado.');
-      if (comentario.autorId !== usuario.email)
-        this.policy.exigirPublicacao(usuario);
+      if (!this.policy.podeExcluirComentario(usuario, comentario.autorId))
+        throw new ForbiddenException('Você não pode excluir este comentário.');
       await repo.remove(comentario);
     });
     return this.obter(id, usuario);
   }
 
   async curtir(id: number, delta: number, usuario: AccessTokenPayload) {
+    this.policy.exigirInteracao(usuario);
     if (delta !== 1 && delta !== -1)
       throw new BadRequestException(
         'A ação precisa ser curtir (1) ou descurtir (-1).',
@@ -205,6 +209,7 @@ export class PublicacoesService {
     delta: number,
     usuario: AccessTokenPayload,
   ) {
+    this.policy.exigirInteracao(usuario);
     if (delta !== 1 && delta !== -1)
       throw new BadRequestException('Ação de curtida inválida.');
     await this.alterar(id, 'feed.comment.like.updated', async (manager) => {
@@ -337,8 +342,7 @@ export class PublicacoesService {
       paiId: c.paiId ?? null,
       criadoEm: c.criadoEm,
       autor: autores.get(c.autorId)!,
-      podeExcluir:
-        c.autorId === usuario.email || this.policy.podePublicar(usuario),
+      podeExcluir: this.policy.podeExcluirComentario(usuario, c.autorId),
       curtidas: likes.filter((v) => v.comentarioId === c.id).length,
       curtidoPorMim: likes.some(
         (v) => v.comentarioId === c.id && v.usuarioId === usuario.email,
@@ -368,7 +372,8 @@ export class PublicacoesService {
       comentariosTexto: comentarios.map((c) => c.texto),
       comentariosDetalhes: detalhes,
       isOwn: item.ownerId === usuario.email,
-      podeAdministrar: this.policy.podePublicar(usuario),
+      podeAdministrar: this.policy.podeAdministrar(usuario),
+      podeInteragir: this.policy.podeInteragir(usuario),
     };
   }
 }

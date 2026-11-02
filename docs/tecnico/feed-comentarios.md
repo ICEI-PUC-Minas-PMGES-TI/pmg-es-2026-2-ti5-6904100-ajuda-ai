@@ -65,7 +65,9 @@ da foto não impede a leitura dos comentários.
 - `POST /publicacoes/:id/comentarios/:comentarioId/curtidas`: `{delta: 1|-1}`.
   Curtir/descurtir são idempotentes; uma única curtida por usuário/comentário.
 - `DELETE /publicacoes/:id/comentarios/:comentarioId`: endpoint existente;
-  autor ou usuário autorizado pela `FeedPolicy`, com cascata das respostas.
+  qualquer autor (inclusive apadrinhado) ou coordenação, com cascata das respostas.
+  Padrinhos não recebem exclusão global por poderem publicar; moderação de seus
+  apadrinhados depende do contrato definitivo de vínculos/contexto, conforme `feed.md`.
 
 Os comandos continuam retornando a publicação atualizada. Dados do autor enviados
 pelo cliente são recusados pela validação HTTP.

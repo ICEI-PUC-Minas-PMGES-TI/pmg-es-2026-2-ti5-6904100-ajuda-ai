@@ -10,6 +10,19 @@ import Icon from "../components/Icon";
 import Modal from "../components/Modal";
 import "../feed.css";
 
+export const categoriasFeed = [
+  "Comunicados",
+  "Dicas acadêmicas",
+  "Campus",
+  "Oportunidades",
+];
+
+export function filtrarPublicacoes(itens, categoria) {
+  return categoria
+    ? itens.filter((post) => post.categoria === categoria)
+    : itens;
+}
+
 export default function FeedPage({ coordenacao = false }) {
   const email = coordenacao ? undefined : getAlunoSession()?.email;
   const [itens, setItens] = useState([]);
@@ -20,6 +33,7 @@ export default function FeedPage({ coordenacao = false }) {
   const [editor, setEditor] = useState(null);
   const [ocupado, setOcupado] = useState(false);
   const [confirmar, setConfirmar] = useState(null);
+  const [categoria, setCategoria] = useState("");
   const sequencia = useRef(0);
 
   const carregar = useCallback(async () => {
@@ -143,12 +157,59 @@ export default function FeedPage({ coordenacao = false }) {
   }
 
   return (
+    <FeedView
+      {...{
+        itens,
+        carregando,
+        erro,
+        estado,
+        podePublicar,
+        editor,
+        ocupado,
+        confirmar,
+        categoria,
+        setCategoria,
+        setEditor,
+        setConfirmar,
+        executar,
+        salvar,
+        anexar,
+        email,
+      }}
+    />
+  );
+}
+
+/** Mesmas ações e permissões da tela, renderizáveis sem uma sessão de navegador. */
+export function FeedView({
+  itens = [],
+  carregando = false,
+  erro = "",
+  estado = "",
+  podePublicar = false,
+  editor = null,
+  ocupado = false,
+  confirmar = null,
+  categoria = "",
+  setCategoria,
+  setEditor,
+  setConfirmar,
+  executar,
+  salvar,
+  anexar,
+  email,
+}) {
+  const visiveis = filtrarPublicacoes(itens, categoria);
+  const categorias = [
+    ...new Set([...categoriasFeed, ...itens.map((post) => post.categoria)]),
+  ];
+  return (
     <section className="feed-page">
       <header className="dash-header">
         <div>
           <span className="eyebrow">COMUNIDADE</span>
           <h1>Feed do programa</h1>
-          <p>Notícias e orientações da coordenação.</p>
+          <p>Comunicados da coordenação e publicações dos padrinhos.</p>
           <small role="status">{estado}</small>
         </div>
         {podePublicar && (
@@ -167,20 +228,31 @@ export default function FeedPage({ coordenacao = false }) {
           </button>
         )}
       </header>
+      <label className="feed-filter">
+        Filtrar por categoria
+        <select
+          value={categoria}
+          onChange={(event) => setCategoria(event.target.value)}
+        >
+          <option value="">Todas as categorias</option>
+          {categorias.map((valor) => (
+            <option key={valor} value={valor}>
+              {valor}
+            </option>
+          ))}
+        </select>
+      </label>
       {erro && (
         <p className="dash-inline-error" role="alert">
           {erro}
         </p>
       )}
       {carregando && <p role="status">Carregando publicações…</p>}
-      {!carregando && !itens.length && (
-        <p className="empty-copy">
-          Nenhuma publicação ainda. Os comunicados da coordenação aparecerão
-          aqui.
-        </p>
+      {!carregando && !visiveis.length && (
+        <p className="empty-copy">Nenhuma publicação nesta categoria.</p>
       )}
       <div className="feed-list">
-        {itens.map((post) => (
+        {visiveis.map((post) => (
           <article className="dash-card feed-post" key={post.id}>
             <header>
               <span className="feed-avatar">{post.iniciais}</span>
@@ -207,23 +279,25 @@ export default function FeedPage({ coordenacao = false }) {
               </div>
             )}
             <div className="feed-actions">
-              <button
-                className="ghost-button"
-                disabled={ocupado}
-                aria-pressed={post.curtidoPeloUsuario}
-                onClick={() =>
-                  executar(() =>
-                    api.curtirPublicacao(
-                      post.id,
-                      post.curtidoPeloUsuario ? -1 : 1,
-                      email,
-                    ),
-                  )
-                }
-              >
-                {post.curtidoPeloUsuario ? "Descurtir" : "Curtir"} ·{" "}
-                {post.curtidas}
-              </button>
+              {post.podeInteragir && (
+                <button
+                  className="ghost-button"
+                  disabled={ocupado}
+                  aria-pressed={post.curtidoPeloUsuario}
+                  onClick={() =>
+                    executar(() =>
+                      api.curtirPublicacao(
+                        post.id,
+                        post.curtidoPeloUsuario ? -1 : 1,
+                        email,
+                      ),
+                    )
+                  }
+                >
+                  {post.curtidoPeloUsuario ? "Descurtir" : "Curtir"} ·{" "}
+                  {post.curtidas}
+                </button>
+              )}
               <span>{post.comentarios} comentário(s)</span>
               {post.podeAdministrar && (
                 <>
@@ -273,32 +347,34 @@ export default function FeedPage({ coordenacao = false }) {
                 </li>
               ))}
             </ul>
-            <form
-              className="feed-comment-form"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const form = e.currentTarget;
-                const texto = new FormData(form).get("comentario").trim();
-                if (
-                  texto &&
-                  (await executar(() =>
-                    api.comentarPublicacao(post.id, texto, email),
-                  ))
-                )
-                  form.reset();
-              }}
-            >
-              <input
-                name="comentario"
-                aria-label="Seu comentário"
-                placeholder="Escreva um comentário…"
-                maxLength={2000}
-                required
-              />
-              <button className="mini-btn" disabled={ocupado}>
-                Comentar
-              </button>
-            </form>
+            {post.podeInteragir && (
+              <form
+                className="feed-comment-form"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget;
+                  const texto = new FormData(form).get("comentario").trim();
+                  if (
+                    texto &&
+                    (await executar(() =>
+                      api.comentarPublicacao(post.id, texto, email),
+                    ))
+                  )
+                    form.reset();
+                }}
+              >
+                <input
+                  name="comentario"
+                  aria-label="Seu comentário"
+                  placeholder="Escreva um comentário…"
+                  maxLength={2000}
+                  required
+                />
+                <button className="mini-btn" disabled={ocupado}>
+                  Comentar
+                </button>
+              </form>
+            )}
           </article>
         ))}
       </div>
@@ -324,12 +400,18 @@ export default function FeedPage({ coordenacao = false }) {
             <label>
               Categoria
               <input
+                list="feed-categorias"
                 maxLength={80}
                 value={editor.categoria}
                 onChange={(e) =>
                   setEditor({ ...editor, categoria: e.target.value })
                 }
               />
+              <datalist id="feed-categorias">
+                {categorias.map((valor) => (
+                  <option key={valor} value={valor} />
+                ))}
+              </datalist>
             </label>
             <label>
               Texto

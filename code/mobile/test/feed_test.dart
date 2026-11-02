@@ -230,6 +230,7 @@ class _FeedBackendFake {
       'texto': registro['texto'],
       'imagens': registro['imagens'],
       'curtidas': curtidasPor.length,
+      'podeInteragir': true,
       'curtidoPeloUsuario': curtidasPor.contains(usuarioId),
       'comentarios': comentariosTexto.length,
       'comentariosTexto': comentariosTexto,

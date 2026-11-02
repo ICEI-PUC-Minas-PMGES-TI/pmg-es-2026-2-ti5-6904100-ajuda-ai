@@ -1,6 +1,9 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "vite";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
 import { criarParserSse, abrirFeedStream } from "../src/api/feed-stream.js";
 
 test("parser SSE preserva JSON fragmentado, CRLF e múltiplos eventos", () => {
@@ -91,6 +94,110 @@ const server = await createServer({
 });
 after(() => server.close());
 const client = await server.ssrLoadModule("/src/api/client.js");
+const { FeedView, filtrarPublicacoes } = await server.ssrLoadModule(
+  "/src/pages/FeedPage.jsx",
+);
+const { default: ConfiguracoesPage } = await server.ssrLoadModule(
+  "/src/pages/coordenacao/ConfiguracoesPage.jsx",
+);
+const { AuthProvider } = await server.ssrLoadModule(
+  "/src/auth/AuthContext.jsx",
+);
+
+test("configurações encaminham comunicados ao Feed sem formulário separado", () => {
+  const html = renderToStaticMarkup(
+    createElement(
+      MemoryRouter,
+      {},
+      createElement(AuthProvider, {}, createElement(ConfiguracoesPage)),
+    ),
+  );
+  assert.ok(html.includes('href="/coordenacao/feed"'));
+  assert.ok(html.includes("Conta da coordenação"));
+  assert.ok(!html.includes("<form"));
+  assert.ok(!html.includes("Publicar comunicado"));
+});
+
+const postBase = {
+  id: 1,
+  autor: "Pedro Santos",
+  iniciais: "PS",
+  descricaoAutor: "Padrinho do programa",
+  tempo: "agora",
+  categoria: "Campus",
+  texto: "Dica para visitar a biblioteca",
+  imagens: [],
+  midias: [],
+  curtidas: 0,
+  curtidoPeloUsuario: false,
+  comentarios: 1,
+  comentariosDetalhes: [{ id: 1, texto: "Meu comentário", podeExcluir: true }],
+};
+
+for (const [perfil, podePublicar, podeAdministrar, podeInteragir] of [
+  ["coordenador", true, true, true],
+  ["padrinho", true, false, true],
+  ["apadrinhado", false, false, true],
+  ["nenhuma", false, false, false],
+]) {
+  test(`React respeita as permissões retornadas para ${perfil}`, () => {
+    const html = renderToStaticMarkup(
+      createElement(FeedView, {
+        podePublicar,
+        itens: [{ ...postBase, podeAdministrar, podeInteragir }],
+      }),
+    );
+    assert.equal(html.includes("Nova publicação"), podePublicar);
+    assert.equal(html.includes(">Editar</button>"), podeAdministrar);
+    assert.equal(html.includes('aria-label="Seu comentário"'), podeInteragir);
+    assert.equal(html.includes("aria-pressed="), podeInteragir);
+    // Mesmo sem papel de participante, o autor conserva a exclusão própria.
+    assert.ok(html.includes('aria-label="Excluir comentário"'));
+    const alheio = renderToStaticMarkup(
+      createElement(FeedView, {
+        itens: [
+          {
+            ...postBase,
+            podeAdministrar,
+            podeInteragir,
+            comentariosDetalhes: [
+              { id: 2, texto: "Alheio", podeExcluir: podeAdministrar },
+            ],
+          },
+        ],
+      }),
+    );
+    assert.equal(
+      alheio.includes('aria-label="Excluir comentário"'),
+      podeAdministrar,
+    );
+  });
+}
+
+test("React filtra comunicados, dicas e categorias já existentes sem misturar posts", () => {
+  const itens = [
+    postBase,
+    { ...postBase, id: 2, categoria: "Comunicados", texto: "Aviso oficial" },
+    {
+      ...postBase,
+      id: 3,
+      categoria: "Categoria antiga",
+      texto: "Conteúdo legado",
+    },
+  ];
+  assert.deepEqual(
+    filtrarPublicacoes(itens, "Comunicados").map((p) => p.id),
+    [2],
+  );
+  assert.equal(filtrarPublicacoes(itens, "").length, 3);
+  const html = renderToStaticMarkup(
+    createElement(FeedView, { itens, categoria: "Comunicados" }),
+  );
+  assert.ok(html.includes("Aviso oficial"));
+  assert.ok(html.includes("Categoria antiga"));
+  assert.ok(!html.includes("Dica para visitar a biblioteca"));
+  assert.ok(!html.includes("Conteúdo legado"));
+});
 test("REST do feed reutiliza sessões e upload multipart", async () => {
   client.persistSession({
     accessToken: "coord",

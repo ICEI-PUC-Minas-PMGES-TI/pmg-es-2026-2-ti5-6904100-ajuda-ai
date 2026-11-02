@@ -31,6 +31,7 @@ void main() {
     Future<bool> Function(FeedComment, int)? curtir,
     Future<bool> Function(FeedComment)? excluir,
     ValueNotifier<int>? mudancas,
+    bool podeInteragir = true,
   }) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -42,6 +43,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: FeedCommentsSheet(
+            podeInteragir: podeInteragir,
             comentarios: () => lista,
             mudancas: notifier,
             onSubmit: enviar ?? (_, _) async => true,
@@ -53,6 +55,17 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
+
+  testWidgets(
+    'somente leitura conserva exclusão própria sem oferecer escrita',
+    (tester) async {
+      await abrir(tester, [comentario(1, admin: true)], podeInteragir: false);
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text('Responder'), findsNothing);
+      expect(find.byTooltip('Curtir comentário'), findsNothing);
+      expect(find.byTooltip('Excluir comentário'), findsOneWidget);
+    },
+  );
 
   testWidgets('nome, foto, data e ações vêm do contrato explícito', (
     tester,

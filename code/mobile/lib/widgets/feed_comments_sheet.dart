@@ -14,12 +14,14 @@ class FeedCommentsSheet extends StatefulWidget {
     required this.onSubmit,
     required this.onLike,
     required this.onDelete,
+    required this.podeInteragir,
   });
   final List<FeedComment> Function() comentarios;
   final ValueNotifier<int> mudancas;
   final Future<bool> Function(String, int?) onSubmit;
   final Future<bool> Function(FeedComment, int) onLike;
   final Future<bool> Function(FeedComment) onDelete;
+  final bool podeInteragir;
   @override
   State<FeedCommentsSheet> createState() => _FeedCommentsSheetState();
 }
@@ -55,7 +57,7 @@ class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
   }
 
   void _responder(FeedComment comentario) {
-    if (_enviando) return;
+    if (_enviando || !widget.podeInteragir) return;
     setState(() => _respondendo = comentario);
     if (comentario.paiId != null && _controller.text.isEmpty) {
       _controller.text = '@${comentario.nome} ';
@@ -73,7 +75,7 @@ class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
 
   Future<void> _enviar() async {
     final texto = _controller.text.trim();
-    if (texto.isEmpty || _enviando) return;
+    if (texto.isEmpty || _enviando || !widget.podeInteragir) return;
     setState(() => _enviando = true);
     final salvo = await widget.onSubmit(
       texto,
@@ -97,7 +99,7 @@ class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
   }
 
   Future<void> _curtir(FeedComment c) async {
-    if (!_ocupados.add(c.id)) return;
+    if (!widget.podeInteragir || !_ocupados.add(c.id)) return;
     setState(() {});
     final salvo = await widget.onLike(c, c.curtidoPorMim ? -1 : 1);
     if (!mounted) return;
@@ -210,81 +212,84 @@ class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
                         itemBuilder: (_, i) => _linha(ordenados[i]),
                       ),
               ),
-              ColoredBox(
-                color: Colors.white,
-                child: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_respondendo != null)
+              if (widget.podeInteragir)
+                ColoredBox(
+                  color: Colors.white,
+                  child: SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_respondendo != null)
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Respondendo a ${_respondendo!.nome}',
+                                    style: const TextStyle(
+                                      color: AppColors.primary,
+                                      fontSize: 12,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Cancelar resposta',
+                                  onPressed: _enviando
+                                      ? null
+                                      : _cancelarResposta,
+                                  icon: const Icon(Icons.close, size: 18),
+                                ),
+                              ],
+                            ),
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Expanded(
-                                child: Text(
-                                  'Respondendo a ${_respondendo!.nome}',
-                                  style: const TextStyle(
-                                    color: AppColors.primary,
-                                    fontSize: 12,
+                                child: TextField(
+                                  controller: _controller,
+                                  focusNode: _foco,
+                                  enabled: !_enviando,
+                                  maxLength: 2000,
+                                  minLines: 1,
+                                  maxLines: 4,
+                                  textCapitalization:
+                                      TextCapitalization.sentences,
+                                  decoration: InputDecoration(
+                                    hintText: 'Escreva um comentário...',
+                                    counterText: '',
+                                    filled: true,
+                                    fillColor: AppColors.lavender,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(22),
+                                      borderSide: BorderSide.none,
+                                    ),
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              IconButton(
-                                tooltip: 'Cancelar resposta',
-                                onPressed: _enviando ? null : _cancelarResposta,
-                                icon: const Icon(Icons.close, size: 18),
+                              const SizedBox(width: 8),
+                              IconButton.filled(
+                                tooltip: 'Enviar comentário',
+                                onPressed: _enviando ? null : _enviar,
+                                style: IconButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                ),
+                                icon: const Icon(Icons.send_rounded),
                               ),
                             ],
                           ),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _controller,
-                                focusNode: _foco,
-                                enabled: !_enviando,
-                                maxLength: 2000,
-                                minLines: 1,
-                                maxLines: 4,
-                                textCapitalization:
-                                    TextCapitalization.sentences,
-                                decoration: InputDecoration(
-                                  hintText: 'Escreva um comentário...',
-                                  counterText: '',
-                                  filled: true,
-                                  fillColor: AppColors.lavender,
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 12,
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(22),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton.filled(
-                              tooltip: 'Enviar comentário',
-                              onPressed: _enviando ? null : _enviar,
-                              style: IconButton.styleFrom(
-                                backgroundColor: AppColors.primary,
-                              ),
-                              icon: const Icon(Icons.send_rounded),
-                            ),
-                          ],
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -384,24 +389,25 @@ class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
                   const SizedBox(height: 2),
                   Row(
                     children: [
-                      _botaoCurtir(c, ocupado),
-                      const SizedBox(width: 6),
-                      TextButton(
-                        onPressed: _enviando ? null : () => _responder(c),
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          minimumSize: const Size(48, 36),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          foregroundColor: AppColors.muted,
-                        ),
-                        child: const Text(
-                          'Responder',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
+                      if (widget.podeInteragir) _botaoCurtir(c, ocupado),
+                      if (widget.podeInteragir) const SizedBox(width: 6),
+                      if (widget.podeInteragir)
+                        TextButton(
+                          onPressed: _enviando ? null : () => _responder(c),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            minimumSize: const Size(48, 36),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            foregroundColor: AppColors.muted,
+                          ),
+                          child: const Text(
+                            'Responder',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
-                      ),
                       const Spacer(),
                       if (c.podeExcluir)
                         IconButton(

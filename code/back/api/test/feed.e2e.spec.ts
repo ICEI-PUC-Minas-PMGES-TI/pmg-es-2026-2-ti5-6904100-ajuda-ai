@@ -1,4 +1,8 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  BadRequestException,
+  INestApplication,
+  ValidationPipe,
+} from '@nestjs/common';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -7,10 +11,17 @@ import { PublicacoesService } from '../src/publicacoes/publicacoes.service.js';
 import {
   FeedPolicy,
   FeedPublishGuard,
+  FeedAdminGuard,
 } from '../src/publicacoes/feed-policy.js';
 import { FeedMidiasService } from '../src/publicacoes/feed-midias.service.js';
 import { FeedStreamService } from '../src/publicacoes/feed-stream.service.js';
-import { criarFeedTeste, coordenador, aluno } from './helpers/feed.js';
+import {
+  criarFeedTeste,
+  coordenador,
+  aluno,
+  padrinho,
+  somenteMapa,
+} from './helpers/feed.js';
 
 describe('Feed HTTP e SSE autenticados', () => {
   let app: INestApplication;
@@ -24,9 +35,17 @@ describe('Feed HTTP e SSE autenticados', () => {
       providers: [
         FeedPolicy,
         FeedPublishGuard,
+        FeedAdminGuard,
         FeedStreamService,
         { provide: PublicacoesService, useValue: feed.service },
-        { provide: FeedMidiasService, useValue: { enviar: vi.fn() } },
+        {
+          provide: FeedMidiasService,
+          useValue: {
+            enviar: vi.fn(() => {
+              throw new BadRequestException('Envie uma imagem.');
+            }),
+          },
+        },
       ],
     }).compile();
     app = modulo.createNestApplication();
@@ -40,6 +59,74 @@ describe('Feed HTTP e SSE autenticados', () => {
   });
   const auth = (papel = aluno) =>
     `Bearer ${app.get(JwtService).sign(papel, { expiresIn: '1h' })}`;
+
+  it.each([
+    [coordenador, true, true, true],
+    [padrinho, true, false, true],
+    [aluno, false, false, true],
+    [somenteMapa, false, false, false],
+  ] as const)(
+    'permissões e comandos HTTP do perfil %j',
+    async (usuario, podePublicar, podeAdministrar, podeInteragir) => {
+      const token = auth(usuario);
+      const permissoes = await request(app.getHttpServer())
+        .get('/publicacoes/permissoes')
+        .set('Authorization', token)
+        .expect(200);
+      expect(permissoes.body).toEqual({
+        podePublicar,
+        podeAdministrar,
+        podeInteragir,
+      });
+      const post = await request(app.getHttpServer())
+        .post('/publicacoes')
+        .set('Authorization', auth(coordenador))
+        .send({ texto: 'Comunicado', categoria: 'Comunicados' })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post('/publicacoes')
+        .set('Authorization', token)
+        .send({ texto: 'Dica', categoria: 'Dicas acadêmicas' })
+        .expect(podePublicar ? 201 : 403);
+      // Sem arquivo: publicadores passam pelo guard e recebem erro de validação (400).
+      await request(app.getHttpServer())
+        .post('/publicacoes/midias')
+        .set('Authorization', token)
+        .expect(podePublicar ? 400 : 403);
+      const lista = await request(app.getHttpServer())
+        .get('/publicacoes')
+        .set('Authorization', token)
+        .expect(200);
+      expect(lista.body[0]).toMatchObject({ podeAdministrar, podeInteragir });
+      await request(app.getHttpServer())
+        .post(`/publicacoes/${post.body.id}/curtidas`)
+        .set('Authorization', token)
+        .send({ delta: 1 })
+        .expect(podeInteragir ? 201 : 403);
+      const comentario = await request(app.getHttpServer())
+        .post(`/publicacoes/${post.body.id}/comentarios`)
+        .set('Authorization', token)
+        .send({ texto: 'Comentário' })
+        .expect(podeInteragir ? 201 : 403);
+      if (podeInteragir) {
+        const c = comentario.body.comentariosDetalhes[0];
+        expect(c.podeExcluir).toBe(true);
+        await request(app.getHttpServer())
+          .delete(`/publicacoes/${post.body.id}/comentarios/${c.id}`)
+          .set('Authorization', token)
+          .expect(200);
+      }
+      await request(app.getHttpServer())
+        .patch(`/publicacoes/${post.body.id}`)
+        .set('Authorization', token)
+        .send({ texto: 'Alterado' })
+        .expect(podeAdministrar ? 200 : 403);
+      await request(app.getHttpServer())
+        .delete(`/publicacoes/${post.body.id}`)
+        .set('Authorization', token)
+        .expect(podeAdministrar ? 200 : 403);
+    },
+  );
   it('coordenador publica, aluno lê/comenta/curte/descurte e não publica', async () => {
     const post = await request(app.getHttpServer())
       .post('/publicacoes')

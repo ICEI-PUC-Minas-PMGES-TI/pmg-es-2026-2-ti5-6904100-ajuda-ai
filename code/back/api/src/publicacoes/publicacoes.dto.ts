@@ -28,6 +28,11 @@ export interface AutorComentarioDto {
   nome: string;
   fotoUrl: string | null;
 }
+export interface FeedPermissoesDto {
+  podePublicar: boolean;
+  podeAdministrar: boolean;
+  podeInteragir: boolean;
+}
 export interface ComentarioRespostaDto {
   id: number;
   texto: string;

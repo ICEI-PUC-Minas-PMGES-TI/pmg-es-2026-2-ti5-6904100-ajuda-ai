@@ -19,6 +19,20 @@ export const aluno: AccessTokenPayload = {
   escopo: 'acesso',
 };
 
+export const padrinho: AccessTokenPayload = {
+  sub: '2',
+  email: 'pedro@pucminas.edu.br',
+  perfil: 'padrinho',
+  escopo: 'acesso',
+};
+
+export const somenteMapa: AccessTokenPayload = {
+  sub: '4',
+  email: 'mapa@pucminas.edu.br',
+  perfil: 'nenhuma',
+  escopo: 'acesso',
+};
+
 /** Banco isolado para testes de transação e contrato HTTP; integração PG testa locks reais. */
 export function criarFeedTeste() {
   const tabelas: Record<string, any[]> = {
@@ -109,11 +123,18 @@ export function criarFeedTeste() {
     dados,
     new FeedPolicy(),
     {
-      buscarPorEmail: async () => null,
+      buscarPorEmail: async (email: string) =>
+        email === padrinho.email
+          ? { id: 2, nome: 'Pedro Santos', email }
+          : null,
       buscarAutoresPorEmails: async (emails: string[]) =>
         emails
-          .filter((e) => e === aluno.email)
-          .map((email) => ({ id: 1, nome: 'Camila Duarte', email })),
+          .filter((e) => e === aluno.email || e === padrinho.email)
+          .map((email) => ({
+            id: email === aluno.email ? 1 : 2,
+            nome: email === aluno.email ? 'Camila Duarte' : 'Pedro Santos',
+            email,
+          })),
     } as unknown as UsuariosService,
     midias,
   );

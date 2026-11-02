@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { criarFeedTeste, padrinho } from '../../test/helpers/feed.js';
 import type { DataSource } from 'typeorm';
 import type { ConfirmChannel, ConsumeMessage } from 'amqplib';
 import { filter, firstValueFrom } from 'rxjs';
@@ -10,6 +11,43 @@ import { FeedMidiasService } from './feed-midias.service.js';
 import type { AzureBlobStorageService } from '../storage/azure-blob-storage.service.js';
 
 describe('entrega de eventos do feed', () => {
+  it('post do padrinho persiste evento na outbox e chega a dois clientes SSE', async () => {
+    const { service, tabelas } = criarFeedTeste();
+    const post = await service.criar(
+      { texto: 'Dica do padrinho', categoria: 'Campus' },
+      padrinho,
+    );
+    const evento = tabelas.FeedOutboxEntity[0].evento;
+    expect(evento).toMatchObject({
+      tipo: 'feed.post.created',
+      publicacaoId: post.id,
+    });
+    expect(JSON.stringify(evento)).not.toContain(padrinho.email);
+    const streams = [new FeedStreamService(), new FeedStreamService()];
+    for (const stream of streams) {
+      const recebidos: unknown[] = [];
+      const sub = stream
+        .observar(Date.now() + 60_000)
+        .subscribe((e) => recebidos.push(e));
+      try {
+        const ack = vi.fn();
+        new FeedRabbitService(new ConfigService({}), stream).consumir(
+          { ack, nack: vi.fn() },
+          { content: Buffer.from(JSON.stringify(evento)) } as ConsumeMessage,
+        );
+        expect(ack).toHaveBeenCalledOnce();
+        expect(recebidos).toContainEqual({
+          id: evento.id,
+          type: evento.tipo,
+          data: evento,
+        });
+      } finally {
+        sub.unsubscribe();
+        stream.onModuleDestroy();
+      }
+    }
+  });
+
   it('consumidor entrega RabbitMQ → SSE com ACK e deduplicação', async () => {
     const stream = new FeedStreamService();
     const rabbit = new FeedRabbitService(new ConfigService({}), stream);

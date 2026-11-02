@@ -429,7 +429,7 @@ Future<_ClienteImagem> _abrirFeed(
         headers: {'content-type': 'image/png'},
       );
     }
-    final post =
+    final dados =
         publicacao ??
         {
           'id': 6,
@@ -438,6 +438,7 @@ Future<_ClienteImagem> _abrirFeed(
           'imagens': urls,
           'midias': [for (var i = 0; i < urls.length; i++) 'feed/foto-$i.jpg'],
         };
+    final post = {'podeInteragir': true, ...dados};
     final corpo = request.url.path == '/publicacoes/permissoes'
         ? {'podePublicar': false}
         : request.url.path == '/publicacoes/6'

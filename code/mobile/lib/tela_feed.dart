@@ -57,7 +57,7 @@ class FeedPage extends StatefulWidget {
 }
 
 class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
-  int _filtroSelecionado = 0;
+  String _filtroSelecionado = 'Para você';
   final List<_Publicacao> _publicacoes = [];
   bool _carregandoPublicacoes = true;
   bool _falhaAoCarregar = false;
@@ -410,6 +410,10 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
       backgroundColor: Colors.transparent,
       builder: (_) => _CriarPublicacaoSheet(
         original: original,
+        categorias: {
+          ..._categoriasFeed,
+          ..._publicacoes.map((p) => p.categoria),
+        }.toList(),
         nomeAutor: widget.nomeAutor ?? _nomeAutorAtual(),
         onSalvar: (rascunho) async {
           final salva = await _salvarNoBackend(rascunho);
@@ -422,7 +426,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
               _publicacoes.insert(0, salva);
             }
             _estadoCard(salva).value = salva;
-            _filtroSelecionado = 0;
+            _filtroSelecionado = 'Para você';
           });
           _mudancas.value++;
         },
@@ -472,6 +476,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) => FeedCommentsSheet(
+        podeInteragir: publicacao.podeInteragir,
         mudancas: _mudancas,
         comentarios: () =>
             _publicacoes
@@ -529,7 +534,11 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final filtro = _filtros[_filtroSelecionado];
+    final filtros = <String>[
+      'Para você',
+      ...{..._categoriasFeed, ..._publicacoes.map((p) => p.categoria)},
+    ];
+    final filtro = _filtroSelecionado;
     final publicacoesVisiveis = filtro == 'Para você'
         ? _publicacoes
         : _publicacoes.where((post) => post.categoria == filtro).toList();
@@ -563,6 +572,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
                     child: Column(
                       children: [
                         _Filtros(
+                          opcoes: filtros,
                           selecionado: _filtroSelecionado,
                           onSelected: (indice) =>
                               setState(() => _filtroSelecionado = indice),
@@ -587,7 +597,8 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
                             style: const TextStyle(fontSize: 12),
                           ),
                         ),
-                        if (_filtroSelecionado == 0) const _DicaDaSemana(),
+                        if (_filtroSelecionado == 'Para você')
+                          const _DicaDaSemana(),
                       ],
                     ),
                   ),
@@ -798,18 +809,23 @@ class _IconeCabecalho extends StatelessWidget {
   }
 }
 
-const _filtros = <String>[
-  'Para você',
+const _categoriasFeed = <String>[
+  'Comunicados',
   'Dicas acadêmicas',
   'Campus',
   'Oportunidades',
 ];
 
 class _Filtros extends StatelessWidget {
-  const _Filtros({required this.selecionado, required this.onSelected});
+  const _Filtros({
+    required this.opcoes,
+    required this.selecionado,
+    required this.onSelected,
+  });
 
-  final int selecionado;
-  final ValueChanged<int> onSelected;
+  final List<String> opcoes;
+  final String selecionado;
+  final ValueChanged<String> onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -821,16 +837,16 @@ class _Filtros extends StatelessWidget {
           vertical: 14,
         ),
         scrollDirection: Axis.horizontal,
-        itemCount: _filtros.length,
+        itemCount: opcoes.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (_, indice) {
-          final ativo = indice == selecionado;
+          final ativo = opcoes[indice] == selecionado;
           return ChoiceChip(
             selected: ativo,
-            onSelected: (_) => onSelected(indice),
+            onSelected: (_) => onSelected(opcoes[indice]),
             showCheckmark: false,
-            label: Text(_filtros[indice]),
-            avatar: indice == 1
+            label: Text(opcoes[indice]),
+            avatar: opcoes[indice] == 'Dicas acadêmicas'
                 ? Icon(
                     Icons.school_outlined,
                     size: 17,
@@ -1300,33 +1316,34 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
             padding: const EdgeInsets.fromLTRB(8, 7, 8, 4),
             child: Row(
               children: [
-                _AcaoPost(
-                  tooltip: _curtido ? 'Descurtir' : 'Curtir',
-                  icone: _curtido
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_border_rounded,
-                  cor: _curtido ? const Color(0xFFE94072) : AppColors.ink,
-                  onTap: () async {
-                    if (_alterandoCurtida) return;
-                    final delta = _curtido ? -1 : 1;
-                    setState(() {
-                      _alterandoCurtida = true;
-                      _curtido = !_curtido;
-                      _curtidas += delta;
-                    });
-                    final salvo = await widget.onLike(delta);
-                    if (!mounted) return;
-                    setState(() {
-                      _alterandoCurtida = false;
-                      if (!salvo) {
+                if (post.podeInteragir)
+                  _AcaoPost(
+                    tooltip: _curtido ? 'Descurtir' : 'Curtir',
+                    icone: _curtido
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
+                    cor: _curtido ? const Color(0xFFE94072) : AppColors.ink,
+                    onTap: () async {
+                      if (_alterandoCurtida) return;
+                      final delta = _curtido ? -1 : 1;
+                      setState(() {
+                        _alterandoCurtida = true;
                         _curtido = !_curtido;
-                        _curtidas -= delta;
-                      }
-                    });
-                  },
-                ),
+                        _curtidas += delta;
+                      });
+                      final salvo = await widget.onLike(delta);
+                      if (!mounted) return;
+                      setState(() {
+                        _alterandoCurtida = false;
+                        if (!salvo) {
+                          _curtido = !_curtido;
+                          _curtidas -= delta;
+                        }
+                      });
+                    },
+                  ),
                 _AcaoPost(
-                  tooltip: 'Comentar',
+                  tooltip: post.podeInteragir ? 'Comentar' : 'Ver comentários',
                   icone: Icons.chat_bubble_outline_rounded,
                   onTap: widget.onComment,
                 ),
@@ -1769,9 +1786,11 @@ class _CriarPublicacaoSheet extends StatefulWidget {
   const _CriarPublicacaoSheet({
     required this.nomeAutor,
     required this.onSalvar,
+    required this.categorias,
     this.original,
   });
   final String nomeAutor;
+  final List<String> categorias;
   final _Publicacao? original;
   final Future<void> Function(_Publicacao) onSalvar;
 
@@ -1967,21 +1986,14 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
                               ),
-                              items:
-                                  {
-                                        _categoria,
-                                        'Comunicados',
-                                        'Dicas acadêmicas',
-                                        'Campus',
-                                        'Oportunidades',
-                                      }
-                                      .map(
-                                        (c) => DropdownMenuItem(
-                                          value: c,
-                                          child: Text(c),
-                                        ),
-                                      )
-                                      .toList(),
+                              items: {_categoria, ...widget.categorias}
+                                  .map(
+                                    (c) => DropdownMenuItem(
+                                      value: c,
+                                      child: Text(c),
+                                    ),
+                                  )
+                                  .toList(),
                               onChanged: _salvando
                                   ? null
                                   : (valor) {
@@ -2290,6 +2302,7 @@ class _Publicacao {
     required this.corAvatar,
     this.verificado = false,
     this.podeAdministrar = false,
+    this.podeInteragir = false,
     this.midias = const [],
     this.comentariosTexto = const [],
     this.comentariosDetalhes = const [],
@@ -2311,6 +2324,7 @@ class _Publicacao {
   final Color corAvatar;
   final bool verificado;
   final bool podeAdministrar;
+  final bool podeInteragir;
   final List<String> comentariosTexto;
   final List<FeedComment> comentariosDetalhes;
 
@@ -2338,6 +2352,7 @@ class _Publicacao {
           (json['comentarios'] as num?)?.toInt() ?? comentariosTexto.length,
       corAvatar: AppColors.primary,
       podeAdministrar: json['podeAdministrar'] as bool? ?? false,
+      podeInteragir: json['podeInteragir'] == true,
       curtidoPeloUsuario: json['curtidoPeloUsuario'] as bool? ?? false,
       comentariosTexto: comentariosTexto,
       comentariosDetalhes: json['comentariosDetalhes'] is List
@@ -2389,6 +2404,7 @@ class _Publicacao {
     corAvatar: corAvatar,
     verificado: verificado,
     podeAdministrar: podeAdministrar,
+    podeInteragir: podeInteragir,
     comentariosTexto: comentariosTexto ?? this.comentariosTexto,
     comentariosDetalhes: comentariosDetalhes,
   );

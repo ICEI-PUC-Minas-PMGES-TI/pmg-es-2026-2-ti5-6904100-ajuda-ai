@@ -19,9 +19,9 @@ const NAV = [
 ];
 
 /** Páginas que não dependem do programa/ciclo selecionado. */
-const SEM_PROGRAMA = ['/coordenacao/feed', '/coordenacao/programas', '/coordenacao/pucstops', '/coordenacao/eventos', '/coordenacao/restaurantes'];
+const SEM_PROGRAMA = ['/coordenacao/feed', '/coordenacao/configuracoes', '/coordenacao/programas', '/coordenacao/pucstops', '/coordenacao/eventos', '/coordenacao/restaurantes'];
 /** Dentre elas, as que nem usam o seletor de programa (valem para todos os ciclos). */
-const SEM_SELETOR = ['/coordenacao/feed', '/coordenacao/pucstops', '/coordenacao/eventos', '/coordenacao/restaurantes'];
+const SEM_SELETOR = ['/coordenacao/feed', '/coordenacao/configuracoes', '/coordenacao/pucstops', '/coordenacao/eventos', '/coordenacao/restaurantes'];
 
 export default function CoordLayout() {
   const { autenticado, ehCoordenador, usuario, logout } = useAuth();
