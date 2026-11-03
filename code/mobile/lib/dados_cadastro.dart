@@ -14,6 +14,7 @@ class DadosCadastro {
     this.bolsistaProuni,
     this.deOutraCidade,
     this.requisitosCumpridos = const {},
+    this.declaraPrimeiroPeriodo = false,
     this.extras = const {},
   });
 
@@ -41,6 +42,9 @@ class DadosCadastro {
   /// requisitos vêm da coordenação (backend); nada é fixo no app.
   final Map<String, bool> requisitosCumpridos;
 
+  /// Apadrinhado: declaração explícita de 1º período.
+  final bool declaraPrimeiroPeriodo;
+
   /// Respostas às perguntas adicionais do formulário publicado.
   final Map<String, dynamic> extras;
 
@@ -59,6 +63,7 @@ class DadosCadastro {
     required bool? bolsistaProuni,
     required bool? deOutraCidade,
     Map<String, bool>? requisitosCumpridos,
+    bool? declaraPrimeiroPeriodo,
     Map<String, dynamic>? extras,
   }) {
     return DadosCadastro(
@@ -76,6 +81,8 @@ class DadosCadastro {
       bolsistaProuni: bolsistaProuni,
       deOutraCidade: deOutraCidade,
       requisitosCumpridos: requisitosCumpridos ?? this.requisitosCumpridos,
+      declaraPrimeiroPeriodo:
+          declaraPrimeiroPeriodo ?? this.declaraPrimeiroPeriodo,
       extras: extras ?? this.extras,
     );
   }
@@ -103,6 +110,7 @@ class DadosCadastro {
       bolsistaProuni: bolsistaProuni,
       deOutraCidade: deOutraCidade,
       requisitosCumpridos: requisitosCumpridos,
+      declaraPrimeiroPeriodo: declaraPrimeiroPeriodo,
       extras: extras,
     );
   }
@@ -130,6 +138,7 @@ class DadosCadastro {
     'areas': areasApoio,
     'expectativa': ?_texto(expectativaPadrinho),
     'outrasInformacoes': ?_texto(outrasInformacoes),
+    'declaraPrimeiroPeriodo': declaraPrimeiroPeriodo,
     'extras': extras,
   };
 
@@ -186,6 +195,7 @@ class DadosCadastro {
           if (item is Map && item['id'] != null)
             '${item['id']}': item['cumpre'] == true,
       },
+      declaraPrimeiroPeriodo: respostas['declaraPrimeiroPeriodo'] == true,
       extras: extrasSalvos is Map
           ? Map<String, dynamic>.from(extrasSalvos)
           : const {},

@@ -259,37 +259,12 @@ class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
   }
 
   Future<void> _rejeitar() async {
-    final motivo = TextEditingController();
-    final confirmado = await showDialog<bool>(
-      context: context,
-      builder: (contexto) => AlertDialog(
-        title: const Text('Rejeitar cadastro?'),
-        content: TextField(
-          controller: motivo,
-          maxLength: 500,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            labelText: 'Motivo (opcional, visível ao aluno)',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(contexto).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: corErroCoord),
-            onPressed: () => Navigator.of(contexto).pop(true),
-            child: const Text('Rejeitar'),
-          ),
-        ],
-      ),
-    );
-    if (confirmado != true) return;
+    final justificativa = await solicitarJustificativaCoord(context);
+    if (justificativa == null || !mounted) return;
     await _decidir(
       () => widget.api.rejeitarCadastro(
         widget.id,
-        motivo: motivo.text.trim(),
+        motivo: justificativa,
         programa: widget.programa,
       ),
     );

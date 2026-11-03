@@ -43,7 +43,7 @@ void main() {
                   api: api,
                   programa: '2026/2',
                   onProgramaChanged: (_) {},
-                  onVerCandidaturas: ({status}) {},
+                  onVerCandidaturas: ({status, publico}) {},
                   onAbrirDestino: (_, _) {},
                 ),
               ),

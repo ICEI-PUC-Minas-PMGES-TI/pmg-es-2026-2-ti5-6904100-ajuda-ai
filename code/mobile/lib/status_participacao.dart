@@ -25,7 +25,8 @@ extension StatusParticipacaoRotulo on StatusParticipacao {
     StatusParticipacao.padrinhoRejeitado => 'Candidatura não aprovada',
     StatusParticipacao.apadrinhadoPendente => 'Cadastro em análise',
     StatusParticipacao.apadrinhadoRejeitado => 'Cadastro não aprovado',
-    StatusParticipacao.apadrinhadoAguardandoMatch => 'Aguardando padrinho',
+    StatusParticipacao.apadrinhadoAguardandoMatch =>
+      'Aprovado — aguardando matching',
     StatusParticipacao.apadrinhadoAtivo => 'Apadrinhado ativo',
     StatusParticipacao.concluido => 'Participação concluída',
   };

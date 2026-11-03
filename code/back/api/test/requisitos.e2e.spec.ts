@@ -110,6 +110,12 @@ describe('Período e requisitos de padrinho (e2e)', () => {
       genero: 'Prefiro não informar',
       bolsistaProuni: false,
       deOutraCidade: false,
+      ...(tipo === 'apadrinhado'
+        ? {
+            expectativa: 'Quero apoio na adaptação.',
+            declaraPrimeiroPeriodo: true,
+          }
+        : {}),
       ...(requisitos ? { requisitos } : {}),
     },
   });

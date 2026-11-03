@@ -257,7 +257,7 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
           for (final r in _requisitos ?? const <RequisitoPadrinho>[])
             r.id: _cumpridos[r.id] == true,
         },
-        extras: PerguntasAdicionais.limpar(_extras),
+        extras: PerguntasAdicionais.limpar(_perguntas, _extras),
       );
       final confirmou = await Navigator.of(context).push<bool>(
         MaterialPageRoute(

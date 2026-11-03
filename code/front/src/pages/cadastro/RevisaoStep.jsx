@@ -12,6 +12,7 @@ export default function RevisaoStep({ profile, initials, perguntas, onBack, onEd
     { icon: 'tag', title: 'Áreas em que gostaria de receber apoio', value: profile.supportAreas.join(', ') },
     { icon: 'chat', title: 'O que você espera do seu padrinho?', value: profile.expectation },
     { icon: 'file', title: 'Outras informações', value: profile.additionalInfo || 'Não informado' },
+    { icon: 'school', title: 'Declaração de 1º período', value: profile.firstSemesterDeclaration ? 'Declarado' : 'Não declarado' },
     ...perguntas
       .map((p) => ({ icon: 'form', title: p.enunciado, value: textoResposta(profile.extras[p.id]) || 'Não respondido' })),
   ];

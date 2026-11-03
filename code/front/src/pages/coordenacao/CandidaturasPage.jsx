@@ -4,17 +4,30 @@ import { api } from '../../api/client';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import { useToast } from '../../components/Toast';
+import CadastroDetalhe from './CadastroDetalhe';
 import CandidaturaDetalhe from './CandidaturaDetalhe';
-import { Avatar, badgeClass, dataCurta } from './comum';
+import { Avatar, badgeClass, dataCurta, ROTULO_STATUS_CADASTRO, statusCadastroTom } from './comum';
 
-const FILTROS = [
+const PUBLICOS = [
+  { valor: 'padrinho', rotulo: 'Padrinhos' },
+  { valor: 'apadrinhado', rotulo: 'Apadrinhados' },
+];
+
+const FILTROS_PADRINHO = [
   { valor: '', rotulo: 'Todas' },
   { valor: 'pendente', rotulo: 'Novas' },
   { valor: 'em_analise', rotulo: 'Em análise' },
   { valor: 'aguardando', rotulo: 'Aguardando decisão' },
   { valor: 'aprovadas', rotulo: 'Aprovadas' },
   { valor: 'nao_aprovado', rotulo: 'Rejeitadas' },
-  { valor: 'sem_vinculo', rotulo: 'Apadrinhados sem vínculo' },
+];
+
+/** Filtros do público apadrinhado: aprovação de cadastro + matching. */
+const FILTROS_APADRINHADO = [
+  { valor: 'pendente', rotulo: 'Aguardando aprovação' },
+  { valor: 'sem_vinculo', rotulo: 'Sem vínculo' },
+  { valor: 'aprovado', rotulo: 'Aprovados' },
+  { valor: 'rejeitado', rotulo: 'Rejeitados' },
 ];
 
 const ACOES_MASSA = {
@@ -24,16 +37,31 @@ const ACOES_MASSA = {
 };
 
 function normalizar(texto) {
-  return String(texto ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  return String(texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function resolverPublico(params) {
+  if (params.get('publico') === 'apadrinhado' || params.get('status') === 'sem_vinculo') {
+    return 'apadrinhado';
+  }
+  return 'padrinho';
 }
 
 export default function CandidaturasPage() {
   const [params, setParams] = useSearchParams();
   const programa = params.get('programa') || '';
-  const status = params.get('status') || '';
+  const publico = resolverPublico(params);
+  const statusParam = params.get('status') || '';
   const idSelecionado = Number(params.get('id')) || null;
-  const modoApadrinhados = status === 'sem_vinculo';
   const mostrarToast = useToast();
+
+  const modoApadrinhado = publico === 'apadrinhado';
+  const modoSemVinculo = modoApadrinhado && statusParam === 'sem_vinculo';
+  const modoCadastroApadrinhado = modoApadrinhado && !modoSemVinculo;
+  const statusApadrinhado = FILTROS_APADRINHADO.some((f) => f.valor === statusParam)
+    ? statusParam
+    : 'pendente';
+  const statusPadrinho = FILTROS_PADRINHO.some((f) => f.valor === statusParam) ? statusParam : '';
 
   const [itens, setItens] = useState([]);
   const [erro, setErro] = useState('');
@@ -50,21 +78,37 @@ export default function CandidaturasPage() {
     setCarregando(true);
     setErro('');
     try {
-      // Sem filtro, o backend lista só candidaturas ainda não aprovadas;
-      // "Todas" junta também as aprovadas (papel padrinho).
-      const lista = status
-        ? await api.candidaturas(programa || undefined, status)
-        : (await Promise.all([api.candidaturas(programa || undefined), api.candidaturas(programa || undefined, 'aprovadas')]))
-          .flat()
-          .sort((a, b) => String(b.criadoEm).localeCompare(String(a.criadoEm)));
-      setItens(lista);
-      setMarcados((atual) => atual.filter((id) => lista.some((item) => item.id === id)));
+      if (publico === 'apadrinhado') {
+        if (statusApadrinhado === 'sem_vinculo') {
+          setItens(await api.candidaturas(programa || undefined, 'sem_vinculo'));
+        } else {
+          const lista = await api.cadastros(
+            statusApadrinhado === 'pendente' || statusApadrinhado === 'aprovado' || statusApadrinhado === 'rejeitado'
+              ? statusApadrinhado
+              : undefined,
+            programa || undefined,
+          );
+          setItens(lista.filter((item) => item.tipoParticipacao === 'apadrinhado'));
+        }
+      } else {
+        const status = statusPadrinho;
+        const lista = status
+          ? await api.candidaturas(programa || undefined, status)
+          : (await Promise.all([
+              api.candidaturas(programa || undefined),
+              api.candidaturas(programa || undefined, 'aprovadas'),
+            ]))
+              .flat()
+              .sort((a, b) => String(b.criadoEm).localeCompare(String(a.criadoEm)));
+        setItens(lista);
+      }
     } catch (error) {
-      setErro(error.message || 'Falha ao carregar candidaturas.');
+      setErro(error.message || 'Falha ao carregar a lista.');
+      setItens([]);
     } finally {
       setCarregando(false);
     }
-  }, [programa, status]);
+  }, [programa, publico, statusApadrinhado, statusPadrinho]);
 
   useEffect(() => {
     carregar();
@@ -73,7 +117,12 @@ export default function CandidaturasPage() {
   useEffect(() => {
     setMarcados([]);
     setResultado(null);
-  }, [status, programa]);
+  }, [publico, statusParam, programa]);
+
+  // Limpa ids marcados que sumiram da lista.
+  useEffect(() => {
+    setMarcados((atual) => atual.filter((id) => itens.some((item) => item.id === id)));
+  }, [itens]);
 
   const filtrados = useMemo(() => {
     const termo = normalizar(busca.trim());
@@ -84,12 +133,23 @@ export default function CandidaturasPage() {
     );
   }, [itens, busca]);
 
-  function atualizarParam(chave, valor) {
+  function atualizarParam(chave, valor, extras = {}) {
     const novos = new URLSearchParams(params);
     if (valor) novos.set(chave, valor);
     else novos.delete(chave);
-    if (chave === 'status') novos.delete('id');
+    Object.entries(extras).forEach(([k, v]) => {
+      if (v) novos.set(k, v);
+      else novos.delete(k);
+    });
+    if (chave === 'status' || chave === 'publico') novos.delete('id');
     setParams(novos, { replace: chave === 'id' });
+  }
+
+  function trocarPublico(novo) {
+    if (novo === publico) return;
+    atualizarParam('publico', novo === 'padrinho' ? '' : novo, {
+      status: novo === 'apadrinhado' ? 'pendente' : '',
+    });
   }
 
   function selecionar(id) {
@@ -126,27 +186,44 @@ export default function CandidaturasPage() {
   }
 
   function aoAtualizarDetalhe(detalhe, mensagem) {
-    setItens((atual) => atual.map((item) => (item.id === detalhe.id ? { ...item, status: detalhe.status, papel: detalhe.papel, statusRotulo: detalhe.statusRotulo } : item)));
     if (mensagem) mostrarToast(mensagem, 'sucesso');
+    setVersao((v) => v + 1);
     carregar();
   }
 
   const nomesPorId = useMemo(() => Object.fromEntries(itens.map((i) => [i.id, i.nome])), [itens]);
+  const filtros = modoApadrinhado ? FILTROS_APADRINHADO : FILTROS_PADRINHO;
+  const statusAtivo = modoApadrinhado ? statusApadrinhado : statusPadrinho;
 
   return (
     <section className={`cand-page cand-split${idSelecionado ? ' has-selection' : ''}`}>
       <div className="cand-list-pane">
         <header className="dash-header compact">
           <div>
-            <h1>{modoApadrinhados ? 'Apadrinhados sem vínculo' : 'Candidaturas para padrinho'}</h1>
+            <h1>Candidaturas</h1>
             <p>
-              {modoApadrinhados
-                ? 'Apadrinhados aguardando a definição de padrinho e grupo.'
-                : 'Analise as candidaturas recebidas e acompanhe o processo de seleção de novos padrinhos.'}
+              {modoApadrinhado
+                ? 'Aprove cadastros de apadrinhados e defina padrinho para quem ainda está sem vínculo.'
+                : 'Analise as candidaturas a padrinho e acompanhe o processo de seleção.'}
               {programa ? ` Programa ${programa}.` : ''}
             </p>
           </div>
         </header>
+
+        <div className="forms-tabs" role="tablist" aria-label="Público da análise">
+          {PUBLICOS.map((p) => (
+            <button
+              key={p.valor}
+              type="button"
+              role="tab"
+              aria-selected={p.valor === publico}
+              className={`forms-tab${p.valor === publico ? ' active' : ''}`}
+              onClick={() => trocarPublico(p.valor)}
+            >
+              {p.rotulo}
+            </button>
+          ))}
+        </div>
 
         <div className="cand-tools">
           <label className="search-field">
@@ -157,20 +234,26 @@ export default function CandidaturasPage() {
           <label className="filter-select">
             <Icon name="filter" size={16} />
             <span className="sr-only">Filtrar por status</span>
-            <select value={status} onChange={(e) => atualizarParam('status', e.target.value)}>
-              {FILTROS.map((f) => <option key={f.valor} value={f.valor}>{f.rotulo}</option>)}
+            <select value={statusAtivo} onChange={(e) => atualizarParam('status', e.target.value)}>
+              {filtros.map((f) => <option key={f.valor || 'todas'} value={f.valor}>{f.rotulo}</option>)}
             </select>
           </label>
         </div>
         <div className="filter-chips" role="group" aria-label="Filtrar por status">
-          {FILTROS.map((f) => (
-            <button key={f.valor} type="button" aria-pressed={status === f.valor} className={`filter-chip${status === f.valor ? ' active' : ''}`} onClick={() => atualizarParam('status', f.valor)}>
+          {filtros.map((f) => (
+            <button
+              key={f.valor || 'todas'}
+              type="button"
+              aria-pressed={statusAtivo === f.valor}
+              className={`filter-chip${statusAtivo === f.valor ? ' active' : ''}`}
+              onClick={() => atualizarParam('status', f.valor)}
+            >
               {f.rotulo}
             </button>
           ))}
         </div>
 
-        {!modoApadrinhados && filtrados.length > 0 && (
+        {!modoApadrinhado && filtrados.length > 0 && (
           <div className="bulk-bar">
             <label className="bulk-all">
               <input type="checkbox" checked={todosMarcados} onChange={alternarTodos} />
@@ -213,13 +296,21 @@ export default function CandidaturasPage() {
           </div>
         )}
         {!carregando && !erro && filtrados.length === 0 && (
-          <p className="empty-copy">{busca ? 'Nenhum resultado para a busca.' : modoApadrinhados ? 'Todos os apadrinhados já têm padrinho.' : 'Nenhuma candidatura encontrada para este filtro.'}</p>
+          <p className="empty-copy">
+            {busca
+              ? 'Nenhum resultado para a busca.'
+              : modoSemVinculo
+                ? 'Todos os apadrinhados já têm padrinho.'
+                : modoCadastroApadrinhado && statusApadrinhado === 'pendente'
+                  ? 'Nenhum cadastro de apadrinhado aguardando aprovação.'
+                  : 'Nenhum registro encontrado para este filtro.'}
+          </p>
         )}
 
         <ul className="cand-list">
           {filtrados.map((item) => (
             <li key={item.id} className={`cand-row${item.id === idSelecionado ? ' selected' : ''}`}>
-              {!modoApadrinhados && (
+              {!modoApadrinhado && (
                 <input
                   type="checkbox"
                   className="cand-check"
@@ -233,10 +324,27 @@ export default function CandidaturasPage() {
                 <span className="cand-copy">
                   <span className="cand-name-row">
                     <strong>{item.nome}</strong>
-                    <span className={`status-pill ${modoApadrinhados ? 'analise' : badgeClass(item.status, item.papel)}`}>{modoApadrinhados ? 'Sem vínculo' : item.statusRotulo}</span>
+                    <span className={`status-pill ${
+                      modoSemVinculo
+                        ? 'analise'
+                        : modoCadastroApadrinhado
+                          ? statusCadastroTom(item.statusCadastro)
+                          : badgeClass(item.status, item.papel)
+                    }`}
+                    >
+                      {modoSemVinculo
+                        ? 'Sem vínculo'
+                        : modoCadastroApadrinhado
+                          ? ROTULO_STATUS_CADASTRO[item.statusCadastro] || item.statusCadastro
+                          : item.statusRotulo}
+                    </span>
                   </span>
                   <span>{item.curso}{item.periodo ? ` • ${item.periodo}º período` : ''}</span>
-                  <small>{modoApadrinhados ? `Cadastro em ${dataCurta(item.criadoEm)}` : `Enviada em ${dataCurta(item.criadoEm)}`}</small>
+                  <small>
+                    {modoSemVinculo || modoCadastroApadrinhado
+                      ? `Cadastro em ${dataCurta(item.criadoEm)}`
+                      : `Enviada em ${dataCurta(item.criadoEm)}`}
+                  </small>
                 </span>
                 <Icon name="chevron" size={16} />
               </button>
@@ -246,19 +354,31 @@ export default function CandidaturasPage() {
       </div>
 
       <div className="cand-detail-pane">
-        {idSelecionado ? (
+        {idSelecionado && modoCadastroApadrinhado ? (
+          <CadastroDetalhe
+            key={`${idSelecionado}-${versao}`}
+            id={idSelecionado}
+            programa={programa || undefined}
+            onFechar={() => selecionar(null)}
+            onDecidido={(mensagem) => aoAtualizarDetalhe(null, mensagem)}
+          />
+        ) : idSelecionado ? (
           <CandidaturaDetalhe
             key={`${idSelecionado}-${versao}`}
             id={idSelecionado}
             programa={programa}
-            modoApadrinhado={modoApadrinhados}
+            modoApadrinhado={modoSemVinculo}
             onFechar={() => selecionar(null)}
             onAtualizado={aoAtualizarDetalhe}
           />
         ) : (
           <div className="cand-detail-empty">
             <Icon name="clipboard" size={30} />
-            <p>Selecione {modoApadrinhados ? 'um apadrinhado' : 'uma candidatura'} para ver os detalhes.</p>
+            <p>
+              {modoApadrinhado
+                ? 'Selecione um apadrinhado para analisar o cadastro ou definir o padrinho.'
+                : 'Selecione uma candidatura a padrinho para ver os detalhes.'}
+            </p>
           </div>
         )}
       </div>
@@ -277,7 +397,7 @@ export default function CandidaturasPage() {
             </>
           )}
         >
-          {confirmacao === 'rejeitar' && <label>Justificativa visível ao candidato<textarea maxLength={1000} value={justificativa} onChange={e => setJustificativa(e.target.value)}/></label>}
+          {confirmacao === 'rejeitar' && <label>Justificativa visível ao candidato<textarea maxLength={1000} value={justificativa} onChange={(e) => setJustificativa(e.target.value)} /></label>}
           <ul className="modal-names">
             {marcados.slice(0, 8).map((id) => <li key={id}>{nomesPorId[id] || `#${id}`}</li>)}
             {marcados.length > 8 && <li>e mais {marcados.length - 8}…</li>}

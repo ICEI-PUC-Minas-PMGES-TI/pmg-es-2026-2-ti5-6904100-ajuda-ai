@@ -35,6 +35,7 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
   const [erroAcao, setErroAcao] = useState('');
   const [justificativa, setJustificativa] = useState('');
   const [confirmarRejeicao, setConfirmarRejeicao] = useState(false);
+  const [confirmarRevogar, setConfirmarRevogar] = useState(false);
   const [perguntas, setPerguntas] = useState({});
   const statusId = useId();
   const obsId = useId();
@@ -109,10 +110,15 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
 
   const r = detalhe.respostas || {};
   const ehApadrinhado = detalhe.papel === 'apadrinhado';
-  const aprovada = detalhe.status === 'aprovado' || detalhe.papel === 'padrinho';
+  const aprovada = detalhe.status === 'aprovado'
+    || detalhe.papel === 'padrinho'
+    || (ehApadrinhado && detalhe.status === 'em_andamento');
   const rejeitada = detalhe.status === 'nao_aprovado';
   const decidida = aprovada || rejeitada;
   const extras = r.extras || {};
+  const formRespondido = detalhe.formularioRespondido;
+  const decisao = detalhe.decisao;
+  const podeRevogar = aprovada && !rejeitada;
 
   return (
     <article className="cand-detail" aria-labelledby={`cand-${id}-nome`}>
@@ -151,6 +157,17 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
           )}
           {ehApadrinhado && (
             <>
+              <Bloco icon="checkCircle" titulo="Declaração acadêmica">
+                <p className="detail-text">
+                  {r.declaraPrimeiroPeriodo === true
+                    ? 'Declarou estar no 1º período e confirmou os dados acadêmicos para conferência.'
+                    : 'Envio legado sem declaração explícita de 1º período — confira curso, período e e-mail no sistema da faculdade.'}
+                </p>
+                <dl className="detail-facts">
+                  <div><dt>Identificação acadêmica</dt><dd>{detalhe.email}</dd></div>
+                  <div><dt>Curso / período</dt><dd>{detalhe.curso} · {detalhe.periodo}º período</dd></div>
+                </dl>
+              </Bloco>
               <Bloco icon="chat" titulo="O que espera do padrinho"><p className="detail-text">{r.expectativa || 'Não informado.'}</p></Bloco>
               {r.outrasInformacoes && <Bloco icon="file" titulo="Outras informações"><p className="detail-text">{r.outrasInformacoes}</p></Bloco>}
             </>
@@ -167,6 +184,17 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
               {r.turno && <div><dt>Turno</dt><dd>{r.turno}</dd></div>}
             </dl>
             {r.interesses?.length > 0 && <><p className="detail-sub">Interesses</p><Chips itens={r.interesses} /></>}
+          </Bloco>
+          <Bloco icon="form" titulo="Formulário respondido">
+            {formRespondido ? (
+              <dl className="detail-facts">
+                <div><dt>Versão</dt><dd>v{formRespondido.versao ?? '—'}</dd></div>
+                <div><dt>Programa</dt><dd>{formRespondido.programa || detalhe.programa}</dd></div>
+                <div><dt>Público</dt><dd>{formRespondido.tipo || (ehApadrinhado ? 'apadrinhado' : 'padrinho')}</dd></div>
+              </dl>
+            ) : (
+              <p className="detail-muted">Envio sem formulário publicado ou anterior ao versionamento.</p>
+            )}
           </Bloco>
           {Object.keys(extras).length > 0 && (
             <Bloco icon="form" titulo="Perguntas adicionais">
@@ -193,7 +221,31 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
             <section className="detail-block">
               <h3><Icon name="link" size={17} /> Vínculo</h3>
               {detalhe.grupo ? (
-                <p className="detail-text">Já vinculado ao {detalhe.grupo}.</p>
+                <>
+                  <p className="detail-text">Já vinculado ao {detalhe.grupo}.</p>
+                  <div className="decision-buttons">
+                    <button
+                      type="button"
+                      className="decision review"
+                      disabled={Boolean(acao)}
+                      onClick={async () => {
+                        setAcao('desvincular');
+                        setErroAcao('');
+                        try {
+                          await api.desvincularCandidatura(id);
+                          await carregar();
+                          onAtualizado?.(null, `Vínculo de ${detalhe.nome} desfeito.`);
+                        } catch (error) {
+                          setErroAcao(error.message || 'Não foi possível desfazer o vínculo.');
+                        } finally {
+                          setAcao('');
+                        }
+                      }}
+                    >
+                      <Icon name="refresh" size={17} /> {acao === 'desvincular' ? 'Desfazendo…' : 'Desfazer vínculo'}
+                    </button>
+                  </div>
+                </>
               ) : (
                 <DefinirPadrinho
                   apadrinhado={detalhe}
@@ -203,6 +255,13 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
                     onAtualizado?.({ ...detalhe, grupo: res.apadrinhado?.grupo }, `${detalhe.nome} agora tem padrinho: ${res.padrinho?.nome} (${res.padrinho?.grupo || res.apadrinhado?.grupo}).`);
                   }}
                 />
+              )}
+              {podeRevogar && (
+                <div className="decision-buttons" style={{ marginTop: 12 }}>
+                  <button type="button" className="decision reject" disabled={Boolean(acao)} onClick={() => setConfirmarRevogar(true)}>
+                    <Icon name="close" size={17} /> Revogar aprovação
+                  </button>
+                </div>
               )}
             </section>
           ) : (
@@ -230,8 +289,25 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
                 <button type="button" className="decision review" disabled={decidida || detalhe.status === 'em_analise' || Boolean(acao)} onClick={() => executar('revisao', () => api.atualizarCandidatura(id, { status: 'em_analise' }), 'Candidatura marcada para revisão (em análise).')}>
                   <Icon name="refresh" size={17} /> {acao === 'revisao' ? 'Enviando…' : 'Solicitar revisão'}
                 </button>
+                {podeRevogar && (
+                  <button type="button" className="decision reject" disabled={Boolean(acao)} onClick={() => setConfirmarRevogar(true)}>
+                    <Icon name="close" size={17} /> Revogar aprovação
+                  </button>
+                )}
               </div>
               {decidida && <p className="detail-muted small">{aprovada ? detalhe.status === 'aprovado' ? 'Candidatura aprovada. Aguardando matching; atividade depende do vínculo confirmado.' : 'Vínculo confirmado neste ciclo.' : 'Candidatura rejeitada neste ciclo.'}</p>}
+            </section>
+          )}
+
+          {decisao && (
+            <section className="detail-block">
+              <h3><Icon name="history" size={17} /> Registro da verificação</h3>
+              <dl className="detail-facts">
+                <div><dt>Resultado</dt><dd>{decisao.resultado === 'aprovado' ? 'Aprovado' : 'Não aprovado'}</dd></div>
+                <div><dt>Data</dt><dd>{decisao.em ? dataCurta(decisao.em) : '—'}</dd></div>
+                <div><dt>Responsável</dt><dd>{decisao.por || '—'}</dd></div>
+              </dl>
+              {decisao.justificativa && <p className="detail-muted">Justificativa: {decisao.justificativa}</p>}
             </section>
           )}
 
@@ -282,6 +358,35 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
             </>
           )}
         ><label>Justificativa visível ao candidato<textarea required maxLength={1000} value={justificativa} onChange={e => setJustificativa(e.target.value)}/></label></Modal>
+      )}
+
+      {confirmarRevogar && (
+        <Modal
+          titulo="Revogar aprovação?"
+          descricao={`A aprovação de ${detalhe.nome} será retirada. Se houver vínculo, desfaça-o antes.`}
+          onFechar={() => setConfirmarRevogar(false)}
+          acoes={(
+            <>
+              <button type="button" className="ghost-button" onClick={() => setConfirmarRevogar(false)} data-autofocus>Cancelar</button>
+              <button
+                type="button"
+                className="danger-button"
+                disabled={!justificativa.trim() || Boolean(acao)}
+                onClick={() => {
+                  setConfirmarRevogar(false);
+                  executar('revogar', () => api.revogarAprovacao(id, justificativa.trim()), `Aprovação de ${detalhe.nome} revogada.`);
+                }}
+              >
+                Revogar
+              </button>
+            </>
+          )}
+        >
+          <label>
+            Justificativa visível ao candidato
+            <textarea required maxLength={1000} value={justificativa} onChange={(e) => setJustificativa(e.target.value)} />
+          </label>
+        </Modal>
       )}
     </article>
   );
