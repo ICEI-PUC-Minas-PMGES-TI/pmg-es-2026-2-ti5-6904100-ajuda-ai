@@ -425,6 +425,19 @@
 .pucstop-form { display: grid; gap: 12px; }
 .pucstop-form .field-hint { margin: 0; color: var(--muted); font-size: .76rem; line-height: 1.4; }
 .pucstop-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.recompensa-thumb { width: 30px; height: 30px; flex: none; border-radius: 9px; object-fit: cover; background: #efebff; }
+.recompensa-sub { display: block; margin-top: 2px; color: var(--muted); font-size: .72rem; font-weight: 500; }
+.recompensas-table td[data-label="Status"], .recompensas-table td[data-label="Custo"] { white-space: nowrap; }
+.recompensas-table .user-actions { white-space: normal; width: 1%; }
+.recompensas-table .user-actions > div { display: grid; grid-template-columns: repeat(2, max-content); justify-content: end; gap: 6px; }
+.recompensas-table .user-actions > div > * + * { margin-left: 0; }
+.recompensas-table .user-actions .mini-btn { justify-content: center; }
+.recompensa-bloco { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.recompensa-bloco legend { margin-bottom: 6px; color: #3b3770; font-size: .82rem; font-weight: 700; }
+.recompensa-form textarea { width: 100%; }
+.recompensa-historico-titulo { margin: 16px 0 6px; font-size: .86rem; color: #3b3770; }
+.recompensa-historico { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: .8rem; max-height: 220px; overflow-y: auto; }
+.recompensa-historico li { padding: 8px 10px; border-radius: 10px; background: #f8f7fd; overflow-wrap: anywhere; }
 .pucstop-position { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
 .pucstop-position legend { margin-bottom: 4px; padding: 0; color: var(--ink); font-size: .9rem; font-weight: 800; }
 .pucstop-picker { display: grid; gap: 8px; min-width: 0; }
@@ -567,3 +580,7 @@
 .vinculo-copy { display: grid; gap: 2px; flex: 1; min-width: 0; }
 .vinculo-copy strong { color: var(--ink); font-size: .86rem; overflow-wrap: anywhere; }
 .vinculo-copy small { color: #8a87a8; font-size: .74rem; }
+@media (max-width: 1100px) {
+  .recompensas-table .user-actions { width: 100%; }
+  .recompensas-table .user-actions > div { display: flex; flex-wrap: wrap; justify-content: flex-start; }
+}

@@ -56,6 +56,18 @@ idempotência próprias. Os tipos aceitos têm CHECK em migration; ampliar esse
 conjunto exige mudança explícita de estrutura. O ledger admite débitos tipados,
 mas isso não implementa por si só uma loja ou fluxo de recompensa.
 
+## Lojinha (F27)
+
+O cadastro de recompensas fica em `/coordenacao/recompensas`
+(`src/gamificacao/recompensas/`). Cada recompensa tem custo em XP, condições
+de retirada, estoque limitado ou ilimitado, público, programa e vigência.
+Editar nome, descrição, imagem, custo ou condições cria nova linha em
+`recompensa_versoes`; o resgate (F28) deve gravar a versão vista pelo aluno.
+O resgate debita com `tipo = 'RECOMPENSA'`, `referencia_tipo = 'RECOMPENSA'`
+e `referencia_id` = id da recompensa, travando a linha da recompensa e
+somando em `estoque_comprometido` na mesma transação. Recompensa com
+movimentações ou unidades comprometidas não é excluída: é arquivada.
+
 Concorrência e consistência são verificadas em
 `test/pucstops-xp.integration.spec.ts`; validações unitárias ficam em
 `src/gamificacao/gamificacao.spec.ts`.

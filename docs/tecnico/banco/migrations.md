@@ -64,6 +64,12 @@ Migrations não publicam GLBs nem importam conteúdo administrativo.
   observações, responsável, data e histórico). Fica fora de `respostas` para
   não voltar ao aluno. Reconhece bancos de `synchronize` e recusa `down` se
   houver conferências registradas.
+- `LojinhaRecompensas`: `gamificacao.recompensas` (estado, público,
+  vigência, contexto, estoque limitado ou ilimitado explícito e unidades
+  comprometidas), `recompensa_versoes` (condições por versão, só INSERT) e
+  `recompensa_estoque_ajustes` (reposições/correções com responsável e
+  motivo, só INSERT); índice das movimentações de XP por referência. CHECK
+  impede total abaixo do comprometido. Rollback recusa descartar recompensas.
 
 Modelos e regras têm fonte em [dados geoespaciais](../mapa/dados-geo.md),
 [PucStops](../mapa/pucstops.md), [XP](../gamificacao/xp.md) e

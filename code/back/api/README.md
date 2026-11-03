@@ -129,6 +129,13 @@ A API fica disponível em `http://localhost:3000`.
 | `POST`      | `/coordenacao/formularios/:tipo/duplicar`               | Copia as perguntas para outro programa como rascunho (`{ programaOrigem, programaDestino }`; 409 se o destino já tem formulário).     |
 | `GET`       | `/coordenacao/formularios/:tipo/respostas`              | Envios do programa, cada um com aluno, programa e versão respondida.                                                                  |
 | `GET`       | `/coordenacao/formularios/:tipo/respostas/por-pergunta` | Mesmas respostas agrupadas por pergunta, com contagem por alternativa.                                                                |
+| `GET`       | `/coordenacao/recompensas`                              | Recompensas da lojinha (F27), com estoque, versão, transações e `disponivelAgora` (`?status=rascunho\|publicada\|inativa\|arquivada`). |
+| `GET`       | `/coordenacao/recompensas/:id`                          | Detalhe com histórico de versões (condições vistas no resgate) e ajustes de estoque. |
+| `POST`      | `/coordenacao/recompensas`                              | Cria (`nome`, `custoXp`, `condicoesRetirada`, `estoqueIlimitado`, `estoqueInicial` se limitado; opcionais `descricao`, `imagemUrl`, `limitePorAluno`, `publico`, `programaCodigo`, `disponivelDe/Ate`, `publicar`). |
+| `PATCH`     | `/coordenacao/recompensas/:id`                          | Edita; mudar nome, descrição, imagem, custo ou condições cria nova versão (resgates anteriores mantêm a sua). |
+| `POST`      | `/coordenacao/recompensas/:id/estoque`                  | Reposição, correção ou troca ilimitado/limitado (`{ tipo, quantidade?, motivo }`); nunca abaixo do comprometido. |
+| `POST`      | `/coordenacao/recompensas/:id/publicar` \| `desativar` \| `arquivar` | Publica, tira da lojinha ou arquiva (somente leitura, histórico preservado). |
+| `DELETE`    | `/coordenacao/recompensas/:id`                          | Exclui só sem transações; com resgates responde 409 `recompensa-com-transacoes` (arquive). |
 | `POST`      | `/coordenacao/comunicados`                              | Publica um comunicado para todos, padrinhos ou apadrinhados.                                                                          |
 | `GET`       | `/publicacoes`                                          | Lista as publicações persistidas no backend.                                                                                          |
 | `POST`      | `/publicacoes`                                          | Cria uma publicação com zero curtidas e zero comentários.                                                                             |

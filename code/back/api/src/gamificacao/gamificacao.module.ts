@@ -7,6 +7,8 @@ import {
   PucStopsController,
 } from './pucstops/pucstops.controller.js';
 import { PucStopsService } from './pucstops/pucstops.service.js';
+import { RecompensasAdminController } from './recompensas/recompensas-admin.controller.js';
+import { RecompensasAdminService } from './recompensas/recompensas-admin.service.js';
 import { XpController } from './xp/xp.controller.js';
 import { XpService } from './xp/xp.service.js';
 
@@ -14,7 +16,8 @@ import { XpService } from './xp/xp.service.js';
  * XP global por usuário e PucStops (ADR-0002): leitura pública e coleta em
  * `/mapa/pucstops`, administração em `/coordenacao/pucstops`. SQL direto (schemas
  * `gamificacao` e `mapa`), sem entidades: o `synchronize` local nunca cria
- * nem altera essas tabelas; só a migration PucStopsEXpGlobal.
+ * nem altera essas tabelas; só as migrations PucStopsEXpGlobal e
+ * LojinhaRecompensas. Recompensas da lojinha (F27) em `/coordenacao/recompensas`.
  */
 @Module({
   imports: [AuthModule],
@@ -23,7 +26,13 @@ import { XpService } from './xp/xp.service.js';
     MinhasColetasController,
     XpController,
     PucStopsAdminController,
+    RecompensasAdminController,
   ],
-  providers: [PucStopsService, XpService, PucStopsAdminService],
+  providers: [
+    PucStopsService,
+    XpService,
+    PucStopsAdminService,
+    RecompensasAdminService,
+  ],
 })
 export class GamificacaoModule {}

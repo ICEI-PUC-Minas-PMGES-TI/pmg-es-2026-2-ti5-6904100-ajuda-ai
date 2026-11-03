@@ -417,6 +417,41 @@ export const api = {
     return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
   },
 
+  /* ===== Lojinha: recompensas (coordenação; F27) ===== */
+  /** Todas as recompensas (`status` opcional: rascunho, publicada, inativa, arquivada). */
+  recompensas(status) {
+    return request(`/coordenacao/recompensas${query({ status })}`);
+  },
+  /** Detalhe com histórico de versões e de ajustes de estoque. */
+  recompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`);
+  },
+  criarRecompensa(dados) {
+    return request('/coordenacao/recompensas', { method: 'POST', body: dados });
+  },
+  /** Envie só os campos alterados; `null` remove imagem, limite, programa ou datas. */
+  atualizarRecompensa(id, dados) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  /** `{ tipo: 'reposicao'|'correcao'|'limitado'|'ilimitado', quantidade?, motivo }`. */
+  ajustarEstoqueRecompensa(id, dados) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}/estoque`, { method: 'POST', body: dados });
+  },
+  publicarRecompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}/publicar`, { method: 'POST' });
+  },
+  desativarRecompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  /** Retira de vez preservando o histórico (usada em resgates). */
+  arquivarRecompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}/arquivar`, { method: 'POST' });
+  },
+  /** Só sem transações; com resgates o servidor responde 409 (arquive). */
+  excluirRecompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
   /* ===== Mapa do campus (seletores de local da coordenação) ===== */
   /** Área do campus (limite, margem, bbox e centro) para eventos e restaurantes. */
   campus() {
