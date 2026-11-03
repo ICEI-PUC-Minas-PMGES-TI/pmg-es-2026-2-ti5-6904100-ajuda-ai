@@ -49,7 +49,7 @@ function passosApadrinhado(dados) {
     ? { titulo: 'Aprovação do cadastro', texto: `Seu cadastro não foi aprovado pela coordenação.${dados.cadastro?.motivoRejeicao ? ` Motivo: ${dados.cadastro.motivoRejeicao}` : ''}`, estado: 'recusada' }
     : pendente
       ? { titulo: 'Aprovação do cadastro', texto: 'A coordenação está analisando seu cadastro.', estado: 'atual' }
-      : { titulo: 'Aprovação do cadastro', texto: 'Cadastro aprovado pela coordenação.', estado: 'concluida' };
+      : { titulo: 'Aprovação do cadastro', texto: 'Cadastro aprovado — aguardando matching.', estado: 'concluida' };
   if (pendente || rejeitado) {
     return [
       { titulo: 'Cadastro enviado', texto: formatarDataHora(registro.criadoEm), estado: 'concluida' },

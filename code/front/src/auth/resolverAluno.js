@@ -7,7 +7,7 @@ export const ESTADOS_ALUNO = {
   padrinho_ativo: ['Padrinho ativo', 'Vínculo confirmado. Acompanhe seus apadrinhados.'],
   apadrinhado_pendente: ['Cadastro recebido', 'Aguardando aprovação da coordenação.'],
   apadrinhado_rejeitado: ['Cadastro não aprovado', 'Consulte a justificativa da coordenação.'],
-  apadrinhado_aguardando: ['Aguardando padrinho', 'A coordenação está formando os grupos.'],
+  apadrinhado_aguardando: ['Aprovado — aguardando matching', 'A coordenação está formando os grupos.'],
   apadrinhado_ativo: ['Apadrinhado ativo', 'Seu padrinho foi definido.'],
   concluido: ['Participação concluída', 'Consulte o histórico deste ciclo.'],
 };

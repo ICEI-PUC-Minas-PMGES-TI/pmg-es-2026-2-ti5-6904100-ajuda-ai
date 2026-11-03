@@ -14,8 +14,8 @@ class TelaMaisCoord extends StatelessWidget {
 
   final String nomeCoordenador;
 
-  /// Destino: cadastros | formularios | usuarios | programas | comunicado |
-  /// sem_vinculo.
+  /// Destino: feed | formularios | usuarios | matching | programas | comunicado |
+  /// configuracoes | sem_vinculo.
   final ValueChanged<String> onAbrir;
   final VoidCallback onSair;
 
@@ -27,15 +27,9 @@ class TelaMaisCoord extends StatelessWidget {
       'feed',
     ),
     (
-      Icons.how_to_reg_outlined,
-      'Cadastros',
-      'Aprovar ou rejeitar padrinhos e apadrinhados',
-      'cadastros',
-    ),
-    (
       Icons.dynamic_form_outlined,
       'Formulários',
-      'Perguntas adicionais dos cadastros',
+      'Perguntas adicionais das candidaturas',
       'formularios',
     ),
     (
@@ -43,6 +37,12 @@ class TelaMaisCoord extends StatelessWidget {
       'Usuários',
       'Participantes, situação e vínculos',
       'usuarios',
+    ),
+    (
+      Icons.auto_awesome_outlined,
+      'Matching',
+      'Critérios, sugestões e decisões individuais',
+      'matching',
     ),
     (
       Icons.link,
@@ -61,6 +61,12 @@ class TelaMaisCoord extends StatelessWidget {
       'Criar comunicado',
       'Publicação na categoria Comunicados do Feed',
       'comunicado',
+    ),
+    (
+      Icons.settings_outlined,
+      'Configurações',
+      'Conta da coordenação e sessão',
+      'configuracoes',
     ),
   ];
 

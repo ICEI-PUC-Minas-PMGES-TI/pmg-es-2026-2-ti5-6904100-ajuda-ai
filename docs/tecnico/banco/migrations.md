@@ -49,6 +49,16 @@ Migrations não publicam GLBs nem importam conteúdo administrativo.
 - `CriaTabelasMapa`: versões, prédios, salas, áreas e grafo.
 - `PucStopsEXpGlobal`: PucStops e schema `gamificacao`.
 - `EventosRestaurantesCardapios`: conteúdo administrativo do campus.
+- `VersoesEEncerramentoFormularios`: `formularios.versao` (publicados viram
+  versão 1) e `formularios.encerrado_em`. Reconhece bancos de `synchronize`,
+  recusa estado parcial e recusa `down` se houver versões ou encerramentos.
+- `MatchingF11F12`: configurações versionadas, execuções, sugestões/decisões,
+  vínculos canônicos N:N e outbox recuperável de chat. Reconhece a estrutura
+  completa criada por `synchronize`, recusa estado parcial e converte os
+  grupos legados válidos em pares ativos sem alterar `participacoes.grupo`.
+  A unicidade parcial impede duplicar um par ativo; FKs apontam para programa,
+  participações, execução e configuração. O rollback recusa dados sem
+  `MIGRATION_DOWN_DESCARTAR_DADOS=true`.
 
 Modelos e regras têm fonte em [dados geoespaciais](../mapa/dados-geo.md),
 [PucStops](../mapa/pucstops.md), [XP](../gamificacao/xp.md) e
@@ -123,6 +133,11 @@ os dados e o backup, sem aplicar descarte automático em ambiente compartilhado.
 ## Testes
 
 Testes de catálogo e baseline: `src/migrations/migrations.spec.ts`.
+Os testes unitários do fluxo capacitado ficam em
+`src/matching/matching.algorithm.spec.ts`. A suíte PostgreSQL existente é
+opcional e depende de `MAPA_TEST_DB_URL`; quando a variável não está presente,
+constraints, locks e a conversão SQL são verificadas por build/testes de
+catálogo, mas não por uma instância PostgreSQL real.
 Integração cria e remove bancos próprios no servidor indicado por
 `MAPA_TEST_DB_URL`; usar exclusivamente PostgreSQL/PostGIS descartável.
 

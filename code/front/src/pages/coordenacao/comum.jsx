@@ -29,7 +29,7 @@ export const ROTULO_SITUACAO_COORD = {
   padrinho_ativo: 'Padrinho ativo',
   apadrinhado_pendente: 'Cadastro aguardando aprovação',
   apadrinhado_rejeitado: 'Cadastro rejeitado',
-  apadrinhado_aguardando: 'Aguardando padrinho',
+  apadrinhado_aguardando: 'Aprovado — aguardando matching',
   apadrinhado_ativo: 'Apadrinhado com padrinho',
   concluido: 'Concluído',
 };

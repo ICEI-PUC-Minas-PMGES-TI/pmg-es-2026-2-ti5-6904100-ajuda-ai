@@ -200,6 +200,40 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
     ).rejects.toThrow(/aguardando decisão/);
   });
 
+  it('desfaz vínculo e só então permite revogar aprovação', async () => {
+    const candidatura = await service.registrarCandidaturaPadrinho({
+      usuarioId: 'padrinho@pucminas.edu.br',
+      programa: '2026/2',
+    });
+    const padrinho = await service.aprovarCandidatura(candidatura.id);
+    const apadrinhado = await service.cadastrarApadrinhado({
+      usuarioId: 'a1@pucminas.edu.br',
+      programa: '2026/2',
+      statusInicial: 'em_andamento',
+      respostas: { periodo: 1, declaraPrimeiroPeriodo: true },
+    });
+    await service.vincular(apadrinhado.id, padrinho.id);
+
+    await expect(
+      service.revogarAprovacao(apadrinhado.id, 'erro de análise'),
+    ).rejects.toThrow(/Desfaça o vínculo/);
+
+    const { apadrinhado: solto, padrinho: candidato } =
+      await service.desvincular(apadrinhado.id);
+    expect(solto.grupo).toBeFalsy();
+    expect(candidato?.papel).toBe('candidato');
+    expect(candidato?.status).toBe('aprovado');
+
+    const revogado = await service.revogarAprovacao(
+      solto.id,
+      'Requisitos não confirmados no sistema acadêmico.',
+    );
+    expect(revogado.status).toBe('nao_aprovado');
+    expect(revogado.respostas?._servidor?.decisao?.justificativa).toMatch(
+      /sistema acadêmico/,
+    );
+  });
+
   it('volta para análise e guarda observações aparadas', async () => {
     const candidatura = await service.registrarCandidaturaPadrinho({
       usuarioId: 'rafa@pucminas.edu.br',

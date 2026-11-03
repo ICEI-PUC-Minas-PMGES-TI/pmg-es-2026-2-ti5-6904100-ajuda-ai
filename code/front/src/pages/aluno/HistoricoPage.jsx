@@ -19,7 +19,7 @@ function descrever(item) {
   if (status === 'concluido') return { titulo: 'Apadrinhado', texto: 'Você participou e concluiu sua jornada.', tom: 'purple' };
   return grupo
     ? { titulo: 'Apadrinhado ativo', texto: 'Você está sendo acompanhado(a) por um padrinho neste semestre.', tom: 'green' }
-    : { titulo: 'Aguardando padrinho', texto: 'Seu cadastro foi concluído e o match está em andamento.', tom: 'blue' };
+    : { titulo: 'Aprovado — aguardando matching', texto: 'Seu cadastro foi aprovado e o match está em andamento.', tom: 'blue' };
 }
 
 export default function HistoricoPage() {

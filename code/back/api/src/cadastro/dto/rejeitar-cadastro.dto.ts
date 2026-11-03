@@ -1,9 +1,10 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class RejeitarCadastroDto {
-  /** Motivo exibido ao aluno. */
-  @IsOptional()
+  /** Motivo exibido ao aluno (obrigatório). */
   @IsString()
-  @MaxLength(500)
-  motivo?: string;
+  @IsNotEmpty({ message: 'Justificativa de rejeição obrigatória.' })
+  @MinLength(3, { message: 'Justificativa de rejeição obrigatória.' })
+  @MaxLength(1000)
+  motivo!: string;
 }

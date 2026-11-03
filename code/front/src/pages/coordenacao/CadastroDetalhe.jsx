@@ -113,10 +113,27 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
             </>
           ) : (
             <>
+              <Bloco icon="checkCircle" titulo="Declaração acadêmica">
+                <p className="detail-text">
+                  {r.declaraPrimeiroPeriodo === true
+                    ? 'Declarou estar no 1º período e confirmou os dados acadêmicos.'
+                    : 'Envio legado sem declaração explícita — confira no sistema da faculdade.'}
+                </p>
+              </Bloco>
               <Bloco icon="chat" titulo="O que espera do padrinho"><p className="detail-text">{r.expectativa || 'Não informado.'}</p></Bloco>
               {r.outrasInformacoes && <Bloco icon="file" titulo="Outras informações"><p className="detail-text">{r.outrasInformacoes}</p></Bloco>}
             </>
           )}
+          <Bloco icon="form" titulo="Formulário respondido">
+            {detalhe.formularioRespondido ? (
+              <dl className="detail-facts">
+                <div><dt>Versão</dt><dd>v{detalhe.formularioRespondido.versao ?? '—'}</dd></div>
+                <div><dt>Programa</dt><dd>{detalhe.formularioRespondido.programa || detalhe.participacao?.programa}</dd></div>
+              </dl>
+            ) : (
+              <p className="detail-muted">Envio sem formulário publicado ou anterior ao versionamento.</p>
+            )}
+          </Bloco>
           <div className="detail-two">
             <Bloco icon="tag" titulo={ehPadrinho ? 'Áreas que pode apoiar' : 'Áreas em que quer apoio'}><Chips itens={r.areas} /></Bloco>
             <Bloco icon="clock" titulo="Disponibilidade"><Chips itens={r.disponibilidade} /></Bloco>
@@ -197,6 +214,7 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
               <button
                 type="button"
                 className="danger-button"
+                disabled={!motivo.trim() || Boolean(acao)}
                 onClick={() => {
                   setRejeitando(false);
                   decidir('rejeitar', () => api.rejeitarCadastro(id, motivo.trim(), programa), `Cadastro de ${detalhe.nome} rejeitado.`);
@@ -207,8 +225,8 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
             </>
           )}
         >
-          <label htmlFor={motivoId} className="field-label">Motivo (opcional, visível ao aluno)</label>
-          <textarea id={motivoId} className="detail-textarea" rows={4} maxLength={500} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: pré-requisitos não atendidos." data-autofocus />
+          <label htmlFor={motivoId} className="field-label">Justificativa (obrigatória, visível ao aluno)</label>
+          <textarea id={motivoId} className="detail-textarea" rows={4} maxLength={1000} required value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: requisitos acadêmicos não confirmados." data-autofocus />
         </Modal>
       )}
     </article>

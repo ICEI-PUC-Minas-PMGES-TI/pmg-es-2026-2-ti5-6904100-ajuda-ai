@@ -97,6 +97,24 @@ export class CoordenacaoController {
     );
   }
 
+  @Post('candidaturas/:id/desvincular')
+  desvincular(@Param('id', ParseIntPipe) id: number) {
+    return this.coordenacaoService.desvincularCandidatura(id);
+  }
+
+  @Post('candidaturas/:id/revogar')
+  revogar(
+    @Body() corpo: { justificativa?: string },
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.coordenacaoService.revogarAprovacao(
+      id,
+      requisicao.user.email,
+      corpo.justificativa,
+    );
+  }
+
   /* ===== Solicitações de cadastro (padrinhos e apadrinhados) ===== */
 
   /** `status=pendente|aprovado|rejeitado`; sem status, todos. */
@@ -179,6 +197,51 @@ export class CoordenacaoController {
     @Body() corpo: Record<string, unknown>,
   ) {
     return this.coordenacaoService.atualizarPrograma(codigo ?? '', corpo);
+  }
+
+  @Get('formularios')
+  formularios(@Query('programa') programa?: string) {
+    return this.coordenacaoService.listarFormularios(programa);
+  }
+
+  @Delete('formularios/:tipo')
+  excluirFormulario(
+    @Param('tipo') tipo: string,
+    @Query('programa') programa?: string,
+  ) {
+    return this.coordenacaoService.excluirFormulario(tipo, programa);
+  }
+
+  @Post('formularios/:tipo/encerrar')
+  encerrarFormulario(
+    @Param('tipo') tipo: string,
+    @Body() corpo: { programa?: string },
+  ) {
+    return this.coordenacaoService.encerrarFormulario(tipo, corpo?.programa);
+  }
+
+  @Post('formularios/:tipo/duplicar')
+  duplicarFormulario(
+    @Param('tipo') tipo: string,
+    @Body() corpo: { programaOrigem?: string; programaDestino?: string },
+  ) {
+    return this.coordenacaoService.duplicarFormulario(tipo, corpo ?? {});
+  }
+
+  @Get('formularios/:tipo/respostas')
+  respostasFormulario(
+    @Param('tipo') tipo: string,
+    @Query('programa') programa?: string,
+  ) {
+    return this.coordenacaoService.respostasFormulario(tipo, programa);
+  }
+
+  @Get('formularios/:tipo/respostas/por-pergunta')
+  respostasPorPergunta(
+    @Param('tipo') tipo: string,
+    @Query('programa') programa?: string,
+  ) {
+    return this.coordenacaoService.respostasPorPergunta(tipo, programa);
   }
 
   @Get('formularios/:tipo')

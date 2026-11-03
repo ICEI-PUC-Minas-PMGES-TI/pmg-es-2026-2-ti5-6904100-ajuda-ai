@@ -256,6 +256,12 @@ export const api = {
   rejeitarCandidatura(id, justificativa) {
     return request(`/coordenacao/candidaturas/${id}/rejeitar`, { method: 'POST', body: {justificativa} });
   },
+  desvincularCandidatura(id) {
+    return request(`/coordenacao/candidaturas/${id}/desvincular`, { method: 'POST' });
+  },
+  revogarAprovacao(id, justificativa) {
+    return request(`/coordenacao/candidaturas/${id}/revogar`, { method: 'POST', body: { justificativa } });
+  },
   cadastros(status, programa) {
     return request(`/coordenacao/cadastros${query({ status, programa })}`);
   },
@@ -268,7 +274,7 @@ export const api = {
   rejeitarCadastro(id, motivo, programa) {
     return request(`/coordenacao/cadastros/${id}/rejeitar${query({programa})}`, {
       method: 'POST',
-      body: motivo ? { motivo } : {},
+      body: { motivo },
     });
   },
   acaoEmMassa(ids, acao, justificativa) {
@@ -279,6 +285,62 @@ export const api = {
   },
   vincular(apadrinhadoId, padrinhoId) {
     return request('/coordenacao/vinculos', { method: 'POST', body: { apadrinhadoId, padrinhoId } });
+  },
+  matchingVisao(programa) {
+    return request(`/coordenacao/matching${query({ programa })}`);
+  },
+  matchingConfiguracao(programa) {
+    return request(`/coordenacao/matching/config${query({ programa })}`);
+  },
+  salvarMatchingConfiguracao(dados) {
+    return request('/coordenacao/matching/config', { method: 'PUT', body: dados });
+  },
+  liberarMatching(programa, liberado) {
+    return request('/coordenacao/matching/liberar', { method: 'POST', body: { programa, liberado } });
+  },
+  executarMatching(programa) {
+    return request('/coordenacao/matching/executar', { method: 'POST', body: { programa } });
+  },
+  execucoesMatching(programa) {
+    return request(`/coordenacao/matching/execucoes${query({ programa })}`);
+  },
+  sugestoesMatching(programa, status) {
+    return request(`/coordenacao/matching/sugestoes${query({ programa, status })}`);
+  },
+  sugestaoMatching(id) {
+    return request(`/coordenacao/matching/sugestao/${id}`);
+  },
+  aprovarSugestaoMatching(id) {
+    return request(`/coordenacao/matching/sugestao/${id}/aprovar`, { method: 'POST' });
+  },
+  recusarSugestaoMatching(id, motivo) {
+    return request(`/coordenacao/matching/sugestao/${id}/recusar`, { method: 'POST', body: { motivo } });
+  },
+  criteriosMatching(busca) {
+    return request(`/coordenacao/matching/criterios${query({ busca })}`);
+  },
+  criteriosMatchingAtivos() {
+    return request('/coordenacao/matching/criterios/ativos');
+  },
+  criteriosMatchingSemelhantes(nome, excetoId) {
+    return request(
+      `/coordenacao/matching/criterios/semelhantes${query({ nome, excetoId })}`,
+    );
+  },
+  criterioMatching(id) {
+    return request(`/coordenacao/matching/criterios/${id}`);
+  },
+  criarCriterioMatching(dados) {
+    return request('/coordenacao/matching/criterios', { method: 'POST', body: dados });
+  },
+  atualizarCriterioMatching(id, dados) {
+    return request(`/coordenacao/matching/criterios/${id}`, { method: 'PUT', body: dados });
+  },
+  ativarCriterioMatching(id, ativo) {
+    return request(`/coordenacao/matching/criterios/${id}/ativo`, { method: 'PATCH', body: { ativo } });
+  },
+  excluirCriterioMatching(id) {
+    return request(`/coordenacao/matching/criterios/${id}`, { method: 'DELETE' });
   },
   programas() {
     return request('/coordenacao/programas');
@@ -294,6 +356,24 @@ export const api = {
   },
   atualizarPrograma(codigo, dados) {
     return request(`/coordenacao/programas${query({ codigo })}`, { method: 'PATCH', body: dados });
+  },
+  formulariosCoordenacao(programa) {
+    return request(`/coordenacao/formularios${query({ programa })}`);
+  },
+  encerrarFormulario(tipo, dados) {
+    return request(`/coordenacao/formularios/${tipo}/encerrar`, { method: 'POST', body: dados });
+  },
+  duplicarFormulario(tipo, dados) {
+    return request(`/coordenacao/formularios/${tipo}/duplicar`, { method: 'POST', body: dados });
+  },
+  respostasFormulario(tipo, programa) {
+    return request(`/coordenacao/formularios/${tipo}/respostas${query({ programa })}`);
+  },
+  respostasPorPergunta(tipo, programa) {
+    return request(`/coordenacao/formularios/${tipo}/respostas/por-pergunta${query({ programa })}`);
+  },
+  excluirFormulario(tipo, programa) {
+    return request(`/coordenacao/formularios/${tipo}${query({ programa })}`, { method: 'DELETE' });
   },
   formularioCoordenacao(tipo, programa) {
     return request(`/coordenacao/formularios/${tipo}${query({ programa })}`);

@@ -214,11 +214,11 @@ class CardSituacaoPerfil extends StatelessWidget {
         fundoSelo: const Color(0xFFFFF7ED),
       ),
       StatusParticipacao.apadrinhadoAguardandoMatch => CardStatusPerfil(
-        titulo: 'Aguardando padrinho',
-        selo: 'Aguardando match',
+        titulo: 'Aprovado — aguardando matching',
+        selo: 'Aguardando matching',
         icone: Icons.person_search_outlined,
         descricao:
-            'Seu cadastro no programa foi concluído. Estamos buscando o '
+            'Seu cadastro foi aprovado. Estamos buscando o '
             'melhor match para você.',
         corSelo: AppColors.primary,
         fundoSelo: AppColors.lavender,

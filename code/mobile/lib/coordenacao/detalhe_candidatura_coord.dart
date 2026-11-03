@@ -173,6 +173,42 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
     }
   }
 
+  Future<void> _desvincular() async {
+    final id = _id;
+    if (id == null || _processando) return;
+    final ok = await confirmarAcaoCoord(
+      context,
+      titulo: 'Desfazer vínculo?',
+      mensagem:
+          'O apadrinhado voltará a aguardar matching sem padrinho definido.',
+      confirmar: 'Desfazer vínculo',
+      destrutiva: true,
+    );
+    if (!ok || !mounted) return;
+    setState(() => _processando = true);
+    try {
+      await widget.api.desvincularCandidatura(id);
+      if (!mounted) return;
+      widget.onAlterado();
+      mostrarMensagemCoord(context, 'Vínculo desfeito.');
+      await _carregar();
+    } catch (erro) {
+      if (!mounted) return;
+      mostrarMensagemCoord(context, mensagemDeErro(erro));
+    } finally {
+      if (mounted) setState(() => _processando = false);
+    }
+  }
+
+  Future<void> _revogar() async {
+    final justificativa = await solicitarJustificativaCoord(context);
+    if (justificativa == null || !mounted) return;
+    await _executar(
+      (id) => widget.api.revogarAprovacao(id, justificativa: justificativa),
+      'Aprovação revogada.',
+    );
+  }
+
   static String _lista(Object? valor) =>
       valor is List && valor.isNotEmpty ? valor.join(', ') : 'Não informado';
 
@@ -315,6 +351,48 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
                 const LinearProgressIndicator(color: AppColors.primary),
               for (final (icone, titulo, valor) in _itens())
                 _ItemDetalhe(icone: icone, titulo: titulo, valor: valor),
+              if (_ehApadrinhado)
+                _ItemDetalhe(
+                  icone: Icons.verified_user_outlined,
+                  titulo: 'Declaração de 1º período',
+                  valor: _respostas['declaraPrimeiroPeriodo'] == true
+                      ? 'Declarado'
+                      : 'Envio legado — confira no sistema da faculdade',
+                ),
+              () {
+                final form = dados['formularioRespondido'];
+                if (form is! Map) {
+                  return _ItemDetalhe(
+                    icone: Icons.dynamic_form_outlined,
+                    titulo: 'Formulário respondido',
+                    valor: 'Sem versão registrada',
+                  );
+                }
+                return _ItemDetalhe(
+                  icone: Icons.dynamic_form_outlined,
+                  titulo: 'Formulário respondido',
+                  valor:
+                      'v${form['versao'] ?? '—'} · ${form['programa'] ?? dados['programa'] ?? ''}',
+                );
+              }(),
+              () {
+                final decisao = dados['decisao'];
+                if (decisao is! Map) return const SizedBox.shrink();
+                return _ItemDetalhe(
+                  icone: Icons.history,
+                  titulo: 'Registro da verificação',
+                  valor: [
+                    decisao['resultado'] == 'aprovado'
+                        ? 'Aprovado'
+                        : 'Não aprovado',
+                    if (decisao['em'] != null)
+                      'em ${formatarDataCoord(decisao['em'])}',
+                    if (decisao['por'] != null) 'por ${decisao['por']}',
+                    if (decisao['justificativa'] != null)
+                      'Justificativa: ${decisao['justificativa']}',
+                  ].join(' · '),
+                );
+              }(),
               for (final MapEntry(:key, :value) in extras.entries)
                 _ItemDetalhe(
                   icone: Icons.help_outline,
@@ -401,8 +479,11 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
             child: _ehApadrinhado
-                ? (dados['grupo'] == null
-                      ? FilledButton.icon(
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (dados['grupo'] == null)
+                        FilledButton.icon(
                           onPressed: _processando ? null : _definirPadrinho,
                           icon: const Icon(Icons.link),
                           label: const Text('Definir padrinho'),
@@ -411,16 +492,44 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
                             minimumSize: const Size.fromHeight(48),
                           ),
                         )
-                      : Text(
+                      else ...[
+                        Text(
                           'Vinculado ao ${dados['grupo']}.',
                           textAlign: TextAlign.center,
                           style: const TextStyle(color: AppAccents.success),
-                        ))
+                        ),
+                        TextButton(
+                          onPressed: _processando ? null : _desvincular,
+                          child: const Text('Desfazer vínculo'),
+                        ),
+                      ],
+                      if (aprovado || dados['status'] == 'em_andamento')
+                        TextButton(
+                          onPressed: _processando ? null : _revogar,
+                          child: const Text(
+                            'Revogar aprovação',
+                            style: TextStyle(color: corErroCoord),
+                          ),
+                        ),
+                    ],
+                  )
                 : aprovado || !_ehCandidato
-                ? const Text(
-                    'Candidatura aprovada. As atividades dependem do vínculo confirmado.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: AppAccents.success),
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Candidatura aprovada. As atividades dependem do vínculo confirmado.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppAccents.success),
+                      ),
+                      TextButton(
+                        onPressed: _processando ? null : _revogar,
+                        child: const Text(
+                          'Revogar aprovação',
+                          style: TextStyle(color: corErroCoord),
+                        ),
+                      ),
+                    ],
                   )
                 : Column(
                     mainAxisSize: MainAxisSize.min,

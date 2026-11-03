@@ -19,7 +19,7 @@ class TelaDashboardCoord extends StatefulWidget {
   final bool mostrarSeletor;
   final String programa;
   final ValueChanged<String> onProgramaChanged;
-  final void Function({String? status}) onVerCandidaturas;
+  final void Function({String? status, String? publico}) onVerCandidaturas;
   final void Function(String destino, Map<String, String> query)?
   onAbrirDestino;
 

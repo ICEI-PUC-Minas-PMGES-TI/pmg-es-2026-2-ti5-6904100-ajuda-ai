@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import Icon from '../../components/Icon';
@@ -30,13 +30,8 @@ export default function DashboardPage() {
   const [erro, setErro] = useState('');
   const [erroAtencao, setErroAtencao] = useState('');
   const [carregando, setCarregando] = useState(true);
-  const [seletorAberto, setSeletorAberto] = useState(false);
   const [detalhe, setDetalhe] = useState(null);
   const navigate = useNavigate();
-  const seletorId = useId();
-  const seletorBtnRef = useRef(null);
-  const seletorListaRef = useRef(null);
-  const seletorWrapRef = useRef(null);
 
   const carregar = useCallback(async (codigo) => {
     setCarregando(true);
@@ -60,28 +55,6 @@ export default function DashboardPage() {
   useEffect(() => {
     carregar(programaParam);
   }, [programaParam, carregar]);
-
-  useEffect(() => {
-    if (!seletorAberto) return undefined;
-    function onKey(event) {
-      if (event.key === 'Escape') {
-        setSeletorAberto(false);
-        seletorBtnRef.current?.focus();
-      }
-    }
-    function onClickFora(event) {
-      if (!seletorWrapRef.current?.contains(event.target)) {
-        setSeletorAberto(false);
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('mousedown', onClickFora);
-    seletorListaRef.current?.querySelector('[role="option"]')?.focus();
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('mousedown', onClickFora);
-    };
-  }, [seletorAberto]);
 
   function ir(destino, extras = {}) {
     const codigo = dados?.programa?.codigo || programaParam;
@@ -139,7 +112,6 @@ export default function DashboardPage() {
     candidaturasRecentes,
     pontosAtencao,
     resumo,
-    programas,
     acoes,
   } = dados;
   const maxBar = Math.max(chart.pendentes, chart.emAnalise, chart.aprovadas, chart.rejeitadas, 1);
@@ -151,64 +123,23 @@ export default function DashboardPage() {
   ];
   const aguardando = indicadores.candidaturasPendentes;
   const somenteLeitura = Boolean(acoes?.somenteLeitura || resumo?.encerrado);
+  const statusCiclo = [
+    dados.programa.statusRotulo,
+    dados.programa.vigente ? 'vigente' : null,
+  ].filter(Boolean).join(' · ');
 
   return (
     <div className="dash">
       <header className="dash-header">
         <div>
           <h1>Dashboard da coordenação</h1>
-          <p>Acompanhe o programa, candidaturas a padrinho e indicadores do semestre.</p>
+          <p>
+            Acompanhe candidaturas e indicadores de{' '}
+            {dados.programa.nome || `Programa ${dados.programa.codigo}`}
+            {statusCiclo ? ` · ${statusCiclo}` : ''}.
+          </p>
         </div>
         <div className="dash-header-tools">
-          <div className="program-select" ref={seletorWrapRef}>
-            <button
-              ref={seletorBtnRef}
-              type="button"
-              className="program-select-btn"
-              aria-haspopup="listbox"
-              aria-expanded={seletorAberto}
-              aria-controls={seletorId}
-              onClick={() => setSeletorAberto((v) => !v)}
-            >
-              <Icon name="calendar" size={17} />
-              <span className="program-select-label">
-                <strong>{dados.programa.nome || `Programa ${dados.programa.codigo}`}</strong>
-                <small>{dados.programa.statusRotulo}{dados.programa.vigente ? ' · vigente' : ''}</small>
-              </span>
-              <Icon name="chevron" size={16} className={`select-chevron${seletorAberto ? ' open' : ''}`} />
-            </button>
-            {seletorAberto && (
-              <ul
-                id={seletorId}
-                ref={seletorListaRef}
-                className="program-select-list"
-                role="listbox"
-                aria-label="Selecionar programa"
-              >
-                {programas.map((p) => (
-                  <li key={p.codigo} role="presentation">
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={p.codigo === dados.programa.codigo}
-                      className={p.codigo === dados.programa.codigo ? 'selected' : ''}
-                      onClick={() => {
-                        setSeletorAberto(false);
-                        setParams({ programa: p.codigo });
-                        seletorBtnRef.current?.focus();
-                      }}
-                    >
-                      <span className="program-option-main">
-                        <strong>{p.nome || `Programa ${p.codigo}`}</strong>
-                        <span>{p.statusRotulo}{p.vigente ? ' · vigente' : p.encerrado ? ' · encerrado' : ''}</span>
-                      </span>
-                      {p.codigo === dados.programa.codigo && <Icon name="check" size={16} />}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
           <span className="dash-updated">
             <Icon name="clock" size={15} />
             {formatarAtualizacao(dados.atualizadoEm)}

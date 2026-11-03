@@ -67,6 +67,21 @@ export default function ApadrinhadoStep({ profile, errors, onUpdate, onToggle, o
         />
       </div>
       <PerguntasAdicionais perguntas={perguntas} valores={profile.extras} erros={errors.extras || {}} onChange={onExtra} descricao="Perguntas definidas pela coordenação do programa." />
+      <fieldset className={`requisitos-declaracao${errors.firstSemester ? ' has-error' : ''}`}>
+        <legend>Identificação acadêmica</legend>
+        <label className={`declare-check${errors.firstSemester ? ' has-error' : ''}`}>
+          <input
+            type="checkbox"
+            checked={Boolean(profile.firstSemesterDeclaration)}
+            onChange={(e) => onUpdate('firstSemesterDeclaration', e.target.checked)}
+            aria-required
+            aria-invalid={errors.firstSemester || undefined}
+          />
+          <span>Declaro que estou no <strong>1º período</strong> e que os dados acadêmicos informados (curso, período e e-mail institucional) estão corretos para verificação da coordenação.</span>
+        </label>
+        {errors.firstSemester && <p className="error-message" role="alert">Confirme a declaração de 1º período para continuar.</p>}
+        <p className="field-hint">A coordenação pode conferir essas informações no sistema da faculdade antes de aprovar.</p>
+      </fieldset>
       <button className="primary-button" type="submit">Continuar <Icon name="arrow" size={18} /></button>
     </form>
   );

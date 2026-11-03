@@ -26,7 +26,7 @@ const ROTULOS_SITUACAO = {
   padrinho_ativo: 'padrinho ativo',
   apadrinhado_pendente: 'cadastro de apadrinhado aguardando aprovação',
   apadrinhado_rejeitado: 'cadastro de apadrinhado não aprovado',
-  apadrinhado_aguardando: 'apadrinhado aguardando padrinho',
+  apadrinhado_aguardando: 'aprovado aguardando matching',
   apadrinhado_ativo: 'apadrinhado com padrinho definido',
   concluido: 'participação concluída',
 };
@@ -47,6 +47,7 @@ function perfilInicial(email, sessao) {
     supportAreas: [],
     expectation: '',
     additionalInfo: '',
+    firstSemesterDeclaration: false,
     extras: {},
   };
 }
@@ -200,6 +201,7 @@ export default function CadastroPage() {
       availability: profile.availability.length === 0,
       supportAreas: profile.supportAreas.length === 0,
       expectation: !profile.expectation.trim(),
+      firstSemester: !profile.firstSemesterDeclaration,
       extras: errosExtras,
     };
     setErrors(nextErrors);
@@ -225,6 +227,7 @@ export default function CadastroPage() {
       areas: profile.supportAreas,
       expectativa: profile.expectation.trim(),
       outrasInformacoes: profile.additionalInfo.trim(),
+      declaraPrimeiroPeriodo: true,
       extras: limparExtras(perguntasApadrinhado, profile.extras),
     };
     envioEmCurso.current = true;
