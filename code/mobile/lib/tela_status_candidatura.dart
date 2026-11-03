@@ -213,8 +213,9 @@ class _StatusCandidaturaPageState extends State<StatusCandidaturaPage> {
                       ),
                     )
                   else ...[
-                    _Linha(etapas: _etapas()),
                     const _Agradecimento(),
+                    const SizedBox(height: 14),
+                    _Linha(etapas: _etapas()),
                     const SizedBox(height: 14),
                     AvisoCadastro(
                       child: Column(
@@ -353,12 +354,12 @@ class _Marcador extends StatelessWidget {
     return switch (estado) {
       _EstadoEtapa.concluida => const CircleAvatar(
         radius: 13,
-        backgroundColor: AppColors.primary,
+        backgroundColor: Color(0xFF13A05F),
         child: Icon(Icons.check, size: 16, color: Colors.white),
       ),
       _EstadoEtapa.negativa => const CircleAvatar(
         radius: 13,
-        backgroundColor: Color(0xFFB45309),
+        backgroundColor: Color(0xFFC2334F),
         child: Icon(Icons.close, size: 16, color: Colors.white),
       ),
       _EstadoEtapa.atual => Container(
@@ -367,11 +368,11 @@ class _Marcador extends StatelessWidget {
         alignment: Alignment.center,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: AppColors.primary, width: 2),
+          border: Border.all(color: const Color(0xFF13A05F), width: 2),
         ),
         child: const CircleAvatar(
           radius: 6,
-          backgroundColor: AppColors.primary,
+          backgroundColor: Color(0xFF13A05F),
         ),
       ),
       _EstadoEtapa.futura => Container(

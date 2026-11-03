@@ -719,10 +719,19 @@ export class CoordenacaoService implements OnModuleInit {
           'Não é possível aprovar: padrinhos precisam estar a partir do 2º período.',
         );
       }
-      await this.cadastroService.avaliarRequisitosPadrinho(
-        registro.programa,
-        registro.respostas ?? {},
-      );
+      const respostas = registro.respostas ?? {};
+      // Foto por requisito (envios novos): bloqueia se faltou declaração.
+      // Legado só com `declaraPreRequisitos`: a coordenação confere e decide.
+      if (Array.isArray(respostas.requisitos)) {
+        await this.cadastroService.avaliarRequisitosPadrinho(
+          registro.programa,
+          respostas,
+        );
+      } else if (respostas.declaraPreRequisitos !== true) {
+        throw new BadRequestException(
+          'Não é possível aprovar: o candidato não declarou cumprir os pré-requisitos do ciclo.',
+        );
+      }
       return;
     }
 
@@ -980,6 +989,9 @@ export class CoordenacaoService implements OnModuleInit {
     const codigo =
       (programaCodigo || '').trim() || ParticipacoesService.programaAtual();
     const programa = await this.programasService.resolverConsulta(codigo);
+    if (!programa) {
+      throw new NotFoundException('Nenhum programa cadastrado.');
+    }
     const vigente = this.serializarPrograma(
       programa,
       ParticipacoesService.programaAtual(),
@@ -1231,6 +1243,23 @@ export class CoordenacaoService implements OnModuleInit {
           deOutraCidade: true,
         },
       },
+      {
+        usuarioId: 'marina.souza@pucminas.edu.br',
+        programa,
+        papel: 'apadrinhado',
+        status: 'pendente',
+        apadrinhados: 0,
+        inicioEm: dias(1),
+        respostas: {
+          expectativa: 'Preciso de apoio para montar a grade e conhecer o campus.',
+          areas: ['Rotina universitária', 'Vida no campus'],
+          disponibilidade: ['Manhã', 'Tarde'],
+          genero: 'Feminino',
+          bolsistaProuni: false,
+          deOutraCidade: true,
+          declaraPrimeiroPeriodo: true,
+        },
+      },
     ];
 
     for (const item of seed) {
@@ -1276,3 +1305,5 @@ const REQUISITOS_INICIAIS_DEMO = [
     obrigatorio: true,
   },
 ];
+
+

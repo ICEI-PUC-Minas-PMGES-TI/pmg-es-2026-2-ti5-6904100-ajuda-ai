@@ -364,7 +364,7 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, 
               <span className="account-email">{email}</span>
               <Link to="/aluno/perfil" onClick={() => setContaAberta(false)}><Icon name="person" size={16} /> Meu perfil</Link>
               <Link to="/aluno/configuracoes" onClick={() => setContaAberta(false)}><Icon name="settings" size={16} /> Configurações</Link>
-              <Link to="/login" onClick={() => {clearAlunoSession(); setContaAberta(false);}}><Icon name="lock" size={16} /> Sair da conta</Link>
+              <Link to="/login" onClick={() => {clearAlunoSession(); setContaAberta(false);}}><Icon name="logout" size={16} /> Sair da conta</Link>
             </div>
           )}
         </div>

@@ -44,6 +44,7 @@ const STATUS_DEMO: Record<string, StatusCadastro> = {
   'ana.beatriz@pucminas.edu.br': 'pendente',
   'pedro.lima@pucminas.edu.br': 'pendente',
   'julia.fernandes@pucminas.edu.br': 'rejeitado',
+  'marina.souza@pucminas.edu.br': 'pendente',
 };
 
 @Injectable()

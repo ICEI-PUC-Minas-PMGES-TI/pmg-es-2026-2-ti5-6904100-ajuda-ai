@@ -75,7 +75,7 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
     _publico = inicial == 'sem_vinculo' || widget.publico == 'apadrinhado'
         ? 'apadrinhado'
         : 'padrinho';
-    _status = _publico == 'apadrinhado' ? (inicial ?? 'pendente') : inicial;
+    _status = _publico == 'apadrinhado' ? (inicial ?? 'sem_vinculo') : inicial;
   }
 
   @override
@@ -124,6 +124,7 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
         );
       }
       if (!mounted) return;
+      lista.sort(_ordenarLista);
       setState(() {
         _itens = lista;
         _carregando = false;
@@ -140,21 +141,40 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
     }
   }
 
+  /// Pendente de decisão (pode aprovar/rejeitar em massa).
+  bool _aindaPendente(Map<String, dynamic> item) {
+    final statusCadastro = '${item['statusCadastro'] ?? ''}';
+    if (statusCadastro.isNotEmpty) return statusCadastro == 'pendente';
+    final status = '${item['status'] ?? ''}';
+    return status == 'pendente' || status == 'em_analise';
+  }
+
   bool _selecionavel(Map<String, dynamic> item) =>
-      item['papel'] == 'candidato' && idDe(item) != null;
+      item['papel'] == 'candidato' &&
+      idDe(item) != null &&
+      _aindaPendente(item);
+
+  int _ordenarLista(Map<String, dynamic> a, Map<String, dynamic> b) {
+    final diff =
+        (_aindaPendente(a) ? 0 : 1) - (_aindaPendente(b) ? 0 : 1);
+    if (diff != 0) return diff;
+    return '${b['criadoEm'] ?? ''}'.compareTo('${a['criadoEm'] ?? ''}');
+  }
 
   List<Map<String, dynamic>> get _visiveis {
     final termo = _busca.trim().toLowerCase();
-    if (termo.isEmpty) return _itens;
-    return _itens.where((item) {
-      final texto = [
-        item['nome'],
-        item['email'],
-        item['curso'],
-        if (item['periodo'] != null) '${item['periodo']}º período',
-      ].join(' ').toLowerCase();
-      return texto.contains(termo);
-    }).toList();
+    final base = termo.isEmpty
+        ? _itens
+        : _itens.where((item) {
+            final texto = [
+              item['nome'],
+              item['email'],
+              item['curso'],
+              if (item['periodo'] != null) '${item['periodo']}º período',
+            ].join(' ').toLowerCase();
+            return texto.contains(termo);
+          }).toList();
+    return [...base]..sort(_ordenarLista);
   }
 
   List<int> get _idsSelecionaveis => [
@@ -206,7 +226,7 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
     if (publico == _publico) return;
     setState(() {
       _publico = publico;
-      _status = publico == 'apadrinhado' ? 'pendente' : null;
+      _status = publico == 'apadrinhado' ? 'sem_vinculo' : null;
       _selecionados.clear();
       _busca = '';
     });
@@ -269,7 +289,7 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
     }
   }
 
-  Future<void> _detalhe(Map<String, dynamic> item) async {
+  Future<void> _detalhe(Map<String, dynamic> item, {bool avancar = true}) async {
     if (_cadastroApadrinhado) {
       final id = idDe(item);
       if (id == null) return;
@@ -282,16 +302,48 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
           ),
         ),
       );
-      if (alterado == true && mounted) await _carregar();
+      if (alterado == true && mounted) {
+        await _carregar();
+        if (avancar) await _abrirProximoPendente(id);
+      }
       return;
     }
+    final idAtual = idDe(item);
     final alterado = await mostrarDetalheCandidatura(
       context,
       api: widget.api,
       item: item,
       programa: widget.programa,
     );
-    if (alterado && mounted) await _carregar();
+    if (alterado && mounted) {
+      await _carregar();
+      if (avancar && idAtual != null) await _abrirProximoPendente(idAtual);
+    }
+  }
+
+  /// Depois de decidir, abre o próximo pendente (fluxo rápido da coordenação).
+  Future<void> _abrirProximoPendente(int idAtual) async {
+    final lista = _visiveis;
+    final idx = lista.indexWhere((i) => idDe(i) == idAtual);
+    Map<String, dynamic>? proximo;
+    for (var i = idx + 1; i < lista.length; i++) {
+      if (_aindaPendente(lista[i])) {
+        proximo = lista[i];
+        break;
+      }
+    }
+    if (proximo == null) {
+      for (var i = 0; i < lista.length; i++) {
+        if (i == idx) continue;
+        if (_aindaPendente(lista[i])) {
+          proximo = lista[i];
+          break;
+        }
+      }
+    }
+    if (proximo != null && mounted) {
+      await _detalhe(proximo);
+    }
   }
 
   @override
@@ -404,7 +456,7 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
                   controlAffinity: ListTileControlAffinity.leading,
                   activeColor: AppColors.primary,
                   title: Text(
-                    'Selecionar todas (${selecionaveis.length})',
+                    'Selecionar pendentes (${selecionaveis.length})',
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   onChanged: (marcar) => _alternarTodas(marcar ?? false),
@@ -488,7 +540,6 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
               processando: _processando,
               onRejeitar: () => _acaoEmMassa('rejeitar'),
               onAprovar: () => _acaoEmMassa('aprovar'),
-              onEmAnalise: () => _acaoEmMassa('em_analise'),
             ),
         ],
       ),
@@ -593,14 +644,12 @@ class _BarraSelecao extends StatelessWidget {
     required this.processando,
     required this.onRejeitar,
     required this.onAprovar,
-    required this.onEmAnalise,
   });
 
   final int quantidade;
   final bool processando;
   final VoidCallback onRejeitar;
   final VoidCallback onAprovar;
-  final VoidCallback onEmAnalise;
 
   @override
   Widget build(BuildContext context) {
@@ -619,23 +668,17 @@ class _BarraSelecao extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '$quantidade selecionada(s)',
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '$quantidade selecionada(s)',
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w700,
               ),
-              TextButton(
-                onPressed: processando ? null : onEmAnalise,
-                child: const Text('Marcar em análise'),
-              ),
-            ],
+            ),
           ),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(

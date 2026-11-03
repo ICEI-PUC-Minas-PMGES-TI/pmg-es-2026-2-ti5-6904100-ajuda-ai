@@ -1,7 +1,7 @@
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import Icon from '../../components/Icon';
 import { useToast } from '../../components/Toast';
-import { EstadoCarregando, EstadoErro, EstadoVazio, PageHeader } from './partes';
+import { EstadoCarregando, EstadoErro, EstadoVazio } from './partes';
 
 const CHAT_EM_BREVE = 'O chat do Ajuda-aí chega em breve. Por enquanto, combine pelo e-mail institucional.';
 
@@ -40,22 +40,44 @@ export default function PadrinhoPage() {
   if (tipo === 'padrinho_ativo') {
     const lista = dados.apadrinhados || [];
     return (
-      <div className="aluno-page">
-        <PageHeader titulo="Meus apadrinhados" subtitulo={dados.grupo ? `Você é padrinho(a) do ${dados.grupo} no ${dados.programa.titulo}.` : `Você é padrinho(a) no ${dados.programa.titulo}.`} />
+      <div className="aluno-page match-page">
+        <header className="status-intro">
+          <span className="history-intro-icon" aria-hidden="true"><Icon name="groups" size={36} /></span>
+          <div className="status-intro-copy">
+            <h1>Meus apadrinhados</h1>
+            <p>
+              {dados.grupo
+                ? `Você é padrinho(a) do ${dados.grupo} no ${dados.programa?.titulo || 'programa'}.`
+                : `Você é padrinho(a) no ${dados.programa?.titulo || 'programa'}.`}
+            </p>
+          </div>
+        </header>
         {lista.length === 0 ? (
           <EstadoVazio icon="groups" titulo="A coordenação está formando os grupos" texto={`Assim que seus apadrinhados forem definidos, eles aparecem aqui. Formação dos grupos: ${formacao?.periodoTexto || 'conforme o calendário do programa'}.`} />
         ) : (
           <>
-            <div className="people-grid">
-              {lista.map((pessoa) => <PessoaCard key={pessoa.email} pessoa={pessoa} />)}
-            </div>
-            <div className="bond-banner">
-              <span className="bond-icon" aria-hidden="true"><Icon name="groups" size={28} /></span>
-              <div>
-                <strong>Seu grupo está ativo!</strong>
-                <p>Apresente-se, combine o primeiro encontro e acompanhe seus apadrinhados ao longo do semestre.</p>
+            <section className="timeline-card" aria-label="Apadrinhados">
+              <div className="timeline-card-head">
+                <div>
+                  <h2>Seu grupo</h2>
+                  <p>{lista.length} apadrinhado(s) vinculado(s) a você.</p>
+                </div>
               </div>
-              <button type="button" className="primary-button inline" onClick={() => mostrarToast(CHAT_EM_BREVE)}><Icon name="chat" size={17} /> Enviar mensagem</button>
+              <div className="people-grid">
+                {lista.map((pessoa) => <PessoaCard key={pessoa.email} pessoa={pessoa} />)}
+              </div>
+            </section>
+            <div className="status-foot">
+              <div className="status-next">
+                <span className="status-next-icon" aria-hidden="true"><Icon name="groups" size={22} /></span>
+                <div>
+                  <strong>Seu grupo está ativo!</strong>
+                  <p>Apresente-se, combine o primeiro encontro e acompanhe seus apadrinhados ao longo do semestre.</p>
+                </div>
+                <button type="button" className="primary-button inline" onClick={() => mostrarToast(CHAT_EM_BREVE)}>
+                  <Icon name="chat" size={17} /> Enviar mensagem
+                </button>
+              </div>
             </div>
           </>
         )}
@@ -67,37 +89,71 @@ export default function PadrinhoPage() {
     const padrinho = dados.padrinho;
     return (
       <div className="aluno-page match-page">
-        <section className="match-panel" aria-label="Seu padrinho">
-          <header className="match-hero">
-            <div>
-              <h1>Seu padrinho foi definido!</h1>
-              <p>Sua conexão no Ajuda-aí foi criada com sucesso. Agora você já pode iniciar essa jornada com seu padrinho!</p>
-            </div>
-            <span className="match-hero-art" aria-hidden="true"><Icon name="heart" size={28} /></span>
-          </header>
-          <div className="match-layout">
-            <PessoaCard pessoa={padrinho} destaque />
-            <section className="next-steps" aria-labelledby="proximos-passos">
-              <h2 id="proximos-passos">Próximos passos</h2>
-              <p>Aproveite para dar os primeiros passos na sua jornada!</p>
-              <ol>
-                <li><span className="step-num">1</span><Icon name="chat" size={20} /><span><strong>Envie sua primeira mensagem</strong><small>Que tal se apresentar e contar um pouco sobre você?</small></span></li>
-                <li><span className="step-num">2</span><Icon name="person" size={20} /><span><strong>Conheça o perfil do seu padrinho</strong><small>Veja interesses, curso e o grupo de vocês.</small></span></li>
-                <li><span className="step-num">3</span><Icon name="calendar" size={20} /><span><strong>Combine um primeiro encontro</strong><small>Vocês podem conversar no campus ou em um ambiente online.</small></span></li>
-              </ol>
-              <div className="next-steps-actions">
-                <button type="button" className="primary-button" onClick={() => mostrarToast(CHAT_EM_BREVE)}><Icon name="chat" size={18} /> Enviar mensagem</button>
-              </div>
-            </section>
+        <header className="status-intro">
+          <span className="match-intro-art" aria-hidden="true"><Icon name="heart" size={34} /></span>
+          <div className="status-intro-copy">
+            <h1>Seu padrinho foi definido!</h1>
+            <p>Sua conexão no Ajuda-aí foi criada com sucesso. Agora você já pode iniciar essa jornada com seu padrinho.</p>
           </div>
-          <div className="bond-banner">
-            <span className="bond-icon" aria-hidden="true"><Icon name="groups" size={24} /></span>
+        </header>
+
+        <section className="timeline-card match-board" aria-label="Seu padrinho">
+          <div className="timeline-card-head">
             <div>
-              <strong>Seu vínculo está ativo!</strong>
-              <p>Agora você já pode conversar, participar de encontros e acompanhar as atividades do {padrinho.grupo || 'seu grupo'} no Ajuda-aí.</p>
+              <h2>Seu padrinho</h2>
+              <p>Perfil e contatos para começar a conversa.</p>
+            </div>
+          </div>
+          <PessoaCard pessoa={padrinho} destaque />
+
+          <div className="match-steps-block">
+            <div className="timeline-card-head">
+              <div>
+                <h2>Próximos passos</h2>
+                <p>Aproveite para dar os primeiros passos na sua jornada.</p>
+              </div>
+            </div>
+            <ol className="match-steps">
+              <li>
+                <span className="step-num">1</span>
+                <Icon name="chat" size={18} />
+                <span><strong>Envie sua primeira mensagem</strong><small>Apresente-se e conte um pouco sobre você.</small></span>
+              </li>
+              <li>
+                <span className="step-num">2</span>
+                <Icon name="person" size={18} />
+                <span><strong>Conheça o perfil</strong><small>Veja interesses, curso e o grupo de vocês.</small></span>
+              </li>
+              <li>
+                <span className="step-num">3</span>
+                <Icon name="calendar" size={18} />
+                <span><strong>Combine um encontro</strong><small>No campus ou em um ambiente online.</small></span>
+              </li>
+            </ol>
+            <div className="next-steps-actions">
+              <button type="button" className="primary-button" onClick={() => mostrarToast(CHAT_EM_BREVE)}>
+                <Icon name="chat" size={18} /> Enviar mensagem
+              </button>
             </div>
           </div>
         </section>
+
+        <div className="status-foot">
+          <div className="status-next">
+            <span className="status-next-icon" aria-hidden="true"><Icon name="groups" size={22} /></span>
+            <div>
+              <strong>Seu vínculo está ativo!</strong>
+              <p>Você já pode conversar, participar de encontros e acompanhar as atividades do {padrinho.grupo || 'seu grupo'} no Ajuda-aí.</p>
+            </div>
+          </div>
+          <div className="deadline-box">
+            <Icon name="mail" size={22} />
+            <div>
+              <strong>Contato do padrinho</strong>
+              <p><a href={`mailto:${padrinho.email}`}>{padrinho.email}</a></p>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -105,8 +161,14 @@ export default function PadrinhoPage() {
   if (tipo === 'apadrinhado_pendente' || tipo === 'apadrinhado_rejeitado') {
     const rejeitado = tipo === 'apadrinhado_rejeitado';
     return (
-      <div className="aluno-page">
-        <PageHeader titulo="Meu padrinho" subtitulo={dados.programa?.titulo} />
+      <div className="aluno-page match-page">
+        <header className="status-intro">
+          <span className="history-intro-icon" aria-hidden="true"><Icon name={rejeitado ? 'alert' : 'clock'} size={36} /></span>
+          <div className="status-intro-copy">
+            <h1>Meu padrinho</h1>
+            <p>{dados.programa?.titulo || 'Acompanhe o andamento do seu cadastro.'}</p>
+          </div>
+        </header>
         <EstadoVazio
           icon={rejeitado ? 'alert' : 'clock'}
           titulo={rejeitado ? 'Seu cadastro não foi aprovado' : 'Seu cadastro aguarda aprovação'}
@@ -122,8 +184,14 @@ export default function PadrinhoPage() {
 
   if (tipo === 'apadrinhado_aguardando' || tipo === 'apadrinhado_ativo') {
     return (
-      <div className="aluno-page">
-        <PageHeader titulo="Meu padrinho" subtitulo={dados.programa?.titulo} />
+      <div className="aluno-page match-page">
+        <header className="status-intro">
+          <span className="history-intro-icon" aria-hidden="true"><Icon name="userSearch" size={36} /></span>
+          <div className="status-intro-copy">
+            <h1>Meu padrinho</h1>
+            <p>{dados.programa?.titulo || 'Aguarde a formação dos grupos.'}</p>
+          </div>
+        </header>
         <EstadoVazio icon="userSearch" titulo="Seu padrinho ainda não foi definido" texto={`A coordenação está formando os grupos (${formacao?.periodoTexto || 'conforme o calendário do programa'}). Você será avisado(a) por aqui assim que o match for confirmado.`}>
           <button type="button" className="ghost-button" onClick={() => navigate('/aluno/candidatura')}>Acompanhar meu cadastro</button>
         </EstadoVazio>
@@ -132,8 +200,14 @@ export default function PadrinhoPage() {
   }
 
   return (
-    <div className="aluno-page">
-      <PageHeader titulo="Meu padrinho" subtitulo={dados?.programa?.titulo} />
+    <div className="aluno-page match-page">
+      <header className="status-intro">
+        <span className="history-intro-icon" aria-hidden="true"><Icon name="users" size={36} /></span>
+        <div className="status-intro-copy">
+          <h1>Meu padrinho</h1>
+          <p>{dados?.programa?.titulo || 'Participe do programa para formar um vínculo.'}</p>
+        </div>
+      </header>
       <EstadoVazio
         icon="users"
         titulo="Você ainda não tem vínculo no programa"

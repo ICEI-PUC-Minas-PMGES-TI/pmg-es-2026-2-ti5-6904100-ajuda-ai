@@ -99,6 +99,17 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
     }
   }
 
+  /// Preferência: ciclo vigente → marcado como atual → primeiro da lista.
+  String? _codigoProgramaPadrao(List<Map<String, dynamic>> lista) {
+    for (final p in lista) {
+      if (p['vigente'] == true) return p['codigo'] as String?;
+    }
+    for (final p in lista) {
+      if (p['atual'] == true) return p['codigo'] as String?;
+    }
+    return lista.isEmpty ? null : lista.first['codigo'] as String?;
+  }
+
   Future<void> _carregarProgramas({String? preferido}) async {
     final api = _api;
     if (api == null) return;
@@ -119,8 +130,8 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         _programaSolicitado = null;
         _programa = existe
             ? anterior
-            : !_exigirSelecao && lista.length == 1
-            ? lista.single['codigo'] as String
+            : !_exigirSelecao
+            ? _codigoProgramaPadrao(lista)
             : null;
         _avisoPrograma = anterior != null && !existe
             ? 'O programa selecionado não está mais disponível. Confira o ciclo antes de continuar.'

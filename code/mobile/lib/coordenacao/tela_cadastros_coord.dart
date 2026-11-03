@@ -392,45 +392,49 @@ class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
                           'Motivo informado ao aluno',
                           '${d['motivoRejeicao']}',
                         ),
-                      const SizedBox(height: 8),
-                      if (status != 'aprovado')
-                        FilledButton.icon(
-                          onPressed: _processando
-                              ? null
-                              : () => _decidir(
-                                  () => widget.api.aprovarCadastro(
-                                    widget.id,
-                                    programa: widget.programa,
+                      if (status == 'pendente' || status == 'rejeitado') ...[
+                        const SizedBox(height: 8),
+                        if (status != 'aprovado')
+                          FilledButton.icon(
+                            onPressed: _processando
+                                ? null
+                                : () => _decidir(
+                                    () => widget.api.aprovarCadastro(
+                                      widget.id,
+                                      programa: widget.programa,
+                                    ),
                                   ),
-                                ),
-                          icon: const Icon(Icons.check),
-                          label: Text(
-                            status == 'rejeitado'
-                                ? 'Rever e aprovar'
-                                : 'Aprovar cadastro',
+                            icon: const Icon(Icons.check),
+                            label: Text(
+                              status == 'rejeitado'
+                                  ? 'Rever e aprovar'
+                                  : 'Aprovar',
+                            ),
                           ),
-                        ),
-                      if (status == 'pendente')
-                        OutlinedButton.icon(
-                          onPressed: _processando ? null : _rejeitar,
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: corErroCoord,
+                        if (status == 'pendente')
+                          OutlinedButton.icon(
+                            onPressed: _processando ? null : _rejeitar,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: corErroCoord,
+                            ),
+                            icon: const Icon(Icons.close),
+                            label: const Text('Rejeitar'),
                           ),
-                          icon: const Icon(Icons.close),
-                          label: const Text('Rejeitar cadastro'),
-                        ),
-                      const SizedBox(height: 6),
-                      Text(
-                        ehPadrinho
-                            ? 'Aprovar também aprova a candidatura a padrinho '
-                                  'deste ciclo.'
-                            : 'Após a aprovação, o apadrinhado entra na fila '
-                                  'de definição de padrinho.',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: corTextoSecundarioCoord,
-                        ),
-                      ),
+                        if (status == 'pendente') ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            ehPadrinho
+                                ? 'Aprovar também aprova a candidatura a padrinho '
+                                      'deste ciclo.'
+                                : 'Após a aprovação, o apadrinhado entra na fila '
+                                      'de matching.',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: corTextoSecundarioCoord,
+                            ),
+                          ),
+                        ],
+                      ],
                     ],
                   ),
                 ),

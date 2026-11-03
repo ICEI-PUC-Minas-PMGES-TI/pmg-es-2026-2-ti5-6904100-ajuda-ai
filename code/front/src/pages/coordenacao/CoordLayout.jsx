@@ -50,11 +50,24 @@ export default function CoordLayout() {
   }, []);
   useEffect(() => {if (autenticado && ehCoordenador) carregarProgramas();}, [autenticado, ehCoordenador, carregarProgramas]);
   useEffect(() => {
-    if (!programas) return;
-    if (programa && !programas.some(p => p.codigo === programa)) {
-      const novos = new URLSearchParams(searchParams); novos.delete('programa'); setExigirSelecao(true); setSearchParams(novos, {replace: true});
-    } else if (!programa && programas.length === 1 && !exigirSelecao) {
-      const novos = new URLSearchParams(searchParams); novos.set('programa', programas[0].codigo); setSearchParams(novos, {replace: true});
+    if (!programas?.length) return;
+    if (programa && !programas.some((p) => p.codigo === programa)) {
+      const novos = new URLSearchParams(searchParams);
+      novos.delete('programa');
+      setExigirSelecao(true);
+      setSearchParams(novos, { replace: true });
+      return;
+    }
+    // Sem ciclo na URL: entra no vigente pela data (ou o mais recente).
+    if (!programa && !exigirSelecao) {
+      const padrao =
+        programas.find((p) => p.vigente)
+        || programas.find((p) => p.atual)
+        || programas[0];
+      if (!padrao?.codigo) return;
+      const novos = new URLSearchParams(searchParams);
+      novos.set('programa', padrao.codigo);
+      setSearchParams(novos, { replace: true });
     }
   }, [programas, programa, exigirSelecao, searchParams, setSearchParams]);
   function programaExcluido(codigo) {

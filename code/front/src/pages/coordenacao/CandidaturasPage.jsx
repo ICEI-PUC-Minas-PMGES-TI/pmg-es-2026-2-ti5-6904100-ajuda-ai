@@ -33,11 +33,35 @@ const FILTROS_APADRINHADO = [
 const ACOES_MASSA = {
   aprovar: { rotulo: 'Aprovar', verbo: 'aprovada(s)' },
   rejeitar: { rotulo: 'Rejeitar', verbo: 'rejeitada(s)' },
-  em_analise: { rotulo: 'Marcar em análise', verbo: 'marcada(s) em análise' },
 };
 
 function normalizar(texto) {
   return String(texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/** Ainda sem decisão final (pode aprovar/rejeitar em massa). */
+function aindaPendente(item) {
+  if (item.statusCadastro) return item.statusCadastro === 'pendente';
+  return item.status === 'pendente' || item.status === 'em_analise';
+}
+
+/** Pendentes / em análise primeiro; depois já decididas. Empate: mais recente. */
+function prioridadeLista(item) {
+  return aindaPendente(item) ? 0 : 1;
+}
+
+function ordenarLista(a, b) {
+  const diff = prioridadeLista(a) - prioridadeLista(b);
+  if (diff !== 0) return diff;
+  return String(b.criadoEm || '').localeCompare(String(a.criadoEm || ''));
+}
+
+function deduplicarPorId(lista) {
+  const mapa = new Map();
+  for (const item of lista) {
+    if (item?.id != null) mapa.set(item.id, item);
+  }
+  return [...mapa.values()];
 }
 
 function resolverPublico(params) {
@@ -60,7 +84,7 @@ export default function CandidaturasPage() {
   const modoCadastroApadrinhado = modoApadrinhado && !modoSemVinculo;
   const statusApadrinhado = FILTROS_APADRINHADO.some((f) => f.valor === statusParam)
     ? statusParam
-    : 'pendente';
+    : 'sem_vinculo';
   const statusPadrinho = FILTROS_PADRINHO.some((f) => f.valor === statusParam) ? statusParam : '';
 
   const [itens, setItens] = useState([]);
@@ -94,13 +118,11 @@ export default function CandidaturasPage() {
         const status = statusPadrinho;
         const lista = status
           ? await api.candidaturas(programa || undefined, status)
-          : (await Promise.all([
+          : deduplicarPorId((await Promise.all([
               api.candidaturas(programa || undefined),
               api.candidaturas(programa || undefined, 'aprovadas'),
-            ]))
-              .flat()
-              .sort((a, b) => String(b.criadoEm).localeCompare(String(a.criadoEm)));
-        setItens(lista);
+            ])).flat());
+        setItens(lista.sort(ordenarLista));
       }
     } catch (error) {
       setErro(error.message || 'Falha ao carregar a lista.');
@@ -126,11 +148,13 @@ export default function CandidaturasPage() {
 
   const filtrados = useMemo(() => {
     const termo = normalizar(busca.trim());
-    if (!termo) return itens;
-    return itens.filter((item) =>
-      [item.nome, item.curso, item.email, item.periodo ? `${item.periodo}º período` : '', item.periodo]
-        .some((campo) => normalizar(campo).includes(termo)),
-    );
+    const base = !termo
+      ? itens
+      : itens.filter((item) =>
+        [item.nome, item.curso, item.email, item.periodo ? `${item.periodo}º período` : '', item.periodo]
+          .some((campo) => normalizar(campo).includes(termo)),
+      );
+    return [...base].sort(ordenarLista);
   }, [itens, busca]);
 
   function atualizarParam(chave, valor, extras = {}) {
@@ -148,7 +172,8 @@ export default function CandidaturasPage() {
   function trocarPublico(novo) {
     if (novo === publico) return;
     atualizarParam('publico', novo === 'padrinho' ? '' : novo, {
-      status: novo === 'apadrinhado' ? 'pendente' : '',
+      // Apadrinhados: fila de matching primeiro (costuma ter trabalho); cadastros pendentes no chip.
+      status: novo === 'apadrinhado' ? 'sem_vinculo' : '',
     });
   }
 
@@ -156,14 +181,30 @@ export default function CandidaturasPage() {
     atualizarParam('id', id ? String(id) : '');
   }
 
-  const todosMarcados = filtrados.length > 0 && filtrados.every((item) => marcados.includes(item.id));
+  // Mantém o detalhe alinhado à lista atual (troca de aba/filtro não deixa perfil “fantasma”).
+  useEffect(() => {
+    if (carregando) return;
+    const aindaVisivel = idSelecionado && filtrados.some((i) => i.id === idSelecionado);
+    if (aindaVisivel) return;
+    if (filtrados[0]?.id) selecionar(filtrados[0].id);
+    else if (idSelecionado) selecionar(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sincroniza só com lista/seleção
+  }, [carregando, idSelecionado, filtrados]);
+
+  const selecionaveis = useMemo(() => filtrados.filter(aindaPendente), [filtrados]);
+  const todosMarcados = selecionaveis.length > 0 && selecionaveis.every((item) => marcados.includes(item.id));
 
   function alternarTodos() {
-    if (todosMarcados) setMarcados((atual) => atual.filter((id) => !filtrados.some((i) => i.id === id)));
-    else setMarcados((atual) => Array.from(new Set([...atual, ...filtrados.map((i) => i.id)])));
+    if (todosMarcados) {
+      setMarcados((atual) => atual.filter((id) => !selecionaveis.some((i) => i.id === id)));
+      return;
+    }
+    setMarcados((atual) => Array.from(new Set([...atual, ...selecionaveis.map((i) => i.id)])));
   }
 
   function alternar(id) {
+    const item = filtrados.find((i) => i.id === id);
+    if (item && !aindaPendente(item)) return;
     setMarcados((atual) => (atual.includes(id) ? atual.filter((v) => v !== id) : [...atual, id]));
   }
 
@@ -185,9 +226,18 @@ export default function CandidaturasPage() {
     }
   }
 
-  function aoAtualizarDetalhe(detalhe, mensagem) {
+  function aoAtualizarDetalhe(detalheAtualizado, mensagem, opcoes = {}) {
     if (mensagem) mostrarToast(mensagem, 'sucesso');
     setVersao((v) => v + 1);
+
+    // Depois de decidir, abre o próximo pendente (fluxo rápido da coordenação).
+    if (opcoes.avancar) {
+      const idx = filtrados.findIndex((i) => i.id === idSelecionado);
+      const proximo = filtrados.slice(idx + 1).find(aindaPendente)
+        || filtrados.slice(0, Math.max(idx, 0)).find(aindaPendente);
+      if (proximo?.id) selecionar(proximo.id);
+    }
+
     carregar();
   }
 
@@ -195,37 +245,38 @@ export default function CandidaturasPage() {
   const filtros = modoApadrinhado ? FILTROS_APADRINHADO : FILTROS_PADRINHO;
   const statusAtivo = modoApadrinhado ? statusApadrinhado : statusPadrinho;
 
+  const detalheVisivel = idSelecionado && filtrados.some((i) => i.id === idSelecionado);
+
   return (
-    <section className={`cand-page cand-split${idSelecionado ? ' has-selection' : ''}`}>
-      <div className="cand-list-pane">
-        <header className="dash-header compact">
-          <div>
+    <section className={`cand-page${detalheVisivel ? ' has-selection' : ''}`}>
+      <header className="cand-top">
+        <div className="cand-top-row">
+          <div className="cand-top-copy">
             <h1>Candidaturas</h1>
             <p>
               {modoApadrinhado
-                ? 'Aprove cadastros de apadrinhados e defina padrinho para quem ainda está sem vínculo.'
-                : 'Analise as candidaturas a padrinho e acompanhe o processo de seleção.'}
-              {programa ? ` Programa ${programa}.` : ''}
+                ? 'Aprove cadastros e defina vínculos.'
+                : 'Revise, aprove ou rejeite com o mínimo de cliques.'}
+              {programa ? ` · ${programa}` : ''}
             </p>
           </div>
-        </header>
-
-        <div className="forms-tabs" role="tablist" aria-label="Público da análise">
-          {PUBLICOS.map((p) => (
-            <button
-              key={p.valor}
-              type="button"
-              role="tab"
-              aria-selected={p.valor === publico}
-              className={`forms-tab${p.valor === publico ? ' active' : ''}`}
-              onClick={() => trocarPublico(p.valor)}
-            >
-              {p.rotulo}
-            </button>
-          ))}
+          <div className="forms-tabs" role="tablist" aria-label="Público da análise">
+            {PUBLICOS.map((p) => (
+              <button
+                key={p.valor}
+                type="button"
+                role="tab"
+                aria-selected={p.valor === publico}
+                className={`forms-tab${p.valor === publico ? ' active' : ''}`}
+                onClick={() => trocarPublico(p.valor)}
+              >
+                {p.rotulo}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="cand-tools">
+        <div className="cand-toolbar">
           <label className="search-field">
             <Icon name="search" size={17} />
             <span className="sr-only">Buscar</span>
@@ -238,149 +289,147 @@ export default function CandidaturasPage() {
               {filtros.map((f) => <option key={f.valor || 'todas'} value={f.valor}>{f.rotulo}</option>)}
             </select>
           </label>
-        </div>
-        <div className="filter-chips" role="group" aria-label="Filtrar por status">
-          {filtros.map((f) => (
-            <button
-              key={f.valor || 'todas'}
-              type="button"
-              aria-pressed={statusAtivo === f.valor}
-              className={`filter-chip${statusAtivo === f.valor ? ' active' : ''}`}
-              onClick={() => atualizarParam('status', f.valor)}
-            >
-              {f.rotulo}
-            </button>
-          ))}
-        </div>
-
-        {!modoApadrinhado && filtrados.length > 0 && (
-          <div className="bulk-bar">
-            <label className="bulk-all">
-              <input type="checkbox" checked={todosMarcados} onChange={alternarTodos} />
-              Selecionar todas {busca ? 'as exibidas' : ''} ({filtrados.length})
-            </label>
-            {marcados.length > 0 && (
-              <div className="bulk-actions" role="group" aria-label={`Ações para ${marcados.length} selecionada(s)`}>
-                <span>{marcados.length} selecionada(s)</span>
-                <button type="button" className="mini-btn success" onClick={() => setConfirmacao('aprovar')}><Icon name="check" size={14} /> Aprovar</button>
-                <button type="button" className="mini-btn danger" onClick={() => setConfirmacao('rejeitar')}><Icon name="close" size={14} /> Rejeitar</button>
-                <button type="button" className="mini-btn" onClick={() => setConfirmacao('em_analise')}><Icon name="refresh" size={14} /> Em análise</button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {resultado && (
-          <div className={`bulk-result${resultado.erro || resultado.falhas?.length ? ' warn' : ''}`} role="status">
-            {resultado.erro ? (
-              <p>{resultado.erro}</p>
-            ) : (
-              <>
-                <p><strong>{resultado.sucesso}</strong> candidatura(s) {resultado.rotulo}.</p>
-                {resultado.falhas?.length > 0 && (
-                  <ul>
-                    {resultado.falhas.map((f) => <li key={f.id}>{nomesPorId[f.id] || `#${f.id}`}: {f.erro}</li>)}
-                  </ul>
-                )}
-              </>
-            )}
-            <button type="button" className="link-btn" onClick={() => setResultado(null)}>Fechar</button>
-          </div>
-        )}
-
-        {carregando && itens.length === 0 && <p className="empty-copy" role="status">Carregando…</p>}
-        {erro && (
-          <div className="dash-inline-error" role="alert">
-            {erro}
-            <button type="button" onClick={carregar}>Tentar novamente</button>
-          </div>
-        )}
-        {!carregando && !erro && filtrados.length === 0 && (
-          <p className="empty-copy">
-            {busca
-              ? 'Nenhum resultado para a busca.'
-              : modoSemVinculo
-                ? 'Todos os apadrinhados já têm padrinho.'
-                : modoCadastroApadrinhado && statusApadrinhado === 'pendente'
-                  ? 'Nenhum cadastro de apadrinhado aguardando aprovação.'
-                  : 'Nenhum registro encontrado para este filtro.'}
-          </p>
-        )}
-
-        <ul className="cand-list">
-          {filtrados.map((item) => (
-            <li key={item.id} className={`cand-row${item.id === idSelecionado ? ' selected' : ''}`}>
-              {!modoApadrinhado && (
-                <input
-                  type="checkbox"
-                  className="cand-check"
-                  checked={marcados.includes(item.id)}
-                  onChange={() => alternar(item.id)}
-                  aria-label={`Selecionar ${item.nome}`}
-                />
-              )}
-              <button type="button" className="cand-item" onClick={() => selecionar(item.id)} aria-current={item.id === idSelecionado ? 'true' : undefined}>
-                <Avatar pessoa={item} tamanho="md" />
-                <span className="cand-copy">
-                  <span className="cand-name-row">
-                    <strong>{item.nome}</strong>
-                    <span className={`status-pill ${
-                      modoSemVinculo
-                        ? 'analise'
-                        : modoCadastroApadrinhado
-                          ? statusCadastroTom(item.statusCadastro)
-                          : badgeClass(item.status, item.papel)
-                    }`}
-                    >
-                      {modoSemVinculo
-                        ? 'Sem vínculo'
-                        : modoCadastroApadrinhado
-                          ? ROTULO_STATUS_CADASTRO[item.statusCadastro] || item.statusCadastro
-                          : item.statusRotulo}
-                    </span>
-                  </span>
-                  <span>{item.curso}{item.periodo ? ` • ${item.periodo}º período` : ''}</span>
-                  <small>
-                    {modoSemVinculo || modoCadastroApadrinhado
-                      ? `Cadastro em ${dataCurta(item.criadoEm)}`
-                      : `Enviada em ${dataCurta(item.criadoEm)}`}
-                  </small>
-                </span>
-                <Icon name="chevron" size={16} />
+          <div className="filter-chips" role="group" aria-label="Filtrar por status">
+            {filtros.map((f) => (
+              <button
+                key={f.valor || 'todas'}
+                type="button"
+                aria-pressed={statusAtivo === f.valor}
+                className={`filter-chip${statusAtivo === f.valor ? ' active' : ''}`}
+                onClick={() => atualizarParam('status', f.valor)}
+              >
+                {f.rotulo}
               </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="cand-detail-pane">
-        {idSelecionado && modoCadastroApadrinhado ? (
-          <CadastroDetalhe
-            key={`${idSelecionado}-${versao}`}
-            id={idSelecionado}
-            programa={programa || undefined}
-            onFechar={() => selecionar(null)}
-            onDecidido={(mensagem) => aoAtualizarDetalhe(null, mensagem)}
-          />
-        ) : idSelecionado ? (
-          <CandidaturaDetalhe
-            key={`${idSelecionado}-${versao}`}
-            id={idSelecionado}
-            programa={programa}
-            modoApadrinhado={modoSemVinculo}
-            onFechar={() => selecionar(null)}
-            onAtualizado={aoAtualizarDetalhe}
-          />
-        ) : (
-          <div className="cand-detail-empty">
-            <Icon name="clipboard" size={30} />
-            <p>
-              {modoApadrinhado
-                ? 'Selecione um apadrinhado para analisar o cadastro ou definir o padrinho.'
-                : 'Selecione uma candidatura a padrinho para ver os detalhes.'}
-            </p>
+            ))}
           </div>
-        )}
+        </div>
+      </header>
+
+      <div className="cand-body">
+        <div className="cand-list-pane">
+          {!modoApadrinhado && selecionaveis.length > 0 && (
+            <div className="bulk-bar">
+              <label className="bulk-all">
+                <input type="checkbox" checked={todosMarcados} onChange={alternarTodos} />
+                Selecionar pendentes ({selecionaveis.length})
+              </label>
+              {marcados.length > 0 && (
+                <div className="bulk-actions" role="group" aria-label={`Ações para ${marcados.length} selecionada(s)`}>
+                  <span>{marcados.length} selecionada(s)</span>
+                  <button type="button" className="mini-btn success" onClick={() => setConfirmacao('aprovar')}><Icon name="check" size={14} /> Aprovar</button>
+                  <button type="button" className="mini-btn danger" onClick={() => setConfirmacao('rejeitar')}><Icon name="close" size={14} /> Rejeitar</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {resultado && (
+            <div className={`bulk-result${resultado.erro || resultado.falhas?.length ? ' warn' : ''}`} role="status">
+              {resultado.erro ? (
+                <p>{resultado.erro}</p>
+              ) : (
+                <>
+                  <p><strong>{resultado.sucesso}</strong> candidatura(s) {resultado.rotulo}.</p>
+                  {resultado.falhas?.length > 0 && (
+                    <ul>
+                      {resultado.falhas.map((f) => <li key={f.id}>{nomesPorId[f.id] || `#${f.id}`}: {f.erro}</li>)}
+                    </ul>
+                  )}
+                </>
+              )}
+              <button type="button" className="link-btn" onClick={() => setResultado(null)}>Fechar</button>
+            </div>
+          )}
+
+          {carregando && itens.length === 0 && <p className="empty-copy" role="status">Carregando…</p>}
+          {erro && (
+            <div className="dash-inline-error" role="alert">
+              {erro}
+              <button type="button" onClick={carregar}>Tentar novamente</button>
+            </div>
+          )}
+          {!carregando && !erro && filtrados.length === 0 && (
+            <div className="cand-empty">
+              <p className="empty-copy">
+                {busca
+                  ? 'Nenhum resultado para a busca.'
+                  : modoSemVinculo
+                    ? 'Todos os apadrinhados já têm padrinho.'
+                    : modoCadastroApadrinhado && statusApadrinhado === 'pendente'
+                      ? 'Nenhum cadastro de apadrinhado aguardando aprovação.'
+                      : 'Nenhum registro encontrado para este filtro.'}
+              </p>
+              {modoApadrinhado && !busca && statusApadrinhado === 'pendente' && (
+                <div className="cand-empty-actions">
+                  <button type="button" className="mini-btn" onClick={() => atualizarParam('status', 'sem_vinculo')}>
+                    Ver sem vínculo
+                  </button>
+                  <button type="button" className="mini-btn" onClick={() => atualizarParam('status', 'aprovado')}>
+                    Ver aprovados
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <ul className="cand-list">
+            {filtrados.map((item) => (
+              <li key={item.id} className={`cand-row${item.id === idSelecionado ? ' selected' : ''}${!modoApadrinhado && !aindaPendente(item) ? ' decided' : ''}`}>
+                {!modoApadrinhado && aindaPendente(item) && (
+                  <input
+                    type="checkbox"
+                    className="cand-check"
+                    checked={marcados.includes(item.id)}
+                    onChange={() => alternar(item.id)}
+                    aria-label={`Selecionar ${item.nome}`}
+                  />
+                )}
+                <button type="button" className="cand-item" onClick={() => selecionar(item.id)} aria-current={item.id === idSelecionado ? 'true' : undefined}>
+                  <Avatar pessoa={item} tamanho="sm" />
+                  <span className="cand-copy">
+                    <strong>{item.nome}</strong>
+                    <span>{item.curso}{item.periodo ? ` · ${item.periodo}º` : ''}</span>
+                  </span>
+                  <span className={`status-pill cand-status ${
+                    modoSemVinculo
+                      ? 'analise'
+                      : modoCadastroApadrinhado
+                        ? statusCadastroTom(item.statusCadastro)
+                        : badgeClass(item.status, item.papel)
+                  }`}
+                  >
+                    {modoSemVinculo
+                      ? 'Sem vínculo'
+                      : modoCadastroApadrinhado
+                        ? ROTULO_STATUS_CADASTRO[item.statusCadastro] || item.statusCadastro
+                        : item.statusRotulo}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="cand-detail-pane">
+          {detalheVisivel && modoCadastroApadrinhado ? (
+            <CadastroDetalhe
+              key={`${idSelecionado}-${versao}`}
+              id={idSelecionado}
+              programa={programa || undefined}
+              onFechar={() => selecionar(null)}
+              onDecidido={(mensagem, opcoes) => aoAtualizarDetalhe(null, mensagem, opcoes)}
+            />
+          ) : detalheVisivel ? (
+            <CandidaturaDetalhe
+              key={`${idSelecionado}-${versao}`}
+              id={idSelecionado}
+              programa={programa}
+              modoApadrinhado={modoSemVinculo}
+              onFechar={() => selecionar(null)}
+              onAtualizado={aoAtualizarDetalhe}
+            />
+          ) : null}
+        </div>
       </div>
 
       {confirmacao && (
