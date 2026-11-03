@@ -14,7 +14,7 @@ const SECOES = [
   { id: 'apadrinhamento', icon: 'users', titulo: 'Apadrinhamento' },
   { id: 'aparencia', icon: 'eye', titulo: 'Aparência e acessibilidade' },
   { id: 'dados', icon: 'database', titulo: 'Dados e armazenamento' },
-  { id: 'suporte', icon: 'compass', titulo: 'Suporte' },
+  { id: 'suporte', icon: 'help', titulo: 'Suporte' },
 ];
 
 const ROTULOS_SITUACAO = {
@@ -137,20 +137,28 @@ export default function ConfiguracoesAlunoPage() {
           </Secao>
 
           <Secao {...SECOES[5]}>
-            <div className="faq">
-              {FAQ.map((item) => (
-                <details key={item.p}>
-                  <summary>{item.p}</summary>
-                  <p>{item.r}</p>
-                </details>
-              ))}
-            </div>
-            <div className="contact-card">
-              <Icon name="mail" size={20} />
-              <div>
-                <strong>Coordenação do programa</strong>
-                <span>Renata — <a href="mailto:renata@pucminas.edu.br">renata@pucminas.edu.br</a></span>
+            <div className="support-layout">
+              <div className="support-faq">
+                <p className="support-lead">Perguntas frequentes</p>
+                <div className="faq">
+                  {FAQ.map((item) => (
+                    <details key={item.p}>
+                      <summary>{item.p}</summary>
+                      <p>{item.r}</p>
+                    </details>
+                  ))}
+                </div>
               </div>
+              <aside className="support-aside">
+                <p className="support-lead">Contato</p>
+                <p className="support-copy">Não encontrou o que precisava? Fale com a coordenação do programa.</p>
+                <a className="contact-card" href="mailto:renata@pucminas.edu.br">
+                  <span>
+                    <strong>Renata</strong>
+                    <small>renata@pucminas.edu.br</small>
+                  </span>
+                </a>
+              </aside>
             </div>
           </Secao>
         </div>

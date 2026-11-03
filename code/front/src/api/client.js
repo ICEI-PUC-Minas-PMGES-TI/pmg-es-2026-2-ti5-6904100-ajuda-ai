@@ -259,9 +259,6 @@ export const api = {
   desvincularCandidatura(id) {
     return request(`/coordenacao/candidaturas/${id}/desvincular`, { method: 'POST' });
   },
-  revogarAprovacao(id, justificativa) {
-    return request(`/coordenacao/candidaturas/${id}/revogar`, { method: 'POST', body: { justificativa } });
-  },
   cadastros(status, programa) {
     return request(`/coordenacao/cadastros${query({ status, programa })}`);
   },
