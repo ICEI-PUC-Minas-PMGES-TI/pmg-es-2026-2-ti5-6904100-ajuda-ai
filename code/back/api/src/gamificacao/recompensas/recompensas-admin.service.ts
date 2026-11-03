@@ -19,7 +19,6 @@ import type {
 import {
   CAMPOS_VERSIONADOS,
   ESTOQUE_MAX,
-  REFERENCIA_RECOMPENSA,
   type PublicoRecompensa,
   type StatusRecompensa,
   type TipoAjusteEstoque,
@@ -104,8 +103,7 @@ const SELECT =
   `SELECT r.*, ` +
   `(r."status" = 'publicada' AND (r."disponivel_de" IS NULL OR r."disponivel_de" <= now()) ` +
   `AND (r."disponivel_ate" IS NULL OR r."disponivel_ate" > now())) AS disponivel_agora, ` +
-  `(SELECT count(*)::int FROM ${g}."xp_movimentacoes" m ` +
-  `WHERE m."referencia_tipo" = '${REFERENCIA_RECOMPENSA}' AND m."referencia_id" = r."id"::text) AS transacoes ` +
+  `(SELECT count(*)::int FROM ${g}."resgates" s WHERE s."recompensa_id" = r."id") AS transacoes ` +
   `FROM ${g}."recompensas" r`;
 
 /** Valor final de um campo anulável do PATCH (`undefined` mantém o atual). */
@@ -126,13 +124,14 @@ function texto(valor: string | null | undefined): string | null {
  * Cadastro de recompensas da lojinha pela coordenação (F27).
  *
  * - Toda escrita trava a linha da recompensa (`FOR UPDATE`): ajustes de
- *   estoque e o resgate (F28, que também trava a linha) nunca leem o mesmo
- *   estoque; o CHECK do banco impede o total abaixo do comprometido.
+ *   estoque e o resgate (`LojinhaService`, que também trava a linha) nunca
+ *   leem o mesmo estoque; o CHECK do banco impede o total abaixo do
+ *   comprometido.
  * - Mudar nome, descrição, imagem, custo ou condições cria nova versão; o
  *   resgate guarda a versão vista pelo aluno, então resgates anteriores
  *   mantêm as condições em que foram feitos.
- * - Excluir só sem transações (movimentações de XP com referência à
- *   recompensa) nem unidades comprometidas; as usadas são arquivadas.
+ * - Excluir só sem resgates nem unidades comprometidas (a FK de `resgates`
+ *   também impede); as usadas são arquivadas.
  */
 @Injectable()
 export class RecompensasAdminService {
@@ -231,7 +230,7 @@ export class RecompensasAdminService {
     if (programa) await this.exigirPrograma(programa);
 
     const nome = dados.nome.trim();
-    const descricao = dados.descricao?.trim() ?? '';
+    const descricao = dados.descricao.trim();
     const imagem = texto(dados.imagemUrl);
     const condicoes = dados.condicoesRetirada.trim();
     const total = dados.estoqueIlimitado ? null : dados.estoqueInicial!;

@@ -19,7 +19,11 @@ import { UsuariosERequisitosPadrinho1791944105933 } from '../src/migrations/1791
 import { HabilitaPostgisESchemaMapa1792263378656 } from '../src/migrations/1792263378656-HabilitaPostgisESchemaMapa.js';
 import { CriaTabelasMapa1792263378657 } from '../src/migrations/1792263378657-CriaTabelasMapa.js';
 import { PucStopsEXpGlobal1792279161187 } from '../src/migrations/1792279161187-PucStopsEXpGlobal.js';
-import { LojinhaRecompensas1792800000000 } from '../src/migrations/1792800000000-LojinhaRecompensas.js';
+import { LojinhaResgates1792800000000 } from '../src/migrations/1792800000000-LojinhaResgates.js';
+import { LojinhaRecompensas1792900000000 } from '../src/migrations/1792900000000-LojinhaRecompensas.js';
+import { LojinhaController } from '../src/gamificacao/lojinha/lojinha.controller.js';
+import { LojinhaService } from '../src/gamificacao/lojinha/lojinha.service.js';
+import { randomUUID } from 'node:crypto';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
 const SEGREDO = 'segredo-de-teste-recompensas';
@@ -30,7 +34,8 @@ const MIGRATIONS: Array<new () => MigrationInterface> = [
   HabilitaPostgisESchemaMapa1792263378656,
   CriaTabelasMapa1792263378657,
   PucStopsEXpGlobal1792279161187,
-  LojinhaRecompensas1792800000000,
+  LojinhaResgates1792800000000,
+  LojinhaRecompensas1792900000000,
 ];
 
 async function admin(sql: string): Promise<void> {
@@ -136,33 +141,31 @@ describe.skipIf(!URL_TESTE)(
           .expect(200)
       ).body as Recompensa;
 
-    /** Simula um resgate (F28): débito no ledger e unidade comprometida. */
-    async function simularResgate(id: string): Promise<void> {
+    /** Credita XP de teste ao aluno (fora da lojinha). */
+    async function creditar(usuarioId: number, quantidade: number) {
       await ds.transaction(async (m) => {
-        const qr = m.queryRunner!;
-        await registrarMovimentacao(qr, {
-          usuarioId: alunoId,
-          quantidade: 1000,
+        await registrarMovimentacao(m.queryRunner!, {
+          usuarioId,
+          quantidade,
           tipo: 'AJUSTE_ADMIN',
           referenciaTipo: null,
           referenciaId: null,
           descricao: 'crédito de teste',
-          chaveIdempotencia: `teste-credito-${id}`,
+          chaveIdempotencia: `teste-credito-${randomUUID()}`,
         });
-        await registrarMovimentacao(qr, {
-          usuarioId: alunoId,
-          quantidade: -300,
-          tipo: 'RECOMPENSA',
-          referenciaTipo: 'RECOMPENSA',
-          referenciaId: id,
-          descricao: 'resgate de teste',
-          chaveIdempotencia: `teste-resgate-${id}`,
-        });
-        await m.query(
-          `UPDATE gamificacao.recompensas SET estoque_comprometido = estoque_comprometido + 1 WHERE id = $1`,
-          [id],
-        );
       });
+    }
+
+    const resgatar = (id: string, auth = aluno(), chave = randomUUID()) =>
+      http()
+        .post(`/me/lojinha/${id}/resgatar`)
+        .set('Authorization', auth)
+        .send({ chaveIdempotencia: chave });
+
+    /** Resgate real do aluno pela lojinha (F28): débito e unidade comprometida. */
+    async function simularResgate(id: string): Promise<void> {
+      await creditar(alunoId, 1000);
+      await resgatar(id).expect(201);
     }
 
     beforeAll(async () => {
@@ -200,9 +203,10 @@ describe.skipIf(!URL_TESTE)(
 
       const modulo = await Test.createTestingModule({
         imports: [JwtModule.register({ secret: SEGREDO })],
-        controllers: [RecompensasAdminController],
+        controllers: [RecompensasAdminController, LojinhaController],
         providers: [
           RecompensasAdminService,
+          LojinhaService,
           JwtAuthGuard,
           RolesGuard,
           { provide: DataSource, useValue: ds },
@@ -262,6 +266,7 @@ describe.skipIf(!URL_TESTE)(
         const { body } = await criar(
           {
             nome: 'Adesivo',
+            descricao: 'Cartela com 5 adesivos.',
             custoXp: 50,
             condicoesRetirada: 'Retirar em qualquer evento do programa.',
             estoqueIlimitado: true,
@@ -293,6 +298,7 @@ describe.skipIf(!URL_TESTE)(
         ['custo zero', base({ custoXp: 0 })],
         ['custo fracionado', base({ custoXp: 10.5 })],
         ['nome vazio', base({ nome: '   ' })],
+        ['sem descrição', base({ descricao: undefined })],
         ['sem condições de retirada', base({ condicoesRetirada: undefined })],
         ['limitado sem estoque inicial', base({ estoqueInicial: undefined })],
         ['estoque negativo', base({ estoqueInicial: -1 })],
@@ -527,8 +533,12 @@ describe.skipIf(!URL_TESTE)(
       });
 
       it('preserva as quantidades comprometidas com resgates', async () => {
+        await acao(id, 'publicar').expect(200);
         await simularResgate(id);
-        await simularResgate(id).catch(() => undefined); // mesma chave: não duplica
+        expect((await detalhe(id)).estoque).toMatchObject({
+          comprometido: 1,
+          disponivel: 7,
+        });
         await ds.query(
           `UPDATE gamificacao.recompensas SET estoque_comprometido = 3 WHERE id = $1`,
           [id],
@@ -589,6 +599,157 @@ describe.skipIf(!URL_TESTE)(
       });
     });
 
+    describe('lojinha do aluno (F28) sobre o cadastro (F27)', () => {
+      let outroId = 0;
+      const outro = () =>
+        `Bearer ${jwt.sign({ sub: String(outroId), email: 'padrinho@pucminas.edu.br', perfil: 'padrinho', escopo: 'acesso' })}`;
+      const vitrine = async (auth = aluno()) =>
+        (await http().get('/me/lojinha').set('Authorization', auth).expect(200))
+          .body as Array<{
+          id: string;
+          nome: string;
+          estoque: number | null;
+          resgatesFeitos: number;
+        }>;
+      const novo = async (extra: object) =>
+        (
+          (await criar(base({ publicar: true, ...extra })).expect(201))
+            .body as Recompensa
+        ).id;
+
+      beforeAll(async () => {
+        [{ id: outroId }] = (await ds.query(
+          `INSERT INTO feed.usuarios (nome, email, curso, periodo, tipo_participacao, status_cadastro) ` +
+            `VALUES ('Padrinho', 'padrinho@pucminas.edu.br', 'ES', 5, 'padrinho', 'aprovado') RETURNING id`,
+        )) as Array<{ id: number }>;
+        await ds.query(
+          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ('padrinho@pucminas.edu.br', '2026-2', 'padrinho', 'aprovado')`,
+        );
+      });
+
+      it('mostra só o que está publicado, na vigência, no público e no programa do aluno', async () => {
+        const visivel = await novo({ nome: 'Vis 1' });
+        const rascunho = await novo({ nome: 'Vis 2', publicar: false });
+        const futura = await novo({ nome: 'Vis 3', disponivelDe: FUTURO });
+        const padrinhos = await novo({ nome: 'Vis 4', publico: 'padrinhos' });
+        const programa = await novo({
+          nome: 'Vis 5',
+          programaCodigo: '2026-2',
+        });
+        const doAluno = (await vitrine()).map((r) => r.id);
+        expect(doAluno).toContain(visivel);
+        for (const id of [rascunho, futura, padrinhos, programa])
+          expect(doAluno).not.toContain(id);
+        const doPadrinho = (await vitrine(outro())).map((r) => r.id);
+        expect(doPadrinho).toEqual(
+          expect.arrayContaining([visivel, padrinhos, programa]),
+        );
+        await creditar(alunoId, 1000);
+        await resgatar(padrinhos).expect(404);
+        await resgatar(rascunho).expect(404);
+      });
+
+      it('resgate compromete estoque e guarda a versão; editar depois não muda o comprovante', async () => {
+        const id = await novo({
+          nome: 'Garrafa',
+          estoqueInicial: 2,
+          custoXp: 200,
+        });
+        await creditar(alunoId, 1000);
+        const { body } = await resgatar(id).expect(201);
+        expect(body).toMatchObject({
+          custoXp: 200,
+          versao: 1,
+          nome: 'Garrafa',
+        });
+        expect((await detalhe(id)).estoque).toMatchObject({
+          total: 2,
+          comprometido: 1,
+          disponivel: 1,
+        });
+        expect((await vitrine()).find((r) => r.id === id)).toMatchObject({
+          estoque: 1,
+          resgatesFeitos: 1,
+        });
+        await editar(id, {
+          custoXp: 999,
+          condicoesRetirada: 'Novas condições',
+        }).expect(200);
+        const { body: historico } = await http()
+          .get('/me/lojinha/resgates')
+          .set('Authorization', aluno())
+          .expect(200);
+        expect(
+          historico.find(
+            (h: { recompensaId: string }) => h.recompensaId === id,
+          ),
+        ).toMatchObject({
+          versao: 1,
+          custoXp: 200,
+        });
+        expect((await detalhe(id)).transacoes).toBe(1);
+      });
+
+      it('limite por aluno, idempotência e saldo insuficiente', async () => {
+        const id = await novo({
+          nome: 'Chaveiro',
+          estoqueIlimitado: true,
+          estoqueInicial: undefined,
+          limitePorAluno: 1,
+          custoXp: 10,
+        });
+        await creditar(alunoId, 100);
+        const chave = randomUUID();
+        const primeiro = (await resgatar(id, aluno(), chave).expect(201))
+          .body as { id: string };
+        const repetido = (await resgatar(id, aluno(), chave).expect(201))
+          .body as { id: string };
+        expect(repetido.id).toBe(primeiro.id);
+        await resgatar(id).expect(409);
+        const caro = await novo({ nome: 'Notebook', custoXp: 100000 });
+        await resgatar(caro).expect(422);
+        expect((await detalhe(caro)).estoque.comprometido).toBe(0);
+      });
+
+      it('última unidade com resgates simultâneos: só um leva', async () => {
+        const id = await novo({
+          nome: 'Última',
+          estoqueInicial: 1,
+          custoXp: 5,
+        });
+        const alunos: number[] = [];
+        for (let i = 0; i < 6; i++) {
+          const [{ id: uid }] = (await ds.query(
+            `INSERT INTO feed.usuarios (nome, email, curso, periodo, tipo_participacao, status_cadastro) ` +
+              `VALUES ($1, $2, 'ES', 2, 'apadrinhado', 'aprovado') RETURNING id`,
+            [`Aluno ${i}`, `concorrente${i}@pucminas.edu.br`],
+          )) as Array<{ id: number }>;
+          await creditar(uid, 50);
+          alunos.push(uid);
+        }
+        const respostas = await Promise.all(
+          alunos.map((uid, i) =>
+            resgatar(
+              id,
+              `Bearer ${jwt.sign({ sub: String(uid), email: `concorrente${i}@pucminas.edu.br`, perfil: 'apadrinhado', escopo: 'acesso' })}`,
+            ),
+          ),
+        );
+        expect(respostas.map((r) => r.status).sort()).toEqual([
+          201, 409, 409, 409, 409, 409,
+        ]);
+        expect((await detalhe(id)).estoque).toMatchObject({
+          comprometido: 1,
+          disponivel: 0,
+        });
+        const [{ n }] = await ds.query(
+          `SELECT count(*)::int AS n FROM gamificacao.xp_movimentacoes WHERE tipo = 'RECOMPENSA' AND usuario_id = ANY($1)`,
+          [alunos],
+        );
+        expect(n).toBe(1);
+      });
+    });
+
     describe('excluir e arquivar', () => {
       it('sem transações: exclui de vez, com versões e ajustes', async () => {
         const id = (
@@ -638,7 +799,7 @@ describe.skipIf(!URL_TESTE)(
           motivo: 'arquivada',
         }).expect(409);
         const [{ n }] = await ds.query(
-          `SELECT count(*)::int AS n FROM gamificacao.xp_movimentacoes WHERE referencia_id = $1`,
+          `SELECT count(*)::int AS n FROM gamificacao.resgates WHERE recompensa_id = $1`,
           [id],
         );
         expect(n).toBe(1);
@@ -660,11 +821,133 @@ describe.skipIf(!URL_TESTE)(
       const qr = ds.createQueryRunner();
       try {
         await expect(
-          new LojinhaRecompensas1792800000000().down(qr),
+          new LojinhaRecompensas1792900000000().down(qr),
         ).rejects.toThrow(/Rollback recusado/);
       } finally {
         await qr.release();
       }
+    });
+  },
+);
+
+describe.skipIf(!URL_TESTE)(
+  'LojinhaRecompensas converte o catálogo inicial',
+  () => {
+    const banco = 'recompensas_conversao';
+    let ds: DataSource;
+
+    afterAll(async () => {
+      await ds?.destroy();
+      if (URL_TESTE)
+        await admin(`DROP DATABASE IF EXISTS ${banco} WITH (FORCE)`);
+    });
+
+    it('publicada vira status; estoque restante vira total + comprometido; resgates ficam na v1', async () => {
+      await admin(`DROP DATABASE IF EXISTS ${banco} WITH (FORCE)`);
+      await admin(`CREATE DATABASE ${banco}`);
+      const url = new URL(URL_TESTE!);
+      url.pathname = `/${banco}`;
+      ds = new DataSource({
+        type: 'postgres',
+        url: url.toString(),
+        schema: 'feed',
+        migrations: MIGRATIONS.slice(0, -1),
+        migrationsTableName: 'migrations',
+        installExtensions: false,
+      });
+      await ds.initialize();
+      await ds.query('CREATE SCHEMA IF NOT EXISTS feed');
+      await ds.runMigrations({ transaction: 'all' });
+      const [{ id: uid }] = (await ds.query(
+        `INSERT INTO feed.usuarios (nome, email, curso, periodo, tipo_participacao, status_cadastro) ` +
+          `VALUES ('A', 'a@pucminas.edu.br', 'ES', 2, 'apadrinhado', 'aprovado') RETURNING id`,
+      )) as Array<{ id: number }>;
+      const [{ id: caneca }] = (await ds.query(
+        `INSERT INTO gamificacao.recompensas (nome, descricao, custo_xp, estoque, condicoes_retirada, publicada) ` +
+          `VALUES ('Caneca', 'Azul', 30, 4, 'Secretaria', true) RETURNING id`,
+      )) as Array<{ id: string }>;
+      await ds.query(
+        `INSERT INTO gamificacao.recompensas (nome, descricao, custo_xp, estoque, condicoes_retirada) VALUES ('Adesivo', 'X', 5, NULL, 'Secretaria')`,
+      );
+      await ds.transaction(async (m) => {
+        await registrarMovimentacao(m.queryRunner!, {
+          usuarioId: uid,
+          quantidade: 100,
+          tipo: 'AJUSTE_ADMIN',
+          referenciaTipo: null,
+          referenciaId: null,
+          descricao: 'crédito',
+          chaveIdempotencia: 'c1',
+        });
+        const mov = await registrarMovimentacao(m.queryRunner!, {
+          usuarioId: uid,
+          quantidade: -30,
+          tipo: 'RECOMPENSA',
+          referenciaTipo: 'RESGATE',
+          referenciaId: 'r1',
+          descricao: 'Resgate: Caneca',
+          chaveIdempotencia: 'c2',
+        });
+        await m.query(
+          `INSERT INTO gamificacao.resgates (id, usuario_id, recompensa_id, movimentacao_id, chave_idempotencia, nome, descricao, custo_xp, condicoes_retirada) ` +
+            `VALUES ($1, $2, $3, $4, $5, 'Caneca', 'Azul', 30, 'Secretaria')`,
+          [randomUUID(), uid, caneca, mov.movimentacaoId, randomUUID()],
+        );
+      });
+
+      const migracao = new LojinhaRecompensas1792900000000();
+      const qr = ds.createQueryRunner();
+      try {
+        await qr.startTransaction();
+        await migracao.up(qr);
+        await qr.commitTransaction();
+      } finally {
+        await qr.release();
+      }
+      const linhas = await ds.query(
+        `SELECT nome, status, estoque_ilimitado, estoque_total, estoque_comprometido, versao FROM gamificacao.recompensas ORDER BY nome`,
+      );
+      expect(linhas).toEqual([
+        {
+          nome: 'Adesivo',
+          status: 'rascunho',
+          estoque_ilimitado: true,
+          estoque_total: null,
+          estoque_comprometido: 0,
+          versao: 1,
+        },
+        {
+          nome: 'Caneca',
+          status: 'publicada',
+          estoque_ilimitado: false,
+          estoque_total: 5,
+          estoque_comprometido: 1,
+          versao: 1,
+        },
+      ]);
+      const [{ versao }] = await ds.query(
+        `SELECT versao FROM gamificacao.resgates`,
+      );
+      expect(versao).toBe(1);
+      const [{ n }] = await ds.query(
+        `SELECT (SELECT count(*) FROM gamificacao.recompensa_versoes) + (SELECT count(*) FROM gamificacao.recompensa_estoque_ajustes) AS n`,
+      );
+      expect(Number(n)).toBe(4);
+
+      // Sem histórico novo, o rollback volta ao formato inicial.
+      const qr2 = ds.createQueryRunner();
+      try {
+        await migracao.down(qr2);
+      } finally {
+        await qr2.release();
+      }
+      const voltou = await ds.query(
+        `SELECT nome, estoque, publicada FROM gamificacao.recompensas ORDER BY nome`,
+      );
+      expect(voltou).toEqual([
+        { nome: 'Adesivo', estoque: null, publicada: false },
+        { nome: 'Caneca', estoque: 4, publicada: true },
+      ]);
     });
   },
 );

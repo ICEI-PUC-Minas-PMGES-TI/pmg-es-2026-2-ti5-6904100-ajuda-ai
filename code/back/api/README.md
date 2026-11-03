@@ -136,6 +136,9 @@ A API fica disponível em `http://localhost:3000`.
 | `POST`      | `/coordenacao/recompensas/:id/estoque`                  | Reposição, correção ou troca ilimitado/limitado (`{ tipo, quantidade?, motivo }`); nunca abaixo do comprometido. |
 | `POST`      | `/coordenacao/recompensas/:id/publicar` \| `desativar` \| `arquivar` | Publica, tira da lojinha ou arquiva (somente leitura, histórico preservado). |
 | `DELETE`    | `/coordenacao/recompensas/:id`                          | Exclui só sem transações; com resgates responde 409 `recompensa-com-transacoes` (arquive). |
+| `GET`       | `/me/lojinha`                                           | Lojinha do aluno: publicadas, na vigência, do seu público/programa (`estoque` disponível; `null` = ilimitado). |
+| `POST`      | `/me/lojinha/:id/resgatar`                              | Resgata com XP (`{ chaveIdempotencia }`); 404 indisponível, 409 esgotada/limite, 422 saldo insuficiente. |
+| `GET`       | `/me/lojinha/resgates`                                  | Histórico de resgates do aluno, com as condições da versão resgatada. |
 | `POST`      | `/coordenacao/comunicados`                              | Publica um comunicado para todos, padrinhos ou apadrinhados.                                                                          |
 | `GET`       | `/publicacoes`                                          | Lista as publicações persistidas no backend.                                                                                          |
 | `POST`      | `/publicacoes`                                          | Cria uma publicação com zero curtidas e zero comentários.                                                                             |

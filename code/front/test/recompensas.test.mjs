@@ -60,9 +60,10 @@ test('propaga a recusa de exclusão com transações (409)', async () => {
 });
 
 test('validação do formulário', () => {
-  const ok = { ...formDaRecompensa(null), nome: 'Caneca', custoXp: '300', condicoesRetirada: 'Na coordenação', estoqueInicial: '10' };
+  const ok = { ...formDaRecompensa(null), nome: 'Caneca', descricao: 'Azul', custoXp: '300', condicoesRetirada: 'Na coordenação', estoqueInicial: '10' };
   assert.equal(validarRecompensa(ok, { criando: true }), '');
   assert.match(validarRecompensa({ ...ok, nome: ' ' }, { criando: true }), /nome/);
+  assert.match(validarRecompensa({ ...ok, descricao: '' }, { criando: true }), /descrição/);
   assert.match(validarRecompensa({ ...ok, custoXp: '0' }, { criando: true }), /custo/);
   assert.match(validarRecompensa({ ...ok, custoXp: '1.5' }, { criando: true }), /custo/);
   assert.match(validarRecompensa({ ...ok, condicoesRetirada: '' }, { criando: true }), /condições/);
@@ -75,8 +76,8 @@ test('validação do formulário', () => {
 });
 
 test('corpo de criação: estoque explícito e opcionais só quando preenchidos', () => {
-  const form = { ...formDaRecompensa(null), nome: ' Caneca ', custoXp: '300', condicoesRetirada: 'Na coordenação', estoqueInicial: '10' };
-  assert.deepEqual(corpoCriacao(form), { nome: 'Caneca', custoXp: 300, condicoesRetirada: 'Na coordenação', estoqueIlimitado: false, estoqueInicial: 10, publico: 'todos', publicar: false });
+  const form = { ...formDaRecompensa(null), nome: ' Caneca ', descricao: ' Azul ', custoXp: '300', condicoesRetirada: 'Na coordenação', estoqueInicial: '10' };
+  assert.deepEqual(corpoCriacao(form), { nome: 'Caneca', descricao: 'Azul', custoXp: 300, condicoesRetirada: 'Na coordenação', estoqueIlimitado: false, estoqueInicial: 10, publico: 'todos', publicar: false });
   const ilimitado = corpoCriacao({ ...form, estoqueIlimitado: true, programaCodigo: '2026-2', limitePorAluno: '2', imagemUrl: 'https://x/y.png' });
   assert.equal('estoqueInicial' in ilimitado, false);
   assert.equal(ilimitado.estoqueIlimitado, true);

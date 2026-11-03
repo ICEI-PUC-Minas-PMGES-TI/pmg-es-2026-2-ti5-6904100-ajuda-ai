@@ -1,12 +1,13 @@
 /**
  * Lojinha de recompensas (F27): limites e vocabulário compartilhados pela
- * API, pela migration (CHECKs) e pelos testes. O resgate com XP (F28) e a
- * entrega/cancelamento (F29) usam as mesmas tabelas.
+ * API, pela migration (CHECKs) e pelos testes. O resgate com XP
+ * (`../lojinha`, F28) usa as mesmas tabelas.
  */
 
 export const NOME_RECOMPENSA_MAX = 120;
-export const DESCRICAO_RECOMPENSA_MAX = 1000;
-export const CONDICOES_RETIRADA_MAX = 1000;
+/** Iguais ao catálogo inicial da lojinha (LojinhaResgates). */
+export const DESCRICAO_RECOMPENSA_MAX = 2000;
+export const CONDICOES_RETIRADA_MAX = 2000;
 export const IMAGEM_URL_MAX = 500;
 export const MOTIVO_ESTOQUE = { min: 3, max: 300 } as const;
 export const CUSTO_XP_RECOMPENSA = { min: 1, max: 100_000 } as const;
@@ -60,9 +61,6 @@ export const CAMPOS_VERSIONADOS = [
   'custoXp',
   'condicoesRetirada',
 ] as const;
-
-/** Referência das movimentações de XP de resgate no ledger (F28). */
-export const REFERENCIA_RECOMPENSA = 'RECOMPENSA';
 
 /** Só https: a imagem é exibida no app e no painel. */
 export const URL_IMAGEM = /^https:\/\/[^\s]+$/i;

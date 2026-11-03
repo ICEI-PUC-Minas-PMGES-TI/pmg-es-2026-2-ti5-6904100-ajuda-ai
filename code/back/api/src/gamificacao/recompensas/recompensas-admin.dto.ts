@@ -50,10 +50,11 @@ export class CriarRecompensaDto {
   @Matches(NAO_VAZIO, { message: 'nome não pode ser vazio' })
   nome!: string;
 
-  @IsOptional()
+  @IsDefined()
   @IsString()
   @MaxLength(DESCRICAO_RECOMPENSA_MAX)
-  descricao?: string;
+  @Matches(NAO_VAZIO, { message: 'descricao não pode ser vazia' })
+  descricao!: string;
 
   @IsOptional()
   @IsString()
@@ -133,6 +134,7 @@ export class AtualizarRecompensaDto {
   @ValidateIf((o: AtualizarRecompensaDto) => o.descricao !== undefined)
   @IsString()
   @MaxLength(DESCRICAO_RECOMPENSA_MAX)
+  @Matches(NAO_VAZIO, { message: 'descricao não pode ser vazia' })
   descricao?: string;
 
   @IsOptional()
@@ -252,7 +254,7 @@ export interface RecompensaAdminDto {
   /** Publicada e dentro da vigência agora. */
   disponivelAgora: boolean;
   versao: number;
-  /** Movimentações de XP de resgate ligadas a ela (F28). */
+  /** Resgates feitos (F28); com algum, só pode ser arquivada. */
   transacoes: number;
   /** Sem transações nem unidades comprometidas: pode ser excluída. */
   podeExcluir: boolean;

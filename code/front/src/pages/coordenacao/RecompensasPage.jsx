@@ -10,8 +10,8 @@ import { paraDatetimeLocal, paraIso } from './EventosPage';
 /** Limites iguais aos do servidor (que continua sendo a autoridade). */
 export const LIMITES_RECOMPENSA = {
   nomeMax: 120,
-  descricaoMax: 1000,
-  condicoesMax: 1000,
+  descricaoMax: 2000,
+  condicoesMax: 2000,
   imagemMax: 500,
   custoMin: 1,
   custoMax: 100000,
@@ -71,6 +71,7 @@ export function validarRecompensa(form, { criando = false, agora = Date.now() } 
   const nome = String(form.nome ?? '').trim();
   if (!nome) return 'Informe o nome da recompensa.';
   if (nome.length > L.nomeMax) return `O nome deve ter no máximo ${L.nomeMax} caracteres.`;
+  if (!String(form.descricao ?? '').trim()) return 'Informe a descrição da recompensa.';
   if (String(form.descricao ?? '').trim().length > L.descricaoMax) return `A descrição deve ter no máximo ${L.descricaoMax} caracteres.`;
   const imagem = String(form.imagemUrl ?? '').trim();
   if (imagem && !/^https:\/\/\S+$/i.test(imagem)) return 'A imagem deve ser um endereço https://.';
@@ -101,14 +102,13 @@ export function validarRecompensa(form, { criando = false, agora = Date.now() } 
 export function corpoCriacao(form) {
   const corpo = {
     nome: String(form.nome).trim(),
+    descricao: String(form.descricao).trim(),
     custoXp: inteiro(form.custoXp),
     condicoesRetirada: String(form.condicoesRetirada).trim(),
     estoqueIlimitado: Boolean(form.estoqueIlimitado),
     publico: form.publico || 'todos',
     publicar: Boolean(form.publicar),
   };
-  const descricao = String(form.descricao ?? '').trim();
-  if (descricao) corpo.descricao = descricao;
   const imagem = String(form.imagemUrl ?? '').trim();
   if (imagem) corpo.imagemUrl = imagem;
   if (!form.estoqueIlimitado) corpo.estoqueInicial = inteiro(form.estoqueInicial);
@@ -371,8 +371,8 @@ export function FormularioRecompensa({ original, programas = [], onCancelar, onS
           <input id={`${base}-nome`} value={form.nome} maxLength={L.nomeMax} required data-autofocus placeholder="Ex.: Caneca Ajuda-aí" onChange={(e) => campo('nome', e.target.value)} />
         </label>
         <label className="editor-field" htmlFor={`${base}-descricao`}>
-          <span>Descrição (opcional)</span>
-          <textarea id={`${base}-descricao`} className="detail-textarea" rows={2} maxLength={L.descricaoMax} value={form.descricao} onChange={(e) => campo('descricao', e.target.value)} />
+          <span>Descrição</span>
+          <textarea id={`${base}-descricao`} className="detail-textarea" rows={2} maxLength={L.descricaoMax} required value={form.descricao} onChange={(e) => campo('descricao', e.target.value)} />
         </label>
         <div className="editor-grid pucstop-grid">
           <label className="editor-field" htmlFor={`${base}-custo`}>
