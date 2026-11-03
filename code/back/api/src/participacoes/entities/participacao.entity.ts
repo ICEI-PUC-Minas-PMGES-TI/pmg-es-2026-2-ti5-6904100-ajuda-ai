@@ -34,6 +34,8 @@ export interface MetadadosCandidatura {
   formulario?: {
     id: number | null;
     programa: string;
+    tipo?: 'padrinho' | 'apadrinhado';
+    versao?: number;
     perguntas: unknown[];
     atualizadoEm: Date | null;
   };

@@ -3,7 +3,7 @@
 Frontend em React e Vite. Inclui:
 
 - fluxo de cadastro do estudante (`/`): perfil → como quer participar (padrinho / apadrinhado / explorar) → formulário → revisão/envio;
-- área do aluno (`/aluno/perfil`, `/aluno/candidatura`, `/aluno/padrinho`, `/aluno/historico`, `/aluno/configuracoes`);
+- área do aluno (`/aluno/perfil`, `/aluno/candidatura`, `/aluno/padrinho`, `/aluno/chat`, `/aluno/historico`, `/aluno/configuracoes`);
 - login demo e painel da coordenação (`/login`, `/coordenacao`: dashboard, candidaturas, usuários, programas, matching manual, formulários, configurações/comunicados).
 
 ## Executar localmente
@@ -46,6 +46,11 @@ Na coordenação, cada programa mantém seu próprio calendário e ciclo. Em
 `/coordenacao/matching?programa=AAAA/semestre` só consulta participantes elegíveis
 depois dessa liberação; os vínculos são manuais e não há geração automática de
 sugestões ou grupos.
+
+`/aluno/chat` contém uma demonstração de conversas com dados mockados, incluindo
+envio local de mensagens e simulação dos estados de entrega/leitura. O backend já
+dispõe de endpoints persistidos, mas a tela ainda não os consome; a criação
+automática de conversas na aprovação do matching também está pendente.
 
 ### Validação
 

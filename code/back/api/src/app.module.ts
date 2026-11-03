@@ -18,6 +18,8 @@ import { ProgramasModule } from './programas/programas.module.js';
 import { UsuariosModule } from './usuarios/usuarios.module.js';
 import { PublicacoesModule } from './publicacoes/publicacoes.module.js';
 import { StorageModule } from './storage/storage.module.js';
+import { ChatModule } from './chat/chat.module.js';
+import { MatchingModule } from './matching/matching.module.js';
 
 function obterSsl(configuracao: ConfigService) {
   if (configuracao.get<string>('DB_SSL', 'true') !== 'true') return false;
@@ -108,6 +110,8 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
       },
     }),
     StorageModule,
+    ChatModule,
+    MatchingModule,
     AuthModule,
     UsuariosModule,
     CadastroModule,

@@ -1,9 +1,6 @@
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import Icon from '../../components/Icon';
-import { useToast } from '../../components/Toast';
 import { EstadoCarregando, EstadoErro, EstadoVazio, PageHeader } from './partes';
-
-const CHAT_EM_BREVE = 'O chat do Ajuda-aí chega em breve. Por enquanto, combine pelo e-mail institucional.';
 
 function PessoaCard({ pessoa, destaque = false }) {
   return (
@@ -29,7 +26,6 @@ function PessoaCard({ pessoa, destaque = false }) {
 export default function PadrinhoPage() {
   const { situacao: dados, carregando, erro, recarregar } = useOutletContext();
   const navigate = useNavigate();
-  const mostrarToast = useToast();
 
   if (carregando && !dados) return <EstadoCarregando texto="Carregando seu vínculo…" />;
   if (erro && !dados) return <EstadoErro mensagem={erro} onTentar={recarregar} />;
@@ -55,7 +51,7 @@ export default function PadrinhoPage() {
                 <strong>Seu grupo está ativo!</strong>
                 <p>Apresente-se, combine o primeiro encontro e acompanhe seus apadrinhados ao longo do semestre.</p>
               </div>
-              <button type="button" className="primary-button inline" onClick={() => mostrarToast(CHAT_EM_BREVE)}><Icon name="chat" size={17} /> Enviar mensagem</button>
+              <button type="button" className="primary-button inline" onClick={() => navigate('/aluno/chat')}><Icon name="chat" size={17} /> Enviar mensagem</button>
             </div>
           </>
         )}
@@ -85,7 +81,7 @@ export default function PadrinhoPage() {
               <li><span className="step-num">3</span><Icon name="calendar" size={20} /><span><strong>Combine um primeiro encontro</strong><small>Vocês podem conversar no campus ou em um ambiente online.</small></span></li>
             </ol>
             <div className="next-steps-actions">
-              <button type="button" className="primary-button" onClick={() => mostrarToast(CHAT_EM_BREVE)}><Icon name="chat" size={18} /> Enviar mensagem</button>
+              <button type="button" className="primary-button" onClick={() => navigate('/aluno/chat?conversa=mock-padrinho')}><Icon name="chat" size={18} /> Enviar mensagem</button>
               <a className="outline-button" href={`mailto:${padrinho.email}`}><Icon name="mail" size={18} /> Escrever por e-mail</a>
             </div>
           </section>

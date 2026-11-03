@@ -89,6 +89,10 @@ A API fica disponível em `http://localhost:3000`.
 | `GET` | `/avisos` | Comunicados da coordenação (persistidos). `?publico=padrinhos\|apadrinhados` filtra os direcionados. |
 | `GET` | `/participacoes` | Histórico de participações do aluno (`x-user-id` ou `?usuarioId=`). |
 | `GET` | `/participacoes/situacao` | Situação do aluno no ciclo atual: candidatura, padrinho/apadrinhados, grupo e etapas do programa. |
+| `GET` | `/chats` | Lista as conversas do usuário autenticado; registra como entregues as mensagens recebidas. |
+| `GET` | `/chats/:id/participantes` | Lista participantes de uma conversa à qual o usuário pertence. |
+| `GET` | `/chats/:id/mensagens` | Carrega até 50 mensagens; abrir a conversa marca mensagens recebidas como lidas. Aceita `?antesDe=<id>` para buscar mensagens anteriores. |
+| `POST` | `/chats/:id/mensagens` | Envia `{ "texto": "..." }`; o remetente é sempre a participação autenticada. |
 | `POST` | `/participacoes/candidatura-padrinho` | Envia (ou edita, enquanto em análise) a candidatura a padrinho com as `respostas`. |
 | `POST` | `/participacoes/cadastro-apadrinhado` | Envia o cadastro do apadrinhado; fica aguardando o match da coordenação. |
 | `POST` | `/participacoes/confirmar` | Confirmação manual de ingresso. Exige JWT de coordenador. |
@@ -124,6 +128,28 @@ As rotas do feed e de participações identificam o usuário pelo cabeçalho
 não é concluído. Por isso, ações que mudam o status de alguém no programa
 (aprovar, rejeitar, vincular) ficam só nas rotas da coordenação, protegidas por JWT. O banco impõe uma restrição
 única por usuário e publicação, impedindo curtidas duplicadas.
+
+## Chat
+
+O chat usa as tabelas `chats`, `chat_participantes` e `mensagens_chat`. O serviço
+`ChatService.criarParaVinculo(manager, matchingVinculoId)` cria, de forma
+idempotente, uma conversa persistida com o padrinho e o apadrinhado de um vínculo
+ativo. Ele recebe o `EntityManager` da transação chamadora para que a integração
+futura com a aprovação do matching possa criar a conversa atomicamente; essa
+integração não está habilitada nesta etapa.
+
+As rotas exigem JWT e verificam a participação do usuário em cada conversa. O
+envio é persistido como `enviada`; ao listar a caixa de entrada, mensagens novas
+passam para `entregue`, e ao abrir a conversa passam para `lida`. O indicador
+“aguardando internet” é exclusivamente local ao cliente e não é gravado pelo
+servidor. Os recibos são atualizados nas consultas autenticadas; ainda não há
+transporte em tempo real/push para atualizar a tela sem recarregá-la.
+
+Antes de usar os endpoints, aplique a migration:
+
+```powershell
+npm run migration:run
+```
 
 Exemplo:
 

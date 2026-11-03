@@ -10,6 +10,7 @@ import PadrinhoPage from './pages/aluno/PadrinhoPage';
 import PerfilEditarPage from './pages/aluno/PerfilEditarPage';
 import PerfilAlunoPage from './pages/aluno/PerfilAlunoPage';
 import StatusCandidaturaPage from './pages/aluno/StatusCandidaturaPage';
+import ChatPage from './pages/aluno/ChatPage';
 import CadastroPage from './pages/cadastro/CadastroPage';
 import CadastrosPage from './pages/coordenacao/CadastrosPage';
 import CandidaturasPage from './pages/coordenacao/CandidaturasPage';
@@ -37,6 +38,7 @@ export default function App() {
               <Route path="candidatura" element={<StatusCandidaturaPage />} />
               <Route path="candidatura/editar" element={<EditarCandidaturaPage />} />
               <Route path="padrinho" element={<PadrinhoPage />} />
+              <Route path="chat" element={<ChatPage />} />
               <Route path="historico" element={<HistoricoPage />} />
               <Route path="configuracoes" element={<ConfiguracoesAlunoPage />} />
             </Route>

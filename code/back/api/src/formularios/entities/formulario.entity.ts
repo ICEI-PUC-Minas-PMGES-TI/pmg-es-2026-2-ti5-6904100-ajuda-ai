@@ -29,6 +29,11 @@ export interface PerguntaFormulario {
   tipo: string;
   opcoes: string[];
   obrigatoria: boolean;
+  visivelSe?: {
+    perguntaId: string;
+    operador: 'igual' | 'diferente' | 'contem' | 'preenchida' | 'vazia';
+    valor?: string;
+  };
 }
 
 /**
@@ -50,6 +55,12 @@ export class FormularioEntity {
 
   @Column({ type: 'boolean', default: false })
   publicado!: boolean;
+
+  @Column({ type: 'int', default: 0 })
+  versao!: number;
+
+  @Column({ name: 'encerrado_em', type: 'timestamptz', nullable: true })
+  encerradoEm!: Date | null;
 
   @Column({ type: 'jsonb', nullable: true })
   perguntas!: PerguntaFormulario[] | null;
