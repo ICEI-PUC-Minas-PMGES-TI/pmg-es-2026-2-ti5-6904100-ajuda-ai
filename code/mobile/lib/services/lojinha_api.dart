@@ -12,19 +12,85 @@ class LojinhaApi {
   final http.Client _client;
   final String baseUrl;
 
-  Future<List<Map<String, dynamic>>> listar(String token) async {
+  Map<String, String> _cabecalhos(String token) => {
+    'accept': 'application/json',
+    'authorization': 'Bearer $token',
+  };
+
+  Future<dynamic> _get(String token, String caminho, String erro) async {
     final resposta = await executarRequisicao(
       () => _client.get(
-        Uri.parse('$baseUrl/me/lojinha'),
-        headers: {'authorization': 'Bearer $token'},
+        Uri.parse('$baseUrl$caminho'),
+        headers: _cabecalhos(token),
       ),
-      erroPadrao: 'Não foi possível carregar a lojinha',
+      erroPadrao: erro,
     );
-    final corpo = decodificarJson(resposta);
+    return decodificarJson(resposta);
+  }
+
+  Map<String, dynamic> _mapa(dynamic corpo) {
+    if (corpo is! Map) {
+      throw const FormatException('Resposta inválida da lojinha.');
+    }
+    return Map<String, dynamic>.from(corpo);
+  }
+
+  List<Map<String, dynamic>> _lista(dynamic corpo) {
     if (corpo is! List) {
       throw const FormatException('Resposta inválida da lojinha.');
     }
     return corpo.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+  }
+
+  Future<Map<String, dynamic>> listar(String token) async {
+    final respostas = await Future.wait([
+      _get(token, '/me/lojinha', 'Não foi possível carregar a lojinha'),
+      _get(token, '/me/xp', 'Não foi possível carregar seu saldo'),
+    ]);
+    return {
+      'saldo': _mapa(respostas[1])['saldo'] as int? ?? 0,
+      'recompensas': _lista(respostas[0]),
+    };
+  }
+
+  Future<Map<String, dynamic>> detalhe(String token, String id) async => _mapa(
+    await _get(
+      token,
+      '/me/lojinha/${Uri.encodeComponent(id)}',
+      'Não foi possível carregar a recompensa',
+    ),
+  );
+
+  Future<List<Map<String, dynamic>>> historico(String token) async => _lista(
+    await _get(
+      token,
+      '/me/lojinha/resgates',
+      'Não foi possível carregar seus resgates',
+    ),
+  );
+
+  Future<Map<String, dynamic>> comprovante(String token, String id) async =>
+      _mapa(
+        await _get(
+          token,
+          '/me/lojinha/resgates/${Uri.encodeComponent(id)}',
+          'Não foi possível carregar o comprovante',
+        ),
+      );
+
+  Future<List<Map<String, dynamic>>> extrato(
+    String token, {
+    int limite = 30,
+    String? antes,
+  }) async {
+    final consulta = 'limite=$limite${antes == null ? '' : '&antes=$antes'}';
+    return _lista(
+      await _get(
+        token,
+        '/me/xp/movimentacoes?$consulta',
+        'Não foi possível carregar o extrato',
+      ),
+    );
   }
 
   Future<Map<String, dynamic>> resgatar(
@@ -37,18 +103,14 @@ class LojinhaApi {
         Uri.parse(
           '$baseUrl/me/lojinha/${Uri.encodeComponent(recompensaId)}/resgatar',
         ),
-        headers: {
-          'authorization': 'Bearer $token',
-          'content-type': 'application/json',
-        },
+        headers: {..._cabecalhos(token), 'content-type': 'application/json'},
         body: jsonEncode({'chaveIdempotencia': chave}),
       ),
       erroPadrao: 'Não foi possível resgatar a recompensa',
     );
-    return Map<String, dynamic>.from(decodificarJson(resposta) as Map);
+    return _mapa(decodificarJson(resposta));
   }
 
-  /// UUID v4 para identificar a tentativa, reutilizado até a API responder.
   static String novaChave() {
     final random = Random.secure();
     final bytes = List<int>.generate(16, (_) => random.nextInt(256));

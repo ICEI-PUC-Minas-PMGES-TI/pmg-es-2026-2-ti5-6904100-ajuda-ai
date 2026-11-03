@@ -306,6 +306,166 @@ export function ConfirmarRemocao({ recompensa, ocupado, erro, onExcluir, onArqui
   );
 }
 
+function usePopupRecompensa(largura, altura) {
+  const [aberto, setAberto] = useState(false);
+  const [posicao, setPosicao] = useState({});
+  const gatilho = useRef(null);
+  const painel = useRef(null);
+  const fechar = useCallback((focar = false) => {
+    setAberto(false);
+    if (focar) gatilho.current?.focus();
+  }, []);
+
+  function abrir() {
+    const caixa = gatilho.current?.getBoundingClientRect();
+    if (!caixa) return;
+    const larguraFinal = Math.min(largura || caixa.width, window.innerWidth - 24);
+    const esquerda = Math.max(12, Math.min(caixa.left, window.innerWidth - larguraFinal - 12));
+    const acima = caixa.bottom + altura + 8 > window.innerHeight && caixa.top >= altura + 8;
+    setPosicao({ left: esquerda, top: acima ? caixa.top - altura - 8 : caixa.bottom + 8, width: larguraFinal });
+    setAberto(true);
+  }
+
+  useEffect(() => {
+    if (!aberto) return undefined;
+    const fora = (event) => {
+      if (!gatilho.current?.contains(event.target) && !painel.current?.contains(event.target)) fechar();
+    };
+    const rolou = (event) => { if (!painel.current?.contains(event.target)) fechar(); };
+    const redimensionou = () => fechar();
+    document.addEventListener('pointerdown', fora);
+    document.addEventListener('scroll', rolou, true);
+    window.addEventListener('resize', redimensionou);
+    return () => {
+      document.removeEventListener('pointerdown', fora);
+      document.removeEventListener('scroll', rolou, true);
+      window.removeEventListener('resize', redimensionou);
+    };
+  }, [aberto, fechar]);
+
+  return { aberto, posicao, gatilho, painel, abrir, fechar };
+}
+
+function ListaRecompensa({ id, rotulo, valor, opcoes, onChange }) {
+  const popup = usePopupRecompensa(0, 240);
+  const selecionada = opcoes.find((opcao) => opcao.valor === valor) ?? opcoes[0];
+
+  useEffect(() => {
+    if (popup.aberto) popup.painel.current?.querySelector('[aria-selected="true"]')?.focus();
+  }, [popup.aberto]);
+
+  function teclado(event) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      popup.fechar(true);
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const itens = Array.from(popup.painel.current?.querySelectorAll('[role="option"]') ?? []);
+      const indice = itens.indexOf(document.activeElement);
+      itens[(indice + (event.key === 'ArrowDown' ? 1 : -1) + itens.length) % itens.length]?.focus();
+    }
+  }
+
+  return (
+    <div className="editor-field recompensa-seletor">
+      <span id={`${id}-rotulo`}>{rotulo}</span>
+      <button type="button" ref={popup.gatilho} className="recompensa-gatilho" aria-labelledby={`${id}-rotulo ${id}-valor`} aria-haspopup="listbox" aria-expanded={popup.aberto} aria-controls={popup.aberto ? `${id}-lista` : undefined} onClick={() => popup.aberto ? popup.fechar() : popup.abrir()} onKeyDown={(event) => { if (!popup.aberto && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) { event.preventDefault(); popup.abrir(); } else if (popup.aberto && event.key === 'Escape') { event.stopPropagation(); popup.fechar(); } }}>
+        <span id={`${id}-valor`}>{selecionada?.rotulo}</span>
+        <Icon name="chevronDown" size={16} />
+      </button>
+      {popup.aberto && (
+        <div id={`${id}-lista`} ref={popup.painel} className="recompensa-popup recompensa-opcoes" role="listbox" aria-labelledby={`${id}-rotulo`} style={popup.posicao} onKeyDown={teclado}>
+          {opcoes.map((opcao) => (
+            <button key={opcao.valor} type="button" role="option" aria-selected={opcao.valor === valor} onClick={() => { onChange(opcao.valor); popup.fechar(true); }}>
+              <span>{opcao.rotulo}</span>
+              {opcao.valor === valor && <Icon name="check" size={16} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function dataHoraPartes(valor) {
+  const partes = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(valor || '');
+  return partes ? { dia: `${partes[1]}-${partes[2]}-${partes[3]}`, hora: partes[4], minuto: partes[5] } : null;
+}
+
+function CalendarioRecompensa({ id, rotulo, valor, onChange }) {
+  const popup = usePopupRecompensa(326, 408);
+  const [mes, setMes] = useState(() => new Date());
+  const [dia, setDia] = useState('');
+  const [hora, setHora] = useState('12');
+  const [minuto, setMinuto] = useState('00');
+  const partes = dataHoraPartes(valor);
+  const texto = partes ? `${partes.dia.slice(8, 10)}/${partes.dia.slice(5, 7)}/${partes.dia.slice(0, 4)} ${partes.hora}:${partes.minuto}` : 'Selecionar data e hora';
+  const ano = mes.getFullYear();
+  const numeroMes = mes.getMonth();
+  const inicio = (new Date(ano, numeroMes, 1).getDay() + 6) % 7;
+  const total = new Date(ano, numeroMes + 1, 0).getDate();
+  const hoje = new Date();
+  const hojeIso = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+  const horaValida = /^\d{1,2}$/.test(hora) && Number(hora) <= 23;
+  const minutoValido = /^\d{1,2}$/.test(minuto) && Number(minuto) <= 59;
+
+  function abrir() {
+    const atual = dataHoraPartes(valor);
+    const referencia = atual ? new Date(`${atual.dia}T12:00`) : new Date();
+    setMes(new Date(referencia.getFullYear(), referencia.getMonth(), 1));
+    setDia(atual?.dia ?? '');
+    setHora(atual?.hora ?? '12');
+    setMinuto(atual?.minuto ?? '00');
+    popup.abrir();
+  }
+
+  function aplicar() {
+    if (!dia || !horaValida || !minutoValido) return;
+    onChange(`${dia}T${String(Number(hora)).padStart(2, '0')}:${String(Number(minuto)).padStart(2, '0')}`);
+    popup.fechar(true);
+  }
+
+  return (
+    <div className="editor-field recompensa-data">
+      <span id={`${id}-rotulo`}>{rotulo}</span>
+      <button type="button" ref={popup.gatilho} className={`recompensa-gatilho${partes ? '' : ' vazio'}`} aria-labelledby={`${id}-rotulo ${id}-valor`} aria-haspopup="dialog" aria-expanded={popup.aberto} onClick={() => popup.aberto ? popup.fechar() : abrir()} onKeyDown={(event) => { if (popup.aberto && event.key === 'Escape') { event.stopPropagation(); popup.fechar(); } }}>
+        <span id={`${id}-valor`}>{texto}</span>
+        <Icon name="calendar" size={17} />
+      </button>
+      {popup.aberto && (
+        <div ref={popup.painel} className="recompensa-popup recompensa-calendario" role="dialog" aria-label={`Escolher ${rotulo.toLowerCase()}`} style={popup.posicao} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); popup.fechar(true); } }}>
+          <div className="recompensa-calendario-topo">
+            <button type="button" aria-label="Mês anterior" onClick={() => setMes(new Date(ano, numeroMes - 1, 1))}><Icon name="chevron" size={17} className="recompensa-seta-esquerda" /></button>
+            <strong>{new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(mes).replace(/^./, (letra) => letra.toUpperCase())}</strong>
+            <button type="button" aria-label="Próximo mês" onClick={() => setMes(new Date(ano, numeroMes + 1, 1))}><Icon name="chevron" size={17} /></button>
+          </div>
+          <div className="recompensa-calendario-grade">
+            {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((nome) => <span key={nome} className="recompensa-dia-semana">{nome}</span>)}
+            {Array.from({ length: inicio }, (_, indice) => <span key={`vazio-${indice}`} aria-hidden="true" />)}
+            {Array.from({ length: total }, (_, indice) => {
+              const data = `${ano}-${String(numeroMes + 1).padStart(2, '0')}-${String(indice + 1).padStart(2, '0')}`;
+              return <button key={data} type="button" className={`${data === dia ? ' selecionado' : ''}${data === hojeIso ? ' hoje' : ''}`} aria-label={new Intl.DateTimeFormat('pt-BR', { dateStyle: 'full' }).format(new Date(ano, numeroMes, indice + 1))} aria-pressed={data === dia} onClick={() => setDia(data)}>{indice + 1}</button>;
+            })}
+          </div>
+          <div className="recompensa-calendario-hora">
+            <span>Horário</span>
+            <div>
+              <input aria-label="Hora" type="number" inputMode="numeric" min="0" max="23" value={hora} onChange={(event) => setHora(event.target.value)} />
+              <strong>:</strong>
+              <input aria-label="Minuto" type="number" inputMode="numeric" min="0" max="59" value={minuto} onChange={(event) => setMinuto(event.target.value)} />
+            </div>
+          </div>
+          <div className="recompensa-calendario-acoes">
+            <button type="button" onClick={() => { onChange(''); popup.fechar(true); }}>Limpar</button>
+            <button type="button" className="aplicar" disabled={!dia || !horaValida || !minutoValido} onClick={aplicar}>Aplicar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Formulário de criação/edição em modal. */
 export function FormularioRecompensa({ original, programas = [], onCancelar, onSalvo }) {
   const criando = !original;
@@ -413,28 +573,10 @@ export function FormularioRecompensa({ original, programas = [], onCancelar, onS
         <fieldset className="recompensa-bloco">
           <legend>Disponibilidade</legend>
           <div className="editor-grid pucstop-grid">
-            <label className="editor-field" htmlFor={`${base}-publico`}>
-              <span>Público</span>
-              <select id={`${base}-publico`} className="detail-select" value={form.publico} onChange={(e) => campo('publico', e.target.value)}>
-                {Object.entries(ROTULO_PUBLICO).map(([valor, rotulo]) => <option key={valor} value={valor}>{rotulo}</option>)}
-              </select>
-            </label>
-            <label className="editor-field" htmlFor={`${base}-programa`}>
-              <span>Programa</span>
-              <select id={`${base}-programa`} className="detail-select" value={form.programaCodigo} onChange={(e) => campo('programaCodigo', e.target.value)}>
-                <option value="">Todos os programas</option>
-                {form.programaCodigo && !programas.some((p) => p.codigo === form.programaCodigo) && <option value={form.programaCodigo}>{form.programaCodigo}</option>}
-                {programas.map((p) => <option key={p.codigo} value={p.codigo}>{p.titulo ? `${p.codigo} — ${p.titulo}` : p.codigo}</option>)}
-              </select>
-            </label>
-            <label className="editor-field" htmlFor={`${base}-de`}>
-              <span>Disponível a partir de</span>
-              <input id={`${base}-de`} type="datetime-local" value={form.disponivelDe} onChange={(e) => campo('disponivelDe', e.target.value)} />
-            </label>
-            <label className="editor-field" htmlFor={`${base}-ate`}>
-              <span>Disponível até</span>
-              <input id={`${base}-ate`} type="datetime-local" value={form.disponivelAte} onChange={(e) => campo('disponivelAte', e.target.value)} />
-            </label>
+            <ListaRecompensa id={`${base}-publico`} rotulo="Público" valor={form.publico} opcoes={Object.entries(ROTULO_PUBLICO).map(([valor, rotulo]) => ({ valor, rotulo }))} onChange={(valor) => campo('publico', valor)} />
+            <ListaRecompensa id={`${base}-programa`} rotulo="Programa" valor={form.programaCodigo} opcoes={[{ valor: '', rotulo: 'Todos os programas' }, ...(form.programaCodigo && !programas.some((p) => p.codigo === form.programaCodigo) ? [{ valor: form.programaCodigo, rotulo: form.programaCodigo }] : []), ...programas.map((p) => ({ valor: p.codigo, rotulo: p.titulo ? `${p.codigo} — ${p.titulo}` : p.codigo }))]} onChange={(valor) => campo('programaCodigo', valor)} />
+            <CalendarioRecompensa id={`${base}-de`} rotulo="Disponível a partir de" valor={form.disponivelDe} onChange={(valor) => campo('disponivelDe', valor)} />
+            <CalendarioRecompensa id={`${base}-ate`} rotulo="Disponível até" valor={form.disponivelAte} onChange={(valor) => campo('disponivelAte', valor)} />
             <label className="editor-field" htmlFor={`${base}-limite`}>
               <span>Limite por aluno (opcional)</span>
               <input id={`${base}-limite`} type="number" inputMode="numeric" min={L.limiteMin} max={L.limiteMax} step="1" placeholder="Sem limite" value={form.limitePorAluno} onChange={(e) => campo('limitePorAluno', e.target.value)} />

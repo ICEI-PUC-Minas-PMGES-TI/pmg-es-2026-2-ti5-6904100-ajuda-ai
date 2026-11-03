@@ -6,44 +6,61 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
-  test('lista recompensas e envia a mesma chave de resgate', () async {
+  test('lista, detalha, resgata e consulta histórico e extrato', () async {
     final requisicoes = <http.Request>[];
     final api = LojinhaApi(
       baseUrl: 'http://localhost:3000',
       client: MockClient((req) async {
         requisicoes.add(req);
-        if (req.method == 'GET') {
+        final caminho = req.url.path;
+        if (req.method == 'POST') {
+          return http.Response(
+            jsonEncode({'id': 'r1', 'codigo': 'ABC', 'saldoAtual': 70}),
+            201,
+          );
+        }
+        if (caminho == '/me/lojinha') {
           return http.Response(
             jsonEncode([
-              {
-                'id': 'item',
-                'nome': 'Caneca',
-                'descricao': 'Azul',
-                'custoXp': 30,
-                'estoque': 1,
-                'condicoesRetirada': 'Secretaria',
-              },
+              {'id': 'item', 'nome': 'Caneca'},
             ]),
             200,
           );
         }
-        return http.Response(
-          jsonEncode({'id': 'comprovante', 'saldoApos': 70, 'saldoAtual': 70}),
-          201,
-        );
+        if (caminho == '/me/xp') {
+          return http.Response(jsonEncode({'saldo': 100}), 200);
+        }
+        if (caminho == '/me/lojinha/resgates' ||
+            caminho == '/me/xp/movimentacoes') {
+          return http.Response(jsonEncode([]), 200);
+        }
+        return http.Response(jsonEncode({'id': 'x'}), 200);
       }),
     );
 
-    final itens = await api.listar('token');
+    final lista = await api.listar('token');
+    await api.detalhe('token', 'item');
     const chave = '123e4567-e89b-42d3-a456-426614174000';
     final resgate = await api.resgatar('token', 'item', chave);
+    await api.historico('token');
+    await api.comprovante('token', 'r1');
+    await api.extrato('token', limite: 10, antes: '55');
 
-    expect(itens.single['nome'], 'Caneca');
-    expect(resgate['saldoAtual'], 70);
-    expect(requisicoes[0].url.path, '/me/lojinha');
-    expect(requisicoes[1].url.path, '/me/lojinha/item/resgatar');
-    expect(jsonDecode(requisicoes[1].body)['chaveIdempotencia'], chave);
-    expect(requisicoes[1].headers['authorization'], 'Bearer token');
+    expect(lista['saldo'], 100);
+    expect(lista['recompensas'], hasLength(1));
+    expect(resgate['codigo'], 'ABC');
+    expect(requisicoes.map((r) => r.url.path).toList(), [
+      '/me/lojinha',
+      '/me/xp',
+      '/me/lojinha/item',
+      '/me/lojinha/item/resgatar',
+      '/me/lojinha/resgates',
+      '/me/lojinha/resgates/r1',
+      '/me/xp/movimentacoes',
+    ]);
+    expect(requisicoes[3].headers['authorization'], 'Bearer token');
+    expect(jsonDecode(requisicoes[3].body)['chaveIdempotencia'], chave);
+    expect(requisicoes[6].url.queryParameters, {'limite': '10', 'antes': '55'});
   });
 
   test('a chave gerada é UUID v4', () {

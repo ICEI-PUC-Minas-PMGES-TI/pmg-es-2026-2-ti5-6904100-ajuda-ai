@@ -1,6 +1,5 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-/** Catálogo mínimo e resgates; o ledger de XP continua sendo a fonte do saldo. */
 export class LojinhaResgates1792800000000 implements MigrationInterface {
   name = 'LojinhaResgates1792800000000';
 

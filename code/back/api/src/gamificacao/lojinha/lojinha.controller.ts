@@ -46,6 +46,21 @@ export class LojinhaController {
   @Get('resgates') async historico(@Req() req: AuthenticatedRequest) {
     return this.lojinha.historico(await usuarioDoToken(this.db, req.user));
   }
+  @Get('resgates/:id') async comprovante(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', uuid) id: string,
+  ) {
+    return this.lojinha.comprovante(
+      await usuarioDoToken(this.db, req.user),
+      id,
+    );
+  }
+  @Get(':id') async detalhe(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', uuid) id: string,
+  ) {
+    return this.lojinha.detalhe(await this.aluno(req), id);
+  }
   @Post(':id/resgatar') async resgatar(
     @Req() req: AuthenticatedRequest,
     @Param('id', uuid) id: string,

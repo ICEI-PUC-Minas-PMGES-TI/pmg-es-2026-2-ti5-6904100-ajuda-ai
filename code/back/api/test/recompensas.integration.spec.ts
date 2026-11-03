@@ -21,6 +21,7 @@ import { CriaTabelasMapa1792263378657 } from '../src/migrations/1792263378657-Cr
 import { PucStopsEXpGlobal1792279161187 } from '../src/migrations/1792279161187-PucStopsEXpGlobal.js';
 import { LojinhaResgates1792800000000 } from '../src/migrations/1792800000000-LojinhaResgates.js';
 import { LojinhaRecompensas1792900000000 } from '../src/migrations/1792900000000-LojinhaRecompensas.js';
+import { CodigoResgates1793500000000 } from '../src/migrations/1793500000000-CodigoResgates.js';
 import { LojinhaController } from '../src/gamificacao/lojinha/lojinha.controller.js';
 import { LojinhaService } from '../src/gamificacao/lojinha/lojinha.service.js';
 import { randomUUID } from 'node:crypto';
@@ -36,6 +37,7 @@ const MIGRATIONS: Array<new () => MigrationInterface> = [
   PucStopsEXpGlobal1792279161187,
   LojinhaResgates1792800000000,
   LojinhaRecompensas1792900000000,
+  CodigoResgates1793500000000,
 ];
 
 async function admin(sql: string): Promise<void> {
@@ -199,6 +201,9 @@ describe.skipIf(!URL_TESTE)(
       );
       await ds.query(
         `INSERT INTO feed.programas (codigo, titulo, etapa_atual) VALUES ('2026-2', 'Programa 2026/2', 'inscricoes')`,
+      );
+      await ds.query(
+        `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ('aluno@pucminas.edu.br', '2026-1', 'apadrinhado', 'em_andamento')`,
       );
 
       const modulo = await Test.createTestingModule({
@@ -724,6 +729,10 @@ describe.skipIf(!URL_TESTE)(
               `VALUES ($1, $2, 'ES', 2, 'apadrinhado', 'aprovado') RETURNING id`,
             [`Aluno ${i}`, `concorrente${i}@pucminas.edu.br`],
           )) as Array<{ id: number }>;
+          await ds.query(
+            `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026-1', 'apadrinhado', 'em_andamento')`,
+            [`concorrente${i}@pucminas.edu.br`],
+          );
           await creditar(uid, 50);
           alunos.push(uid);
         }
@@ -747,6 +756,130 @@ describe.skipIf(!URL_TESTE)(
           [alunos],
         );
         expect(n).toBe(1);
+      });
+    });
+
+    describe('consulta, comprovante e elegibilidade do aluno (F28)', () => {
+      const token = (email: string, id: number, perfil = 'apadrinhado') =>
+        `Bearer ${jwt.sign({ sub: String(id), email, perfil, escopo: 'acesso' })}`;
+      const inserirUsuario = async (email: string) =>
+        (
+          (await ds.query(
+            `INSERT INTO feed.usuarios (nome, email, curso, periodo, tipo_participacao, status_cadastro) ` +
+              `VALUES ($1, $1, 'ES', 3, 'apadrinhado', 'aprovado') RETURNING id`,
+            [email],
+          )) as Array<{ id: number }>
+        )[0].id;
+      const publicada = async (extra: object = {}) =>
+        (
+          (await criar(base({ publicar: true, ...extra })).expect(201))
+            .body as Recompensa
+        ).id;
+
+      it('detalhe, código do comprovante, comprovante e histórico com imagem', async () => {
+        const id = await publicada({
+          nome: 'Caderno',
+          custoXp: 20,
+          imagemUrl: 'https://exemplo.com/caderno.png',
+        });
+        const detalheAluno = await http()
+          .get(`/me/lojinha/${id}`)
+          .set('Authorization', aluno())
+          .expect(200);
+        expect(detalheAluno.body).toMatchObject({ id, nome: 'Caderno' });
+        await creditar(alunoId, 100);
+        const { body: resgate } = await resgatar(id).expect(201);
+        expect(resgate.codigo).toMatch(/^[0-9A-F]{10}$/);
+        const { body: comprovante } = await http()
+          .get(`/me/lojinha/resgates/${resgate.id}`)
+          .set('Authorization', aluno())
+          .expect(200);
+        expect(comprovante).toMatchObject({
+          id: resgate.id,
+          codigo: resgate.codigo,
+          imagemUrl: 'https://exemplo.com/caderno.png',
+        });
+        const outro = await inserirUsuario('curioso@pucminas.edu.br');
+        await http()
+          .get(`/me/lojinha/resgates/${resgate.id}`)
+          .set('Authorization', token('curioso@pucminas.edu.br', outro))
+          .expect(404);
+      });
+
+      it('sem participação ativa não vê nem resgata; histórico continua aberto', async () => {
+        const id = await publicada({ nome: 'Adesivo', custoXp: 5 });
+        const email = 'pendente@pucminas.edu.br';
+        const uid = await inserirUsuario(email);
+        await ds.query(
+          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026-2', 'candidato', 'pendente')`,
+          [email],
+        );
+        await creditar(uid, 50);
+        for (const perfil of ['padrinho', 'apadrinhado']) {
+          const auth = token(email, uid, perfil);
+          const lista = await http()
+            .get('/me/lojinha')
+            .set('Authorization', auth)
+            .expect(403);
+          expect(lista.body.motivo).toBe('sem-participacao');
+          await http()
+            .get(`/me/lojinha/${id}`)
+            .set('Authorization', auth)
+            .expect(403);
+          await resgatar(id, auth).expect(403);
+        }
+        const [{ saldo }] = (await ds.query(
+          `SELECT saldo FROM gamificacao.xp_carteiras WHERE usuario_id = $1`,
+          [uid],
+        )) as Array<{ saldo: number }>;
+        expect(saldo).toBe(50);
+
+        const ativo = 'encerrando@pucminas.edu.br';
+        const ativoId = await inserirUsuario(ativo);
+        await ds.query(
+          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026-1', 'apadrinhado', 'em_andamento')`,
+          [ativo],
+        );
+        await creditar(ativoId, 50);
+        const { body: feito } = await resgatar(
+          id,
+          token(ativo, ativoId),
+        ).expect(201);
+        await ds.query(
+          `UPDATE feed.participacoes SET status = 'concluido' WHERE usuario_id = $1`,
+          [ativo],
+        );
+        await http()
+          .get('/me/lojinha')
+          .set('Authorization', token(ativo, ativoId))
+          .expect(403);
+        const historico = await http()
+          .get('/me/lojinha/resgates')
+          .set('Authorization', token(ativo, ativoId))
+          .expect(200);
+        expect(historico.body[0].id).toBe(feito.id);
+      });
+
+      it('recompensa de programa exige participação ativa naquele programa', async () => {
+        const id = await publicada({
+          nome: 'Camiseta do ciclo',
+          programaCodigo: '2026-2',
+        });
+        const email = 'reprovado@pucminas.edu.br';
+        const uid = await inserirUsuario(email);
+        await ds.query(
+          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026-1', 'apadrinhado', 'em_andamento'), ($1, '2026-2', 'apadrinhado', 'nao_aprovado')`,
+          [email],
+        );
+        const lista = await http()
+          .get('/me/lojinha')
+          .set('Authorization', token(email, uid))
+          .expect(200);
+        expect(lista.body.map((r: { id: string }) => r.id)).not.toContain(id);
+        await http()
+          .get(`/me/lojinha/${id}`)
+          .set('Authorization', token(email, uid))
+          .expect(404);
       });
     });
 
@@ -851,7 +984,10 @@ describe.skipIf(!URL_TESTE)(
         type: 'postgres',
         url: url.toString(),
         schema: 'feed',
-        migrations: MIGRATIONS.slice(0, -1),
+        migrations: MIGRATIONS.slice(
+          0,
+          MIGRATIONS.indexOf(LojinhaRecompensas1792900000000),
+        ),
         migrationsTableName: 'migrations',
         installExtensions: false,
       });

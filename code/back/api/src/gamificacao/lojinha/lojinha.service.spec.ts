@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import type { DataSource, QueryRunner } from 'typeorm';
 import { type Aluno, LojinhaService } from './lojinha.service.js';
 
@@ -10,6 +14,7 @@ interface Cenario {
   visivel?: boolean;
   limitePorAluno?: number | null;
   resgatesFeitos?: number;
+  ativo?: boolean;
 }
 
 function banco({
@@ -19,6 +24,7 @@ function banco({
   visivel = true,
   limitePorAluno = null,
   resgatesFeitos = 0,
+  ativo = true,
 }: Cenario) {
   const comandos: string[] = [];
   const qr = {
@@ -34,6 +40,8 @@ function banco({
     release: async () => {},
     query: async (sql: string) => {
       comandos.push(sql);
+      if (sql.startsWith('SELECT 1 FROM') && sql.includes('"participacoes"'))
+        return ativo ? [{}] : [];
       if (sql.includes('SELECT "saldo" FROM')) return [{ saldo }];
       if (sql.includes('FROM "gamificacao"."resgates" r JOIN'))
         return anterior
@@ -93,6 +101,7 @@ function banco({
   const db = {
     options: { schema: 'feed' },
     createQueryRunner: () => qr,
+    query: (sql: string) => qr.query(sql),
   } as unknown as DataSource;
   return { service: new LojinhaService(db), comandos };
 }
@@ -184,5 +193,26 @@ describe('LojinhaService.resgatar', () => {
     expect(resgate.saldoAtual).toBe(150);
     expect(comandos.at(-1)).toBe('COMMIT');
     expect(debitou(comandos)).toBe(false);
+  });
+
+  it('sem participação ativa: 403 e nada é debitado', async () => {
+    const { service, comandos } = banco({
+      estoque: 5,
+      saldo: 100,
+      ativo: false,
+    });
+    await expect(service.resgatar(aluno, 'item', chave)).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(comandos).toContain('ROLLBACK');
+    expect(debitou(comandos)).toBe(false);
+  });
+
+  it('sem participação ativa, lista e detalhe também recusam', async () => {
+    const { service } = banco({ estoque: 5, saldo: 100, ativo: false });
+    await expect(service.listar(aluno)).rejects.toThrow(ForbiddenException);
+    await expect(service.detalhe(aluno, 'item')).rejects.toThrow(
+      ForbiddenException,
+    );
   });
 });

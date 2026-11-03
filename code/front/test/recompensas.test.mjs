@@ -136,7 +136,7 @@ test('confirmação explica exclusão x arquivamento', () => {
 
 test('formulário de criação renderiza estoque, disponibilidade e publicação', () => {
   const html = renderToStaticMarkup(createElement(FormularioRecompensa, { original: null, programas: [{ codigo: '2026-2', titulo: 'Ciclo 2026/2' }], onCancelar() {}, onSalvo() {} }));
-  for (const trecho of [/Custo em XP/, /Condições de retirada/, /Estoque ilimitado/, /Estoque inicial/, /Público/, /2026-2 — Ciclo 2026\/2/, /Disponível até/, /Limite por aluno/, /Publicar agora/]) assert.match(html, trecho);
+  for (const trecho of [/Custo em XP/, /Condições de retirada/, /Estoque ilimitado/, /Estoque inicial/, /Público/, /Todos os programas/, /aria-haspopup="listbox"/, /aria-haspopup="dialog"/, /Disponível até/, /Limite por aluno/, /Publicar agora/]) assert.match(html, trecho);
   const edicao = renderToStaticMarkup(createElement(FormularioRecompensa, { original: base, onCancelar() {}, onSalvo() {} }));
   assert.match(edicao, /nova versão/);
   assert.doesNotMatch(edicao, /Estoque inicial/);

@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, type QueryRunner } from 'typeorm';
 import {
   registrarMovimentacao,
   SaldoInsuficienteError,
@@ -41,6 +42,7 @@ export interface Recompensa {
 
 export interface Resgate {
   id: string;
+  codigo: string;
   recompensaId: string;
   versao: number;
   nome: string;
@@ -49,12 +51,22 @@ export interface Resgate {
   condicoesRetirada: string;
   criadoEm: Date;
   saldoApos: number;
+  imagemUrl: string | null;
+}
+
+function participacaoAtiva(schemaFeed: string, extra = ''): string {
+  return (
+    `SELECT 1 FROM ${schemaFeed}."participacoes" p ` +
+    `WHERE p."usuario_id" IN ($2::text, $3) ` +
+    `AND (p."papel" = $1 OR ($1 = 'padrinho' AND p."papel" = 'candidato')) ` +
+    `AND p."status" IN ('aprovado', 'em_andamento') ${extra}`
+  );
 }
 
 /**
  * Condição de visibilidade de `r` para o aluno ($1 papel, $2 id, $3 e-mail):
  * publicada, dentro da vigência, do público certo e, quando restrita a um
- * programa, só para quem participa dele.
+ * programa, só para quem participa ativamente dele.
  */
 function visivel(schemaFeed: string): string {
   return (
@@ -63,8 +75,7 @@ function visivel(schemaFeed: string): string {
     `AND (r."disponivel_ate" IS NULL OR r."disponivel_ate" > now()) ` +
     `AND (r."publico" = 'todos' OR (r."publico" = 'padrinhos' AND $1 = 'padrinho') ` +
     `OR (r."publico" = 'apadrinhados' AND $1 = 'apadrinhado')) ` +
-    `AND (r."programa_codigo" IS NULL OR EXISTS (SELECT 1 FROM ${schemaFeed}."participacoes" p ` +
-    `WHERE p."programa" = r."programa_codigo" AND p."usuario_id" IN ($2::text, $3)))`
+    `AND (r."programa_codigo" IS NULL OR EXISTS (${participacaoAtiva(schemaFeed, 'AND p."programa" = r."programa_codigo"')}))`
   );
 }
 
@@ -76,10 +87,11 @@ const COLUNAS =
   `r."disponivel_ate" AS "disponivelAte", r."versao"`;
 
 const RESGATE =
-  `SELECT r."id", r."recompensa_id" AS "recompensaId", r."versao", r."nome", r."descricao", ` +
+  `SELECT r."id", r."codigo", r."recompensa_id" AS "recompensaId", r."versao", r."nome", r."descricao", ` +
   `r."custo_xp" AS "custoXp", r."condicoes_retirada" AS "condicoesRetirada", ` +
-  `r."criado_em" AS "criadoEm", m."saldo_apos" AS "saldoApos" ` +
-  `FROM ${g}."resgates" r JOIN ${g}."xp_movimentacoes" m ON m."id" = r."movimentacao_id" `;
+  `r."criado_em" AS "criadoEm", m."saldo_apos" AS "saldoApos", c."imagem_url" AS "imagemUrl" ` +
+  `FROM ${g}."resgates" r JOIN ${g}."xp_movimentacoes" m ON m."id" = r."movimentacao_id" ` +
+  `JOIN ${g}."recompensas" c ON c."id" = r."recompensa_id" `;
 
 /**
  * Consulta e resgate da lojinha pelo aluno. O cadastro (F27) fica em
@@ -90,11 +102,39 @@ const RESGATE =
 export class LojinhaService {
   constructor(private readonly db: DataSource) {}
 
-  listar(aluno: Aluno): Promise<Recompensa[]> {
+  private async exigirParticipacao(
+    executor: DataSource | QueryRunner,
+    aluno: Aluno,
+  ): Promise<void> {
+    const [linha] = (await executor.query(
+      `${participacaoAtiva(schemaUsuarios(this.db))} LIMIT 1`,
+      [aluno.perfil, aluno.id, aluno.email],
+    )) as unknown[];
+    if (!linha) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        message: 'A lojinha é só para participantes ativos do programa.',
+        motivo: 'sem-participacao',
+      });
+    }
+  }
+
+  async listar(aluno: Aluno): Promise<Recompensa[]> {
+    await this.exigirParticipacao(this.db, aluno);
     return this.db.query(
       `SELECT ${COLUNAS} FROM ${g}."recompensas" r WHERE ${visivel(schemaUsuarios(this.db))} ORDER BY r."nome", r."id"`,
       [aluno.perfil, aluno.id, aluno.email],
     ) as Promise<Recompensa[]>;
+  }
+
+  async detalhe(aluno: Aluno, id: string): Promise<Recompensa> {
+    await this.exigirParticipacao(this.db, aluno);
+    const [item] = (await this.db.query(
+      `SELECT ${COLUNAS} FROM ${g}."recompensas" r WHERE r."id" = $4 AND ${visivel(schemaUsuarios(this.db))}`,
+      [aluno.perfil, aluno.id, aluno.email, id],
+    )) as Recompensa[];
+    if (!item) throw new NotFoundException('Recompensa indisponível.');
+    return item;
   }
 
   historico(usuarioId: number): Promise<Resgate[]> {
@@ -102,6 +142,15 @@ export class LojinhaService {
       `${RESGATE} WHERE r."usuario_id" = $1 ORDER BY r."criado_em" DESC, r."id" DESC`,
       [usuarioId],
     ) as Promise<Resgate[]>;
+  }
+
+  async comprovante(usuarioId: number, id: string): Promise<Resgate> {
+    const [resgate] = (await this.db.query(
+      `${RESGATE} WHERE r."usuario_id" = $1 AND r."id" = $2`,
+      [usuarioId, id],
+    )) as Resgate[];
+    if (!resgate) throw new NotFoundException('Resgate não encontrado.');
+    return resgate;
   }
 
   /**
@@ -132,6 +181,7 @@ export class LojinhaService {
         await qr.commitTransaction();
         return { ...anterior, saldoAtual };
       }
+      await this.exigirParticipacao(qr, aluno);
 
       await qr.query(
         `SELECT 1 FROM ${g}."recompensas" WHERE "id" = $1 FOR UPDATE`,
@@ -180,7 +230,7 @@ export class LojinhaService {
         `INSERT INTO ${g}."resgates" ` +
           `("id", "usuario_id", "recompensa_id", "versao", "movimentacao_id", "chave_idempotencia", "nome", "descricao", "custo_xp", "condicoes_retirada") ` +
           `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ` +
-          `RETURNING "id", "recompensa_id" AS "recompensaId", "versao", "nome", "descricao", "custo_xp" AS "custoXp", ` +
+          `RETURNING "id", "codigo", "recompensa_id" AS "recompensaId", "versao", "nome", "descricao", "custo_xp" AS "custoXp", ` +
           `"condicoes_retirada" AS "condicoesRetirada", "criado_em" AS "criadoEm"`,
         [
           id,
@@ -198,6 +248,7 @@ export class LojinhaService {
       await qr.commitTransaction();
       return {
         ...resgate,
+        imagemUrl: item.imagemUrl,
         saldoApos: movimento.saldo,
         saldoAtual: movimento.saldo,
       };

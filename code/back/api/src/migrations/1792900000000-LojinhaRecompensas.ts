@@ -13,7 +13,6 @@ import {
   TIPOS_AJUSTE_ESTOQUE,
 } from '../gamificacao/recompensas/recompensas.js';
 
-/** Schema configurado no DataSource (DB_SCHEMA; padrão `feed`), já entre aspas. */
 function schemaUsuarios(queryRunner: QueryRunner): string {
   const options = queryRunner.connection.options as { schema?: string };
   return `"${(options.schema ?? 'feed').replaceAll('"', '""')}"`;
@@ -29,26 +28,6 @@ export const TABELAS_LOJINHA = [
   'resgates',
 ] as const;
 
-/**
- * Cadastro completo de recompensas da lojinha (F27) sobre o catálogo mínimo
- * de `LojinhaResgates` (resgate com XP, F28). Converte os dados existentes:
- *
- * - `recompensas`:
- *   - `publicada` vira `status` (rascunho/publicada/inativa/arquivada);
- *   - `estoque` (unidades restantes) vira `estoque_total` +
- *     `estoque_comprometido` (resgates feitos) e `estoque_ilimitado` explícito;
- *     o total nunca fica abaixo do comprometido (CHECK);
- *   - novos: imagem, limite por aluno, público, programa (contexto),
- *     vigência, versão, autor e datas de publicação/arquivamento.
- * - `recompensa_versoes`: foto de nome, descrição, imagem, custo e condições
- *   a cada mudança (só INSERT). `resgates.versao` guarda a versão resgatada;
- *   os resgates já existentes ficam na versão 1.
- * - `recompensa_estoque_ajustes`: reposições/correções com responsável e
- *   motivo (só INSERT).
- *
- * Versões e ajustes saem junto só na exclusão de recompensa sem resgates
- * (CASCADE); com resgates a FK de `resgates` (RESTRICT) impede apagar.
- */
 export class LojinhaRecompensas1792900000000 implements MigrationInterface {
   name = 'LojinhaRecompensas1792900000000';
 
@@ -80,7 +59,6 @@ export class LojinhaRecompensas1792900000000 implements MigrationInterface {
         `ADD "publicado_em" TIMESTAMP WITH TIME ZONE, ` +
         `ADD "arquivado_em" TIMESTAMP WITH TIME ZONE`,
     );
-    // Converte o catálogo mínimo: resgates feitos viram unidades comprometidas.
     await q(
       `UPDATE ${r} x SET ` +
         `"estoque_comprometido" = c.n, ` +
@@ -100,7 +78,6 @@ export class LojinhaRecompensas1792900000000 implements MigrationInterface {
         `ADD CONSTRAINT "ck_recompensas_condicoes" CHECK (btrim("condicoes_retirada") <> ''), ` +
         `ADD CONSTRAINT "ck_recompensas_imagem" CHECK ("imagem_url" IS NULL OR "imagem_url" ~* '^https://'), ` +
         `ADD CONSTRAINT "ck_recompensas_comprometido" CHECK ("estoque_comprometido" >= 0), ` +
-        // Ilimitado é explícito; limitado nunca fica abaixo do comprometido.
         `ADD CONSTRAINT "ck_recompensas_estoque" CHECK (` +
         `("estoque_ilimitado" AND "estoque_total" IS NULL) OR ` +
         `(NOT "estoque_ilimitado" AND "estoque_total" IS NOT NULL AND "estoque_total" >= "estoque_comprometido")), ` +
@@ -167,16 +144,12 @@ export class LojinhaRecompensas1792900000000 implements MigrationInterface {
       await q(
         `CREATE INDEX "idx_${tabela}_recompensa" ON ${g}."${tabela}" ("recompensa_id", "id" DESC)`,
       );
-      // Histórico imutável: UPDATE recusado (DELETE só pela exclusão em
-      // cascata de uma recompensa sem resgates).
       await q(
         `CREATE TRIGGER "tg_${tabela}_somente_insercao" BEFORE UPDATE ON ${g}."${tabela}" ` +
           `FOR EACH ROW EXECUTE FUNCTION ${g}."somente_insercao"()`,
       );
     }
 
-    // Versão resgatada. ADD COLUMN com DEFAULT preenche os resgates antigos
-    // (v1) sem disparar o trigger de somente inserção; o default sai em seguida.
     await q(
       `ALTER TABLE ${g}."resgates" ADD "versao" integer NOT NULL DEFAULT 1, ` +
         `ADD CONSTRAINT "fk_resgate_versao" FOREIGN KEY ("recompensa_id", "versao") ` +
@@ -186,19 +159,12 @@ export class LojinhaRecompensas1792900000000 implements MigrationInterface {
     await q(
       `CREATE INDEX "idx_resgates_recompensa" ON ${g}."resgates" ("recompensa_id", "usuario_id")`,
     );
-    // Limites conferidos pela API (custo e estoque) também no banco, só
-    // para linhas novas: dados antigos acima do teto continuam válidos.
     await q(
       `ALTER TABLE ${r} ADD CONSTRAINT "ck_recompensas_custo_max" CHECK ("custo_xp" <= ${CUSTO_XP_RECOMPENSA.max}) NOT VALID, ` +
         `ADD CONSTRAINT "ck_recompensas_estoque_max" CHECK ("estoque_total" IS NULL OR "estoque_total" <= ${ESTOQUE_MAX}) NOT VALID`,
     );
   }
 
-  /**
-   * Volta ao catálogo mínimo (estoque restante e `publicada`). Recusa se
-   * houver histórico que se perderia (mais de uma versão, ajustes manuais ou
-   * recompensa arquivada/inativa), salvo MIGRATION_DOWN_DESCARTAR_DADOS=true.
-   */
   public async down(queryRunner: QueryRunner): Promise<void> {
     const g = `"${SCHEMA_GAMIFICACAO}"`;
     const r = `${g}."recompensas"`;
