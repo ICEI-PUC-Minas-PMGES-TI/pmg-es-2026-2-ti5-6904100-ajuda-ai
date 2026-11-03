@@ -8,13 +8,28 @@ export default function PerfilEditarPage() {
   const [salvando, setSalvando] = useState(false); const trava = useRef(false);
   useEffect(() => {let ativo = true;
     api.perfilAluno().then(p => {if(ativo) setDados(p);}).catch(e => {if(ativo) setErro(e.message);});
-    api.fotoAluno().then(f => {if(ativo) setUrl(f?.url);}).catch(e => {if(ativo) setErroFoto(e.message);});
+    api.fotoAluno().then(f => {if(ativo) {setUrl(f?.url); setErroFoto('');}}).catch(e => {
+      if (!ativo) return;
+      if (/Azure Blob Storage|AZURE_STORAGE/i.test(e.message || '')) {
+        setUrl(null);
+        setErroFoto('');
+        return;
+      }
+      setErroFoto('Não foi possível carregar a foto agora.');
+    });
     return () => {ativo = false;};
   }, []);
   async function salvar(e) {
     e.preventDefault(); if(trava.current) return; trava.current = true; setSalvando(true); setErro('');
     try {await api.atualizarPerfil({nome: dados.nome, curso: dados.curso, periodo: Number(dados.periodo), turno: dados.turno, interesses: dados.interesses});
-      if(foto) {try {const f = await api.salvarFoto(foto); setUrl(f.url); setFoto(null); setErroFoto('');} catch(e) {setErroFoto(`Perfil salvo. Foto não salva: ${e.message}`); return;}}
+      if(foto) {try {const f = await api.salvarFoto(foto); setUrl(f.url); setFoto(null); setErroFoto('');} catch(e) {
+        if (/Azure Blob Storage|AZURE_STORAGE/i.test(e.message || '')) {
+          setErroFoto('Perfil salvo. O armazenamento de fotos não está disponível neste ambiente.');
+        } else {
+          setErroFoto(`Perfil salvo. Foto não salva: ${e.message}`);
+        }
+        return;
+      }}
       await recarregar(); navigate('/aluno/perfil');
     } catch(e) {setErro(e.message);} finally {trava.current = false; setSalvando(false);}
   }

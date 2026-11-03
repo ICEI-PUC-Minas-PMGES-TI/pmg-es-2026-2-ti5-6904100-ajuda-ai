@@ -20,8 +20,8 @@ function PessoaCard({ pessoa, destaque = false }) {
             {pessoa.interesses.map((item) => <li key={item}>{item}</li>)}
           </ul>
         )}
-        <a className="person-mail" href={`mailto:${pessoa.email}`}><Icon name="mail" size={15} /> {pessoa.email}</a>
       </div>
+      <a className="person-mail" href={`mailto:${pessoa.email}`}><Icon name="mail" size={15} /> {pessoa.email}</a>
     </article>
   );
 }
@@ -66,37 +66,38 @@ export default function PadrinhoPage() {
   if (tipo === 'apadrinhado_ativo' && dados.padrinho) {
     const padrinho = dados.padrinho;
     return (
-      <div className="aluno-page">
-        <section className="match-hero">
-          <div>
-            <h1>Seu padrinho foi definido!</h1>
-            <p>Sua conexão no Ajuda-aí foi criada com sucesso. Agora você já pode iniciar essa jornada com seu padrinho!</p>
-          </div>
-          <span className="match-hero-art" aria-hidden="true"><Icon name="heart" size={40} /></span>
-        </section>
-        <div className="match-layout">
-          <PessoaCard pessoa={padrinho} destaque />
-          <section className="next-steps" aria-labelledby="proximos-passos">
-            <h2 id="proximos-passos">Próximos passos</h2>
-            <p>Aproveite para dar os primeiros passos na sua jornada!</p>
-            <ol>
-              <li><span className="step-num">1</span><Icon name="chat" size={20} /><span><strong>Envie sua primeira mensagem</strong><small>Que tal se apresentar e contar um pouco sobre você?</small></span></li>
-              <li><span className="step-num">2</span><Icon name="person" size={20} /><span><strong>Conheça o perfil do seu padrinho</strong><small>Veja interesses, curso e o grupo de vocês.</small></span></li>
-              <li><span className="step-num">3</span><Icon name="calendar" size={20} /><span><strong>Combine um primeiro encontro</strong><small>Vocês podem conversar no campus ou em um ambiente online.</small></span></li>
-            </ol>
-            <div className="next-steps-actions">
-              <button type="button" className="primary-button" onClick={() => mostrarToast(CHAT_EM_BREVE)}><Icon name="chat" size={18} /> Enviar mensagem</button>
-              <a className="outline-button" href={`mailto:${padrinho.email}`}><Icon name="mail" size={18} /> Escrever por e-mail</a>
+      <div className="aluno-page match-page">
+        <section className="match-panel" aria-label="Seu padrinho">
+          <header className="match-hero">
+            <div>
+              <h1>Seu padrinho foi definido!</h1>
+              <p>Sua conexão no Ajuda-aí foi criada com sucesso. Agora você já pode iniciar essa jornada com seu padrinho!</p>
             </div>
-          </section>
-        </div>
-        <div className="bond-banner">
-          <span className="bond-icon" aria-hidden="true"><Icon name="groups" size={28} /></span>
-          <div>
-            <strong>Seu vínculo está ativo!</strong>
-            <p>Agora você já pode conversar, participar de encontros e acompanhar as atividades do {padrinho.grupo || 'seu grupo'} no Ajuda-aí.</p>
+            <span className="match-hero-art" aria-hidden="true"><Icon name="heart" size={28} /></span>
+          </header>
+          <div className="match-layout">
+            <PessoaCard pessoa={padrinho} destaque />
+            <section className="next-steps" aria-labelledby="proximos-passos">
+              <h2 id="proximos-passos">Próximos passos</h2>
+              <p>Aproveite para dar os primeiros passos na sua jornada!</p>
+              <ol>
+                <li><span className="step-num">1</span><Icon name="chat" size={20} /><span><strong>Envie sua primeira mensagem</strong><small>Que tal se apresentar e contar um pouco sobre você?</small></span></li>
+                <li><span className="step-num">2</span><Icon name="person" size={20} /><span><strong>Conheça o perfil do seu padrinho</strong><small>Veja interesses, curso e o grupo de vocês.</small></span></li>
+                <li><span className="step-num">3</span><Icon name="calendar" size={20} /><span><strong>Combine um primeiro encontro</strong><small>Vocês podem conversar no campus ou em um ambiente online.</small></span></li>
+              </ol>
+              <div className="next-steps-actions">
+                <button type="button" className="primary-button" onClick={() => mostrarToast(CHAT_EM_BREVE)}><Icon name="chat" size={18} /> Enviar mensagem</button>
+              </div>
+            </section>
           </div>
-        </div>
+          <div className="bond-banner">
+            <span className="bond-icon" aria-hidden="true"><Icon name="groups" size={24} /></span>
+            <div>
+              <strong>Seu vínculo está ativo!</strong>
+              <p>Agora você já pode conversar, participar de encontros e acompanhar as atividades do {padrinho.grupo || 'seu grupo'} no Ajuda-aí.</p>
+            </div>
+          </div>
+        </section>
       </div>
     );
   }

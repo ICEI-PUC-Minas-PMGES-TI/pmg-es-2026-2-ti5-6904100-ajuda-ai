@@ -319,5 +319,32 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
     expect(principal?.papel).toBe('padrinho');
   });
 
+  it('registro principal prioriza apadrinhado ativo sobre candidatura residual', async () => {
+    registros.push(
+      {
+        id: 1,
+        usuarioId: 'camila@pucminas.edu.br',
+        programa: '2026/2',
+        papel: 'candidato',
+        status: 'em_analise',
+      } as ParticipacaoEntity,
+      {
+        id: 8,
+        usuarioId: 'camila@pucminas.edu.br',
+        programa: '2026/2',
+        papel: 'apadrinhado',
+        status: 'em_andamento',
+        grupo: 'Grupo 08',
+      } as ParticipacaoEntity,
+    );
+
+    const principal = await service.registroPrincipal(
+      'camila@pucminas.edu.br',
+      '2026/2',
+    );
+    expect(principal?.papel).toBe('apadrinhado');
+    expect(principal?.status).toBe('em_andamento');
+  });
+
   /** Repositório em memória que entende `where` simples (igualdade). */
 });

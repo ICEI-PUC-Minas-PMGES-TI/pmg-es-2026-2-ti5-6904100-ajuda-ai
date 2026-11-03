@@ -270,6 +270,9 @@
 .answer-bar { height: 8px; border-radius: 999px; background: #f2f1f8; overflow: hidden; }
 .answer-bar i { display: block; height: 100%; border-radius: inherit; background: var(--purple); }
 .forms-publish { padding: 4px 16px; border: 1px solid var(--border); border-radius: 14px; background: #fff; }
+.forms-editor { margin: 0; padding: 0; border: 0; min-inline-size: 0; }
+.forms-editor:disabled { opacity: .72; }
+.forms-editor:disabled .question-card { pointer-events: none; }
 .question-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .question-card { display: grid; gap: 6px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 16px; background: #fff; box-shadow: 0 4px 14px rgba(36, 23, 131, .03); transition: border-color .15s ease, box-shadow .15s ease, opacity .15s ease; }
 .question-card.dragging { opacity: .55; }

@@ -10,6 +10,7 @@ import {
   Post,
   Put,
   Patch,
+  ServiceUnavailableException,
   UploadedFile,
   UseInterceptors,
   Req,
@@ -147,8 +148,14 @@ export class MeController {
   @Get('foto')
   async lerFoto(@Req() requisicao: AuthenticatedRequest) {
     const chave = await this.chaveFoto(requisicao);
-    if (!(await this.storage.existe('profiles', chave))) return { url: null };
-    return this.storage.sasLeitura('profiles', chave);
+    try {
+      if (!(await this.storage.existe('profiles', chave))) return { url: null };
+      return this.storage.sasLeitura('profiles', chave);
+    } catch (erro) {
+      // Em desenvolvimento sem Azure, o perfil segue com iniciais — sem erro na UI.
+      if (erro instanceof ServiceUnavailableException) return { url: null };
+      throw erro;
+    }
   }
 
   /** Padrinho ↔ apadrinhados: só para cadastros aprovados. */

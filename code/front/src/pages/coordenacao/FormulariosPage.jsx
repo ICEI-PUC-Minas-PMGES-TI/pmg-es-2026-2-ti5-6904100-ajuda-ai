@@ -169,7 +169,19 @@ export default function FormulariosPage() {
   const [modalMatching, setModalMatching] = useState(false);
 
   useEffect(() => {
-    api.programas().then(setProgramas).catch(() => setProgramas([]));
+    api.programas().then((lista) => {
+      setProgramas(lista);
+      if (!programaParam) {
+        const vigente = lista.find((p) => p.vigente) || lista[0];
+        if (vigente?.codigo) {
+          const novos = new URLSearchParams(params);
+          novos.set('programa', vigente.codigo);
+          setParams(novos, { replace: true });
+        }
+      }
+    }).catch(() => setProgramas([]));
+    // Só na montagem / quando ainda não há programa na URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** Situação de cada público no programa (alimenta os selos das abas). */
@@ -210,6 +222,10 @@ export default function FormulariosPage() {
   }, [carregar]);
 
   const sujo = useMemo(() => formulario && rascunho && serializar(rascunho) !== serializar(paraEdicao(formulario)), [formulario, rascunho]);
+  const programaAtual = formulario?.programa || programaParam;
+  const metaPrograma = programas.find((p) => p.codigo === programaAtual);
+  // Sem meta ainda (lista carregando): não trava a UI. Com meta: só o vigente edita.
+  const editavel = !metaPrograma || (Boolean(metaPrograma.vigente) && !metaPrograma.encerrado);
 
   function trocar(chave, valor) {
     const aplicar = () => {
@@ -326,6 +342,10 @@ export default function FormulariosPage() {
   }
 
   async function salvar() {
+    if (!editavel) {
+      setErroSalvar('Este ciclo é somente leitura. Abra o ciclo vigente para editar.');
+      return;
+    }
     const problema = validarRascunho(rascunho.perguntas);
     if (problema) {
       setErroSalvar(problema);
@@ -390,7 +410,6 @@ export default function FormulariosPage() {
   }
 
   const aba = ABAS.find((a) => a.tipo === tipo);
-  const programaAtual = formulario?.programa || programaParam;
   const status = formulario?.status || 'rascunho';
 
   return (
@@ -426,13 +445,24 @@ export default function FormulariosPage() {
           <span className="sr-only">Programa</span>
           <select value={programaAtual} onChange={(e) => trocar('programa', e.target.value)}>
             {!programas.some((p) => p.codigo === programaAtual) && programaAtual && <option value={programaAtual}>Programa {programaAtual}</option>}
-            {programas.map((p) => <option key={p.codigo} value={p.codigo}>{p.nome || `Programa ${p.codigo}`}{p.vigente ? ' (vigente)' : ''}</option>)}
+            {programas.map((p) => (
+              <option key={p.codigo} value={p.codigo}>
+                {p.nome || `Programa ${p.codigo}`}
+                {p.vigente ? ' (vigente)' : p.encerrado ? ' (encerrado)' : ' (histórico)'}
+              </option>
+            ))}
           </select>
         </label>
       </div>
 
       {carregando && !rascunho && <div className="coord-state" role="status"><div className="coord-spinner" aria-hidden="true" /><p>Carregando formulário…</p></div>}
       {erro && <div className="dash-inline-error" role="alert">{erro}<button type="button" onClick={carregar}>Tentar novamente</button></div>}
+      {!editavel && rascunho && (
+        <p className="detail-warn" role="status">
+          <Icon name="lock" size={15} /> Ciclo {metaPrograma?.encerrado ? 'encerrado' : 'histórico'}: formulário somente leitura.
+          Para alterar perguntas, abra o ciclo vigente ou use &quot;Duplicar para outro programa&quot;.
+        </p>
+      )}
 
       {rascunho && (
         <>
@@ -440,13 +470,16 @@ export default function FormulariosPage() {
             <Toggle
               label="Publicar para os alunos"
               descricao={
-                status === 'encerrado' && !rascunho.publicado
+                !editavel
+                  ? 'Somente o ciclo vigente pode publicar ou alterar o formulário.'
+                  : status === 'encerrado' && !rascunho.publicado
                   ? 'Encerrado: não aceita novas respostas. Publique e salve para reabrir (nova versão).'
                   : rascunho.publicado
                     ? 'As perguntas aparecem no cadastro depois de salvar. Alterar um formulário publicado cria nova versão.'
                     : 'Enquanto for rascunho, os alunos não veem estas perguntas.'
               }
               checked={rascunho.publicado}
+              disabled={!editavel}
               onChange={(v) => setRascunho((atual) => ({ ...atual, publicado: v }))}
             />
           </div>
@@ -468,52 +501,58 @@ export default function FormulariosPage() {
 
           {rascunho.perguntas.length === 0 && <p className="empty-copy">Nenhuma pergunta adicional. Adicione a primeira abaixo.</p>}
 
-          <ol className="question-list">
-            {rascunho.perguntas.map((pergunta, indice) => (
-              <PerguntaEditor
-                key={pergunta.id}
-                pergunta={pergunta}
-                indice={indice}
-                anteriores={rascunho.perguntas.slice(0, indice)}
-                secoes={[...new Set(rascunho.perguntas.map((p) => (p.secao || '').trim()).filter(Boolean))]}
-                total={rascunho.perguntas.length}
-                arrastando={arrastando === indice}
-                sobre={sobre === indice}
-                onDragStart={() => setArrastando(indice)}
-                onDragOver={() => setSobre(indice)}
-                onDrop={() => { reordenar(arrastando, indice); setArrastando(null); setSobre(null); }}
-                onDragEnd={() => { setArrastando(null); setSobre(null); }}
-                onChange={(parcial) => editarPergunta(indice, parcial)}
-                onMover={(d) => mover(indice, d)}
-                onRemover={() => remover(indice)}
-              />
-            ))}
-          </ol>
+          <fieldset className="forms-editor" disabled={!editavel}>
+            <ol className="question-list">
+              {rascunho.perguntas.map((pergunta, indice) => (
+                <PerguntaEditor
+                  key={pergunta.id}
+                  pergunta={pergunta}
+                  indice={indice}
+                  anteriores={rascunho.perguntas.slice(0, indice)}
+                  secoes={[...new Set(rascunho.perguntas.map((p) => (p.secao || '').trim()).filter(Boolean))]}
+                  total={rascunho.perguntas.length}
+                  arrastando={arrastando === indice}
+                  sobre={sobre === indice}
+                  onDragStart={() => editavel && setArrastando(indice)}
+                  onDragOver={() => editavel && setSobre(indice)}
+                  onDrop={() => { if (!editavel) return; reordenar(arrastando, indice); setArrastando(null); setSobre(null); }}
+                  onDragEnd={() => { setArrastando(null); setSobre(null); }}
+                  onChange={(parcial) => editarPergunta(indice, parcial)}
+                  onMover={(d) => mover(indice, d)}
+                  onRemover={() => remover(indice)}
+                />
+              ))}
+            </ol>
 
-          <div className="forms-add-actions">
-            <button type="button" className="add-question" onClick={adicionarComum} disabled={rascunho.perguntas.length >= 30}>
-              <Icon name="plus" size={18} /> Adicionar pergunta comum
-            </button>
-            <button
-              type="button"
-              className="add-question matching"
-              onClick={() => setModalMatching(true)}
-              disabled={rascunho.perguntas.length >= 30}
-            >
-              <Icon name="spark" size={18} /> Adicionar pergunta de matching
-            </button>
-          </div>
+            <div className="forms-add-actions">
+              <button type="button" className="add-question" onClick={adicionarComum} disabled={!editavel || rascunho.perguntas.length >= 30}>
+                <Icon name="plus" size={18} /> Adicionar pergunta comum
+              </button>
+              <button
+                type="button"
+                className="add-question matching"
+                onClick={() => setModalMatching(true)}
+                disabled={!editavel || rascunho.perguntas.length >= 30}
+              >
+                <Icon name="spark" size={18} /> Adicionar pergunta de matching
+              </button>
+            </div>
+          </fieldset>
 
           {erroSalvar && <p className="form-error" role="alert"><Icon name="alert" size={16} /> {erroSalvar}</p>}
 
           <div className="forms-actions">
-            <button type="button" className="primary-button" onClick={salvar} disabled={salvando}>
-              <Icon name="save" size={18} /> {salvando ? 'Salvando…' : 'Salvar alterações'}
-            </button>
+            {editavel && (
+              <button type="button" className="primary-button" onClick={salvar} disabled={salvando}>
+                <Icon name="save" size={18} /> {salvando ? 'Salvando…' : 'Salvar alterações'}
+              </button>
+            )}
             <button type="button" className="outline-button" onClick={() => { setRespostasPrevia({}); setPrevia(true); }}>
               <Icon name="eye" size={18} /> Ver prévia do formulário
             </button>
-            <button type="button" className="link-btn" onClick={() => (sujo ? setDescartar(() => carregar) : carregar())}>Cancelar</button>
+            {editavel && (
+              <button type="button" className="link-btn" onClick={() => (sujo ? setDescartar(() => carregar) : carregar())}>Cancelar</button>
+            )}
             <Link className="outline-button" to={`/coordenacao/formularios/respostas?tipo=${tipo}&programa=${encodeURIComponent(programaAtual)}`}>
               <Icon name="chart" size={18} /> Consultar respostas
             </Link>
@@ -522,12 +561,12 @@ export default function FormulariosPage() {
                 <Icon name="file" size={18} /> Duplicar para outro programa
               </button>
             )}
-            {status === 'publicado' && (
+            {editavel && status === 'publicado' && (
               <button type="button" className="outline-button" onClick={() => setConfirmarEncerrar(true)} disabled={sujo || encerrando} title={sujo ? 'Salve as alterações antes de encerrar.' : undefined}>
                 <Icon name="lock" size={18} /> Encerrar novas respostas
               </button>
             )}
-            {podeExcluir(formulario) && (
+            {editavel && podeExcluir(formulario) && (
               <button type="button" className="danger-button" onClick={() => setConfirmarExclusao(true)} disabled={excluindo}>
                 <Icon name="trash" size={16} /> Excluir rascunho
               </button>
