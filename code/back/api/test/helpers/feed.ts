@@ -5,6 +5,9 @@ import { PublicacoesService } from '../../src/publicacoes/publicacoes.service.js
 import { FeedPolicy } from '../../src/publicacoes/feed-policy.js';
 import type { UsuariosService } from '../../src/usuarios/usuarios.service.js';
 import type { FeedMidiasService } from '../../src/publicacoes/feed-midias.service.js';
+import { ParticipacoesService } from '../../src/participacoes/participacoes.service.js';
+import { ProgramasService } from '../../src/programas/programas.service.js';
+import { buscarUsuarioPorEmail } from '../../src/dados/dados.js';
 
 export const coordenador: AccessTokenPayload = {
   sub: '3',
@@ -35,7 +38,29 @@ export const somenteMapa: AccessTokenPayload = {
 
 /** Banco isolado para testes de transação e contrato HTTP; integração PG testa locks reais. */
 export function criarFeedTeste() {
+  const programa = ParticipacoesService.programaAtual();
   const tabelas: Record<string, any[]> = {
+    ProgramaEntity: [{ codigo: programa, etapaAtual: 'andamento' }],
+    ParticipacaoEntity: [
+      {
+        id: 1,
+        usuarioId: padrinho.email,
+        programa,
+        papel: 'padrinho',
+        status: 'em_andamento',
+        grupo: 'Grupo 01',
+        terminoEm: null,
+      },
+      {
+        id: 2,
+        usuarioId: aluno.email,
+        programa,
+        papel: 'apadrinhado',
+        status: 'em_andamento',
+        grupo: 'Grupo 01',
+        terminoEm: null,
+      },
+    ],
     PublicacaoEntity: [],
     ComentarioEntity: [],
     CurtidaEntity: [],
@@ -118,15 +143,19 @@ export function criarFeedTeste() {
     validar: async () => {},
     urls: (chaves: string[]) => chaves,
   } as unknown as FeedMidiasService;
+  const policy = new FeedPolicy(
+    new ParticipacoesService(repos.ParticipacaoEntity, repos.ProgramaEntity),
+    new ProgramasService(repos.ProgramaEntity),
+  );
   const service = new PublicacoesService(
     repos.PublicacaoEntity as Repository<PublicacaoEntity>,
     dados,
-    new FeedPolicy(),
+    policy,
     {
       buscarPorEmail: async (email: string) =>
         email === padrinho.email
           ? { id: 2, nome: 'Pedro Santos', email }
-          : null,
+          : (buscarUsuarioPorEmail(email) ?? null),
       buscarAutoresPorEmails: async (emails: string[]) =>
         emails
           .filter((e) => e === aluno.email || e === padrinho.email)
@@ -138,5 +167,5 @@ export function criarFeedTeste() {
     } as unknown as UsuariosService,
     midias,
   );
-  return { service, tabelas, repos, dados, midias };
+  return { service, tabelas, repos, dados, midias, policy };
 }

@@ -25,15 +25,16 @@ import {
 
 describe('Feed HTTP e SSE autenticados', () => {
   let app: INestApplication;
+  let feed: ReturnType<typeof criarFeedTeste>;
   beforeEach(async () => {
-    const feed = criarFeedTeste();
+    feed = criarFeedTeste();
     const modulo = await Test.createTestingModule({
       imports: [
         JwtModule.register({ secret: 'segredo-exclusivo-testes-feed' }),
       ],
       controllers: [PublicacoesController],
       providers: [
-        FeedPolicy,
+        { provide: FeedPolicy, useValue: feed.policy },
         FeedPublishGuard,
         FeedAdminGuard,
         FeedStreamService,
@@ -59,6 +60,142 @@ describe('Feed HTTP e SSE autenticados', () => {
   });
   const auth = (papel = aluno) =>
     `Bearer ${app.get(JwtService).sign(papel, { expiresIn: '1h' })}`;
+
+  it.each([
+    [
+      'Ana',
+      'ana.beatriz@pucminas.edu.br',
+      'padrinho',
+      'candidato',
+      'pendente',
+      false,
+    ],
+    [
+      'Julia',
+      'julia.fernandes@pucminas.edu.br',
+      'padrinho',
+      'candidato',
+      'nao_aprovado',
+      false,
+    ],
+    [
+      'Camila',
+      aluno.email,
+      'apadrinhado',
+      'apadrinhado',
+      'em_andamento',
+      false,
+    ],
+    [
+      'Lucas',
+      'lucas.almeida@pucminas.edu.br',
+      'apadrinhado',
+      'apadrinhado',
+      'em_andamento',
+      false,
+    ],
+    [
+      'Thiago',
+      'thiago@pucminas.edu.br',
+      'padrinho',
+      'padrinho',
+      'em_andamento',
+      true,
+    ],
+  ] as const)(
+    'auditoria: %s só publica quando é padrinho ativo',
+    async (_nome, email, perfil, papel, status, permitido) => {
+      feed.tabelas.ParticipacaoEntity.push({
+        id: 3,
+        usuarioId: email,
+        programa: feed.tabelas.ProgramaEntity[0].codigo,
+        papel,
+        status,
+        grupo: 'Grupo 01',
+        terminoEm: null,
+      });
+      // O grupo de Thiago tem uma apadrinhada ativa, sem outro padrinho.
+      feed.tabelas.ParticipacaoEntity = feed.tabelas.ParticipacaoEntity.filter(
+        (p) => p.usuarioId !== padrinho.email,
+      );
+      const token = auth({ sub: email, email, perfil, escopo: 'acesso' });
+      const permissoes = await request(app.getHttpServer())
+        .get('/publicacoes/permissoes')
+        .set('Authorization', token)
+        .expect(200);
+      expect(permissoes.body.podePublicar).toBe(permitido);
+      await request(app.getHttpServer())
+        .post('/publicacoes')
+        .set('Authorization', token)
+        .send({ texto: 'Publicação da auditoria' })
+        .expect(permitido ? 201 : 403);
+      await request(app.getHttpServer())
+        .post('/publicacoes/midias')
+        .set('Authorization', token)
+        .expect(permitido ? 400 : 403);
+      expect(feed.tabelas.PublicacaoEntity).toHaveLength(permitido ? 1 : 0);
+      expect(feed.tabelas.FeedOutboxEntity).toHaveLength(permitido ? 1 : 0);
+
+      const post = await feed.service.criar(
+        { texto: 'Comunicado' },
+        coordenador,
+      );
+      await request(app.getHttpServer())
+        .get('/publicacoes')
+        .set('Authorization', token)
+        .expect(200);
+      await request(app.getHttpServer())
+        .post(`/publicacoes/${post.id}/curtidas`)
+        .set('Authorization', token)
+        .send({ delta: 1 })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/publicacoes/${post.id}/comentarios`)
+        .set('Authorization', token)
+        .send({ texto: 'Comentário permitido' })
+        .expect(201);
+    },
+  );
+
+  it('revogação bloqueia publicação e upload com o mesmo JWT já emitido', async () => {
+    const token = auth(padrinho);
+    const permissoes = await request(app.getHttpServer())
+      .get('/publicacoes/permissoes')
+      .set('Authorization', token)
+      .expect(200);
+    expect(permissoes.body.podePublicar).toBe(true);
+    feed.tabelas.ParticipacaoEntity[0].status = 'nao_aprovado';
+    for (const path of ['/publicacoes', '/publicacoes/midias']) {
+      await request(app.getHttpServer())
+        .post(path)
+        .set('Authorization', token)
+        .send({ texto: 'Sem autorização' })
+        .expect(403);
+    }
+    const atuais = await request(app.getHttpServer())
+      .get('/publicacoes/permissoes')
+      .set('Authorization', token)
+      .expect(200);
+    expect(atuais.body.podePublicar).toBe(false);
+    expect(feed.tabelas.PublicacaoEntity).toHaveLength(0);
+    expect(feed.tabelas.FeedOutboxEntity).toHaveLength(0);
+  });
+
+  it('ciclo enviado pelo cliente não restaura a permissão de um padrinho antigo', async () => {
+    const antigo = '2020/1';
+    feed.tabelas.ParticipacaoEntity[0].programa = antigo;
+    feed.tabelas.ProgramaEntity.push({
+      codigo: antigo,
+      etapaAtual: 'andamento',
+    });
+    for (const path of ['/publicacoes', '/publicacoes/midias']) {
+      await request(app.getHttpServer())
+        .post(`${path}?programa=${antigo}`)
+        .set('Authorization', auth(padrinho))
+        .send({ texto: 'Ciclo antigo' })
+        .expect(403);
+    }
+  });
 
   it.each([
     [coordenador, true, true, true],
@@ -178,6 +315,18 @@ describe('Feed HTTP e SSE autenticados', () => {
       .expect(200);
   });
   it('recusa visitantes, identidade por header e token de onboarding', async () => {
+    for (const path of ['/publicacoes', '/publicacoes/midias']) {
+      await request(app.getHttpServer())
+        .post(path)
+        .set('x-user-id', padrinho.email)
+        .send({ texto: 'Sem JWT' })
+        .expect(401);
+      await request(app.getHttpServer())
+        .post(path)
+        .set('Authorization', auth({ ...padrinho, escopo: 'onboarding' }))
+        .send({ texto: 'Onboarding' })
+        .expect(401);
+    }
     for (const path of [
       '/publicacoes',
       '/publicacoes/events',

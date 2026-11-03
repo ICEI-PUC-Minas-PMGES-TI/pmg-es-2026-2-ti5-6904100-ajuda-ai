@@ -49,7 +49,14 @@ Comando REST autenticado
 `FeedPolicy` separa publicação, interação e administração conforme as decisões de
 02/11/2026, que substituem as regras de feed do PDF de 14/10/2026:
 
-- Coordenação e padrinhos publicam e enviam imagens; apadrinhados não publicam.
+- Coordenação e padrinhos **ativos no ciclo atual** publicam e enviam imagens.
+  O perfil `padrinho` no JWT, sozinho, não concede essa permissão: a cada consulta
+  de permissões, publicação e upload, o servidor verifica o ciclo cadastrado e não
+  encerrado, a participação sem término e a situação `padrinho_ativo`, incluindo
+  vínculo confirmado conforme `ParticipacoesService`. Candidaturas pendentes,
+  em análise, rejeitadas ou aprovadas sem matching, apadrinhados e participações
+  concluídas não publicam. Um ciclo antigo/futuro enviado pelo cliente não concede
+  permissão: o feed global usa `ParticipacoesService.programaAtual()`.
 - Coordenação, padrinhos e apadrinhados curtem/descurtem e comentam.
 - Perfil `nenhuma` (ou ausente/desconhecido) mantém leitura autenticada, sem novas
   interações. Nenhuma regra de matching/candidatura é alterada.

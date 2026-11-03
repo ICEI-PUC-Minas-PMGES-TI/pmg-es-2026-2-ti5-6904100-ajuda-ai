@@ -37,9 +37,11 @@ export class PublicacoesController {
     return this.publicacoes.listar(req.user);
   }
   @Get('permissoes')
-  permissoes(@Req() req: AuthenticatedRequest): FeedPermissoesDto {
+  async permissoes(
+    @Req() req: AuthenticatedRequest,
+  ): Promise<FeedPermissoesDto> {
     return {
-      podePublicar: this.policy.podePublicar(req.user),
+      podePublicar: await this.policy.podePublicar(req.user),
       podeAdministrar: this.policy.podeAdministrar(req.user),
       podeInteragir: this.policy.podeInteragir(req.user),
     };

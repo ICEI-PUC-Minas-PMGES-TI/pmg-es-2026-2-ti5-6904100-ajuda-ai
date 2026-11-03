@@ -10,6 +10,10 @@ import { FeedTempoReal1793300000000 } from '../src/migrations/1793300000000-Feed
 import { ThreadsComentariosFeed1793400000000 } from '../src/migrations/1793400000000-ThreadsComentariosFeed.js';
 import { PublicacoesService } from '../src/publicacoes/publicacoes.service.js';
 import { FeedPolicy } from '../src/publicacoes/feed-policy.js';
+import { ParticipacaoEntity } from '../src/participacoes/entities/participacao.entity.js';
+import { ParticipacoesService } from '../src/participacoes/participacoes.service.js';
+import { ProgramaEntity } from '../src/programas/entities/programa.entity.js';
+import { ProgramasService } from '../src/programas/programas.service.js';
 import { FeedStreamService } from '../src/publicacoes/feed-stream.service.js';
 import { FeedRabbitService } from '../src/publicacoes/feed-rabbit.service.js';
 import { FeedOutboxService } from '../src/publicacoes/feed-outbox.service.js';
@@ -34,6 +38,8 @@ describe.skipIf(!db || !amqp)(
         url: db,
         schema,
         entities: [
+          ParticipacaoEntity,
+          ProgramaEntity,
           PublicacaoEntity,
           ComentarioEntity,
           CurtidaEntity,
@@ -102,7 +108,13 @@ describe.skipIf(!db || !amqp)(
       service = new PublicacoesService(
         dados.getRepository(PublicacaoEntity),
         dados,
-        new FeedPolicy(),
+        new FeedPolicy(
+          new ParticipacoesService(
+            dados.getRepository(ParticipacaoEntity),
+            dados.getRepository(ProgramaEntity),
+          ),
+          new ProgramasService(dados.getRepository(ProgramaEntity)),
+        ),
         {
           buscarPorEmail: async () => null,
           buscarAutoresPorEmails: async () => [],

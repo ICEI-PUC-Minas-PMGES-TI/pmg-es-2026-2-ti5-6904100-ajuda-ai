@@ -61,7 +61,7 @@ export class PublicacoesService {
   }
 
   async criar(corpo: DadosPublicacao, usuario: AccessTokenPayload) {
-    this.policy.exigirPublicacao(usuario);
+    await this.policy.exigirPublicacao(usuario);
     const valores = this.validar(corpo);
     await this.midias.validar(valores.imagens, usuario.email);
     const autor =

@@ -8,12 +8,34 @@ import type {
   AccessTokenPayload,
   AuthenticatedRequest,
 } from '../auth/authenticated-request.js';
+import { ParticipacoesService } from '../participacoes/participacoes.service.js';
+import { ProgramasService } from '../programas/programas.service.js';
 
-/** Permissões do feed pelo perfil atual, sem inferir vínculos de matching. */
+/** Publicação depende da participação atual; o perfil JWT sozinho não a concede. */
 @Injectable()
 export class FeedPolicy {
-  podePublicar(usuario: AccessTokenPayload): boolean {
-    return ['coordenador', 'padrinho'].includes(usuario.perfil ?? '');
+  constructor(
+    private readonly participacoes: ParticipacoesService,
+    private readonly programas: ProgramasService,
+  ) {}
+
+  async podePublicar(usuario: AccessTokenPayload): Promise<boolean> {
+    if (this.podeAdministrar(usuario)) return true;
+    if (usuario.perfil !== 'padrinho') return false;
+
+    // O feed é global: o cliente não pode escolher um ciclo antigo para publicar.
+    const codigo = ParticipacoesService.programaAtual();
+    const programa = await this.programas.buscarPorCodigo(codigo);
+    if (!programa || programa.etapaAtual === 'encerramento') return false;
+    const registro = await this.participacoes.registroPrincipal(
+      usuario.email,
+      codigo,
+    );
+    if (!registro || registro.terminoEm) return false;
+    return (
+      (await this.participacoes.situacaoDoRegistro(registro)) ===
+      'padrinho_ativo'
+    );
   }
 
   podeAdministrar(usuario: AccessTokenPayload): boolean {
@@ -43,8 +65,8 @@ export class FeedPolicy {
       throw new ForbiddenException('Seu perfil não permite interagir no feed.');
   }
 
-  exigirPublicacao(usuario: AccessTokenPayload): void {
-    if (!this.podePublicar(usuario))
+  async exigirPublicacao(usuario: AccessTokenPayload): Promise<void> {
+    if (!(await this.podePublicar(usuario)))
       throw new ForbiddenException(
         'Você não tem permissão para publicar no feed.',
       );
@@ -65,8 +87,8 @@ export class FeedAdminGuard implements CanActivate {
 @Injectable()
 export class FeedPublishGuard implements CanActivate {
   constructor(private readonly policy: FeedPolicy) {}
-  canActivate(contexto: ExecutionContext): boolean {
-    this.policy.exigirPublicacao(
+  async canActivate(contexto: ExecutionContext): Promise<boolean> {
+    await this.policy.exigirPublicacao(
       contexto.switchToHttp().getRequest<AuthenticatedRequest>().user,
     );
     return true;
