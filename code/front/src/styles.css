@@ -81,7 +81,8 @@ select:not([multiple]):not([size]):disabled {
 /* Dentro de moldura própria: só o wrapper tem borda (evita caixa dentro de caixa) */
 .field select:not([multiple]):not([size]),
 .filter-select select:not([multiple]):not([size]),
-.chips select:not([multiple]):not([size]) {
+.chips select:not([multiple]):not([size]),
+.aluno-cycle-picker select:not([multiple]):not([size]) {
   width: 100%;
   min-height: 0;
   height: 100%;
@@ -99,12 +100,15 @@ select:not([multiple]):not([size]):disabled {
 .field select:not([multiple]):not([size]):hover:not(:disabled),
 .filter-select select:not([multiple]):not([size]):hover:not(:disabled),
 .chips select:not([multiple]):not([size]):hover:not(:disabled),
+.aluno-cycle-picker select:not([multiple]):not([size]):hover:not(:disabled),
 .field select:not([multiple]):not([size]):focus,
 .filter-select select:not([multiple]):not([size]):focus,
 .chips select:not([multiple]):not([size]):focus,
+.aluno-cycle-picker select:not([multiple]):not([size]):focus,
 .field select:not([multiple]):not([size]):disabled,
 .filter-select select:not([multiple]):not([size]):disabled,
-.chips select:not([multiple]):not([size]):disabled {
+.chips select:not([multiple]):not([size]):disabled,
+.aluno-cycle-picker select:not([multiple]):not([size]):disabled {
   border: 0;
   box-shadow: none;
   background-color: transparent;

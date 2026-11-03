@@ -28,6 +28,8 @@ import {
 } from '../formularios/respostas-formulario.js';
 import { CadastroService } from '../cadastro/cadastro.service.js';
 import { seedDemoHabilitado } from '../config/seguranca.js';
+import { CriterioCatalogoService } from '../matching/criterio-catalogo.service.js';
+import { MatchingService } from '../matching/matching.service.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
 import type { EntradaVerificacao } from '../participacoes/verificacao-academica.js';
 
@@ -47,6 +49,8 @@ export class CoordenacaoService implements OnModuleInit {
     private readonly avisosService: AvisosService,
     private readonly cadastroService: CadastroService,
     private readonly usuariosService: UsuariosService,
+    private readonly matchingService: MatchingService,
+    private readonly criterioCatalogoService: CriterioCatalogoService,
     @InjectRepository(ParticipacaoEntity)
     private readonly participacoes: Repository<ParticipacaoEntity>,
   ) {}
@@ -66,7 +70,146 @@ export class CoordenacaoService implements OnModuleInit {
     await this.programasService.garantirProgramaAtual();
     await this.programasService.garantirProgramaHistoricoDemo();
     await this.semearRequisitosDemo();
+    await this.semearFormulariosDemo();
     await this.semearParticipacoesDemo();
+    await this.semearMatchingDemo();
+  }
+
+  /**
+   * Publica as perguntas sugeridas do ciclo atual quando ainda não há
+   * formulário salvo/publicado — senão o aluno vê perguntas=[] na demo.
+   * Não sobrescreve rascunho ou publicação já persistidos pela coordenação.
+   */
+  private async semearFormulariosDemo() {
+    const programa = await this.programasService.garantirProgramaAtual();
+    for (const tipo of ['padrinho', 'apadrinhado'] as const) {
+      const atual = await this.formulariosService.obter(tipo, programa.codigo);
+      if (atual.salvo || atual.publicado) continue;
+      await this.formulariosService.salvar(tipo, {
+        programa: programa.codigo,
+        publicado: true,
+        perguntas: atual.perguntas,
+      });
+    }
+  }
+
+  /**
+   * Habilita matching na demo: catálogo mínimo, pergunta vinculada nos dois
+   * formulários, configuração liberada e extras nas participações elegíveis.
+   * Idempotente — não sobrescreve configuração já salva pela coordenação.
+   */
+  private async semearMatchingDemo() {
+    const programa = await this.programasService.garantirProgramaAtual();
+    let catalogo =
+      await this.criterioCatalogoService.listarAtivosParaFormulario();
+    if (!catalogo.length) {
+      await this.criterioCatalogoService.criar(
+        {
+          nome: 'Áreas de apoio',
+          descricao:
+            'Áreas em que o padrinho pode apoiar ou o apadrinhado precisa de apoio.',
+          enunciadoPadrao: 'Quais áreas de apoio são relevantes para você?',
+          tipo: 'multipla_escolha',
+          alternativas: [
+            { id: 'academico', rotulo: 'Acadêmico' },
+            { id: 'carreira', rotulo: 'Carreira' },
+            { id: 'pessoal', rotulo: 'Pessoal' },
+            { id: 'social', rotulo: 'Social' },
+          ],
+          ativo: true,
+        },
+        'seed:demo',
+      );
+      catalogo =
+        await this.criterioCatalogoService.listarAtivosParaFormulario();
+    }
+    const criterio =
+      catalogo.find((c) => c.versao?.tipo === 'multipla_escolha') ??
+      catalogo[0];
+    if (!criterio?.versao) return;
+
+    const perguntaId = `match-criterio-${criterio.id}`;
+    const perguntaMatching = {
+      id: perguntaId,
+      enunciado: criterio.versao.enunciadoPadrao,
+      tipo: criterio.versao.tipo,
+      opcoes: [] as string[],
+      alternativas: criterio.versao.alternativas,
+      obrigatoria: false,
+      criterioId: criterio.id,
+      criterioVersao: criterio.versao.versao,
+    };
+
+    for (const tipo of ['padrinho', 'apadrinhado'] as const) {
+      const form = await this.formulariosService.obter(tipo, programa.codigo);
+      const jaTem = (form.perguntas ?? []).some(
+        (p) => Number(p.criterioId) === criterio.id,
+      );
+      if (jaTem) continue;
+      await this.formulariosService.salvar(tipo, {
+        programa: programa.codigo,
+        publicado: true,
+        perguntas: [...(form.perguntas ?? []), perguntaMatching],
+      });
+    }
+
+    const config = await this.matchingService.obterConfiguracao(
+      programa.codigo,
+    );
+    if (!config) {
+      await this.matchingService.salvarConfiguracao(
+        {
+          programa: programa.codigo,
+          liberado: true,
+          capacidadePorPadrinho: 3,
+          capacidadePorApadrinhado: 1,
+          criterios: [
+            {
+              criterioPadrinhoId: criterio.id,
+              criterioApadrinhadoId: criterio.id,
+              operacao: 'intersecao',
+              peso: 100,
+            },
+          ],
+        },
+        'seed:demo',
+      );
+    } else if (!config.liberado) {
+      await this.matchingService.liberar(
+        programa.codigo,
+        true,
+        'seed:demo',
+      );
+    }
+
+    const alternativa =
+      criterio.versao.alternativas?.[0]?.id ?? 'academico';
+    const elegiveis = [
+      'thiago@pucminas.edu.br',
+      'camila@pucminas.edu.br',
+      'lucas.almeida@pucminas.edu.br',
+    ];
+    for (const email of elegiveis) {
+      const registros = await this.participacoes.find({
+        where: { usuarioId: email, programa: programa.codigo },
+      });
+      for (const registro of registros) {
+        if (
+          registro.papel !== 'padrinho' &&
+          registro.papel !== 'apadrinhado' &&
+          !(registro.papel === 'candidato' && registro.status === 'aprovado')
+        ) {
+          continue;
+        }
+        const extras: Record<string, string | string[] | boolean> = {
+          ...(registro.respostas?.extras ?? {}),
+        };
+        if (extras[perguntaId] != null) continue;
+        extras[perguntaId] = [alternativa];
+        registro.respostas = { ...registro.respostas, extras };
+        await this.participacoes.save(registro);
+      }
+    }
   }
 
   /**
@@ -745,10 +888,19 @@ export class CoordenacaoService implements OnModuleInit {
           'Não é possível aprovar: padrinhos precisam estar a partir do 2º período.',
         );
       }
-      await this.cadastroService.avaliarRequisitosPadrinho(
-        registro.programa,
-        registro.respostas ?? {},
-      );
+      const respostas = registro.respostas ?? {};
+      // Foto por requisito (envios novos): bloqueia se faltou declaração.
+      // Legado só com `declaraPreRequisitos`: a coordenação confere e decide.
+      if (Array.isArray(respostas.requisitos)) {
+        await this.cadastroService.avaliarRequisitosPadrinho(
+          registro.programa,
+          respostas,
+        );
+      } else if (respostas.declaraPreRequisitos !== true) {
+        throw new BadRequestException(
+          'Não é possível aprovar: o candidato não declarou cumprir os pré-requisitos do ciclo.',
+        );
+      }
       return;
     }
 
@@ -1001,7 +1153,28 @@ export class CoordenacaoService implements OnModuleInit {
     return this.formulariosService.listar(programa);
   }
 
-  excluirFormulario(tipo: string, programa?: string) {
+  /** Só o ciclo vigente pode criar/alterar/encerrar formulários. */
+  private async assertFormularioEditavel(programaCodigo?: string) {
+    const codigo =
+      (programaCodigo || '').trim() || ParticipacoesService.programaAtual();
+    const programa = await this.programasService.resolverConsulta(codigo);
+    if (!programa) {
+      throw new NotFoundException('Nenhum programa cadastrado.');
+    }
+    const vigente = this.serializarPrograma(
+      programa,
+      ParticipacoesService.programaAtual(),
+    ).vigente;
+    if (!vigente || programa.etapaAtual === 'encerramento') {
+      throw new BadRequestException(
+        'Formulários de ciclos passados ou encerrados são somente leitura. Duplicar para o ciclo vigente se precisar alterar.',
+      );
+    }
+    return programa;
+  }
+
+  async excluirFormulario(tipo: string, programa?: string) {
+    await this.assertFormularioEditavel(programa);
     return this.formulariosService.excluir(
       FormulariosService.validarTipo(tipo),
       programa,
@@ -1019,6 +1192,7 @@ export class CoordenacaoService implements OnModuleInit {
     tipo: string,
     corpo: { programa?: string; publicado?: boolean; perguntas?: unknown },
   ) {
+    await this.assertFormularioEditavel(corpo?.programa);
     const formulario = await this.formulariosService.salvar(
       FormulariosService.validarTipo(tipo),
       corpo,
@@ -1029,6 +1203,7 @@ export class CoordenacaoService implements OnModuleInit {
   }
 
   async encerrarFormulario(tipo: string, programa?: string) {
+    await this.assertFormularioEditavel(programa);
     const formulario = await this.formulariosService.encerrar(
       FormulariosService.validarTipo(tipo),
       programa,
@@ -1237,6 +1412,23 @@ export class CoordenacaoService implements OnModuleInit {
           deOutraCidade: true,
         },
       },
+      {
+        usuarioId: 'marina.souza@pucminas.edu.br',
+        programa,
+        papel: 'apadrinhado',
+        status: 'pendente',
+        apadrinhados: 0,
+        inicioEm: dias(1),
+        respostas: {
+          expectativa: 'Preciso de apoio para montar a grade e conhecer o campus.',
+          areas: ['Rotina universitária', 'Vida no campus'],
+          disponibilidade: ['Manhã', 'Tarde'],
+          genero: 'Feminino',
+          bolsistaProuni: false,
+          deOutraCidade: true,
+          declaraPrimeiroPeriodo: true,
+        },
+      },
     ];
 
     for (const item of seed) {
@@ -1252,6 +1444,19 @@ export class CoordenacaoService implements OnModuleInit {
       } else if (!existe.respostas && item.respostas) {
         existe.respostas = item.respostas;
         await this.participacoes.save(existe);
+      }
+
+      // Demo: se o seed define participação ativa, remove candidatura órfã
+      // no mesmo ciclo (ex.: Camila com candidato+apadrinhado simultâneos).
+      if (item.papel === 'padrinho' || item.papel === 'apadrinhado') {
+        const orfaos = await this.participacoes.find({
+          where: {
+            usuarioId: item.usuarioId!,
+            programa: item.programa!,
+            papel: 'candidato',
+          },
+        });
+        if (orfaos.length) await this.participacoes.remove(orfaos);
       }
     }
   }
@@ -1269,3 +1474,5 @@ const REQUISITOS_INICIAIS_DEMO = [
     obrigatorio: true,
   },
 ];
+
+

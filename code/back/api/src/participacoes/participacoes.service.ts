@@ -228,7 +228,9 @@ export class ParticipacoesService {
   }
 
   /**
-   * Registro principal do aluno no ciclo: padrinho > candidatura > apadrinhado.
+   * Registro principal do aluno no ciclo.
+   * Participação ativa (padrinho/apadrinhado em andamento) prevalece sobre
+   * candidatura residual no mesmo ciclo; depois padrinho > candidato > apadrinhado.
    */
   async registroPrincipal(
     usuarioId: string,
@@ -237,6 +239,13 @@ export class ParticipacoesService {
     const registros = await this.participacoes.find({
       where: { usuarioId: this.normalizarUsuario(usuarioId), programa },
     });
+    const ativo = registros.find(
+      (r) =>
+        (r.papel === 'padrinho' || r.papel === 'apadrinhado') &&
+        r.status === 'em_andamento',
+    );
+    if (ativo) return ativo;
+
     const prioridade: PapelParticipacao[] = [
       'padrinho',
       'candidato',

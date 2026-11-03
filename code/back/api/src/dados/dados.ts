@@ -103,6 +103,17 @@ export const USUARIOS: Record<string, Usuario> = {
     meta: 2000,
     nivel: 1,
   },
+  apadrinhado3: {
+    id: 8,
+    nome: 'Marina Souza',
+    email: 'marina.souza@pucminas.edu.br',
+    perfil: 'apadrinhado',
+    curso: 'Ciência da Computação',
+    periodo: 1,
+    xp: 120,
+    meta: 2000,
+    nivel: 1,
+  },
 };
 
 export function buscarUsuarioPorEmail(email: string): Usuario | undefined {

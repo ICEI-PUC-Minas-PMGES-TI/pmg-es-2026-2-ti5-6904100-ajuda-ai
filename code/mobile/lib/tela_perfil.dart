@@ -369,6 +369,17 @@ class _ProfilePageState extends State<ProfilePage> {
                 onPressed: _salvando ? null : _escolherFoto,
                 child: const Text('Selecionar ou substituir foto'),
               ),
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'PNG, JPG ou WEBP · até 2 MB',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: AppColors.muted,
+                  ),
+                ),
+              ),
               _Identidade(
                 dados: _dados,
                 editando: _editando,
@@ -515,8 +526,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 28),
                 SizedBox(
                   width: double.infinity,
-                  child: TextButton(
+                  child: TextButton.icon(
                     onPressed: () => _sair(context),
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text('Sair da conta'),
                     style: TextButton.styleFrom(
                       foregroundColor: const Color(0xFFB91C1C),
                       minimumSize: const Size.fromHeight(44),
@@ -526,7 +539,6 @@ class _ProfilePageState extends State<ProfilePage> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    child: const Text('Sair da conta'),
                   ),
                 ),
               ],
