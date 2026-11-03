@@ -1,6 +1,8 @@
 const API_BASE =
   import.meta.env.VITE_API_URL?.replace(/\/$/, '') || 'http://localhost:3000';
 
+export const feedEventsUrl = `${API_BASE}/publicacoes/events`;
+
 const TOKEN_KEY = 'ajudaai.accessToken';
 const USER_KEY = 'ajudaai.usuario';
 /** Sessão do aluno, separada da coordenação (as duas podem coexistir). */
@@ -174,6 +176,15 @@ function query(params) {
 }
 
 export const api = {
+  feed(email) { return request('/publicacoes', { aluno: email }); },
+  permissoesFeed(email) { return request('/publicacoes/permissoes', { aluno: email }); },
+  criarPublicacao(dados, email) { return request('/publicacoes', { method: 'POST', body: dados, aluno: email }); },
+  atualizarPublicacao(id, dados, email) { return request(`/publicacoes/${id}`, { method: 'PATCH', body: dados, aluno: email }); },
+  excluirPublicacao(id, email) { return request(`/publicacoes/${id}`, { method: 'DELETE', aluno: email }); },
+  comentarPublicacao(id, texto, email) { return request(`/publicacoes/${id}/comentarios`, { method: 'POST', body: { texto }, aluno: email }); },
+  excluirComentario(id, comentarioId, email) { return request(`/publicacoes/${id}/comentarios/${comentarioId}`, { method: 'DELETE', aluno: email }); },
+  curtirPublicacao(id, delta, email) { return request(`/publicacoes/${id}/curtidas`, { method: 'POST', body: { delta }, aluno: email }); },
+  uploadFeed(arquivo, email) { const body = new FormData(); body.append('arquivo', arquivo); return requestMapa('/publicacoes/midias', { method: 'POST', body, aluno: email }); },
   loginMicrosoft(idToken) { return request('/auth/login', { method: 'POST', body: {idToken}, anonimo: true }); },
   perfilAluno() { return request('/me', { aluno: getAlunoSession()?.email || '__sem_sessao__' }); },
   atualizarPerfil(dados) { return request('/me', {method: 'PATCH', body: dados, aluno: getAlunoSession()?.email || '__sem_sessao__'}); },

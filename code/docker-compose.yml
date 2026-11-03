@@ -1,4 +1,19 @@
 services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-ajudaai}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-ajudaai-local}
+    ports:
+      - '127.0.0.1:5672:5672'
+      - '127.0.0.1:15672:15672'
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
   postgres:
     # PostgreSQL 16 + PostGIS 3.5, mesma base Alpine do postgres:16-alpine
     # anterior: o volume existente continua compatível (ver
@@ -25,6 +40,7 @@ services:
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
 
 volumes:
+  rabbitmq-data:
   postgres-data:
     name: ajuda-ai_postgres-data
 

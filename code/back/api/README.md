@@ -130,13 +130,13 @@ A API fica disponível em `http://localhost:3000`.
 | `POST`      | `/publicacoes`                                          | Cria uma publicação com zero curtidas e zero comentários.                                                                             |
 | `POST`      | `/publicacoes/:id/comentarios`                          | Adiciona um comentário à publicação.                                                                                                  |
 | `POST`      | `/publicacoes/:id/curtidas`                             | Adiciona ou remove uma curtida (`delta: 1` ou `-1`).                                                                                  |
-| `DELETE`    | `/publicacoes/:id`                                      | Apaga uma publicação criada pelo usuário.                                                                                             |
+| `DELETE`    | `/publicacoes/:id`                                      | Exclui uma publicação; exige permissão de administração do feed.                                                                                             |
 
-As rotas do feed e de participações identificam o usuário pelo cabeçalho
-`x-user-id` (e-mail institucional) enquanto o login Microsoft no aplicativo do aluno
-não é concluído. Por isso, ações que mudam o status de alguém no programa
-(aprovar, rejeitar, vincular) ficam só nas rotas da coordenação, protegidas por JWT. O banco impõe uma restrição
-única por usuário e publicação, impedindo curtidas duplicadas.
+O feed exige JWT de acesso em todas as rotas. Publicação/edição/exclusão e upload
+são controlados pela FeedPolicy; alunos comuns podem consultar, curtir e comentar.
+O banco mantém uma restrição única por usuário/publicação e as alterações são
+propagadas por RabbitMQ e SSE autenticado. Configuração, endpoints adicionais e
+demonstração notebook/celular: [Feed em tempo real](../../../docs/tecnico/feed.md).
 
 Exemplo:
 

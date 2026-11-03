@@ -1,37 +1,31 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { USUARIOS } from '../dados/dados.js';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { createHash } from 'node:crypto';
+import type { AccessTokenPayload } from '../auth/authenticated-request.js';
+import { buscarCoordenadorPorEmail } from '../dados/dados.js';
+import { UsuariosService } from '../usuarios/usuarios.service.js';
 import { ComentarioEntity } from './entities/comentario.entity.js';
 import { CurtidaEntity } from './entities/curtida.entity.js';
+import { CurtidaComentarioEntity } from './entities/curtida-comentario.entity.js';
+import type {
+  AutorComentarioDto,
+  ComentarioRespostaDto,
+} from './publicacoes.dto.js';
+import { FeedOutboxEntity } from './entities/feed-outbox.entity.js';
 import { PublicacaoEntity } from './entities/publicacao.entity.js';
+import { novoEventoFeed, type TipoEventoFeed } from './feed-evento.js';
+import { FeedMidiasService } from './feed-midias.service.js';
+import { FeedPolicy } from './feed-policy.js';
 
-export interface Publicacao {
-  id: number;
-  autor: string;
-  iniciais: string;
-  descricaoAutor: string;
-  tempo: string;
-  categoria: string;
-  texto: string;
-  imagens: string[];
-  curtidas: number;
-  curtidoPeloUsuario: boolean;
-  comentarios: number;
-  comentariosTexto: string[];
-  isOwn: boolean;
-}
-
-interface CriarPublicacaoDto {
-  autor?: string;
-  iniciais?: string;
-  descricaoAutor?: string;
-  categoria?: string;
+interface DadosPublicacao {
   texto?: string;
+  categoria?: string;
   imagens?: string[];
 }
 
@@ -39,188 +33,347 @@ interface CriarPublicacaoDto {
 export class PublicacoesService {
   constructor(
     @InjectRepository(PublicacaoEntity)
-    private readonly publicacoesRepository: Repository<PublicacaoEntity>,
-    @InjectRepository(ComentarioEntity)
-    private readonly comentariosRepository: Repository<ComentarioEntity>,
-    @InjectRepository(CurtidaEntity)
-    private readonly curtidasRepository: Repository<CurtidaEntity>,
+    private readonly publicacoes: Repository<PublicacaoEntity>,
+    @InjectDataSource() private readonly dados: DataSource,
+    private readonly policy: FeedPolicy,
+    private readonly usuarios: UsuariosService,
+    private readonly midias: FeedMidiasService,
   ) {}
 
-  async listar(usuarioId: string): Promise<Publicacao[]> {
-    const publicacoes = await this.publicacoesRepository.find({
+  async listar(usuario: AccessTokenPayload) {
+    const itens = await this.publicacoes.find({
       relations: { curtidas: true, comentarios: true },
       order: { criadoEm: 'DESC', id: 'DESC' },
     });
-    return publicacoes.map((item) => this.apresentar(item, usuarioId));
-  }
-
-  async criar(
-    corpo: CriarPublicacaoDto,
-    usuarioId: string,
-  ): Promise<Publicacao> {
-    const texto = corpo.texto?.trim();
-    const imagens = corpo.imagens ?? [];
-    if (!texto) {
-      throw new BadRequestException('O texto da publicação é obrigatório.');
-    }
-    if (
-      !Array.isArray(imagens) ||
-      imagens.some((imagem) => typeof imagem !== 'string')
-    ) {
-      throw new BadRequestException('A lista de imagens é inválida.');
-    }
-    if (imagens.length > 10) {
-      throw new BadRequestException(
-        'Uma publicação pode ter no máximo 10 fotos.',
-      );
-    }
-
-    const usuario = Object.values(USUARIOS).find(
-      // id da base demo (modo x-user-id) ou e-mail (identidade do token)
-      (item) => String(item.id) === usuarioId || item.email === usuarioId,
+    const autores = await this.autores(itens);
+    return Promise.all(
+      itens.map((item) => this.apresentar(item, usuario, autores)),
     );
-    const autor = usuario?.nome ?? corpo.autor?.trim() ?? 'Usuário';
-    const registro = this.publicacoesRepository.create({
-      autor,
-      iniciais: this.obterIniciais(autor) || corpo.iniciais?.trim() || 'US',
-      descricaoAutor:
-        usuario?.curso ??
-        corpo.descricaoAutor?.trim() ??
-        'Comunidade acadêmica',
-      categoria: corpo.categoria?.trim() || 'Dicas acadêmicas',
-      texto,
-      imagens,
-      ownerId: usuarioId,
-    });
-    const salva = await this.publicacoesRepository.save(registro);
-    salva.curtidas = [];
-    salva.comentarios = [];
-    return this.apresentar(salva, usuarioId);
   }
 
-  async remover(id: number, usuarioId: string): Promise<{ removido: boolean }> {
-    const publicacao = await this.encontrar(id);
-    if (publicacao.ownerId !== usuarioId) {
-      throw new BadRequestException(
-        'Você só pode apagar suas próprias publicações.',
-      );
-    }
+  async obter(id: number, usuario: AccessTokenPayload) {
+    const item = await this.publicacoes.findOne({
+      where: { id },
+      relations: { curtidas: true, comentarios: true },
+    });
+    if (!item) throw new NotFoundException('Publicação não encontrada.');
+    return this.apresentar(item, usuario, await this.autores([item]));
+  }
 
-    await this.publicacoesRepository.remove(publicacao);
+  async criar(corpo: DadosPublicacao, usuario: AccessTokenPayload) {
+    await this.policy.exigirPublicacao(usuario);
+    const valores = this.validar(corpo);
+    await this.midias.validar(valores.imagens, usuario.email);
+    const autor =
+      buscarCoordenadorPorEmail(usuario.email) ??
+      (await this.usuarios.buscarPorEmail(usuario.email));
+    if (!autor) throw new ForbiddenException('Autor não encontrado.');
+    const id = await this.dados.transaction(async (manager) => {
+      const repo = manager.getRepository(PublicacaoEntity);
+      const item = await repo.save(
+        repo.create({
+          ...valores,
+          autor: autor.nome,
+          iniciais: autor.nome
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((p) => p[0])
+            .join('')
+            .toUpperCase(),
+          descricaoAutor: this.policy.podeAdministrar(usuario)
+            ? 'Coordenação do programa'
+            : 'Padrinho do programa',
+          ownerId: usuario.email,
+        }),
+      );
+      await this.evento(manager, 'feed.post.created', item.id);
+      return item.id;
+    });
+    return this.obter(id, usuario);
+  }
+
+  async atualizar(
+    id: number,
+    corpo: DadosPublicacao,
+    usuario: AccessTokenPayload,
+  ) {
+    this.policy.exigirAdministracao(usuario);
+    await this.alterar(id, 'feed.post.updated', async (manager, item) => {
+      const valores = this.validar({
+        texto: corpo.texto ?? item.texto,
+        categoria: corpo.categoria ?? item.categoria,
+        imagens: corpo.imagens ?? item.imagens,
+      });
+      const novas = valores.imagens.filter(
+        (chave) => !item.imagens.includes(chave),
+      );
+      await this.midias.validar(novas, usuario.email);
+      Object.assign(item, valores);
+      await manager.getRepository(PublicacaoEntity).save(item);
+    });
+    return this.obter(id, usuario);
+  }
+
+  async remover(id: number, usuario: AccessTokenPayload) {
+    this.policy.exigirAdministracao(usuario);
+    await this.alterar(id, 'feed.post.deleted', async (manager, item) => {
+      await manager.getRepository(PublicacaoEntity).remove(item);
+    });
     return { removido: true };
   }
 
   async comentar(
     id: number,
     texto: string,
-    usuarioId: string,
-  ): Promise<Publicacao> {
-    const publicacao = await this.encontrar(id);
-    const comentario = texto.trim();
-    if (!comentario) {
-      throw new BadRequestException('O comentário é obrigatório.');
-    }
-
-    const salvo = await this.comentariosRepository.save(
-      this.comentariosRepository.create({
-        publicacaoId: publicacao.id,
-        autorId: usuarioId,
-        texto: comentario,
-      }),
-    );
-    publicacao.comentarios.push(salvo);
-    return this.apresentar(publicacao, usuarioId);
+    usuario: AccessTokenPayload,
+    paiId?: number,
+  ) {
+    this.policy.exigirInteracao(usuario);
+    const comentario = texto?.trim();
+    if (!comentario || comentario.length > 2000)
+      throw new BadRequestException(
+        'O comentário deve ter entre 1 e 2000 caracteres.',
+      );
+    await this.alterar(id, 'feed.comment.created', async (manager) => {
+      const repo = manager.getRepository(ComentarioEntity);
+      let raiz: number | null = null;
+      if (paiId != null) {
+        if (!Number.isSafeInteger(paiId) || paiId < 1)
+          throw new BadRequestException('Comentário pai inválido.');
+        const pai = await repo.findOne({
+          where: { id: paiId, publicacaoId: id },
+        });
+        if (!pai)
+          throw new NotFoundException(
+            'Comentário pai não encontrado nesta publicação.',
+          );
+        // Responder a uma resposta mantém a profundidade em apenas um nível.
+        raiz = pai.paiId ?? pai.id;
+      }
+      await repo.save(
+        repo.create({
+          publicacaoId: id,
+          autorId: usuario.email,
+          texto: comentario,
+          paiId: raiz,
+        }),
+      );
+    });
+    return this.obter(id, usuario);
   }
 
-  async curtir(
+  async removerComentario(
     id: number,
-    delta: number,
-    usuarioId: string,
-  ): Promise<Publicacao> {
-    const publicacao = await this.encontrar(id);
-    if (delta !== 1 && delta !== -1) {
+    comentarioId: number,
+    usuario: AccessTokenPayload,
+  ) {
+    await this.alterar(id, 'feed.comment.deleted', async (manager) => {
+      const repo = manager.getRepository(ComentarioEntity);
+      const comentario = await repo.findOne({
+        where: { id: comentarioId, publicacaoId: id },
+      });
+      if (!comentario)
+        throw new NotFoundException('Comentário não encontrado.');
+      if (!this.policy.podeExcluirComentario(usuario, comentario.autorId))
+        throw new ForbiddenException('Você não pode excluir este comentário.');
+      await repo.remove(comentario);
+    });
+    return this.obter(id, usuario);
+  }
+
+  async curtir(id: number, delta: number, usuario: AccessTokenPayload) {
+    this.policy.exigirInteracao(usuario);
+    if (delta !== 1 && delta !== -1)
       throw new BadRequestException(
         'A ação precisa ser curtir (1) ou descurtir (-1).',
       );
-    }
-
-    const curtidaExistente = publicacao.curtidas.find(
-      (curtida) => curtida.usuarioId === usuarioId,
-    );
-    if (delta === 1 && !curtidaExistente) {
-      const salva = await this.curtidasRepository.save(
-        this.curtidasRepository.create({
-          publicacaoId: publicacao.id,
-          usuarioId,
-        }),
-      );
-      publicacao.curtidas.push(salva);
-    } else if (delta === -1 && curtidaExistente) {
-      await this.curtidasRepository.remove(curtidaExistente);
-      publicacao.curtidas = publicacao.curtidas.filter(
-        (curtida) => curtida.id !== curtidaExistente.id,
-      );
-    }
-    return this.apresentar(publicacao, usuarioId);
-  }
-
-  private async encontrar(id: number): Promise<PublicacaoEntity> {
-    if (!Number.isInteger(id) || id <= 0) {
-      throw new BadRequestException('Identificador de publicação inválido.');
-    }
-    const publicacao = await this.publicacoesRepository.findOne({
-      where: { id },
-      relations: { curtidas: true, comentarios: true },
+    await this.alterar(id, 'feed.like.updated', async (manager) => {
+      const repo = manager.getRepository(CurtidaEntity);
+      const existente = await repo.findOne({
+        where: { publicacaoId: id, usuarioId: usuario.email },
+      });
+      if (delta === 1 && !existente) {
+        await repo.save(
+          repo.create({ publicacaoId: id, usuarioId: usuario.email }),
+        );
+      } else if (delta === -1 && existente) await repo.remove(existente);
+      else return false;
     });
-    if (!publicacao) {
-      throw new NotFoundException('Publicação não encontrada.');
-    }
-    return publicacao;
+    return this.obter(id, usuario);
   }
 
-  private apresentar(item: PublicacaoEntity, usuarioId: string): Publicacao {
+  async curtirComentario(
+    id: number,
+    comentarioId: number,
+    delta: number,
+    usuario: AccessTokenPayload,
+  ) {
+    this.policy.exigirInteracao(usuario);
+    if (delta !== 1 && delta !== -1)
+      throw new BadRequestException('Ação de curtida inválida.');
+    await this.alterar(id, 'feed.comment.like.updated', async (manager) => {
+      const comentario = await manager.getRepository(ComentarioEntity).findOne({
+        where: { id: comentarioId, publicacaoId: id },
+      });
+      if (!comentario)
+        throw new NotFoundException('Comentário não encontrado.');
+      const repo = manager.getRepository(CurtidaComentarioEntity);
+      const existente = await repo.findOne({
+        where: { comentarioId, usuarioId: usuario.email },
+      });
+      if (delta === 1 && !existente)
+        await repo.save(
+          repo.create({ comentarioId, usuarioId: usuario.email }),
+        );
+      else if (delta === -1 && existente) await repo.remove(existente);
+      else return false;
+    });
+    return this.obter(id, usuario);
+  }
+
+  private async alterar(
+    id: number,
+    tipo: TipoEventoFeed,
+    acao: (
+      manager: EntityManager,
+      item: PublicacaoEntity,
+    ) => Promise<void | false>,
+  ) {
+    await this.dados.transaction(async (manager) => {
+      // Serializa alterações concorrentes da publicação, inclusive curtidas repetidas.
+      const item = await manager.getRepository(PublicacaoEntity).findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item) throw new NotFoundException('Publicação não encontrada.');
+      if ((await acao(manager, item)) !== false)
+        await this.evento(manager, tipo, id);
+    });
+  }
+
+  private async evento(
+    manager: EntityManager,
+    tipo: TipoEventoFeed,
+    id: number,
+  ) {
+    const evento = novoEventoFeed(tipo, id);
+    await manager
+      .getRepository(FeedOutboxEntity)
+      .save({ id: evento.id, evento, publicadoEm: null });
+  }
+
+  private validar(corpo: DadosPublicacao) {
+    const texto = corpo.texto?.trim() ?? '';
+    const categoria = corpo.categoria?.trim() || 'Comunicados';
+    const imagens = corpo.imagens ?? [];
+    if (
+      texto.length > 10000 ||
+      categoria.length > 80 ||
+      !Array.isArray(imagens) ||
+      imagens.length > 10 ||
+      imagens.some((v) => typeof v !== 'string') ||
+      (!texto && !imagens.length)
+    )
+      throw new BadRequestException(
+        'Informe texto (até 10000 caracteres) ou até 10 imagens.',
+      );
+    return { texto, categoria, imagens: [...new Set(imagens)] };
+  }
+
+  private async autores(itens: PublicacaoEntity[]) {
+    const emails = [
+      ...new Set(
+        itens.flatMap((p) => (p.comentarios ?? []).map((c) => c.autorId)),
+      ),
+    ];
+    const usuarios = await this.usuarios.buscarAutoresPorEmails(emails);
+    const autores = new Map<string, AutorComentarioDto>();
+    await Promise.all(
+      emails.map(async (email) => {
+        const coordenador = buscarCoordenadorPorEmail(email);
+        const usuario = usuarios.find((u) => u.email === email);
+        autores.set(
+          email,
+          coordenador
+            ? {
+                id: `coordenador:${coordenador.id}`,
+                nome: coordenador.nome,
+                fotoUrl: coordenador.fotoUrl ?? null,
+              }
+            : usuario
+              ? {
+                  id: `usuario:${usuario.id}`,
+                  nome: usuario.nome,
+                  fotoUrl: await this.midias.fotoAutor(usuario.id),
+                }
+              : {
+                  id: `indisponivel:${createHash('sha256').update(email).digest('hex').slice(0, 24)}`,
+                  nome: 'Usuário indisponível',
+                  fotoUrl: null,
+                },
+        );
+      }),
+    );
+    return autores;
+  }
+
+  private async apresentar(
+    item: PublicacaoEntity,
+    usuario: AccessTokenPayload,
+    autores: Map<string, AutorComentarioDto>,
+  ) {
     const curtidas = item.curtidas ?? [];
     const comentarios = [...(item.comentarios ?? [])].sort(
-      (a, b) => a.criadoEm.getTime() - b.criadoEm.getTime(),
+      (a, b) => a.criadoEm.getTime() - b.criadoEm.getTime() || a.id - b.id,
     );
+    const minutos = Math.max(
+      0,
+      Math.floor((Date.now() - item.criadoEm.getTime()) / 60_000),
+    );
+    const likes = comentarios.length
+      ? await this.dados.getRepository(CurtidaComentarioEntity).find({
+          where: { comentarioId: In(comentarios.map((c) => c.id)) },
+        })
+      : [];
+    const detalhes: ComentarioRespostaDto[] = comentarios.map((c) => ({
+      id: c.id,
+      texto: c.texto,
+      paiId: c.paiId ?? null,
+      criadoEm: c.criadoEm,
+      autor: autores.get(c.autorId)!,
+      podeExcluir: this.policy.podeExcluirComentario(usuario, c.autorId),
+      curtidas: likes.filter((v) => v.comentarioId === c.id).length,
+      curtidoPorMim: likes.some(
+        (v) => v.comentarioId === c.id && v.usuarioId === usuario.email,
+      ),
+    }));
     return {
       id: item.id,
       autor: item.autor,
       iniciais: item.iniciais,
       descricaoAutor: item.descricaoAutor,
-      tempo: this.tempoDecorrido(item.criadoEm),
+      criadoEm: item.criadoEm,
+      tempo:
+        minutos < 1
+          ? 'agora'
+          : minutos < 60
+            ? `há ${minutos} min`
+            : minutos < 1440
+              ? `há ${Math.floor(minutos / 60)} h`
+              : `há ${Math.floor(minutos / 1440)} dias`,
       categoria: item.categoria,
       texto: item.texto,
-      imagens: item.imagens,
+      imagens: this.midias.urls(item.imagens),
+      midias: item.imagens,
       curtidas: curtidas.length,
-      curtidoPeloUsuario: curtidas.some(
-        (curtida) => curtida.usuarioId === usuarioId,
-      ),
+      curtidoPeloUsuario: curtidas.some((c) => c.usuarioId === usuario.email),
       comentarios: comentarios.length,
-      comentariosTexto: comentarios.map((comentario) => comentario.texto),
-      isOwn: item.ownerId === usuarioId,
+      comentariosTexto: comentarios.map((c) => c.texto),
+      comentariosDetalhes: detalhes,
+      isOwn: item.ownerId === usuario.email,
+      podeAdministrar: this.policy.podeAdministrar(usuario),
+      podeInteragir: this.policy.podeInteragir(usuario),
     };
-  }
-
-  private obterIniciais(nome: string): string {
-    return nome
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((parte) => parte[0]?.toUpperCase())
-      .join('');
-  }
-
-  private tempoDecorrido(data: Date): string {
-    const minutos = Math.max(
-      0,
-      Math.floor((Date.now() - data.getTime()) / 60_000),
-    );
-    if (minutos < 1) return 'agora';
-    if (minutos < 60) return `há ${minutos} min`;
-    const horas = Math.floor(minutos / 60);
-    if (horas < 24) return `há ${horas} h`;
-    const dias = Math.floor(horas / 24);
-    return dias === 1 ? 'ontem' : `há ${dias} dias`;
   }
 }

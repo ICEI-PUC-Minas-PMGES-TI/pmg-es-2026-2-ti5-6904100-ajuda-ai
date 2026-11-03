@@ -9,7 +9,7 @@ export default function ConfiguracoesPage() {
 
   // Link antigo do dashboard: /configuracoes?secao=comunicados
   if (params.get('secao') === 'comunicados') {
-    return <Navigate to="/coordenacao/comunicados" replace />;
+    return <Navigate to="/coordenacao/feed" replace />;
   }
 
   return (
@@ -24,11 +24,22 @@ export default function ConfiguracoesPage() {
 
       <div className="coord-settings-grid coord-settings-account">
         <section className="dash-card" aria-labelledby="conta-titulo">
-          <h2 id="conta-titulo"><Icon name="person" size={18} /> Conta da coordenação</h2>
+          <h2 id="conta-titulo">
+            <Icon name="person" size={18} /> Conta da coordenação
+          </h2>
           <dl className="detail-facts">
-            <div><dt>Nome</dt><dd>{usuario?.nome || 'Coordenação'}</dd></div>
-            <div><dt>E-mail</dt><dd>{usuario?.email || '—'}</dd></div>
-            <div><dt>Perfil</dt><dd>Coordenação</dd></div>
+            <div>
+              <dt>Nome</dt>
+              <dd>{usuario?.nome || "Coordenação"}</dd>
+            </div>
+            <div>
+              <dt>E-mail</dt>
+              <dd>{usuario?.email || "—"}</dd>
+            </div>
+            <div>
+              <dt>Perfil</dt>
+              <dd>Coordenação</dd>
+            </div>
           </dl>
           <p className="private-note">
             <Icon name="info" size={15} />
@@ -45,11 +56,11 @@ export default function ConfiguracoesPage() {
           <h2 id="atalhos-titulo"><Icon name="compass" size={18} /> Atalhos</h2>
           <ul className="settings-links">
             <li>
-              <Link to="/coordenacao/comunicados">
+              <Link to="/coordenacao/feed">
                 <Icon name="megaphone" size={18} />
                 <span>
-                  <strong>Comunicados</strong>
-                  <small>Enviar notificações aos participantes</small>
+                  <strong>Feed e comunicados</strong>
+                  <small>Publicar comunicados e dicas para os participantes</small>
                 </span>
                 <Icon name="chevron" size={16} />
               </Link>

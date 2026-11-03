@@ -64,3 +64,9 @@ npm run build
 Não há configuração de lint neste frontend. Os testes usam Node e renderização
 React no servidor; o login real no Entra e o armazenamento Azure precisam ser
 validados com a configuração externa do ambiente de integração.
+
+## Feed
+
+`/coordenacao/feed` permite publicar, editar e excluir; `/aluno/feed` permite ler,
+curtir e comentar. Ambas recebem atualizações por SSE com Bearer no header.
+Execução local com RabbitMQ e celular: [guia do feed](../../docs/tecnico/feed.md).

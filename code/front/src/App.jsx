@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
 import { ToastProvider } from './components/Toast';
 import LoginPage from './pages/LoginPage';
+import FeedPage from './pages/FeedPage';
 import AlunoLayout from './pages/aluno/AlunoLayout';
 import ConfiguracoesAlunoPage from './pages/aluno/ConfiguracoesAlunoPage';
 import EditarCandidaturaPage from './pages/aluno/EditarCandidaturaPage';
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="/aluno" element={<AlunoLayout />}>
               <Route index element={<Navigate to="perfil" replace />} />
               <Route path="perfil" element={<PerfilAlunoPage />} />
+              <Route path="feed" element={<FeedPage />} />
               <Route path="perfil/editar" element={<PerfilEditarPage />} />
               <Route path="candidatura" element={<StatusCandidaturaPage />} />
               <Route path="candidatura/editar" element={<EditarCandidaturaPage />} />
@@ -47,6 +49,7 @@ export default function App() {
             </Route>
             <Route path="/coordenacao" element={<CoordLayout />}>
               <Route index element={<DashboardPage />} />
+              <Route path="feed" element={<FeedPage coordenacao />} />
               <Route path="cadastros" element={<RedirectCadastros />} />
               <Route path="candidaturas" element={<CandidaturasPage />} />
               <Route path="matching" element={<MatchingPage />} />

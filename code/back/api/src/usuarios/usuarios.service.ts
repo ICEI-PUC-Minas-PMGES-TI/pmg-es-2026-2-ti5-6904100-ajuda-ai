@@ -5,7 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { seedDemoHabilitado } from '../config/seguranca.js';
 import { USUARIOS } from '../dados/dados.js';
 import {
@@ -67,6 +67,14 @@ export class UsuariosService implements OnModuleInit {
     const chave = UsuariosService.normalizarEmail(email);
     if (!chave) return Promise.resolve(null);
     return this.usuarios.findOne({ where: { email: chave } });
+  }
+
+  buscarAutoresPorEmails(emails: string[]) {
+    if (!emails.length) return Promise.resolve([]);
+    return this.usuarios.find({
+      where: { email: In(emails.map(UsuariosService.normalizarEmail)) },
+      select: { id: true, nome: true, email: true },
+    });
   }
 
   async buscarPorId(id: number): Promise<UsuarioEntity> {
