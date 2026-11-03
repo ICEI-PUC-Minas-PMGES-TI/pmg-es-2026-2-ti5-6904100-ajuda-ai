@@ -5,9 +5,9 @@ import '../services/auth_api.dart';
 import '../services/api_config.dart';
 import '../services/coordenacao_api.dart';
 import '../tela_login.dart';
+import '../tela_feed.dart';
 import '../theme/colors.dart';
 import 'tela_candidaturas_coord.dart';
-import 'tela_comunicado_coord.dart';
 import 'tela_configuracoes_coord.dart';
 import 'tela_dashboard_coord.dart';
 import 'tela_formularios_coord.dart';
@@ -17,7 +17,7 @@ import 'tela_programas_coord.dart';
 import 'tela_usuarios_coord.dart';
 
 /// Shell nativo da área da coordenação (app mobile).
-/// No computador, o painel continua sendo o front web em `/coordenacao`.
+/// O feed pode ser administrado integralmente pelo aplicativo.
 class TelaCoordenacao extends StatefulWidget {
   const TelaCoordenacao({
     super.key,
@@ -25,10 +25,12 @@ class TelaCoordenacao extends StatefulWidget {
     this.client,
     this.baseUrl,
     this.sessaoAutenticada,
+    this.feedEventsClientFactory,
   });
 
   final String emailDemo;
   final SessaoAuth? sessaoAutenticada;
+  final http.Client Function()? feedEventsClientFactory;
 
   /// Cliente HTTP injetável (testes); null usa o padrão.
   final http.Client? client;
@@ -206,12 +208,13 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
 
   /// Destinos do dashboard (pontos de atenção / ações rápidas) e da aba Mais.
   void _abrirDestino(String destino, Map<String, String> query) {
+    if (destino == 'comunicado') destino = 'feed';
     final api = _api;
     if (api == null) return;
     if (_programa == null &&
         destino != 'programas' &&
         destino != 'configuracoes' &&
-        destino != 'comunicado') {
+        destino != 'feed') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -249,10 +252,17 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       return;
     }
     final Widget pagina = switch (destino) {
+      'feed' => FeedPage(
+        client: widget.client,
+        accessToken: _sessao!.accessToken,
+        baseUrl: api.baseUrl,
+        nomeAutor: _sessao!.nome,
+        coordenacao: true,
+        eventsClientFactory: widget.feedEventsClientFactory,
+      ),
       'usuarios' => TelaUsuariosCoord(api: api, programa: _programa),
       'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
       'matching' => TelaMatchingCoord(api: api, programa: _programa!),
-      'comunicado' => TelaComunicadoCoord(api: api),
       _ => TelaProgramasCoord(
         api: api,
         pendencia: query['pendencia'],
@@ -406,6 +416,11 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
                                 ? null
                                 : _selecionarPrograma,
                           ),
+                  ),
+                  IconButton(
+                    tooltip: 'Feed do programa',
+                    onPressed: () => _abrirDestino('feed', const {}),
+                    icon: const Icon(Icons.dynamic_feed_outlined),
                   ),
                   IconButton(
                     tooltip: 'Atualizar programas',

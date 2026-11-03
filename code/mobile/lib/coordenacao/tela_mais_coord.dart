@@ -14,12 +14,18 @@ class TelaMaisCoord extends StatelessWidget {
 
   final String nomeCoordenador;
 
-  /// Destino: formularios | usuarios | matching | programas | comunicado |
+  /// Destino: feed | formularios | usuarios | matching | programas | comunicado |
   /// configuracoes | sem_vinculo.
   final ValueChanged<String> onAbrir;
   final VoidCallback onSair;
 
   static const _itens = <(IconData, String, String, String)>[
+    (
+      Icons.dynamic_feed_outlined,
+      'Feed do programa',
+      'Publicar notícias, imagens e acompanhar comentários',
+      'feed',
+    ),
     (
       Icons.dynamic_form_outlined,
       'Formulários',
@@ -52,8 +58,8 @@ class TelaMaisCoord extends StatelessWidget {
     ),
     (
       Icons.campaign_outlined,
-      'Comunicados',
-      'Notificações para padrinhos e/ou apadrinhados',
+      'Criar comunicado',
+      'Publicação na categoria Comunicados do Feed',
       'comunicado',
     ),
     (

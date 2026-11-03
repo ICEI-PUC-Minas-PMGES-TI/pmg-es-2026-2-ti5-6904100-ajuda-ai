@@ -29,3 +29,5 @@ A documentação acadêmica da disciplina permanece em `docs/1..8.*.md`.
 - [PucStops](mapa/pucstops.md) e [XP](gamificacao/xp.md).
 - [Eventos, restaurantes e cardápios](mapa/eventos-cantinas.md).
 - [Administração](mapa/administracao.md).
+
+- [Feed em tempo real: arquitetura, configuração e demonstração](feed.md)
