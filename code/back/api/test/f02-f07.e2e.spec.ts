@@ -18,6 +18,7 @@ import {
   conectarRepositorios,
   repositorioEmMemoria,
 } from './helpers/repositorio-memoria.js';
+import { conferirTudo } from './helpers/conferencia-academica.js';
 
 describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
   let app: INestApplication;
@@ -481,6 +482,7 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
       ),
     ).toBe(true);
     const usuario = usuarios.find((u) => u.email === email)!;
+    await conferirTudo(service, participacoes[0].id);
     const detalhe = await cadastro.aprovar(
       usuario.id,
       'coord@pucminas.edu.br',
@@ -518,6 +520,7 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
     const id = participacoes[0].id;
     await service.marcarEmAnalise(id);
     expect((await situacao()).body.situacao).toBe('candidatura_em_analise');
+    await conferirTudo(service, id);
     await service.aprovarCandidatura(id, 'coord@pucminas.edu.br');
     expect(participacoes[0]).toMatchObject({
       papel: 'candidato',
@@ -604,11 +607,13 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
   async function prepararMatching() {
     await enviar().expect(201);
     const candidato = participacoes[0];
+    await conferirTudo(service, candidato.id);
     await service.aprovarCandidatura(candidato.id);
     const apadrinhado = await service.cadastrarApadrinhado({
       usuarioId: 'calouro@pucminas.edu.br',
       programa: ciclo,
     });
+    await conferirTudo(service, apadrinhado.id);
     await service.aprovarCandidatura(apadrinhado.id);
     return { candidato, apadrinhado };
   }

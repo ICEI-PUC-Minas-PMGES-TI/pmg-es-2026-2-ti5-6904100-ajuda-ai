@@ -77,12 +77,14 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  static const _semSobre = 'Nada informado.';
+
   static const _fallback = _DadosPerfil(
     nome: 'Perfil não carregado',
     curso: '',
     periodo: '1º período',
     email: '',
-    sobre: 'Carregue seu perfil para consultar os dados.',
+    sobre: _semSobre,
   );
 
   late _DadosPerfil _dados;
@@ -110,7 +112,9 @@ class _ProfilePageState extends State<ProfilePage> {
     _cursoController = TextEditingController(text: _dados.curso);
     _periodoController = TextEditingController(text: _dados.periodo);
     _emailController = TextEditingController(text: _dados.email);
-    _sobreController = TextEditingController(text: _dados.sobre);
+    _sobreController = TextEditingController(
+      text: _dados.sobre == _semSobre ? '' : _dados.sobre,
+    );
     _turnoController = TextEditingController();
     _interessesController = TextEditingController();
     _sincronizar();
@@ -179,16 +183,13 @@ class _ProfilePageState extends State<ProfilePage> {
   _DadosPerfil _dadosDaSessao() {
     final sessao = _sessao.dados;
     if (sessao == null) return _fallback;
+    final sobre = sessao.sobre?.trim();
     return _DadosPerfil(
       nome: sessao.nome,
       curso: sessao.curso,
       periodo: '${sessao.periodo}º período',
       email: sessao.email,
-      sobre: sessao.expectativaPadrinho?.trim().isNotEmpty == true
-          ? sessao.expectativaPadrinho!.trim()
-          : sessao.outrasInformacoes?.trim().isNotEmpty == true
-          ? sessao.outrasInformacoes!.trim()
-          : 'Ainda não há uma descrição no perfil.',
+      sobre: sobre == null || sobre.isEmpty ? _semSobre : sobre,
     );
   }
 
@@ -209,7 +210,7 @@ class _ProfilePageState extends State<ProfilePage> {
     _cursoController.text = _dados.curso;
     _periodoController.text = _dados.periodo;
     _emailController.text = _dados.email;
-    _sobreController.text = _dados.sobre;
+    _sobreController.text = _dados.sobre == _semSobre ? '' : _dados.sobre;
     _turnoController.text = _sessao.dados?.turno ?? '';
     _interessesController.text = _sessao.dados?.interesses.join(', ') ?? '';
     setState(() => _editando = true);
@@ -236,6 +237,10 @@ class _ProfilePageState extends State<ProfilePage> {
               .map((v) => v.trim())
               .where((v) => v.isNotEmpty)
               .toList(),
+          sobre: _sobreController.text.trim().isEmpty
+              ? null
+              : _sobreController.text.trim(),
+          limparSobre: _sobreController.text.trim().isEmpty,
         ),
       );
       if (mounted) {

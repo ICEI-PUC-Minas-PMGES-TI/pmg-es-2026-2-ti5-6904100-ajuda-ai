@@ -25,14 +25,26 @@ export default function LoginPage() {
       callback.current = true; entrar(async () => api.loginMicrosoft(await concluirMicrosoft()));
     }
   }, []);
-  return <main className="login-page"><section className="login-card">
-    <img src="/images/logo.png" alt="Ajuda-aí" className="brand-logo" />
-    <h1>Entre no Ajuda-aí</h1>
-    <button className="primary-button" disabled={ocupado} onClick={() => iniciarMicrosoft().catch(e => setErro(e.message))}>Entrar com Microsoft</button>
-    {import.meta.env.DEV && <><label>Usuário de teste<select value={email} onChange={e => setEmail(e.target.value)}>
-      {['camila', 'lucas.almeida', 'thiago', 'ana.beatriz', 'pedro.lima', 'julia.fernandes', 'renata'].map(nome => <option key={nome} value={`${nome}@pucminas.edu.br`}>{nome}</option>)}
-    </select></label><button disabled={ocupado} onClick={() => entrar(() => api.loginDemo(email))}>Entrar como usuário de teste</button></>}
-    {ocupado && <p role="status">Consultando sua conta…</p>}
-    {erro && <p role="alert">{erro}</p>}
+  return <main className="login-page"><section className="login-card" aria-labelledby="login-title">
+    <div className="brand-lockup login-brand">
+      <img src="/images/logo.png" alt="Ajuda-aí" className="brand-logo" />
+      <span className="brand-divider" />
+      <img src="/images/puclogo.png" alt="PUC Minas" className="puc-logo" />
+    </div>
+    <h1 id="login-title">Entre no Ajuda-aí</h1>
+    <p>Use sua conta institucional da PUC Minas.</p>
+    <button className="primary-button" disabled={ocupado} onClick={() => iniciarMicrosoft().catch(e => setErro(e.message))}>
+      <img src="/images/microsoft.png" alt="" className="login-ms-icon" />Entrar com Microsoft
+    </button>
+    {import.meta.env.DEV && <div className="login-demo">
+      <span className="login-demo-sep">ou, em desenvolvimento</span>
+      <label className="login-demo-label" htmlFor="login-demo-email">Usuário de teste</label>
+      <select id="login-demo-email" className="login-demo-select" value={email} onChange={e => setEmail(e.target.value)}>
+        {['camila', 'lucas.almeida', 'thiago', 'ana.beatriz', 'pedro.lima', 'julia.fernandes', 'renata'].map(nome => <option key={nome} value={`${nome}@pucminas.edu.br`}>{nome === 'renata' ? 'renata (coordenação)' : nome}</option>)}
+      </select>
+      <button type="button" className="outline-button" disabled={ocupado} onClick={() => entrar(() => api.loginDemo(email))}>Entrar como usuário de teste</button>
+    </div>}
+    {ocupado && <p className="login-hint" role="status">Consultando sua conta…</p>}
+    {erro && <p className="error-message login-erro" role="alert">{erro}</p>}
   </section></main>;
 }

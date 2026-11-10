@@ -1,4 +1,5 @@
 import { ParticipacoesService } from '../src/participacoes/participacoes.service.js';
+import { conferirTudo } from './helpers/conferencia-academica.js';
 import { FormularioEntity } from '../src/formularios/entities/formulario.entity.js';
 import { FormulariosService } from '../src/formularios/formularios.service.js';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
@@ -293,6 +294,7 @@ describe('Cadastro (e2e)', () => {
 
     await http().get('/me/vinculos').set('Authorization', token).expect(403);
 
+    await conferirTudo(app.get(ParticipacoesService), body.participacao.id);
     await cadastro.aprovar(body.usuario.id, 'renata@pucminas.edu.br');
     await http().get('/me/vinculos').set('Authorization', token).expect(403);
     expect(participacoes[0]).toMatchObject({
@@ -351,6 +353,7 @@ describe('Cadastro (e2e)', () => {
     )!;
 
     // mesma sequência que CoordenacaoService.aprovarCandidatura executa
+    await conferirTudo(app.get(ParticipacoesService), participacao.id);
     await app
       .get(ParticipacoesService)
       .aprovarCandidatura(participacao.id, 'renata@pucminas.edu.br');

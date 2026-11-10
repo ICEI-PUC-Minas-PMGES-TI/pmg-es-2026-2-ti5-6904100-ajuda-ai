@@ -4,6 +4,7 @@ import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import { textoResposta } from '../../components/PerguntasAdicionais';
 import { Avatar, dataCurta, RequisitosDeclarados, ROTULO_STATUS_CADASTRO, statusCadastroTom } from './comum';
+import ConferenciaAcademica, { conferenciaLiberaAprovacao, justificativaDaConferencia } from './ConferenciaAcademica';
 
 const ROTULO_TIPO = { padrinho: 'Padrinho', apadrinhado: 'Apadrinhado' };
 const ROTULO_PAPEL = { candidato: 'Candidato a padrinho', padrinho: 'Padrinho', apadrinhado: 'Apadrinhado' };
@@ -36,7 +37,19 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
   const [erroAcao, setErroAcao] = useState('');
   const [rejeitando, setRejeitando] = useState(false);
   const [motivo, setMotivo] = useState('');
+  const [conferencia, setConferencia] = useState(null);
   const motivoId = useId();
+  const participacaoId = detalhe?.participacao?.id;
+
+  // A conferência acadêmica (F09) é da participação no ciclo, não da conta.
+  useEffect(() => {
+    if (!participacaoId) return undefined;
+    let ativo = true;
+    api.candidatura(participacaoId)
+      .then((dados) => { if (ativo) setConferencia(dados.conferencia); })
+      .catch((error) => { if (ativo) setErroAcao(error.message || 'Não foi possível carregar a conferência acadêmica.'); });
+    return () => { ativo = false; };
+  }, [participacaoId, detalhe?.statusCadastro]);
 
   const carregar = useCallback(async () => {
     setErro('');
@@ -81,6 +94,7 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
   const pendente = detalhe.statusCadastro === 'pendente';
   const aprovado = detalhe.statusCadastro === 'aprovado';
   const extras = r.extras || {};
+  const liberada = conferenciaLiberaAprovacao(conferencia);
   const meta = [
     detalhe.curso,
     detalhe.periodo ? `${detalhe.periodo}º período` : null,
@@ -117,15 +131,19 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
           {pendente ? (
             <>
               <p className="detail-muted small">
-                {ehPadrinho
-                  ? 'Aprovar também aprova a candidatura deste ciclo'
-                  : 'Após aprovar, entra na fila de matching'}
+                {!liberada
+                  ? conferencia?.verificacao
+                    ? 'A conferência registrou requisitos obrigatórios não atendidos: aprovação bloqueada.'
+                    : 'Registre a conferência acadêmica com os requisitos atendidos para liberar a aprovação.'
+                  : ehPadrinho
+                    ? 'Aprovar também aprova a candidatura deste ciclo'
+                    : 'Após aprovar, entra na fila de matching'}
               </p>
               <div className="decision-buttons decision-buttons-row">
                 <button
                   type="button"
                   className="decision approve"
-                  disabled={Boolean(acao)}
+                  disabled={Boolean(acao) || !liberada}
                   onClick={() => decidir('aprovar', () => api.aprovarCadastro(id, programa), `Cadastro de ${detalhe.nome} aprovado.`)}
                 >
                   <Icon name="check" size={16} /> {acao === 'aprovar' ? 'Aprovando…' : 'Aprovar'}
@@ -134,7 +152,10 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
                   type="button"
                   className="decision reject"
                   disabled={Boolean(acao)}
-                  onClick={() => { setMotivo(''); setRejeitando(true); }}
+                  onClick={() => {
+                    if (!motivo.trim()) setMotivo(justificativaDaConferencia(conferencia));
+                    setRejeitando(true);
+                  }}
                 >
                   <Icon name="close" size={16} /> Rejeitar
                 </button>
@@ -149,7 +170,7 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
                 <button
                   type="button"
                   className="decision approve"
-                  disabled={Boolean(acao)}
+                  disabled={Boolean(acao) || !liberada}
                   onClick={() => decidir('aprovar', () => api.aprovarCadastro(id, programa), `Cadastro de ${detalhe.nome} aprovado.`)}
                 >
                   <Icon name="check" size={16} /> {acao === 'aprovar' ? 'Aprovando…' : 'Rever e aprovar'}
@@ -162,6 +183,16 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
       ) : null}
 
       <div className="detail-flow">
+        {participacaoId && (
+          <ConferenciaAcademica
+            participacaoId={participacaoId}
+            conferencia={conferencia}
+            onRegistrada={(atualizado) => {
+              setConferencia(atualizado.conferencia);
+              onDecidido?.(`Conferência acadêmica de ${detalhe.nome} registrada.`);
+            }}
+          />
+        )}
         {ehPadrinho ? (
           <>
             <details className="detail-disclosure">

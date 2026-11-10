@@ -3,6 +3,7 @@ import {
   repositorioEmMemoria,
   conectarRepositorios,
 } from '../../test/helpers/repositorio-memoria.js';
+import { conferirTudo } from '../../test/helpers/conferencia-academica.js';
 import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ParticipacoesService } from './participacoes.service.js';
 
@@ -66,6 +67,7 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       usuarioId: 'a1@pucminas.edu.br',
       programa: '2026/2',
     });
+    await conferirTudo(service, registro.id);
     const aprovado = await service.aprovarCandidatura(registro.id);
 
     expect(aprovado.papel).toBe('apadrinhado');
@@ -105,6 +107,7 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       usuarioId: 'padrinho@pucminas.edu.br',
       programa: '2026/2',
     });
+    await conferirTudo(service, candidatura.id);
     const padrinho = await service.aprovarCandidatura(candidatura.id);
     const pendente = await service.cadastrarApadrinhado({
       usuarioId: 'a1@pucminas.edu.br',
@@ -188,6 +191,7 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       usuarioId: 'rafa@pucminas.edu.br',
       programa: '2026/2',
     });
+    await conferirTudo(service, candidatura.id);
     const aprovada = await service.aprovarCandidatura(candidatura.id);
 
     expect(aprovada.papel).toBe('candidato');
@@ -205,6 +209,7 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       usuarioId: 'padrinho@pucminas.edu.br',
       programa: '2026/2',
     });
+    await conferirTudo(service, candidatura.id);
     const padrinho = await service.aprovarCandidatura(candidatura.id);
     const apadrinhado = await service.cadastrarApadrinhado({
       usuarioId: 'a1@pucminas.edu.br',
@@ -256,6 +261,7 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       usuarioId: 'padrinho@pucminas.edu.br',
       programa: '2026/2',
     });
+    await conferirTudo(service, candidatura.id);
     const padrinho = await service.aprovarCandidatura(candidatura.id);
     const a1 = await service.cadastrarApadrinhado({
       usuarioId: 'a1@pucminas.edu.br',

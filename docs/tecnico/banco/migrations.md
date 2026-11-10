@@ -59,6 +59,18 @@ Migrations não publicam GLBs nem importam conteúdo administrativo.
   A unicidade parcial impede duplicar um par ativo; FKs apontam para programa,
   participações, execução e configuração. O rollback recusa dados sem
   `MIGRATION_DOWN_DESCARTAR_DADOS=true`.
+- `VerificacaoAcademicaParticipacoes`: `participacoes.verificacao` (jsonb)
+  com a conferência acadêmica da F09 (itens conferidos, resultado,
+  observações, responsável, data e histórico). Fica fora de `respostas` para
+  não voltar ao aluno. Reconhece bancos de `synchronize` e recusa `down` se
+  houver conferências registradas.
+- `LojinhaResgates`: catálogo mínimo da lojinha e `gamificacao.resgates`
+  (comprovante imutável de cada troca, ligado ao ledger de XP).
+- `LojinhaRecompensas`: cadastro completo (F27). Converte o catálogo mínimo
+  (`publicada` → `status`; estoque restante → total + comprometido), cria
+  `recompensa_versoes` e `recompensa_estoque_ajustes` (só INSERT) e liga cada
+  resgate à versão resgatada. CHECK impede total abaixo do comprometido.
+  Rollback só sem histórico novo (versões, ajustes ou status inativa/arquivada).
 
 Modelos e regras têm fonte em [dados geoespaciais](../mapa/dados-geo.md),
 [PucStops](../mapa/pucstops.md), [XP](../gamificacao/xp.md) e

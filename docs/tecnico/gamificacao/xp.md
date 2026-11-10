@@ -56,6 +56,8 @@ idempotência próprias. Os tipos aceitos têm CHECK em migration; ampliar esse
 conjunto exige mudança explícita de estrutura. O ledger admite débitos tipados,
 mas isso não implementa por si só uma loja ou fluxo de recompensa.
 
+A lojinha (cadastro e resgate com XP) está em [lojinha](lojinha.md).
+
 Concorrência e consistência são verificadas em
 `test/pucstops-xp.integration.spec.ts`; validações unitárias ficam em
 `src/gamificacao/gamificacao.spec.ts`.

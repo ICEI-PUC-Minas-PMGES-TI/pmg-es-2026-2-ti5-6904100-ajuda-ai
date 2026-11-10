@@ -107,17 +107,25 @@ async function request(path, { method = 'GET', body, token, aluno, anonimo = fal
   }
 
   let response;
+  const controller = new AbortController();
+  // Quem passa o próprio sinal (ex.: fluxos do mapa) ou envia arquivo controla o prazo.
+  const timeout = signal || multipart ? undefined : setTimeout(() => controller.abort(), 12000);
   try {
     response = await fetch(`${API_BASE}${path}`, {
       method,
       headers,
       body: multipart ? body : body !== undefined ? JSON.stringify(body) : undefined,
-      ...(signal ? { signal } : {}),
+      signal: signal ?? controller.signal,
     });
-  } catch {
-    const error = new Error('Não foi possível conectar ao servidor. Verifique sua conexão.');
+  } catch (causa) {
+    const mensagem = causa?.name === 'AbortError'
+      ? 'O servidor demorou para responder. Verifique se o backend está em execução.'
+      : 'Não foi possível conectar ao servidor. Verifique se o backend está em execução.';
+    const error = new Error(mensagem);
     error.status = 0;
     throw error;
+  } finally {
+    clearTimeout(timeout);
   }
 
   if (!response.ok) {
@@ -241,8 +249,9 @@ export const api = {
   dashboard(programa) {
     return request(`/coordenacao/dashboard${query({ programa })}`);
   },
-  candidaturas(programa, status) {
-    return request(`/coordenacao/candidaturas${query({ programa, status })}`);
+  /** papel: candidato|apadrinhado; conferencia: pendente|requisitos_atendidos|requisitos_nao_atendidos. */
+  candidaturas(programa, status, { papel, conferencia } = {}) {
+    return request(`/coordenacao/candidaturas${query({ programa, status, papel, conferencia })}`);
   },
   candidatura(id) {
     return request(`/coordenacao/candidaturas/${id}`);
@@ -258,6 +267,16 @@ export const api = {
   },
   desvincularCandidatura(id) {
     return request(`/coordenacao/candidaturas/${id}/desvincular`, { method: 'POST' });
+  },
+  revogarAprovacao(id, justificativa) {
+    return request(`/coordenacao/candidaturas/${id}/revogar`, { method: 'POST', body: { justificativa } });
+  },
+  /** Conferência acadêmica (F09): itens = [{ id, atende }]. Devolve o detalhe atualizado. */
+  registrarVerificacao(id, itens, observacoes) {
+    return request(`/coordenacao/candidaturas/${id}/verificacao`, { method: 'PUT', body: { itens, observacoes } });
+  },
+  encerrarVinculo(id, vinculoId) {
+    return request(`/coordenacao/candidaturas/${id}/vinculos/${vinculoId}/encerrar`, { method: 'POST' });
   },
   cadastros(status, programa) {
     return request(`/coordenacao/cadastros${query({ status, programa })}`);
@@ -407,6 +426,41 @@ export const api = {
   },
   ativarPucStop(id) {
     return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+
+  /* ===== Lojinha: recompensas (coordenação; F27) ===== */
+  /** Todas as recompensas (`status` opcional: rascunho, publicada, inativa, arquivada). */
+  recompensas(status) {
+    return request(`/coordenacao/recompensas${query({ status })}`);
+  },
+  /** Detalhe com histórico de versões e de ajustes de estoque. */
+  recompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`);
+  },
+  criarRecompensa(dados) {
+    return request('/coordenacao/recompensas', { method: 'POST', body: dados });
+  },
+  /** Envie só os campos alterados; `null` remove imagem, limite, programa ou datas. */
+  atualizarRecompensa(id, dados) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  /** `{ tipo: 'reposicao'|'correcao'|'limitado'|'ilimitado', quantidade?, motivo }`. */
+  ajustarEstoqueRecompensa(id, dados) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}/estoque`, { method: 'POST', body: dados });
+  },
+  publicarRecompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}/publicar`, { method: 'POST' });
+  },
+  desativarRecompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  /** Retira de vez preservando o histórico (usada em resgates). */
+  arquivarRecompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}/arquivar`, { method: 'POST' });
+  },
+  /** Só sem transações; com resgates o servidor responde 409 (arquive). */
+  excluirRecompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
   /* ===== Mapa do campus (seletores de local da coordenação) ===== */

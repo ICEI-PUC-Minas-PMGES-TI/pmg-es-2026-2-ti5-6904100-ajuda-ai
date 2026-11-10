@@ -3,6 +3,7 @@ import {
   repositorioEmMemoria,
   conectarRepositorios,
 } from '../../test/helpers/repositorio-memoria.js';
+import { conferirTudo } from '../../test/helpers/conferencia-academica.js';
 import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ParticipacoesService } from './participacoes.service.js';
 
@@ -78,6 +79,7 @@ describe('ParticipacoesService', () => {
       programa: '2026/2',
     });
     const candidato = (await service.registroPrincipal('1', '2026/2'))!;
+    await conferirTudo(service, candidato.id);
     await service.aprovarCandidatura(candidato.id);
     const apadrinhado = await service.cadastrarApadrinhado({
       usuarioId: 'calouro',

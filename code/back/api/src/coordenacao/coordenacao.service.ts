@@ -31,6 +31,14 @@ import { seedDemoHabilitado } from '../config/seguranca.js';
 import { CriterioCatalogoService } from '../matching/criterio-catalogo.service.js';
 import { MatchingService } from '../matching/matching.service.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
+import type { EntradaVerificacao } from '../participacoes/verificacao-academica.js';
+
+/** "Situação da análise" na listagem: conferência acadêmica registrada ou não. */
+const FILTROS_CONFERENCIA = [
+  'pendente',
+  'requisitos_atendidos',
+  'requisitos_nao_atendidos',
+];
 
 @Injectable()
 export class CoordenacaoService implements OnModuleInit {
@@ -387,53 +395,108 @@ export class CoordenacaoService implements OnModuleInit {
     };
   }
 
-  async listarCandidaturas(programa: string, status?: string) {
+  /**
+   * Candidaturas do ciclo. `papel`: candidato (padrão, padrinhos) ou
+   * apadrinhado; `status`: situação da inscrição; `conferencia`: pendente,
+   * requisitos_atendidos ou requisitos_nao_atendidos.
+   */
+  async listarCandidaturas(
+    programa: string,
+    status?: string,
+    papel?: string,
+    conferencia?: string,
+  ) {
+    const publico = papel?.trim() || 'candidato';
+    if (!['candidato', 'padrinho', 'apadrinhado'].includes(publico)) {
+      throw new BadRequestException(
+        'Papel inválido: use candidato (padrinho) ou apadrinhado.',
+      );
+    }
+    const conf = conferencia?.trim();
+    if (conf && !FILTROS_CONFERENCIA.includes(conf)) {
+      throw new BadRequestException(
+        'Conferência inválida: use pendente, requisitos_atendidos ou requisitos_nao_atendidos.',
+      );
+    }
+    const registros =
+      publico === 'apadrinhado'
+        ? await this.apadrinhadosPorStatus(programa, status)
+        : await this.candidatosPorStatus(programa, status);
+    return registros
+      .filter((r) =>
+        !conf
+          ? true
+          : conf === 'pendente'
+            ? !r.verificacao?.atual
+            : r.verificacao?.atual?.resultado === conf,
+      )
+      .map((item) => this.enriquecerCandidatura(item));
+  }
+
+  private async candidatosPorStatus(programa: string, status?: string) {
     const filtro = status?.trim();
 
     if (filtro === 'aprovadas') {
       const registros = await this.participacoesService.listarPorPrograma({
         programa,
       });
-      return registros
-        .filter(
-          (r) =>
-            (r.papel === 'candidato' && r.status === 'aprovado') ||
-            (r.papel === 'padrinho' &&
-              ['em_andamento', 'concluido'].includes(r.status)),
-        )
-        .map((item) => this.enriquecerCandidatura(item));
+      return registros.filter(
+        (r) =>
+          (r.papel === 'candidato' && r.status === 'aprovado') ||
+          (r.papel === 'padrinho' &&
+            ['em_andamento', 'concluido'].includes(r.status)),
+      );
     }
 
-    if (filtro === 'sem_vinculo') {
-      const apadrinhados = await this.participacoesService.listarPorPrograma({
-        programa,
-        papel: 'apadrinhado',
-        status: 'em_andamento',
-      });
-      const semVinculo = [];
-      for (const registro of apadrinhados) {
-        if (!(await this.participacoesService.temVinculoValido(registro)))
-          semVinculo.push(registro);
-      }
-      return semVinculo.map((item) => this.enriquecerCandidatura(item));
-    }
+    // Compatibilidade: a tela pede `sem_vinculo` sem informar o papel.
+    if (filtro === 'sem_vinculo')
+      return this.apadrinhadosPorStatus(programa, filtro);
 
     if (filtro === 'aguardando') {
       const registros = await this.participacoesService.listarPorPrograma({
         programa,
         papel: 'candidato',
       });
-      return registros
-        .filter((r) => r.status === 'pendente' || r.status === 'em_analise')
-        .map((item) => this.enriquecerCandidatura(item));
+      return registros.filter(
+        (r) => r.status === 'pendente' || r.status === 'em_analise',
+      );
     }
 
-    const registros = await this.participacoesService.listarPorPrograma({
+    return this.participacoesService.listarPorPrograma({
       programa,
       papel: 'candidato',
       ...(filtro ? { status: filtro as StatusParticipacaoRegistro } : {}),
     });
-    return registros.map((item) => this.enriquecerCandidatura(item));
+  }
+
+  private async apadrinhadosPorStatus(programa: string, status?: string) {
+    const filtro = status?.trim();
+    const apadrinhados = await this.participacoesService.listarPorPrograma({
+      programa,
+      papel: 'apadrinhado',
+    });
+    if (filtro === 'sem_vinculo') {
+      const semVinculo: ParticipacaoEntity[] = [];
+      for (const registro of apadrinhados) {
+        if (
+          registro.status === 'em_andamento' &&
+          !(await this.participacoesService.temVinculoValido(registro))
+        )
+          semVinculo.push(registro);
+      }
+      return semVinculo;
+    }
+    if (filtro === 'aguardando')
+      return apadrinhados.filter((r) =>
+        ['pendente', 'em_analise'].includes(r.status),
+      );
+    if (filtro === 'aprovadas')
+      return apadrinhados.filter((r) =>
+        ['em_andamento', 'concluido'].includes(r.status),
+      );
+    return filtro
+      ? apadrinhados.filter((r) => r.status === filtro)
+      : apadrinhados;
   }
 
   async criarNovoCiclo(
@@ -463,6 +526,8 @@ export class CoordenacaoService implements OnModuleInit {
       fotoUrl: perfil.fotoUrl,
       iniciais: perfil.iniciais,
       statusRotulo: this.rotuloStatus(item),
+      /** Resultado da última conferência acadêmica; null = não conferida. */
+      conferencia: item.verificacao?.atual?.resultado ?? null,
     };
   }
 
@@ -685,8 +750,33 @@ export class CoordenacaoService implements OnModuleInit {
       (await this.programasService.requisitosPadrinho(item.programa)).map(
         (r) => ({ ...r, cumpre: null }),
       );
+    const resumo = this.enriquecerCandidatura(item);
     return {
-      ...this.enriquecerCandidatura(item),
+      ...resumo,
+      conferencia: {
+        itens: await this.participacoesService.itensDaConferencia(item),
+        verificacao: item.verificacao?.atual ?? null,
+        anteriores: item.verificacao?.anteriores ?? [],
+        podeRegistrar:
+          item.papel !== 'padrinho' &&
+          ['pendente', 'em_analise'].includes(item.status),
+        /** O que a coordenação procura no sistema da faculdade. */
+        dadosParaConsulta: {
+          nome: resumo.nome,
+          email: resumo.email,
+          curso: resumo.curso,
+          periodo: resumo.periodo,
+          turno: item.respostas?.turno ?? null,
+          papel:
+            item.papel === 'apadrinhado'
+              ? 'Apadrinhado'
+              : item.papel === 'padrinho'
+                ? 'Padrinho'
+                : 'Candidato a padrinho',
+          programa: item.programa,
+        },
+      },
+      vinculos: await this.vinculosDe(item),
       respostas: item.respostas ?? {},
       observacoes: item.observacoes ?? '',
       decisao: item.respostas?._servidor?.decisao ?? null,
@@ -701,6 +791,85 @@ export class CoordenacaoService implements OnModuleInit {
       jaFoiApadrinhadoEm: jaApadrinhado?.programa ?? null,
       numeroCandidatura: candidaturasAnteriores + 1,
     };
+  }
+
+  /**
+   * Vínculos ativos da participação: pares do matching (F11/F12) e, para
+   * registros antigos, o grupo legado. Precisam ser tratados antes de revogar.
+   */
+  private async vinculosDe(item: ParticipacaoEntity) {
+    const pessoa = (p: ParticipacaoEntity) => {
+      const perfil = perfilDoRegistro(p);
+      return {
+        participacaoId: p.id,
+        papel: p.papel,
+        nome: perfil.nome,
+        email: perfil.email,
+        curso: perfil.curso,
+        iniciais: perfil.iniciais,
+      };
+    };
+    const lista: Array<
+      ReturnType<typeof pessoa> & {
+        vinculoId: number | null;
+        origem: 'matching' | 'grupo';
+        grupo: string | null;
+      }
+    > = (await this.participacoesService.listarVinculados(item)).map(
+      ({ participacao, vinculoId }) => ({
+        ...pessoa(participacao),
+        vinculoId,
+        origem: 'matching',
+        grupo: null,
+      }),
+    );
+    const grupo = item.grupo?.trim();
+    if (grupo && (item.papel === 'padrinho' || item.papel === 'apadrinhado')) {
+      const membros =
+        item.papel === 'padrinho'
+          ? (
+              await this.participacoesService.listarApadrinhadosDoGrupo(
+                item.programa,
+                grupo,
+              )
+            ).filter((m) => m.status === 'em_andamento')
+          : [
+              await this.participacoesService.buscarPadrinhoDoGrupo(
+                item.programa,
+                grupo,
+              ),
+            ].filter((m): m is ParticipacaoEntity => Boolean(m));
+      for (const membro of membros) {
+        if (lista.some((v) => v.participacaoId === membro.id)) continue;
+        lista.push({
+          ...pessoa(membro),
+          vinculoId: null,
+          origem: 'grupo',
+          grupo,
+        });
+      }
+    }
+    return lista;
+  }
+
+  /** Registra a conferência feita no sistema da faculdade (F09). */
+  async registrarVerificacao(
+    id: number,
+    corpo: EntradaVerificacao,
+    coordenador?: string,
+  ) {
+    await this.participacoesService.registrarVerificacao(
+      id,
+      corpo ?? {},
+      coordenador,
+    );
+    return this.detalharCandidatura(id);
+  }
+
+  /** Encerra um vínculo do matching para permitir revogar a aprovação. */
+  async encerrarVinculo(id: number, vinculoId: number) {
+    await this.participacoesService.encerrarVinculo(id, vinculoId);
+    return this.detalharCandidatura(id);
   }
 
   /**
