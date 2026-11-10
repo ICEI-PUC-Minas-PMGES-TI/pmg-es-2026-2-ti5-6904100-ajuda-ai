@@ -50,9 +50,12 @@ comprovante continuam abertos depois do fim do semestre.
   inclui `limitePorAluno` e `resgatesFeitos`. O saldo vem de `GET /me/xp`.
 - `GET /me/lojinha/:id`: detalhe com as mesmas regras (404 quando não é
   visível ao aluno).
-- `POST /me/lojinha/:id/resgatar`: recebe uma UUID v4 em `chaveIdempotencia`.
-  Repetir a mesma chave devolve o mesmo resgate. Respostas: 404 indisponível,
-  409 esgotada ou limite por aluno atingido, 422 saldo insuficiente. A
+- `POST /me/lojinha/:id/resgatar`: recebe uma UUID v4 em `chaveIdempotencia`
+  e a `versao` e o `custoXp` que o aluno viu na revisão. Repetir a mesma chave
+  devolve o mesmo resgate. Respostas: 404 indisponível, 409 esgotada, limite
+  por aluno atingido ou recompensa alterada desde a revisão
+  (`motivo: 'recompensa-alterada'`, com a versão e o custo atuais; nada é
+  debitado), 422 saldo insuficiente. A
   resposta inclui `codigo`, `versao`, `saldoApos` e `saldoAtual`.
 - `GET /me/lojinha/resgates`: histórico do aluno, com `codigo`, nome,
   descrição, custo, condições e versão preservados no momento da troca, mais

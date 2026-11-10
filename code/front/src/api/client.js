@@ -109,7 +109,7 @@ async function request(path, { method = 'GET', body, token, aluno, anonimo = fal
   let response;
   const controller = new AbortController();
   // Quem passa o próprio sinal (ex.: fluxos do mapa) ou envia arquivo controla o prazo.
-  const timeout = signal || multipart ? undefined : window.setTimeout(() => controller.abort(), 12000);
+  const timeout = signal || multipart ? undefined : setTimeout(() => controller.abort(), 12000);
   try {
     response = await fetch(`${API_BASE}${path}`, {
       method,
@@ -125,7 +125,7 @@ async function request(path, { method = 'GET', body, token, aluno, anonimo = fal
     error.status = 0;
     throw error;
   } finally {
-    window.clearTimeout(timeout);
+    clearTimeout(timeout);
   }
 
   if (!response.ok) {

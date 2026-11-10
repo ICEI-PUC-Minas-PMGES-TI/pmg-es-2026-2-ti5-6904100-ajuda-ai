@@ -70,6 +70,7 @@ export class LojinhaController {
       await this.aluno(req),
       id,
       dados.chaveIdempotencia,
+      { versao: dados.versao, custoXp: dados.custoXp },
     );
   }
 }

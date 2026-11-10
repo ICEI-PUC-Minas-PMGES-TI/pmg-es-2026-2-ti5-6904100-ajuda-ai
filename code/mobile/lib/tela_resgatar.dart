@@ -20,6 +20,7 @@ class ItemResgate {
     required this.nome,
     required this.descricao,
     required this.custoXp,
+    this.versao = 1,
     this.estoque,
     this.condicoesRetirada = '',
     this.imagemUrl,
@@ -33,6 +34,9 @@ class ItemResgate {
   final String nome;
   final String descricao;
   final int custoXp;
+
+  /// Versão da recompensa exibida; o resgate é recusado se ela mudar.
+  final int versao;
   final int? estoque;
   final String condicoesRetirada;
   final String? imagemUrl;
@@ -46,6 +50,7 @@ class ItemResgate {
     nome: json['nome'] as String,
     descricao: json['descricao'] as String,
     custoXp: json['custoXp'] as int,
+    versao: json['versao'] as int? ?? 1,
     estoque: json['estoque'] as int?,
     condicoesRetirada: json['condicoesRetirada'] as String? ?? '',
     imagemUrl: json['imagemUrl'] as String?,
@@ -1000,6 +1005,8 @@ class _TelaRevisaoResgateState extends State<TelaRevisaoResgate> {
         token,
         widget.item.id.toString(),
         _chave,
+        versao: widget.item.versao,
+        custoXp: widget.item.custoXp,
       );
       if (!mounted || SessaoUsuario.atual.accessToken != token) return;
       final saldo = resgate['saldoAtual'];

@@ -41,7 +41,13 @@ void main() {
     final lista = await api.listar('token');
     await api.detalhe('token', 'item');
     const chave = '123e4567-e89b-42d3-a456-426614174000';
-    final resgate = await api.resgatar('token', 'item', chave);
+    final resgate = await api.resgatar(
+      'token',
+      'item',
+      chave,
+      versao: 3,
+      custoXp: 50,
+    );
     await api.historico('token');
     await api.comprovante('token', 'r1');
     await api.extrato('token', limite: 10, antes: '55');
@@ -59,7 +65,11 @@ void main() {
       '/me/xp/movimentacoes',
     ]);
     expect(requisicoes[3].headers['authorization'], 'Bearer token');
-    expect(jsonDecode(requisicoes[3].body)['chaveIdempotencia'], chave);
+    expect(jsonDecode(requisicoes[3].body), {
+      'chaveIdempotencia': chave,
+      'versao': 3,
+      'custoXp': 50,
+    });
     expect(requisicoes[6].url.queryParameters, {'limite': '10', 'antes': '55'});
   });
 

@@ -158,11 +158,41 @@ describe.skipIf(!URL_TESTE)(
       });
     }
 
-    const resgatar = (id: string, auth = aluno(), chave = randomUUID()) =>
+    type Visto = { versao: number; custoXp: number };
+    const enviarResgate = (id: string, auth: string, chave: string, v: Visto) =>
       http()
         .post(`/me/lojinha/${id}/resgatar`)
         .set('Authorization', auth)
-        .send({ chaveIdempotencia: chave });
+        .send({
+          chaveIdempotencia: chave,
+          versao: v.versao,
+          custoXp: v.custoXp,
+        });
+    /** Resgata confirmando a versão e o custo que o aluno vê agora. */
+    const resgatar = (id: string, auth = aluno(), chave = randomUUID()) => {
+      const resposta = http()
+        .get(`/me/lojinha/${id}`)
+        .set('Authorization', auth)
+        .then((visto) =>
+          enviarResgate(
+            id,
+            auth,
+            chave,
+            visto.status === 200
+              ? (visto.body as Visto)
+              : { versao: 1, custoXp: 0 },
+          ),
+        );
+      return Object.assign(resposta, {
+        expect: async (status: number) => {
+          const r = await resposta;
+          expect({ status: r.status, body: r.body as unknown }).toMatchObject({
+            status,
+          });
+          return r;
+        },
+      });
+    };
 
     /** Resgate real do aluno pela lojinha (F28): débito e unidade comprometida. */
     async function simularResgate(id: string): Promise<void> {
@@ -716,6 +746,29 @@ describe.skipIf(!URL_TESTE)(
         expect((await detalhe(caro)).estoque.comprometido).toBe(0);
       });
 
+      it('preço muda durante a revisão: 409 sem débito até nova confirmação', async () => {
+        const id = await novo({ nome: 'Moletom', custoXp: 50 });
+        await creditar(alunoId, 100);
+        const { body: visto } = await http()
+          .get(`/me/lojinha/${id}`)
+          .set('Authorization', aluno())
+          .expect(200);
+        await editar(id, { custoXp: 80 }).expect(200);
+        const enviar = (v: Visto) =>
+          enviarResgate(id, aluno(), randomUUID(), v);
+        const { body: recusa } = await enviar({
+          versao: visto.versao,
+          custoXp: 50,
+        }).expect(409);
+        expect(recusa).toMatchObject({
+          motivo: 'recompensa-alterada',
+          custoXp: 80,
+        });
+        expect((await detalhe(id)).transacoes).toBe(0);
+        await enviar({ versao: visto.versao, custoXp: 80 }).expect(409);
+        await enviar({ versao: recusa.versao, custoXp: 80 }).expect(201);
+      });
+
       it('última unidade com resgates simultâneos: só um leva', async () => {
         const id = await novo({
           nome: 'Última',
@@ -736,11 +789,17 @@ describe.skipIf(!URL_TESTE)(
           await creditar(uid, 50);
           alunos.push(uid);
         }
+        const { body: visto } = await http()
+          .get(`/me/lojinha/${id}`)
+          .set('Authorization', aluno())
+          .expect(200);
         const respostas = await Promise.all(
           alunos.map((uid, i) =>
-            resgatar(
+            enviarResgate(
               id,
               `Bearer ${jwt.sign({ sub: String(uid), email: `concorrente${i}@pucminas.edu.br`, perfil: 'apadrinhado', escopo: 'acesso' })}`,
+              randomUUID(),
+              visto as Visto,
             ),
           ),
         );

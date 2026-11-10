@@ -40,6 +40,12 @@ export interface Recompensa {
   versao: number;
 }
 
+/** O que o aluno viu na tela de revisão antes de confirmar. */
+export interface Confirmado {
+  versao: number;
+  custoXp: number;
+}
+
 export interface Resgate {
   id: string;
   codigo: string;
@@ -157,12 +163,15 @@ export class LojinhaService {
    * Carteira e recompensa ficam travadas até o commit (mesma ordem em todo
    * resgate; o cadastro só trava a recompensa). Toda falha desfaz débito e
    * estoque. O resgate grava a versão vista, então editar a recompensa
-   * depois não muda as condições do comprovante.
+   * depois não muda as condições do comprovante. Se a recompensa mudou
+   * (versão ou custo) desde a revisão, nada é debitado e o app precisa
+   * mostrar os dados novos antes de uma nova confirmação.
    */
   async resgatar(
     aluno: Aluno,
     recompensaId: string,
     chave: string,
+    confirmado: Confirmado,
   ): Promise<Resgate & { saldoAtual: number }> {
     const usuarioId = aluno.id;
     const qr = this.db.createQueryRunner();
@@ -192,6 +201,18 @@ export class LojinhaService {
         [aluno.perfil, usuarioId, aluno.email, recompensaId],
       )) as Recompensa[];
       if (!item) throw new NotFoundException('Recompensa indisponível.');
+      if (
+        item.versao !== confirmado.versao ||
+        item.custoXp !== confirmado.custoXp
+      ) {
+        throw new ConflictException({
+          statusCode: 409,
+          message: `Esta recompensa mudou e agora custa ${item.custoXp} XP. Volte e revise antes de confirmar.`,
+          motivo: 'recompensa-alterada',
+          versao: item.versao,
+          custoXp: item.custoXp,
+        });
+      }
       if (item.estoque !== null && item.estoque <= 0) {
         throw new ConflictException('Recompensa esgotada.');
       }

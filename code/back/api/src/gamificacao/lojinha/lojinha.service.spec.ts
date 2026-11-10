@@ -122,25 +122,41 @@ describe('LojinhaService.resgatar', () => {
     email: 'a@pucminas.edu.br',
     perfil: 'apadrinhado',
   };
+  const vista = { versao: 2, custoXp: 30 };
 
   it('registra débito, estoque comprometido e resgate (com versão) na mesma transação', async () => {
     const { service, comandos } = banco({ estoque: 1, saldo: 100 });
-    const resgate = await service.resgatar(aluno, 'item', chave);
+    const resgate = await service.resgatar(aluno, 'item', chave, vista);
     expect(resgate).toMatchObject({ saldoApos: 70, versao: 2 });
     expect(comandos.some((sql) => sql.includes('FOR UPDATE'))).toBe(true);
     expect(comprometeu(comandos)).toBe(true);
     expect(comandos.at(-1)).toBe('COMMIT');
   });
 
+  it('preço ou versão mudaram depois da revisão: 409 e nada é debitado', async () => {
+    for (const visto of [
+      { versao: 1, custoXp: 30 },
+      { versao: 2, custoXp: 50 },
+    ]) {
+      const { service, comandos } = banco({ estoque: 5, saldo: 100 });
+      await expect(
+        service.resgatar(aluno, 'item', chave, visto),
+      ).rejects.toThrow(ConflictException);
+      expect(comandos).toContain('ROLLBACK');
+      expect(debitou(comandos)).toBe(false);
+      expect(comprometeu(comandos)).toBe(false);
+    }
+  });
+
   it('estoque ilimitado também conta o resgate como comprometido', async () => {
     const { service, comandos } = banco({ estoque: null, saldo: 100 });
-    await service.resgatar(aluno, 'item', chave);
+    await service.resgatar(aluno, 'item', chave, vista);
     expect(comprometeu(comandos)).toBe(true);
   });
 
   it('desfaz a operação quando o estoque acaba', async () => {
     const { service, comandos } = banco({ estoque: 0, saldo: 100 });
-    await expect(service.resgatar(aluno, 'item', chave)).rejects.toThrow(
+    await expect(service.resgatar(aluno, 'item', chave, vista)).rejects.toThrow(
       ConflictException,
     );
     expect(comandos).toContain('ROLLBACK');
@@ -153,7 +169,7 @@ describe('LojinhaService.resgatar', () => {
       saldo: 100,
       visivel: false,
     });
-    await expect(service.resgatar(aluno, 'item', chave)).rejects.toThrow(
+    await expect(service.resgatar(aluno, 'item', chave, vista)).rejects.toThrow(
       NotFoundException,
     );
     expect(debitou(comandos)).toBe(false);
@@ -166,7 +182,7 @@ describe('LojinhaService.resgatar', () => {
       limitePorAluno: 1,
       resgatesFeitos: 1,
     });
-    await expect(service.resgatar(aluno, 'item', chave)).rejects.toThrow(
+    await expect(service.resgatar(aluno, 'item', chave, vista)).rejects.toThrow(
       /limite de resgates/,
     );
     expect(debitou(comandos)).toBe(false);
@@ -174,7 +190,7 @@ describe('LojinhaService.resgatar', () => {
 
   it('não debita quando o saldo é insuficiente', async () => {
     const { service, comandos } = banco({ estoque: 1, saldo: 10 });
-    await expect(service.resgatar(aluno, 'item', chave)).rejects.toThrow(
+    await expect(service.resgatar(aluno, 'item', chave, vista)).rejects.toThrow(
       'Saldo de XP insuficiente.',
     );
     expect(comandos).toContain('ROLLBACK');
@@ -187,7 +203,7 @@ describe('LojinhaService.resgatar', () => {
       saldo: 150,
       anterior: true,
     });
-    const resgate = await service.resgatar(aluno, 'item', chave);
+    const resgate = await service.resgatar(aluno, 'item', chave, vista);
     expect(resgate.id).toBe('anterior');
     expect(resgate.saldoApos).toBe(70);
     expect(resgate.saldoAtual).toBe(150);
@@ -201,7 +217,7 @@ describe('LojinhaService.resgatar', () => {
       saldo: 100,
       ativo: false,
     });
-    await expect(service.resgatar(aluno, 'item', chave)).rejects.toThrow(
+    await expect(service.resgatar(aluno, 'item', chave, vista)).rejects.toThrow(
       ForbiddenException,
     );
     expect(comandos).toContain('ROLLBACK');

@@ -96,15 +96,22 @@ class LojinhaApi {
   Future<Map<String, dynamic>> resgatar(
     String token,
     String recompensaId,
-    String chave,
-  ) async {
+    String chave, {
+    required int versao,
+    required int custoXp,
+  }) async {
     final resposta = await executarRequisicao(
       () => _client.post(
         Uri.parse(
           '$baseUrl/me/lojinha/${Uri.encodeComponent(recompensaId)}/resgatar',
         ),
         headers: {..._cabecalhos(token), 'content-type': 'application/json'},
-        body: jsonEncode({'chaveIdempotencia': chave}),
+        body: jsonEncode({
+          'chaveIdempotencia': chave,
+          // O que o aluno confirmou; a API recusa se a recompensa mudou.
+          'versao': versao,
+          'custoXp': custoXp,
+        }),
       ),
       erroPadrao: 'Não foi possível resgatar a recompensa',
     );
