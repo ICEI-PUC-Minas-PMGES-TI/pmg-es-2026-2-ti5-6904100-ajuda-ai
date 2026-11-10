@@ -257,7 +257,11 @@ export class CadastroService {
               ciclo.codigo,
               d.respostas.extras,
             )
-          : undefined;
+          : await formularios.validarRespostas(
+              'apadrinhado',
+              ciclo.codigo,
+              d.respostas.extras,
+            );
       const requisitos =
         d.tipoParticipacao === 'padrinho'
           ? await this.avaliarRequisitosPadrinho(ciclo.codigo, d.respostas)
@@ -326,6 +330,7 @@ export class CadastroService {
               usuarioId: d.email,
               programa: ciclo.codigo,
               respostas,
+              metadados: formulario ? { formulario } : undefined,
             });
       return { usuario, participacao };
     });

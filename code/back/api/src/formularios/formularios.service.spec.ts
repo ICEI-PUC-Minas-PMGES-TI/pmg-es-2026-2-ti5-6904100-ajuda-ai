@@ -287,6 +287,22 @@ describe('FormulariosService', () => {
   describe('respostas', () => {
     const extras = { 'pergunta-1': 'Noite' };
 
+    it('mantém a validação de respostas do cadastro de padrinhos', async () => {
+      await service.salvar('padrinho', {
+        programa: CICLO,
+        publicado: true,
+        perguntas: [],
+      });
+
+      await expect(
+        service.validarRespostasPadrinho(CICLO, {}),
+      ).resolves.toMatchObject({
+        programa: CICLO,
+        tipo: 'padrinho',
+        versao: 1,
+      });
+    });
+
     it('devolve a foto da versão respondida, isolada do formulário', async () => {
       await salvar({ publicado: true });
       const foto = await service.validarRespostas('apadrinhado', CICLO, extras);

@@ -80,9 +80,7 @@ export default function ChatPage() {
     conversas.find((conversa) => conversa.id === conversaId) || null;
 
   useEffect(() => {
-    if (!conversaId && conversas.length) {
-      setParams({ conversa: conversas[0].id }, { replace: true });
-    } else if (
+    if (
       conversaId &&
       !conversas.some((conversa) => conversa.id === conversaId)
     ) {

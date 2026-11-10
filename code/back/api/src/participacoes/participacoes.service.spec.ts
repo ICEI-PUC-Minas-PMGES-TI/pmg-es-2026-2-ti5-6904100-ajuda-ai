@@ -71,6 +71,39 @@ describe('ParticipacoesService', () => {
     expect(registro.status).not.toBe('em_andamento');
   });
 
+  it.each([true, false])(
+    'preserva a resposta booleana %s no cadastro',
+    async (resposta) => {
+      const registro = await service.registrarCandidaturaPadrinho({
+        usuarioId: '1',
+        programa: '2026/2',
+        respostas: { extras: { 'pergunta-sim-nao': resposta } },
+      });
+
+      expect(registro.respostas?.extras).toEqual({
+        'pergunta-sim-nao': resposta,
+      });
+    },
+  );
+
+  it('mantém a sanitização dos demais tipos de respostas extras', async () => {
+    const registro = await service.registrarCandidaturaPadrinho({
+      usuarioId: '1',
+      programa: '2026/2',
+      respostas: {
+        extras: {
+          texto: '  resposta  ',
+          checklist: [' opção 1 ', 'opção 2'],
+        },
+      },
+    });
+
+    expect(registro.respostas?.extras).toEqual({
+      texto: 'resposta',
+      checklist: ['opção 1', 'opção 2'],
+    });
+  });
+
   it('confirma ingresso e preserva histórico de ciclos distintos', async () => {
     await service.cadastrarApadrinhado({
       usuarioId: '1',

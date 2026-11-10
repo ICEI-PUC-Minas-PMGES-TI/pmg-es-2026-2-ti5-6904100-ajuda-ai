@@ -27,6 +27,7 @@ export interface CadastrarApadrinhadoDto {
   usuarioId: string;
   programa?: string;
   respostas?: RespostasCadastro;
+  metadados?: MetadadosCandidatura;
   /**
    * `pendente` (padrão) enquanto o cadastro do aluno aguarda a coordenação;
    * `em_andamento` quando o aluno já tem cadastro aprovado (novo ciclo).
@@ -223,7 +224,14 @@ export class ParticipacoesService {
         status: dto.statusInicial ?? 'pendente',
         apadrinhados: 0,
         inicioEm: new Date(),
-        respostas: dto.respostas ? this.limparRespostas(dto.respostas) : null,
+        respostas: dto.respostas
+          ? {
+              ...this.limparRespostas(dto.respostas),
+              ...(dto.metadados ? { _servidor: dto.metadados } : {}),
+            }
+          : dto.metadados
+            ? { _servidor: dto.metadados }
+            : null,
       }),
     );
   }
@@ -567,7 +575,7 @@ export class ParticipacoesService {
       typeof valor === 'boolean' ? valor : undefined;
     const periodo = Number(respostas.periodo);
 
-    const extras: Record<string, string | string[]> = {};
+    const extras: Record<string, string | string[] | boolean> = {};
     if (respostas.extras && typeof respostas.extras === 'object') {
       for (const [chave, valor] of Object.entries(respostas.extras).slice(
         0,
@@ -577,6 +585,8 @@ export class ParticipacoesService {
           extras[chave.slice(0, 60)] = lista(valor) ?? [];
         } else if (typeof valor === 'string') {
           extras[chave.slice(0, 60)] = valor.trim().slice(0, 1000);
+        } else if (typeof valor === 'boolean') {
+          extras[chave.slice(0, 60)] = valor;
         }
       }
     }

@@ -75,7 +75,7 @@ export interface RespostasCadastro {
   expectativa?: string;
   outrasInformacoes?: string;
   /** Respostas às perguntas extras do formulário publicado (id → valor). */
-  extras?: Record<string, string | string[]>;
+  extras?: Record<string, string | string[] | boolean>;
 }
 
 @Entity({ name: 'participacoes' })
