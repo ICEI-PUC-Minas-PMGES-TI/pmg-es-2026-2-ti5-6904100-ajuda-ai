@@ -240,6 +240,84 @@ void main() {
     expect(find.byType(TelaRevisaoResgate), findsOneWidget);
   });
 
+  testWidgets('preço mudou: revisão mostra o novo e reenvia a versão nova', (
+    tester,
+  ) async {
+    telaAlta(tester);
+    SessaoUsuario.atual.assumirSessao(
+      accessToken: 'token',
+      nome: 'Ana',
+      email: 'ana@pucminas.edu.br',
+    );
+    final enviados = <Map<String, dynamic>>[];
+    final api = LojinhaApi(
+      baseUrl: 'http://localhost:3000',
+      client: MockClient((req) async {
+        if (req.method == 'GET') {
+          return http.Response(
+            jsonEncode({
+              'id': 'item',
+              'nome': 'Caneca',
+              'descricao': 'Azul',
+              'custoXp': 80,
+              'versao': 2,
+            }),
+            200,
+          );
+        }
+        final corpo = jsonDecode(req.body) as Map<String, dynamic>;
+        enviados.add(corpo);
+        if (corpo['versao'] == 1) {
+          return http.Response(
+            jsonEncode({
+              'statusCode': 409,
+              'message': 'Esta recompensa mudou e agora custa 80 XP.',
+              'motivo': 'recompensa-alterada',
+            }),
+            409,
+          );
+        }
+        return http.Response(
+          jsonEncode({'id': 'r1', 'codigo': 'ABC', 'saldoAtual': 20}),
+          201,
+        );
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TelaRevisaoResgate(
+          item: const ItemResgate(
+            id: 'item',
+            nome: 'Caneca',
+            descricao: 'Azul',
+            custoXp: 50,
+          ),
+          saldoXp: 100,
+          api: api,
+        ),
+      ),
+    );
+    expect(find.text('50 XP'), findsWidgets);
+
+    await tester.tap(find.text('Confirmar resgate'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Esta recompensa mudou e agora custa 80 XP.'),
+      findsOneWidget,
+    );
+    expect(find.text('80 XP'), findsWidgets);
+    expect(find.text('50 XP'), findsNothing);
+
+    await tester.tap(find.text('Confirmar resgate'));
+    await tester.pumpAndSettle();
+    expect(enviados.map((c) => [c['versao'], c['custoXp']]).toList(), [
+      [1, 50],
+      [2, 80],
+    ]);
+    expect(enviados[0]['chaveIdempotencia'], enviados[1]['chaveIdempotencia']);
+    expect(SessaoUsuario.atual.xp.value, 20);
+  });
+
   testWidgets('meus resgates e extrato listam dados da API', (tester) async {
     telaAlta(tester);
     SessaoUsuario.atual.assumirSessao(

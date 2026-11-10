@@ -132,8 +132,8 @@ A API fica disponível em `http://localhost:3000`.
 | `GET`       | `/coordenacao/recompensas`                              | Recompensas da lojinha (F27), com estoque, versão, transações e `disponivelAgora` (`?status=rascunho\|publicada\|inativa\|arquivada`). |
 | `GET`       | `/coordenacao/recompensas/:id`                          | Detalhe com histórico de versões (condições vistas no resgate) e ajustes de estoque. |
 | `POST`      | `/coordenacao/recompensas`                              | Cria (`nome`, `custoXp`, `condicoesRetirada`, `estoqueIlimitado`, `estoqueInicial` se limitado; opcionais `descricao`, `imagemUrl`, `limitePorAluno`, `publico`, `programaCodigo`, `disponivelDe/Ate`, `publicar`). |
-| `PATCH`     | `/coordenacao/recompensas/:id`                          | Edita; mudar nome, descrição, imagem, custo ou condições cria nova versão (resgates anteriores mantêm a sua). |
-| `POST`      | `/coordenacao/recompensas/:id/estoque`                  | Reposição, correção ou troca ilimitado/limitado (`{ tipo, quantidade?, motivo }`); nunca abaixo do comprometido. |
+| `PATCH`     | `/coordenacao/recompensas/:id`                          | Edita; mudar nome, descrição, imagem, custo ou condições cria nova versão (resgates anteriores mantêm a sua). Exige `atualizadoEm`; 409 se outra pessoa alterou antes. |
+| `POST`      | `/coordenacao/recompensas/:id/estoque`                  | Reposição, correção ou troca ilimitado/limitado (`{ tipo, quantidade?, motivo, atualizadoEm }`); nunca abaixo do comprometido; 409 se outra pessoa alterou antes. |
 | `POST`      | `/coordenacao/recompensas/:id/publicar` \| `desativar` \| `arquivar` | Publica, tira da lojinha ou arquiva (somente leitura, histórico preservado). |
 | `DELETE`    | `/coordenacao/recompensas/:id`                          | Exclui só sem transações; com resgates responde 409 `recompensa-com-transacoes` (arquive). |
 | `GET`       | `/me/lojinha`                                           | Lojinha do aluno: publicadas, na vigência, do seu público/programa (`estoque` disponível; `null` = ilimitado). |

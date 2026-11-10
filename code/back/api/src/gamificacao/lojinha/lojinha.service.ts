@@ -243,8 +243,10 @@ export class LojinhaService {
         }
         throw erro;
       }
+      // Sem tocar em `atualizado_em`: ele marca edições da coordenação, e um
+      // resgate não deve invalidar o formulário aberto por ela.
       await qr.query(
-        `UPDATE ${g}."recompensas" SET "estoque_comprometido" = "estoque_comprometido" + 1, "atualizado_em" = now() WHERE "id" = $1`,
+        `UPDATE ${g}."recompensas" SET "estoque_comprometido" = "estoque_comprometido" + 1 WHERE "id" = $1`,
         [recompensaId],
       );
       const [resgate] = (await qr.query(

@@ -29,6 +29,10 @@ painel web). Código em `src/gamificacao/recompensas/`.
 - `POST /:id/estoque`: `{ tipo: reposicao | correcao | limitado | ilimitado,
   quantidade?, motivo }`, com responsável. O total nunca fica abaixo do
   comprometido (API e CHECK).
+- `PATCH /:id` e `POST /:id/estoque` exigem o `atualizadoEm` que a tela
+  mostrava. Se outra pessoa da coordenação alterou a recompensa depois disso,
+  respondem 409 `recompensa-alterada` sem gravar nada. Resgates de alunos não
+  mudam `atualizadoEm`, então não invalidam um formulário aberto.
 - `POST /:id/publicar`, `/desativar`, `/arquivar`; `DELETE /:id` só sem
   resgates (com resgates: 409 `recompensa-com-transacoes`, arquive).
 

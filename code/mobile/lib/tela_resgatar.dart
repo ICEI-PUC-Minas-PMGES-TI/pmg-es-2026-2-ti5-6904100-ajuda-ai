@@ -986,6 +986,10 @@ class TelaRevisaoResgate extends StatefulWidget {
 
 class _TelaRevisaoResgateState extends State<TelaRevisaoResgate> {
   final String _chave = LojinhaApi.novaChave();
+
+  /// Começa com o item da tela anterior; é trocado pelo atual quando a API
+  /// avisa que a recompensa mudou, para o aluno conferir antes de repetir.
+  late ItemResgate _item = widget.item;
   bool _enviando = false;
   String? _erro;
 
@@ -1003,27 +1007,45 @@ class _TelaRevisaoResgateState extends State<TelaRevisaoResgate> {
     try {
       final resgate = await widget.api.resgatar(
         token,
-        widget.item.id.toString(),
+        _item.id.toString(),
         _chave,
-        versao: widget.item.versao,
-        custoXp: widget.item.custoXp,
+        versao: _item.versao,
+        custoXp: _item.custoXp,
       );
       if (!mounted || SessaoUsuario.atual.accessToken != token) return;
       final saldo = resgate['saldoAtual'];
       if (saldo is int) SessaoUsuario.atual.xp.value = saldo;
       Navigator.of(context).pop(resgate);
     } catch (erro) {
+      final atual = erro is ApiException && erro.statusCode == 409
+          ? await _recarregar(token)
+          : null;
       if (!mounted) return;
       setState(() {
+        if (atual != null) _item = atual;
         _enviando = false;
         _erro = mensagemErroLojinha(erro);
       });
     }
   }
 
+  /// Busca a recompensa de novo; `null` se não mudou ou não deu para ler.
+  Future<ItemResgate?> _recarregar(String token) async {
+    try {
+      final atual = ItemResgate.fromJson(
+        await widget.api.detalhe(token, _item.id.toString()),
+      );
+      final mudou =
+          atual.versao != _item.versao || atual.custoXp != _item.custoXp;
+      return mudou ? atual : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final item = widget.item;
+    final item = _item;
     final depois = widget.saldoXp - item.custoXp;
     return PopScope(
       canPop: !_enviando,

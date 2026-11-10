@@ -497,7 +497,7 @@ export function FormularioRecompensa({ original, programas = [], onCancelar, onS
     try {
       const salvo = criando
         ? await api.criarRecompensa(corpoCriacao(form))
-        : await api.atualizarRecompensa(original.id, alterados);
+        : await api.atualizarRecompensa(original.id, { ...alterados, atualizadoEm: original.atualizadoEm });
       onSalvo(salvo, criando);
     } catch (error) {
       setErro(error.message || 'Não foi possível salvar a recompensa.');
@@ -636,7 +636,7 @@ export function AjusteEstoque({ recompensa, onFechar, onSalvo }) {
     trava.current = true;
     setSalvando(true);
     try {
-      const corpo = { tipo: ajuste.tipo, motivo: ajuste.motivo.trim() };
+      const corpo = { tipo: ajuste.tipo, motivo: ajuste.motivo.trim(), atualizadoEm: recompensa.atualizadoEm };
       if (ajuste.tipo !== 'ilimitado') corpo.quantidade = inteiro(ajuste.quantidade);
       onSalvo(await api.ajustarEstoqueRecompensa(recompensa.id, corpo));
     } catch (error) {

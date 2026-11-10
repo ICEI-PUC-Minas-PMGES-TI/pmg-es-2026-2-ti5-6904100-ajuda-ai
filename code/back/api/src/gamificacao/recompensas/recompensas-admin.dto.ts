@@ -181,6 +181,12 @@ export class AtualizarRecompensaDto {
   @Matches(DATA_HORA_COM_FUSO, COM_FUSO)
   @IsISO8601({ strict: true })
   disponivelAte?: string | null;
+
+  /** `atualizadoEm` que a tela mostrava; recusa se outra pessoa alterou antes. */
+  @IsDefined()
+  @IsString()
+  @IsISO8601({ strict: true })
+  atualizadoEm!: string;
 }
 
 /** Tipos aceitos em `POST :id/estoque` (`inicial` é só do cadastro). */
@@ -217,6 +223,12 @@ export class AjustarEstoqueDto {
   @MaxLength(MOTIVO_ESTOQUE.max)
   @Matches(NAO_VAZIO, { message: 'motivo não pode ser vazio' })
   motivo!: string;
+
+  /** `atualizadoEm` que a tela mostrava; recusa se outra pessoa alterou antes. */
+  @IsDefined()
+  @IsString()
+  @IsISO8601({ strict: true })
+  atualizadoEm!: string;
 }
 
 /** Filtros de `GET /coordenacao/recompensas`. */

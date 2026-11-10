@@ -61,6 +61,7 @@ interface Recompensa {
   disponivelAgora: boolean;
   transacoes: number;
   podeExcluir: boolean;
+  atualizadoEm: string;
   criadoPor: number | null;
   criadoPorEmail: string | null;
   limitePorAluno: number | null;
@@ -121,20 +122,59 @@ describe.skipIf(!URL_TESTE)(
         .post('/coordenacao/recompensas')
         .set('Authorization', auth)
         .send(corpo);
+    /** Resposta que aceita `.expect(status)` como o supertest. */
+    const comExpect = (resposta: Promise<request.Response>) =>
+      Object.assign(resposta, {
+        expect: async (status: number) => {
+          const r = await resposta;
+          expect({ status: r.status, body: r.body as unknown }).toMatchObject({
+            status,
+          });
+          return r;
+        },
+      });
+    /**
+     * Envia como a tela da coordenação: com o `atualizadoEm` que ela vê agora
+     * (lido antes, salvo se o teste já informar um).
+     */
+    const comoATela = (
+      id: string,
+      corpo: object,
+      enviar: (corpo: object) => request.Test,
+    ) =>
+      comExpect(
+        ('atualizadoEm' in corpo
+          ? Promise.resolve(corpo)
+          : http()
+              .get(`/coordenacao/recompensas/${id}`)
+              .set('Authorization', mock())
+              .then((visto) => ({
+                atualizadoEm:
+                  visto.status === 200
+                    ? (visto.body as { atualizadoEm: string }).atualizadoEm
+                    : new Date().toISOString(),
+                ...corpo,
+              }))
+        ).then((completo) => enviar(completo)),
+      );
     const editar = (id: string, corpo: object, auth = mock()) =>
-      http()
-        .patch(`/coordenacao/recompensas/${id}`)
-        .set('Authorization', auth)
-        .send(corpo);
+      comoATela(id, corpo, (c) =>
+        http()
+          .patch(`/coordenacao/recompensas/${id}`)
+          .set('Authorization', auth)
+          .send(c),
+      );
     const acao = (id: string, nome: 'publicar' | 'desativar' | 'arquivar') =>
       http()
         .post(`/coordenacao/recompensas/${id}/${nome}`)
         .set('Authorization', mock());
     const estoque = (id: string, corpo: object, auth = mock()) =>
-      http()
-        .post(`/coordenacao/recompensas/${id}/estoque`)
-        .set('Authorization', auth)
-        .send(corpo);
+      comoATela(id, corpo, (c) =>
+        http()
+          .post(`/coordenacao/recompensas/${id}/estoque`)
+          .set('Authorization', auth)
+          .send(c),
+      );
     const detalhe = async (id: string) =>
       (
         await http()
@@ -183,15 +223,7 @@ describe.skipIf(!URL_TESTE)(
               : { versao: 1, custoXp: 0 },
           ),
         );
-      return Object.assign(resposta, {
-        expect: async (status: number) => {
-          const r = await resposta;
-          expect({ status: r.status, body: r.body as unknown }).toMatchObject({
-            status,
-          });
-          return r;
-        },
-      });
+      return comExpect(resposta);
     };
 
     /** Resgate real do aluno pela lojinha (F28): débito e unidade comprometida. */
@@ -767,6 +799,48 @@ describe.skipIf(!URL_TESTE)(
         expect((await detalhe(id)).transacoes).toBe(0);
         await enviar({ versao: visto.versao, custoXp: 80 }).expect(409);
         await enviar({ versao: recusa.versao, custoXp: 80 }).expect(201);
+      });
+
+      it('dois coordenadores na mesma recompensa: o segundo recebe 409 e nada é gravado', async () => {
+        const id = await novo({ nome: 'Boné', custoXp: 40, estoqueInicial: 5 });
+        const { atualizadoEm: visto } = await detalhe(id);
+        await editar(id, { custoXp: 60, atualizadoEm: visto }).expect(200);
+        const { body: recusa } = await editar(id, {
+          nome: 'Boné azul',
+          atualizadoEm: visto,
+        }).expect(409);
+        expect(recusa).toMatchObject({ motivo: 'recompensa-alterada' });
+        await estoque(id, {
+          tipo: 'correcao',
+          quantidade: 2,
+          motivo: 'contagem física',
+          atualizadoEm: visto,
+        }).expect(409);
+        expect(await detalhe(id)).toMatchObject({
+          nome: 'Boné',
+          custoXp: 60,
+          estoque: { total: 5 },
+        });
+      });
+
+      it('resgate de aluno não invalida o formulário aberto pela coordenação', async () => {
+        const id = await novo({
+          nome: 'Chaveiro',
+          custoXp: 10,
+          estoqueInicial: 5,
+        });
+        const { atualizadoEm: visto } = await detalhe(id);
+        await creditar(alunoId, 100);
+        await resgatar(id).expect(201);
+        await editar(id, { nome: 'Chaveiro PUC', atualizadoEm: visto }).expect(
+          200,
+        );
+        await estoque(id, {
+          tipo: 'reposicao',
+          quantidade: 1,
+          motivo: 'novo lote',
+          atualizadoEm: (await detalhe(id)).atualizadoEm,
+        }).expect(200);
       });
 
       it('última unidade com resgates simultâneos: só um leva', async () => {

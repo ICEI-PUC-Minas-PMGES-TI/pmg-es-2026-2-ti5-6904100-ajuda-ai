@@ -289,13 +289,15 @@ export class RecompensasAdminService {
     dados: AtualizarRecompensaDto,
     responsavel: Responsavel,
   ): Promise<RecompensaDetalheDto> {
-    if (Object.values(dados).every((v) => v === undefined)) {
+    const { atualizadoEm, ...campos } = dados;
+    if (Object.values(campos).every((v) => v === undefined)) {
       throw new BadRequestException('Nada para alterar.');
     }
     if (dados.programaCodigo) await this.exigirPrograma(dados.programaCodigo);
     await this.dataSource.transaction(async (m) => {
       const atual = await this.buscar(m, id, true);
       this.exigirEditavel(atual);
+      this.exigirMesmoEstado(atual, atualizadoEm);
       const de = valorFinal(dados.disponivelDe, atual.disponivelDe);
       const ate = valorFinal(dados.disponivelAte, atual.disponivelAte);
       this.exigirVigencia(de, ate);
@@ -348,7 +350,7 @@ export class RecompensasAdminService {
       }
     });
     this.logger.log(
-      `recompensa atualizada id=${id} campos=${Object.keys(dados).join(',')}`,
+      `recompensa atualizada id=${id} campos=${Object.keys(campos).join(',')}`,
     );
     return this.detalhe(id);
   }
@@ -427,6 +429,7 @@ export class RecompensasAdminService {
     await this.dataSource.transaction(async (m) => {
       const atual = await this.buscar(m, id, true);
       this.exigirEditavel(atual);
+      this.exigirMesmoEstado(atual, dados.atualizadoEm);
       const { ilimitado, total, comprometido } = atual.estoque;
       const q = dados.quantidade ?? null;
       let depois: number | null;
@@ -522,6 +525,23 @@ export class RecompensasAdminService {
     ])) as Linha[];
     if (!linha) throw new NotFoundException('Recompensa não encontrada.');
     return paraDto(linha);
+  }
+
+  /**
+   * Edição e ajuste de estoque partem do que a tela mostrava: se outra pessoa
+   * da coordenação alterou a recompensa depois disso, nada é gravado e a tela
+   * precisa recarregar. Resgates não contam (não mudam `atualizado_em`).
+   */
+  private exigirMesmoEstado(atual: RecompensaAdminDto, visto: string): void {
+    if (new Date(visto).toISOString() !== atual.atualizadoEm) {
+      throw new ConflictException({
+        statusCode: 409,
+        message:
+          'Outra pessoa alterou esta recompensa enquanto você editava. Feche e abra de novo para ver os dados atuais.',
+        motivo: 'recompensa-alterada',
+        atualizadoEm: atual.atualizadoEm,
+      });
+    }
   }
 
   private exigirEditavel(atual: RecompensaAdminDto): void {
