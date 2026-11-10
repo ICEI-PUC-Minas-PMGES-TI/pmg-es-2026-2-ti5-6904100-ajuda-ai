@@ -104,10 +104,10 @@ const COLUNAS =
 const RESGATE =
   `SELECT r."id", r."codigo", r."recompensa_id" AS "recompensaId", r."versao", r."nome", r."descricao", ` +
   `r."custo_xp" AS "custoXp", r."condicoes_retirada" AS "condicoesRetirada", ` +
-  `r."criado_em" AS "criadoEm", m."saldo_apos" AS "saldoApos", c."imagem_url" AS "imagemUrl", ` +
+  `r."criado_em" AS "criadoEm", m."saldo_apos" AS "saldoApos", v."imagem_url" AS "imagemUrl", ` +
   `${COLUNAS_SITUACAO} ` +
   `FROM ${g}."resgates" r JOIN ${g}."xp_movimentacoes" m ON m."id" = r."movimentacao_id" ` +
-  `JOIN ${g}."recompensas" c ON c."id" = r."recompensa_id" ` +
+  `JOIN ${g}."recompensa_versoes" v ON v."recompensa_id" = r."recompensa_id" AND v."versao" = r."versao" ` +
   `LEFT JOIN ${g}."resgate_desfechos" d ON d."resgate_id" = r."id" `;
 
 /**

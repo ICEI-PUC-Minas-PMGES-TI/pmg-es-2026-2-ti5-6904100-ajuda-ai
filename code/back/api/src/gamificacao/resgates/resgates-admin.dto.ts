@@ -15,7 +15,8 @@ import {
 } from './resgates.js';
 
 const NAO_VAZIO = /\S/;
-const CODIGO_PROGRAMA = /^[A-Za-z0-9._-]{1,20}$/;
+/** Mesmo formato de `programas.codigo` (ex.: 2026/2). */
+const CODIGO_PROGRAMA = /^[A-Za-z0-9._\/-]{1,20}$/;
 
 /** Filtros de `GET /coordenacao/resgates`. */
 export class ListarResgatesQuery {

@@ -32,6 +32,7 @@ import { LojinhaResgates1792800000000 } from '../src/migrations/1792800000000-Lo
 import { LojinhaRecompensas1792900000000 } from '../src/migrations/1792900000000-LojinhaRecompensas.js';
 import { CodigoResgates1793500000000 } from '../src/migrations/1793500000000-CodigoResgates.js';
 import { EntregaResgatesEAjustesXp1793600000000 } from '../src/migrations/1793600000000-EntregaResgatesEAjustesXp.js';
+import { ProgramaRecompensasFk1793700000000 } from '../src/migrations/1793700000000-ProgramaRecompensasFk.js';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
 const SEGREDO = 'segredo-de-teste-resgates-xp';
@@ -46,6 +47,7 @@ const MIGRATIONS: Array<new () => MigrationInterface> = [
   LojinhaRecompensas1792900000000,
   CodigoResgates1793500000000,
   EntregaResgatesEAjustesXp1793600000000,
+  ProgramaRecompensasFk1793700000000,
 ];
 
 async function admin(sql: string): Promise<void> {
@@ -212,12 +214,12 @@ describe.skipIf(!URL_TESTE)(
       coordId = await inserir('Coordenação', 'coord@pucminas.edu.br');
       for (const email of ['aluno@pucminas.edu.br', 'outro@pucminas.edu.br']) {
         await ds.query(
-          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026-2', 'apadrinhado', 'em_andamento')`,
+          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026/2', 'apadrinhado', 'em_andamento')`,
           [email],
         );
       }
       await ds.query(
-        `INSERT INTO feed.programas (codigo, titulo, etapa_atual) VALUES ('2026-2', 'Programa 2026/2', 'inscricoes')`,
+        `INSERT INTO feed.programas (codigo, titulo, etapa_atual) VALUES ('2026/2', 'Programa 2026/2', 'inscricoes')`,
       );
 
       const modulo = await Test.createTestingModule({
@@ -259,7 +261,7 @@ describe.skipIf(!URL_TESTE)(
 
     describe('F29: acompanhamento, entrega e cancelamento', () => {
       it('lista com participante, recompensa, custo, data e situação; filtra por situação e programa', async () => {
-        const id = await recompensa(120, 5, { programaCodigo: '2026-2' });
+        const id = await recompensa(120, 5, { programaCodigo: '2026/2' });
         const resgateId = await resgatar(id);
         const { body } = await http()
           .get('/coordenacao/resgates?situacao=aguardando_entrega')
@@ -269,7 +271,7 @@ describe.skipIf(!URL_TESTE)(
         expect(item).toMatchObject({
           situacao: 'aguardando_entrega',
           participante: { id: alunoId, nome: 'Aluno Teste' },
-          recompensa: { id, programaCodigo: '2026-2' },
+          recompensa: { id, programaCodigo: '2026/2' },
           custoXp: 120,
           entregueEm: null,
           canceladoEm: null,
@@ -278,7 +280,7 @@ describe.skipIf(!URL_TESTE)(
         expect(Date.parse(item.resgatadoEm)).not.toBeNaN();
 
         const doPrograma = await http()
-          .get('/coordenacao/resgates?programa=2026-2')
+          .get('/coordenacao/resgates?programa=2026%2F2')
           .set('Authorization', coord())
           .expect(200);
         expect((doPrograma.body as ResgateAdmin[]).map((r) => r.id)).toEqual([
