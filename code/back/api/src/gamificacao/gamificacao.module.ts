@@ -11,6 +11,10 @@ import {
 import { PucStopsService } from './pucstops/pucstops.service.js';
 import { RecompensasAdminController } from './recompensas/recompensas-admin.controller.js';
 import { RecompensasAdminService } from './recompensas/recompensas-admin.service.js';
+import { ResgatesAdminController } from './resgates/resgates-admin.controller.js';
+import { ResgatesAdminService } from './resgates/resgates-admin.service.js';
+import { XpAdminController } from './xp/xp-admin.controller.js';
+import { XpAdminService } from './xp/xp-admin.service.js';
 import { XpController } from './xp/xp.controller.js';
 import { XpService } from './xp/xp.service.js';
 
@@ -21,6 +25,8 @@ import { XpService } from './xp/xp.service.js';
  * nem altera essas tabelas; só as migrations PucStopsEXpGlobal,
  * LojinhaResgates/LojinhaRecompensas. Lojinha: cadastro (F27) em
  * `/coordenacao/recompensas` e consulta/resgate do aluno (F28) em `/me/lojinha`.
+ * Entrega e cancelamento (F29) em `/coordenacao/resgates`; saldo e ajustes de
+ * XP pela coordenação (F26) em `/coordenacao/xp`.
  */
 @Module({
   imports: [AuthModule],
@@ -31,6 +37,8 @@ import { XpService } from './xp/xp.service.js';
     PucStopsAdminController,
     RecompensasAdminController,
     LojinhaController,
+    ResgatesAdminController,
+    XpAdminController,
   ],
   providers: [
     PucStopsService,
@@ -38,6 +46,8 @@ import { XpService } from './xp/xp.service.js';
     PucStopsAdminService,
     RecompensasAdminService,
     LojinhaService,
+    ResgatesAdminService,
+    XpAdminService,
   ],
 })
 export class GamificacaoModule {}

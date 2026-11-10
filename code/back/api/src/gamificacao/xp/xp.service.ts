@@ -9,20 +9,45 @@ import {
 
 const g = `"${SCHEMA_GAMIFICACAO}"`;
 
+/**
+ * Saldo, total ganho e total gasto de um usuário. `saldo = totalGanho -
+ * totalGasto`: só as trocas (`RECOMPENSA`, com estornos) contam como gasto.
+ */
+export async function resumoXp(
+  executor: Pick<DataSource, 'query'>,
+  usuarioId: number,
+): Promise<XpResumoDto> {
+  const [linha] = (await executor.query(
+    `SELECT c."saldo", c."atualizado_em", ` +
+      `COALESCE((SELECT sum(m."quantidade") FROM ${g}."xp_movimentacoes" m ` +
+      `WHERE m."usuario_id" = $1 AND m."tipo" = 'RECOMPENSA'), 0)::int AS "trocas" ` +
+      `FROM (SELECT $1::int AS "usuario_id") q ` +
+      `LEFT JOIN ${g}."xp_carteiras" c ON c."usuario_id" = q."usuario_id"`,
+    [usuarioId],
+  )) as Array<{
+    saldo: number | null;
+    atualizado_em: Date | null;
+    trocas: number;
+  }>;
+  const saldo = linha?.saldo ?? 0;
+  const totalGasto = -(linha?.trocas ?? 0);
+  return {
+    saldo,
+    totalGanho: saldo + totalGasto,
+    totalGasto,
+    atualizadoEm: linha?.atualizado_em
+      ? new Date(linha.atualizado_em).toISOString()
+      : null,
+  };
+}
+
 /** Leitura do XP do próprio usuário. Escrita só por `registrarMovimentacao`. */
 @Injectable()
 export class XpService {
   constructor(private readonly dataSource: DataSource) {}
 
   async resumo(usuarioId: number): Promise<XpResumoDto> {
-    const [carteira] = (await this.dataSource.query(
-      `SELECT "saldo", "atualizado_em" FROM ${g}."xp_carteiras" WHERE "usuario_id" = $1`,
-      [usuarioId],
-    )) as Array<{ saldo: number; atualizado_em: Date }>;
-    return {
-      saldo: carteira?.saldo ?? 0,
-      atualizadoEm: carteira?.atualizado_em.toISOString() ?? null,
-    };
+    return resumoXp(this.dataSource, usuarioId);
   }
 
   async movimentacoes(

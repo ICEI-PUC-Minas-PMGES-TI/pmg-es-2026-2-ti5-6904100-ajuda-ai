@@ -871,6 +871,8 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
         .expect(200);
       expect(resumo.body).toEqual({
         saldo: total,
+        totalGanho: total,
+        totalGasto: 0,
         atualizadoEm: expect.any(String),
       });
 
@@ -909,7 +911,12 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
         .get('/me/xp')
         .set('Authorization', token('lucas.almeida@pucminas.edu.br'))
         .expect(200);
-      expect(nova.body).toEqual({ saldo: 0, atualizadoEm: null });
+      expect(nova.body).toEqual({
+        saldo: 0,
+        totalGanho: 0,
+        totalGasto: 0,
+        atualizadoEm: null,
+      });
     });
 
     it('GET /me/pucstops: coletas do próprio usuário', async () => {

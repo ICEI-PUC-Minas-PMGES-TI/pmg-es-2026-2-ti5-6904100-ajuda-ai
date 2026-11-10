@@ -11,6 +11,8 @@ Migrations no schema `gamificacao`:
   (`resgates.versao`; os antigos ficam na v1).
 - `1793500000000-CodigoResgates` (F28): `resgates.codigo`, código curto e
   único do comprovante (10 caracteres hexadecimais em maiúsculas).
+- `1793600000000-EntregaResgatesEAjustesXp` (F29/F26): `resgate_desfechos`
+  (entrega ou cancelamento, no máximo um por resgate) e `xp_ajustes`.
 
 Execute as migrations da API antes de usar os endpoints.
 
@@ -84,7 +86,40 @@ lista atualizada. `tela_resgates.dart`: comprovante com o código, "Meus
 resgates" e extrato de XP paginado. Condições de retirada com várias linhas
 aparecem em tópicos.
 
+## Entrega e cancelamento (F29)
+
+Rotas em `/coordenacao/resgates` (perfil `coordenador`). Código em
+`src/gamificacao/resgates/`.
+
+- `GET /`: até 200 resgates, mais recentes primeiro, com participante,
+  recompensa (e programa), custo, data, situação, datas de entrega ou
+  cancelamento, motivo e responsável. Filtros: `situacao`
+  (`aguardando_entrega`, `entregue`, `cancelado`), `programa`,
+  `recompensaId` e `busca` (nome, e-mail ou código do comprovante).
+- `GET /:id`: o mesmo item.
+- `POST /:id/entregar`: grava a entrega com o responsável do token e a data.
+  A unidade continua comprometida (saiu do estoque).
+- `POST /:id/cancelar`: `{ motivo }` (3 a 300 caracteres). Na mesma
+  transação: devolve o XP (movimentação `RECOMPENSA` positiva, chave
+  `estorno:<id>`, referência `RESGATE`), devolve a unidade
+  (`estoque_comprometido - 1`) e grava o desfecho com motivo e responsável.
+
+Resgate já entregue ou cancelado: 409 (`resgate-entregue` ou
+`resgate-cancelado`). O UNIQUE de `resgate_desfechos.resgate_id` e a chave
+do estorno impedem dupla entrega, duplo estorno e dupla devolução mesmo sob
+concorrência (o cancelamento trava carteira, resgate e recompensa nessa
+ordem, a mesma do resgate do aluno). Desfechos são só de inserção; o resgate
+original nunca muda.
+
+O aluno vê `situacao`, `entregueEm`, `canceladoEm` e `motivoCancelamento` no
+histórico e no comprovante (`/me/lojinha/resgates`), só dos próprios
+resgates. Testes em `test/resgates-xp.integration.spec.ts`.
+
 ## Ainda pendente
 
-Entrega e cancelamento de resgates (F29): devolver XP e unidade
-comprometida. Upload de imagem (hoje é URL https).
+- Telas da coordenação para entregar/cancelar e para ajustes de XP (web) e
+  a situação do resgate no app.
+- Decisões do grupo (F29): prazo de retirada, cancelamento pelo próprio aluno,
+  recompensas digitais e se um resgate cancelado volta a liberar o
+  `limitePorAluno` (hoje continua contando).
+- Upload de imagem (hoje é URL https).

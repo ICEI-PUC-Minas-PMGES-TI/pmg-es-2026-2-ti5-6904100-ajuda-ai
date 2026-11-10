@@ -7,8 +7,15 @@ export const LIMITE_MOVIMENTACOES_MAXIMO = 100;
 
 /** `GET /me/xp`. */
 export interface XpResumoDto {
-  /** Saldo atual (= soma das movimentações). */
+  /** Saldo disponível para troca (= soma das movimentações). */
   saldo: number;
+  /**
+   * XP ganho na trajetória: PucStops e ajustes da coordenação. Trocas na
+   * lojinha não diminuem este total.
+   */
+  totalGanho: number;
+  /** XP gasto na lojinha, já descontados os estornos de resgates cancelados. */
+  totalGasto: number;
   /** Última movimentação; nulo para quem nunca ganhou XP. */
   atualizadoEm: string | null;
 }

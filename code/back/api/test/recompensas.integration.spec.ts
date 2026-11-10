@@ -22,6 +22,7 @@ import { PucStopsEXpGlobal1792279161187 } from '../src/migrations/1792279161187-
 import { LojinhaResgates1792800000000 } from '../src/migrations/1792800000000-LojinhaResgates.js';
 import { LojinhaRecompensas1792900000000 } from '../src/migrations/1792900000000-LojinhaRecompensas.js';
 import { CodigoResgates1793500000000 } from '../src/migrations/1793500000000-CodigoResgates.js';
+import { EntregaResgatesEAjustesXp1793600000000 } from '../src/migrations/1793600000000-EntregaResgatesEAjustesXp.js';
 import { LojinhaController } from '../src/gamificacao/lojinha/lojinha.controller.js';
 import { LojinhaService } from '../src/gamificacao/lojinha/lojinha.service.js';
 import { randomUUID } from 'node:crypto';
@@ -38,6 +39,7 @@ const MIGRATIONS: Array<new () => MigrationInterface> = [
   LojinhaResgates1792800000000,
   LojinhaRecompensas1792900000000,
   CodigoResgates1793500000000,
+  EntregaResgatesEAjustesXp1793600000000,
 ];
 
 async function admin(sql: string): Promise<void> {

@@ -13,6 +13,10 @@ import {
   schemaUsuarios,
   travarCarteira,
 } from '../gamificacao.js';
+import {
+  COLUNAS_SITUACAO,
+  type SituacaoResgate,
+} from '../resgates/resgates.js';
 
 const g = '"gamificacao"';
 
@@ -58,6 +62,11 @@ export interface Resgate {
   criadoEm: Date;
   saldoApos: number;
   imagemUrl: string | null;
+  /** F29: aguardando entrega, entregue ou cancelado (com XP devolvido). */
+  situacao: SituacaoResgate;
+  entregueEm: Date | null;
+  canceladoEm: Date | null;
+  motivoCancelamento: string | null;
 }
 
 function participacaoAtiva(schemaFeed: string, extra = ''): string {
@@ -95,9 +104,11 @@ const COLUNAS =
 const RESGATE =
   `SELECT r."id", r."codigo", r."recompensa_id" AS "recompensaId", r."versao", r."nome", r."descricao", ` +
   `r."custo_xp" AS "custoXp", r."condicoes_retirada" AS "condicoesRetirada", ` +
-  `r."criado_em" AS "criadoEm", m."saldo_apos" AS "saldoApos", c."imagem_url" AS "imagemUrl" ` +
+  `r."criado_em" AS "criadoEm", m."saldo_apos" AS "saldoApos", c."imagem_url" AS "imagemUrl", ` +
+  `${COLUNAS_SITUACAO} ` +
   `FROM ${g}."resgates" r JOIN ${g}."xp_movimentacoes" m ON m."id" = r."movimentacao_id" ` +
-  `JOIN ${g}."recompensas" c ON c."id" = r."recompensa_id" `;
+  `JOIN ${g}."recompensas" c ON c."id" = r."recompensa_id" ` +
+  `LEFT JOIN ${g}."resgate_desfechos" d ON d."resgate_id" = r."id" `;
 
 /**
  * Consulta e resgate da lojinha pelo aluno. O cadastro (F27) fica em
@@ -271,6 +282,10 @@ export class LojinhaService {
       await qr.commitTransaction();
       return {
         ...resgate,
+        situacao: 'aguardando_entrega',
+        entregueEm: null,
+        canceladoEm: null,
+        motivoCancelamento: null,
         imagemUrl: item.imagemUrl,
         saldoApos: movimento.saldo,
         saldoAtual: movimento.saldo,

@@ -138,7 +138,13 @@ A API fica disponível em `http://localhost:3000`.
 | `DELETE`    | `/coordenacao/recompensas/:id`                          | Exclui só sem transações; com resgates responde 409 `recompensa-com-transacoes` (arquive). |
 | `GET`       | `/me/lojinha`                                           | Lojinha do aluno: publicadas, na vigência, do seu público/programa (`estoque` disponível; `null` = ilimitado). |
 | `POST`      | `/me/lojinha/:id/resgatar`                              | Resgata com XP (`{ chaveIdempotencia, versao, custoXp }`); 404 indisponível, 409 esgotada/limite/recompensa alterada, 422 saldo insuficiente. |
-| `GET`       | `/me/lojinha/resgates`                                  | Histórico de resgates do aluno, com as condições da versão resgatada. |
+| `GET`       | `/me/lojinha/resgates`                                  | Histórico de resgates do aluno, com as condições da versão resgatada e a situação (`aguardando_entrega`, `entregue`, `cancelado`). |
+| `GET`       | `/coordenacao/resgates`                                 | Resgates (F29) com participante, recompensa, custo, data e situação (`?situacao=`, `programa=`, `recompensaId=`, `busca=` nome/e-mail/código). |
+| `POST`      | `/coordenacao/resgates/:id/entregar`                    | Registra a entrega com responsável e data; 409 se já entregue ou cancelado. |
+| `POST`      | `/coordenacao/resgates/:id/cancelar`                    | Cancela antes da entrega (`{ motivo }`), devolve o XP e a unidade; 409 se já entregue ou cancelado. |
+| `GET`       | `/coordenacao/xp`                                       | Saldo, total ganho e total gasto dos participantes (F26; `?busca=` nome/e-mail). |
+| `GET`       | `/coordenacao/xp/:usuarioId`                            | Saldo, totais, extrato paginado (`limite`, `antes`) e ajustes da coordenação. |
+| `POST`      | `/coordenacao/xp/:usuarioId/ajustes`                    | Ajuste justificado (`{ quantidade, motivo, chaveIdempotencia }`); nunca deixa o saldo negativo (422). |
 | `POST`      | `/coordenacao/comunicados`                              | Publica um comunicado para todos, padrinhos ou apadrinhados.                                                                          |
 | `GET`       | `/publicacoes`                                          | Lista as publicações persistidas no backend.                                                                                          |
 | `POST`      | `/publicacoes`                                          | Cria uma publicação com zero curtidas e zero comentários.                                                                             |
