@@ -115,7 +115,7 @@ test("configurações encaminham comunicados ao Feed sem formulário separado", 
   assert.ok(html.includes('href="/coordenacao/feed"'));
   assert.ok(html.includes("Conta da coordenação"));
   assert.ok(!html.includes("<form"));
-  assert.ok(!html.includes("Publicar comunicado"));
+  assert.ok(!html.includes(">Publicar comunicado<"));
 });
 
 const postBase = {

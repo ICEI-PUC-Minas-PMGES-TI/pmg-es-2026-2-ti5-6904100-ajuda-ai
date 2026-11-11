@@ -22,6 +22,7 @@ void main() {
     'nome': 'Biblioteca Padre Alberto Antoniazzi - P. 26',
     'codigo': '26',
     'categoria': 'LIBRARY',
+    'altura': 6,
     'latitude': -19.9216,
     'longitude': -43.9915,
   };
@@ -47,6 +48,7 @@ void main() {
       expect(lugar.type, 'LIBRARY');
       expect(lugar.center, [-43.9915, -19.9216]); // [lon, lat], como o snapshot
       expect(lugar.kind, CampusPlaceKind.building);
+      expect(lugar.heightMeters, 6);
     },
   );
 

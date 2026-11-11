@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'campus_place.dart';
+
 /// Snapshot poligonal WGS84. As propriedades originais permanecem disponíveis.
 class CampusSnapshot {
   CampusSnapshot._(this.features, this.bounds, this.metadata);
@@ -129,6 +131,27 @@ class CampusFeature {
       properties['isArea'] == true ||
       const {'PARK', 'PARKING_LOT', 'CONSTRUCTION'}.contains(type);
   List<double>? get center => properties['center'] as List<double>?;
+
+  /// Converte a feature no mesmo lugar usado pela busca, pelo card e pela rota.
+  /// Features sem nome/código ou sem centro continuam apenas visuais.
+  CampusPlace? toPlace() {
+    final anchor = center;
+    if (anchor == null ||
+        (name?.trim().isNotEmpty != true && code?.trim().isNotEmpty != true)) {
+      return null;
+    }
+    final height = properties['height'];
+    return CampusPlace(
+      id: id,
+      name: name,
+      code: code,
+      type: type,
+      apiId: properties['apiId'] as String?,
+      kind: isArea ? CampusPlaceKind.area : CampusPlaceKind.building,
+      heightMeters: height is num ? height.toDouble() : null,
+      center: anchor,
+    );
+  }
 
   Map<String, dynamic> toGeoJson() => {
     'type': 'Feature',

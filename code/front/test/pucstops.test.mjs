@@ -86,9 +86,9 @@ test('camposAlterados envia só o que mudou; latitude e longitude juntas', () =>
   assert.equal('ativo' in camposAlterados(base, { ...form, ativo: false }), false);
 });
 
-test('corpoCriacao converte números e mantém ativo', () => {
-  assert.deepEqual(corpoCriacao({ nome: ' Totem ', xp: '20', raioMetros: '15', latitude: -19.92, longitude: -43.99, ativo: false }),
-    { nome: 'Totem', xp: 20, raioMetros: 15, latitude: -19.92, longitude: -43.99, ativo: false });
+test('corpoCriacao converte 25 XP e mantém ativo', () => {
+  assert.deepEqual(corpoCriacao({ nome: ' Totem ', xp: '25', raioMetros: '15', latitude: -19.92, longitude: -43.99, ativo: false }),
+    { nome: 'Totem', xp: 25, raioMetros: 15, latitude: -19.92, longitude: -43.99, ativo: false });
 });
 
 test('pontoDentroDoPoligono (ray casting, buracos e MultiPolygon)', () => {
@@ -177,13 +177,15 @@ test('ponto fora da área permitida mostra aviso', () => {
 test('formulário: criação sem ponto fica bloqueada; edição sem mudanças também', () => {
   const props = { campus: null, erroCampus: '', outros: [], onCancelar: () => {}, onSalvo: () => {} };
   const criar = renderToStaticMarkup(createElement(FormularioPucStop, { ...props, original: null }));
-  assert.match(criar, /Adicionar PucStop/);
+  assert.match(criar, /Novo totem/);
   assert.match(criar, /Raio da geofence \(m\)/);
+  assert.match(criar, /Escolher no mapa 3D/);
+  assert.doesNotMatch(criar, /aria-label="Mapa do campus/);
   assert.match(criar, /role="switch"[^>]*aria-checked="true"/);
-  assert.match(criar, /<button type="submit"[^>]*disabled=""[^>]*>.*Criar PucStop/);
+  assert.match(criar, /<button type="submit"[^>]*disabled=""[^>]*>.*Criar totem/);
   assert.match(criar, /Informe o nome do PucStop/);
   const editar = renderToStaticMarkup(createElement(FormularioPucStop, { ...props, original: base }));
-  assert.match(editar, /Editar PucStop &quot;Totem Biblioteca&quot;/);
+  assert.match(editar, /Editar totem &quot;Totem Biblioteca&quot;/);
   assert.match(editar, /só para novas coletas/);
   assert.match(editar, /não apaga coletas anteriores/);
   assert.match(editar, /<button type="submit"[^>]*disabled=""[^>]*>.*Salvar alterações/);

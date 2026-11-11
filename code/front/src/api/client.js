@@ -472,6 +472,27 @@ export const api = {
   predios() {
     return requestMapa('/mapa/predios');
   },
+  predio(id) {
+    return requestMapa(`/mapa/predios/${encodeURIComponent(id)}`, { anonimo: true });
+  },
+  rotaMapa(dados) {
+    return requestMapa('/mapa/rotas', { method: 'POST', body: dados, anonimo: true });
+  },
+  atualizarInformacoesLocal(id, descricao) {
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}`, { method: 'PATCH', body: { descricao } });
+  },
+  adicionarImagensLocal(id, arquivos) {
+    const body = new FormData();
+    arquivos.forEach((arquivo) => body.append('arquivos', arquivo));
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens`, { method: 'POST', body });
+  },
+  substituirImagemLocal(id, imagemId, arquivo) {
+    const body = new FormData(); body.append('arquivo', arquivo);
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens/${encodeURIComponent(imagemId)}`, { method: 'PATCH', body });
+  },
+  removerImagemLocal(id, imagemId) {
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens/${encodeURIComponent(imagemId)}`, { method: 'DELETE' });
+  },
   /** Áreas da versão ativa do mapa, com a geometria (público). */
   areas() {
     return requestMapa('/mapa/areas');

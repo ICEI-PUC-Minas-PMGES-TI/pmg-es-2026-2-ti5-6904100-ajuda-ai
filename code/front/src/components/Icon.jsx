@@ -48,6 +48,7 @@ const iconPaths = {
   filter: <path d="M4 5h16l-6 7.5V19l-4 1.5v-8L4 5Z" />,
   search: <><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.3-4.3" /></>,
   upload: <><path d="M12 15V4M7 9l5-5 5 5" /><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" /></>,
+  download: <><path d="M12 4v11M7 10l5 5 5-5" /><path d="M4 16v4h16v-4" /></>,
   heart: <path d="M12 20s-7.5-4.6-9-9.3C1.9 7.3 4 4.5 7 4.5c2 0 3.5 1.2 5 3 1.5-1.8 3-3 5-3 3 0 5.1 2.8 4 6.2-1.5 4.7-9 9.3-9 9.3Z" />,
   save: <><path d="M5 4h11l3 3v13H5z" /><path d="M8 4v5h7V4M8 20v-6h8v6" /></>,
   external: <><path d="M14 4h6v6M20 4l-9 9" /><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></>,

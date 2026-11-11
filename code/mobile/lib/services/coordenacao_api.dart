@@ -277,10 +277,7 @@ class CoordenacaoApi {
     await _enviar(
       'GET',
       '/coordenacao/matching/criterios/semelhantes',
-      query: {
-        'nome': nome,
-        if (excetoId != null) 'excetoId': '$excetoId',
-      },
+      query: {'nome': nome, if (excetoId != null) 'excetoId': '$excetoId'},
       erro: 'Falha ao buscar critérios semelhantes',
     ),
   );
@@ -593,6 +590,62 @@ class CoordenacaoApi {
       '/coordenacao/comunicados',
       corpo: {'titulo': titulo, 'descricao': descricao, 'publico': publico},
       erro: 'Falha ao publicar o comunicado',
+    ),
+  );
+
+  /// Totens do mapa (ativos e inativos). Rotas globais, sem programa/ciclo.
+  Future<List<Map<String, dynamic>>> pucstops() async => _lista(
+    await _enviar(
+      'GET',
+      '/coordenacao/pucstops',
+      erro: 'Falha ao carregar os totens',
+    ),
+  );
+
+  /// Limite da versão ativa do campus usado pelo seletor de posição.
+  Future<Map<String, dynamic>> campusPucStops() async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/pucstops/campus',
+      erro: 'Falha ao carregar a área do campus',
+    ),
+  );
+
+  Future<Map<String, dynamic>> criarPucStop(Map<String, dynamic> dados) async =>
+      _mapa(
+        await _enviar(
+          'POST',
+          '/coordenacao/pucstops',
+          corpo: dados,
+          erro: 'Falha ao criar o totem',
+        ),
+      );
+
+  Future<Map<String, dynamic>> atualizarPucStop(
+    String id,
+    Map<String, dynamic> campos,
+  ) async => _mapa(
+    await _enviar(
+      'PATCH',
+      '/coordenacao/pucstops/$id',
+      corpo: campos,
+      erro: 'Falha ao atualizar o totem',
+    ),
+  );
+
+  Future<Map<String, dynamic>> desativarPucStop(String id) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/pucstops/$id/desativar',
+      erro: 'Falha ao desativar o totem',
+    ),
+  );
+
+  Future<Map<String, dynamic>> ativarPucStop(String id) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/pucstops/$id/ativar',
+      erro: 'Falha ao reativar o totem',
     ),
   );
 }

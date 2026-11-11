@@ -24,6 +24,9 @@ void main() {
     final library = snapshot.features.singleWhere((f) => f.id == 'P26');
     expect(library.name, 'Biblioteca Padre Alberto Antoniazzi - P. 26');
     expect(library.code, '26');
+    expect(library.toPlace(), isNotNull);
+    expect(library.toPlace()!.kind, CampusPlaceKind.building);
+    expect(library.toPlace()!.heightMeters, 9);
     for (final feature in snapshot.features) {
       expect(feature.geometryType, 'Polygon');
       expect(
@@ -111,7 +114,9 @@ void main() {
     for (final type in ['PARK', 'PARKING_LOT', 'CONSTRUCTION']) {
       final json = jsonDecode(source) as Map<String, dynamic>;
       json['features'][0]['properties']['type'] = type;
-      expect(CampusSnapshot.parse(jsonEncode(json)).areaCount, 1);
+      final parsed = CampusSnapshot.parse(jsonEncode(json));
+      expect(parsed.areaCount, 1);
+      expect(parsed.features.first.toPlace()!.kind, CampusPlaceKind.area);
     }
   });
 

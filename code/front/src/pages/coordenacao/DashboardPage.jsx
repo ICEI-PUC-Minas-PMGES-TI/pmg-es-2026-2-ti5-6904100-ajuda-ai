@@ -279,14 +279,6 @@ export default function DashboardPage() {
             </button>
             <button
               type="button"
-              disabled={acoes?.podeCriarComunicado === false}
-              onClick={() => ir('feed')}
-            >
-              <Icon name="megaphone" size={20} />
-              <span>Criar comunicado</span>
-            </button>
-            <button
-              type="button"
               disabled={acoes?.podeAbrirNovoCiclo === false}
               onClick={abrirNovoCiclo}
             >

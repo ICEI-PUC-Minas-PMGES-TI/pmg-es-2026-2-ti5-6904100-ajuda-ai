@@ -5,7 +5,7 @@ import Modal from '../../components/Modal';
 import Toggle from '../../components/Toggle';
 import { useToast } from '../../components/Toast';
 import { dataCurta } from './comum';
-import SeletorPucStopMapa from './SeletorPucStopMapa';
+import SeletorPucStopMapa, { pontoDentroDoPoligono } from './SeletorPucStopMapa';
 
 /** Limites iguais aos do servidor (que continua sendo a autoridade). */
 export const LIMITES_PUCSTOP = { nomeMax: 120, xpMin: 1, xpMax: 1000, raioMin: 10, raioMax: 200 };
@@ -162,12 +162,68 @@ export function ConfirmarDesativacao({ pucstop, ocupado, erro, onConfirmar, onFe
   );
 }
 
-/** Formulário de criação/edição em modal, com o seletor de posição no mapa. */
+export function SeletorPosicaoPucStop({ campus, erroCampus, inicial, raioMetros, outros, onCancelar, onConfirmar }) {
+  const centro = campus?.centro;
+  const [ponto, setPonto] = useState(() => (
+    Number.isFinite(inicial?.latitude) && Number.isFinite(inicial?.longitude)
+      ? inicial
+      : Number.isFinite(centro?.latitude) && Number.isFinite(centro?.longitude)
+        ? { latitude: centro.latitude, longitude: centro.longitude }
+        : { latitude: null, longitude: null }
+  ));
+  const [predios, setPredios] = useState([]);
+
+  useEffect(() => {
+    let ativo = true;
+    api.predios().then((lista) => { if (ativo) setPredios(lista); }).catch(() => {});
+    return () => { ativo = false; };
+  }, []);
+
+  useEffect(() => {
+    function tecla(event) { if (event.key === 'Escape') onCancelar(); }
+    document.addEventListener('keydown', tecla);
+    return () => document.removeEventListener('keydown', tecla);
+  }, [onCancelar]);
+
+  const temPonto = Number.isFinite(ponto.latitude) && Number.isFinite(ponto.longitude);
+  const dentro = temPonto && (!campus?.limite || pontoDentroDoPoligono(ponto.longitude, ponto.latitude, campus.limite));
+
+  return (
+    <div className="pucstop-fullscreen" role="dialog" aria-modal="true" aria-label="Posicionar PucStop no mapa 3D">
+      <header className="pucstop-fullscreen-header">
+        <button type="button" onClick={onCancelar} aria-label="Cancelar seleção"><Icon name="close" /></button>
+        <div><h2>Posicionar totem</h2><p>Mova, gire e incline o mapa 3D sob o pin.</p></div>
+      </header>
+      <main>
+        <SeletorPucStopMapa
+          campus={campus}
+          erroCampus={erroCampus}
+          ponto={ponto}
+          raioMetros={raioMetros}
+          outros={outros}
+          predios={predios}
+          pinCentral
+          mostrarCoordenadas={false}
+          onChange={setPonto}
+          rotuloMapa="Mapa 3D do campus: mova o mapa sob o pin para posicionar o PucStop"
+        />
+        <p className="pucstop-fullscreen-tip">A ponta do pin indica a posição exata. Use a visão 3D para evitar colocar o totem dentro de um prédio.</p>
+      </main>
+      <footer className="pucstop-fullscreen-footer">
+        <div><strong>{dentro ? 'Posição pronta' : 'Escolha um ponto dentro do campus'}</strong>{temPonto && <span>{ponto.latitude.toFixed(6)}, {ponto.longitude.toFixed(6)}</span>}</div>
+        <button type="button" className="primary-button inline" disabled={!dentro} onClick={() => onConfirmar(ponto)}><Icon name="pin" /> Usar esta posição</button>
+      </footer>
+    </div>
+  );
+}
+
+/** Formulário de criação/edição; o mapa 3D abre separado, em tela cheia. */
 export function FormularioPucStop({ original, campus, erroCampus, outros, onCancelar, onSalvo }) {
   const criando = !original;
   const [form, setForm] = useState(() => formDoPucStop(original));
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
+  const [selecionando, setSelecionando] = useState(false);
   const trava = useRef(false);
   const base = useId();
   const formId = `${base}-form`;
@@ -207,7 +263,7 @@ export function FormularioPucStop({ original, campus, erroCampus, outros, onCanc
 
   return (
     <Modal
-      titulo={criando ? 'Adicionar PucStop' : `Editar PucStop "${original.nome}"`}
+      titulo={criando ? 'Novo totem' : `Editar totem "${original.nome}"`}
       descricao={criando ? 'Defina nome, XP e geofence e escolha a posição no mapa do campus.' : undefined}
       onFechar={fechar}
       tamanho="lg"
@@ -216,7 +272,7 @@ export function FormularioPucStop({ original, campus, erroCampus, outros, onCanc
         <>
           <button type="button" className="ghost-button" onClick={fechar} disabled={salvando}>Cancelar</button>
           <button type="submit" form={formId} className="primary-button inline" disabled={!podeSalvar}>
-            <Icon name="save" size={16} /> {salvando ? 'Salvando…' : criando ? 'Criar PucStop' : 'Salvar alterações'}
+            <Icon name="save" size={16} /> {salvando ? 'Salvando…' : criando ? 'Criar totem' : 'Salvar alterações'}
           </button>
         </>
       )}
@@ -244,19 +300,19 @@ export function FormularioPucStop({ original, campus, erroCampus, outros, onCanc
         <fieldset className="pucstop-position">
           <legend>Posição no campus</legend>
           <p className="field-hint">
-            Clique no mapa ou arraste o marcador.{!criando && ' Mover o PucStop não apaga coletas anteriores.'}
+            Abra o mapa 3D, mova o campus sob o pin e confirme.{!criando && ' Mover o PucStop não apaga coletas anteriores.'}
           </p>
-          <SeletorPucStopMapa
-            campus={campus}
-            erroCampus={erroCampus}
-            ponto={{ latitude: form.latitude, longitude: form.longitude }}
-            raioMetros={form.raioMetros}
-            outros={outros}
-            onChange={({ latitude, longitude }) => {
-              setErro('');
-              setForm((atual) => ({ ...atual, latitude, longitude }));
-            }}
-          />
+          <div className="pucstop-position-summary">
+            <Icon name="pin" size={22} />
+            <div>
+              <strong>{Number.isFinite(form.latitude) ? 'Posição escolhida' : 'Nenhuma posição escolhida'}</strong>
+              {Number.isFinite(form.latitude) && <span>{form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}</span>}
+            </div>
+            <button type="button" className="outline-button" disabled={!campus} onClick={() => setSelecionando(true)}>
+              <Icon name="map" size={16} /> {Number.isFinite(form.latitude) ? 'Alterar no mapa 3D' : 'Escolher no mapa 3D'}
+            </button>
+          </div>
+          {erroCampus && <p className="detail-warn" role="alert"><Icon name="alert" size={16} /> {erroCampus}</p>}
         </fieldset>
 
         {criando && (
@@ -270,6 +326,21 @@ export function FormularioPucStop({ original, campus, erroCampus, outros, onCanc
           <p className="detail-muted small" role="status">{erroValidacao || 'Nenhuma alteração para salvar.'}</p>
         )}
       </form>
+      {selecionando && (
+        <SeletorPosicaoPucStop
+          campus={campus}
+          erroCampus={erroCampus}
+          inicial={{ latitude: form.latitude, longitude: form.longitude }}
+          raioMetros={form.raioMetros}
+          outros={outros}
+          onCancelar={() => setSelecionando(false)}
+          onConfirmar={({ latitude, longitude }) => {
+            setErro('');
+            setForm((atual) => ({ ...atual, latitude, longitude }));
+            setSelecionando(false);
+          }}
+        />
+      )}
     </Modal>
   );
 }
@@ -365,11 +436,11 @@ export default function PucStopsPage() {
     <section className="users-page pucstops-page">
       <header className="dash-header">
         <div>
-          <h1>PucStops</h1>
+          <h1>Gerenciar totens</h1>
           <p>Totens do mapa do campus em que os alunos coletam XP uma única vez. Valem para todos os programas.</p>
         </div>
         <button type="button" className="primary-button inline" onClick={() => setEditando('novo')}>
-          <Icon name="plus" size={17} /> Adicionar PucStop
+          <Icon name="plus" size={17} /> Novo totem
         </button>
       </header>
 

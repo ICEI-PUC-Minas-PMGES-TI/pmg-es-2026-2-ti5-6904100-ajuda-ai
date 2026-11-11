@@ -72,6 +72,7 @@ export default function AlunoLayout() {
   const nav = [
     {to: '/aluno/feed', label: 'Feed', icon: 'megaphone'},
     {to: '/aluno/perfil', label: 'Meu perfil', icon: 'home'},
+    {to: '/aluno/mapa', label: 'Mapa do campus', icon: 'map'},
     ...(resolucao.candidatura ? [{to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard'}] : []),
     ...(resolucao.ativo ? [{to: '/aluno/padrinho', label: papel === 'padrinho' ? 'Meus apadrinhados' : 'Meu padrinho', icon: 'users'}] : []),
     {to: '/aluno/historico', label: 'Histórico', icon: 'history'},

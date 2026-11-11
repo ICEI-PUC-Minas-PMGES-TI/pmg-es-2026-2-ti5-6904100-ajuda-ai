@@ -88,11 +88,39 @@ class MapaApiPlaceRepository implements CampusPlaceRepository {
         code: item['codigo'] as String?,
         type: item['categoria'] as String?,
         kind: _tipos[item['tipo']] ?? padrao,
+        heightMeters: item['altura'] is num
+            ? (item['altura'] as num).toDouble()
+            : null,
+        description: item['descricao'] as String? ?? '',
+        images: [
+          for (final imagem
+              in item['imagens'] is List ? item['imagens'] as List : const [])
+            ?_imagem(imagem),
+        ],
         center: [longitude.toDouble(), latitude.toDouble()],
       );
     } on Object {
       return null;
     }
+  }
+
+  static CampusPlaceImage? _imagem(Object? item) {
+    if (item is! Map || item['id'] is! String) return null;
+    final url = Uri.tryParse('${item['url'] ?? ''}');
+    final original = Uri.tryParse(
+      '${item['originalUrl'] ?? item['url'] ?? ''}',
+    );
+    if (url == null ||
+        original == null ||
+        !url.hasScheme ||
+        !original.hasScheme) {
+      return null;
+    }
+    return CampusPlaceImage(
+      id: item['id'] as String,
+      url: url,
+      originalUrl: original,
+    );
   }
 }
 
