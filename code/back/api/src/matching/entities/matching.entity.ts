@@ -270,7 +270,7 @@ export class MatchingVinculoEntity {
   ativo!: boolean;
 
   @Column({ name: 'origem', type: 'varchar', length: 20, default: 'matching' })
-  origem!: 'matching' | 'legado';
+  origem!: 'matching' | 'manual' | 'legado';
 
   @Column({ name: 'sugestao_id', type: 'int', nullable: true })
   sugestaoId!: number | null;

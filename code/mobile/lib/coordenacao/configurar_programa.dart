@@ -35,7 +35,9 @@ String? normalizarDataPrograma(String texto) {
   final bruto = texto.trim();
   if (bruto.isEmpty) return '';
   final br = RegExp(r'^(\d{2})/(\d{2})/(\d{4})$').firstMatch(bruto);
-  final iso = br == null ? bruto : '${br.group(3)}-${br.group(2)}-${br.group(1)}';
+  final iso = br == null
+      ? bruto
+      : '${br.group(3)}-${br.group(2)}-${br.group(1)}';
   return dataCivilValida(iso) ? iso : null;
 }
 
@@ -77,7 +79,10 @@ Map<String, String> sugestaoCronograma(String codigo) {
         };
 }
 
-String? validarCronogramaPrograma(Map<String, String> datas, {bool completo = false}) {
+String? validarCronogramaPrograma(
+  Map<String, String> datas, {
+  bool completo = false,
+}) {
   String? anterior;
   String? rotuloAnterior;
   for (final entry in datasPrograma.entries) {
@@ -100,7 +105,12 @@ String? validarCronogramaPrograma(Map<String, String> datas, {bool completo = fa
 
 /// O mesmo formulário revisa a criação e configura um ciclo existente.
 class ConfigurarPrograma extends StatefulWidget {
-  const ConfigurarPrograma({super.key, required this.api, required this.programa, this.novo = false});
+  const ConfigurarPrograma({
+    super.key,
+    required this.api,
+    required this.programa,
+    this.novo = false,
+  });
   final CoordenacaoApi api;
   final Map<String, dynamic> programa;
   final bool novo;
@@ -111,23 +121,36 @@ class ConfigurarPrograma extends StatefulWidget {
 class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
   late final _datas = {
     for (final chave in datasPrograma.keys)
-      chave: TextEditingController(text: exibirDataPrograma('${(widget.programa['datas'] as Map?)?[chave] ?? ''}')),
+      chave: TextEditingController(
+        text: exibirDataPrograma(
+          '${(widget.programa['datas'] as Map?)?[chave] ?? ''}',
+        ),
+      ),
   };
-  late final _requisitos = (widget.programa['requisitosPadrinho'] as List? ?? [])
-      .whereType<Map>().map((r) => Map<String, dynamic>.from(r)).toList();
+  late final _requisitos =
+      (widget.programa['requisitosPadrinho'] as List? ?? [])
+          .whereType<Map>()
+          .map((r) => Map<String, dynamic>.from(r))
+          .toList();
   late String _etapa = widget.programa['etapaAtual'] as String? ?? 'inscricoes';
-  late bool _inscricoes = widget.novo || widget.programa['inscricoesAbertas'] == true;
-  late bool _matching = widget.programa['matchingPendente'] == true;
-  late final _vagas = TextEditingController(text: '${widget.programa['vagasApadrinhados'] ?? 80}');
-  late final _grupos = TextEditingController(text: '${widget.programa['gruposPrevistos'] ?? 25}');
+  late final _vagas = TextEditingController(
+    text: '${widget.programa['vagasApadrinhados'] ?? 80}',
+  );
+  late final _grupos = TextEditingController(
+    text: '${widget.programa['gruposPrevistos'] ?? 25}',
+  );
   bool _salvando = false;
   String? _erro;
-  bool get _requisitosBloqueados => !widget.novo && widget.programa['etapaAtual'] == 'encerramento';
+  bool get _requisitosBloqueados =>
+      !widget.novo && widget.programa['etapaAtual'] == 'encerramento';
 
   @override
   void dispose() {
-    for (final c in _datas.values) { c.dispose(); }
-    _vagas.dispose(); _grupos.dispose();
+    for (final c in _datas.values) {
+      c.dispose();
+    }
+    _vagas.dispose();
+    _grupos.dispose();
     super.dispose();
   }
 
@@ -138,7 +161,8 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
     for (final entrada in _datas.entries) {
       final iso = normalizarDataPrograma(entrada.value.text);
       if (iso == null) {
-        erro = 'Data inválida: ${datasPrograma[entrada.key]}. Use DD/MM/AAAA (2000 a 2100).';
+        erro =
+            'Data inválida: ${datasPrograma[entrada.key]}. Use DD/MM/AAAA (2000 a 2100).';
         datas[entrada.key] = entrada.value.text.trim();
       } else {
         datas[entrada.key] = iso;
@@ -149,46 +173,78 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
     if (!_requisitosBloqueados) {
       for (final r in _requisitos) {
         final descricao = '${r['descricao'] ?? ''}'.trim();
-        if (descricao.isEmpty) erro ??= 'Preencha a descrição de todos os requisitos.';
-        if (!descricoes.add(descricao.toLowerCase())) erro ??= 'Existem requisitos repetidos.';
+        if (descricao.isEmpty) {
+          erro ??= 'Preencha a descrição de todos os requisitos.';
+        }
+        if (!descricoes.add(descricao.toLowerCase())) {
+          erro ??= 'Existem requisitos repetidos.';
+        }
       }
     }
     final vagas = int.tryParse(_vagas.text);
     final grupos = int.tryParse(_grupos.text);
-    if (vagas == null || grupos == null || vagas < 0 || grupos < 0 || vagas > 10000 || grupos > 10000) {
+    if (vagas == null ||
+        grupos == null ||
+        vagas < 0 ||
+        grupos < 0 ||
+        vagas > 10000 ||
+        grupos > 10000) {
       erro ??= 'Vagas e grupos devem ser números inteiros entre 0 e 10000.';
     }
-    if (erro != null) { setState(() => _erro = erro); return; }
+    if (erro != null) {
+      setState(() => _erro = erro);
+      return;
+    }
     final corpo = <String, dynamic>{
-      for (final e in datas.entries) if (e.value.isNotEmpty) e.key: e.value,
+      for (final e in datas.entries)
+        if (e.value.isNotEmpty) e.key: e.value,
       if (!_requisitosBloqueados) 'requisitosPadrinho': _requisitos,
       if (!widget.novo) ...{
-        'etapaAtual': _etapa, 'inscricoesAbertas': _inscricoes,
-        'matchingPendente': _matching, 'vagasApadrinhados': vagas, 'gruposPrevistos': grupos,
+        'etapaAtual': _etapa,
+        'vagasApadrinhados': vagas,
+        'gruposPrevistos': grupos,
       },
     };
     // Campo existente não pode ser apagado por acidente ao esvaziar o input.
     for (final chave in datasPrograma.keys) {
-      if (!widget.novo && (widget.programa['datas'] as Map?)?[chave] != null && datas[chave]!.isEmpty) {
-        setState(() => _erro = 'Informe ${datasPrograma[chave]!.toLowerCase()}; a data existente será preservada.');
+      if (!widget.novo &&
+          (widget.programa['datas'] as Map?)?[chave] != null &&
+          datas[chave]!.isEmpty) {
+        setState(
+          () => _erro =
+              'Informe ${datasPrograma[chave]!.toLowerCase()}; a data existente será preservada.',
+        );
         return;
       }
     }
-    setState(() { _salvando = true; _erro = null; });
+    setState(() {
+      _salvando = true;
+      _erro = null;
+    });
     try {
       final codigo = '${widget.programa['codigo']}';
-      final salvo = widget.novo ? await widget.api.criarPrograma(codigo, corpo)
+      final salvo = widget.novo
+          ? await widget.api.criarPrograma(codigo, corpo)
           : await widget.api.atualizarPrograma(codigo, corpo);
       if (mounted) Navigator.pop(context, salvo);
     } catch (e) {
-      if (mounted) setState(() { _salvando = false; _erro = mensagemDeErro(e); });
+      if (mounted) {
+        setState(() {
+          _salvando = false;
+          _erro = mensagemDeErro(e);
+        });
+      }
     }
   }
 
   Future<void> _escolherData(String chave) async {
     final iso = normalizarDataPrograma(_datas[chave]!.text);
-    final partes = iso == null || iso.isEmpty ? null : iso.split('-').map(int.parse).toList();
-    final atual = partes == null ? null : DateTime(partes[0], partes[1], partes[2]);
+    final partes = iso == null || iso.isEmpty
+        ? null
+        : iso.split('-').map(int.parse).toList();
+    final atual = partes == null
+        ? null
+        : DateTime(partes[0], partes[1], partes[2]);
     final escolhida = await showDatePicker(
       context: context,
       locale: const Locale('pt', 'BR'),
@@ -206,7 +262,9 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
 
   @override
   Widget build(BuildContext context) {
-    final abaixo = MediaQuery.viewInsetsOf(context).bottom + MediaQuery.paddingOf(context).bottom;
+    final abaixo =
+        MediaQuery.viewInsetsOf(context).bottom +
+        MediaQuery.paddingOf(context).bottom;
     return SafeArea(
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height * 0.92,
@@ -215,17 +273,22 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _CabecalhoCiclo(codigo: '${widget.programa['codigo']}', novo: widget.novo),
-              for (final fase in _fasesCiclo) _CardFase(
-                fase: fase,
-                campo: _campoData,
+              _CabecalhoCiclo(
+                codigo: '${widget.programa['codigo']}',
+                novo: widget.novo,
               ),
+              for (final fase in _fasesCiclo)
+                _CardFase(fase: fase, campo: _campoData),
               _cardRequisitos(),
               if (!widget.novo) _cardAjustes(),
               if (_erro != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: Text(_erro!, key: const ValueKey('erro-configuracao'), style: const TextStyle(color: Colors.red)),
+                  child: Text(
+                    _erro!,
+                    key: const ValueKey('erro-configuracao'),
+                    style: const TextStyle(color: Colors.red),
+                  ),
                 ),
               const SizedBox(height: 16),
               FilledButton(
@@ -233,9 +296,17 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
-                child: Text(_salvando ? 'Salvando...' : widget.novo ? 'Confirmar criação' : 'Salvar programa'),
+                child: Text(
+                  _salvando
+                      ? 'Salvando...'
+                      : widget.novo
+                      ? 'Confirmar criação'
+                      : 'Salvar programa',
+                ),
               ),
               TextButton(
                 onPressed: _salvando ? null : () => Navigator.pop(context),
@@ -268,13 +339,24 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(rotulo, style: const TextStyle(fontSize: 12, color: AppColors.muted, height: 1.2)),
+                    Text(
+                      rotulo,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.muted,
+                        height: 1.2,
+                      ),
+                    ),
                     TextFormField(
                       key: ValueKey(chave),
                       controller: _datas[chave],
                       enabled: !_salvando,
                       keyboardType: TextInputType.datetime,
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.ink),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: AppColors.ink,
+                      ),
                       decoration: const InputDecoration(
                         isDense: true,
                         hintText: 'DD/MM/AAAA',
@@ -288,7 +370,10 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
               IconButton(
                 tooltip: 'Escolher ${rotulo.toLowerCase()}',
                 onPressed: _salvando ? null : () => _escolherData(chave),
-                icon: const Icon(Icons.calendar_month, color: AppColors.primary),
+                icon: const Icon(
+                  Icons.calendar_month,
+                  color: AppColors.primary,
+                ),
               ),
             ],
           ),
@@ -305,7 +390,9 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (_requisitosBloqueados)
-            const Text('Ciclo encerrado: os requisitos são históricos e não podem ser alterados.'),
+            const Text(
+              'Ciclo encerrado: os requisitos são históricos e não podem ser alterados.',
+            ),
           if (widget.novo)
             const Text(
               'Revise os requisitos deste ciclo antes de confirmar. Uma lista vazia significa nenhum requisito de disciplina.',
@@ -322,18 +409,24 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
                       initialValue: '${r['descricao'] ?? ''}',
                       maxLength: 120,
                       enabled: !_requisitosBloqueados && !_salvando,
-                      decoration: const InputDecoration(labelText: 'Descrição do requisito'),
+                      decoration: const InputDecoration(
+                        labelText: 'Descrição do requisito',
+                      ),
                       onChanged: (v) => r['descricao'] = v,
                     ),
                   ),
                   Checkbox(
                     value: r['obrigatorio'] != false,
                     semanticLabel: 'Requisito obrigatório',
-                    onChanged: _requisitosBloqueados || _salvando ? null : (v) => setState(() => r['obrigatorio'] = v),
+                    onChanged: _requisitosBloqueados || _salvando
+                        ? null
+                        : (v) => setState(() => r['obrigatorio'] = v),
                   ),
                   IconButton(
                     tooltip: 'Remover requisito',
-                    onPressed: _requisitosBloqueados || _salvando ? null : () => setState(() => _requisitos.remove(r)),
+                    onPressed: _requisitosBloqueados || _salvando
+                        ? null
+                        : () => setState(() => _requisitos.remove(r)),
                     icon: const Icon(Icons.delete_outline),
                   ),
                 ],
@@ -345,7 +438,12 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
               child: TextButton.icon(
                 onPressed: _salvando || _requisitos.length >= 20
                     ? null
-                    : () => setState(() => _requisitos.add({'descricao': '', 'obrigatorio': true})),
+                    : () => setState(
+                        () => _requisitos.add({
+                          'descricao': '',
+                          'obrigatorio': true,
+                        }),
+                      ),
                 icon: const Icon(Icons.add),
                 label: const Text('Adicionar requisito'),
               ),
@@ -356,6 +454,15 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
   }
 
   Widget _cardAjustes() {
+    final etapaAtual = widget.programa['etapaAtual'] as String? ?? 'inscricoes';
+    final encerrado = etapaAtual == 'encerramento';
+    final transicoesPermitidas = switch (etapaAtual) {
+      'inscricoes' => {'inscricoes', 'encerramento'},
+      'analise' => {'inscricoes', 'analise', 'encerramento'},
+      'formacao' => {'formacao', 'andamento', 'encerramento'},
+      'andamento' => {'andamento', 'encerramento'},
+      _ => {'encerramento'},
+    };
     return _CardSecao(
       icone: Icons.tune,
       titulo: 'Ajustes do ciclo',
@@ -365,30 +472,53 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
             initialValue: _etapa,
             isExpanded: true,
             decoration: const InputDecoration(labelText: 'Etapa atual'),
-            items: const [
-              DropdownMenuItem(value: 'inscricoes', child: Text('Inscrições')),
-              DropdownMenuItem(value: 'analise', child: Text('Análise')),
-              DropdownMenuItem(value: 'formacao', child: Text('Formação dos grupos')),
-              DropdownMenuItem(value: 'andamento', child: Text('Programa em andamento')),
-              DropdownMenuItem(value: 'encerramento', child: Text('Encerramento')),
+            items: [
+              DropdownMenuItem(
+                value: 'inscricoes',
+                enabled: transicoesPermitidas.contains('inscricoes'),
+                child: Text('Inscrições'),
+              ),
+              DropdownMenuItem(
+                value: 'analise',
+                enabled: transicoesPermitidas.contains('analise'),
+                child: const Text('Análise'),
+              ),
+              DropdownMenuItem(
+                value: 'formacao',
+                enabled: transicoesPermitidas.contains('formacao'),
+                child: const Text(
+                  'Formação dos grupos — use “Liberar matching”',
+                ),
+              ),
+              DropdownMenuItem(
+                value: 'andamento',
+                enabled: transicoesPermitidas.contains('andamento'),
+                child: Text('Programa em andamento'),
+              ),
+              DropdownMenuItem(
+                value: 'encerramento',
+                enabled: transicoesPermitidas.contains('encerramento'),
+                child: Text('Encerramento'),
+              ),
             ],
-            onChanged: _salvando ? null : (v) => setState(() => _etapa = v!),
+            onChanged: _salvando || encerrado
+                ? null
+                : (v) => setState(() => _etapa = v!),
           ),
-          _Interruptor(
-            titulo: 'Inscrições abertas',
-            valor: _inscricoes,
-            onChanged: _salvando ? null : (v) => setState(() => _inscricoes = v),
-          ),
-          _Interruptor(
-            titulo: 'Matching pendente',
-            valor: _matching,
-            onChanged: _salvando ? null : (v) => setState(() => _matching = v),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'O encerramento das inscrições e a liberação do matching são ações explícitas no cartão do programa.',
+              style: TextStyle(color: AppColors.muted, height: 1.35),
+            ),
           ),
           TextField(
             controller: _vagas,
             enabled: !_salvando,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Vagas para apadrinhados'),
+            decoration: const InputDecoration(
+              labelText: 'Vagas para apadrinhados',
+            ),
           ),
           TextField(
             controller: _grupos,
@@ -402,23 +532,6 @@ class _ConfigurarProgramaState extends State<ConfigurarPrograma> {
   }
 }
 
-class _Interruptor extends StatelessWidget {
-  const _Interruptor({required this.titulo, required this.valor, required this.onChanged});
-  final String titulo;
-  final bool valor;
-  final ValueChanged<bool>? onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(child: Text(titulo, style: const TextStyle(color: AppColors.ink))),
-        Switch(value: valor, onChanged: onChanged),
-      ],
-    );
-  }
-}
-
 class _FaseCiclo {
   const _FaseCiclo(this.titulo, this.icone, this.campos);
   final String titulo;
@@ -427,10 +540,19 @@ class _FaseCiclo {
 }
 
 const _fasesCiclo = [
-  _FaseCiclo('Inscrições', Icons.description_outlined, ['inscricoesInicio', 'inscricoesFim']),
+  _FaseCiclo('Inscrições', Icons.description_outlined, [
+    'inscricoesInicio',
+    'inscricoesFim',
+  ]),
   _FaseCiclo('Análise', Icons.search, ['analiseInicio', 'analiseFim']),
-  _FaseCiclo('Formação dos grupos', Icons.groups_outlined, ['formacaoInicio', 'formacaoFim']),
-  _FaseCiclo('Atividades', Icons.rocket_launch_outlined, ['andamentoInicio', 'andamentoFim']),
+  _FaseCiclo('Formação dos grupos', Icons.groups_outlined, [
+    'formacaoInicio',
+    'formacaoFim',
+  ]),
+  _FaseCiclo('Atividades', Icons.rocket_launch_outlined, [
+    'andamentoInicio',
+    'andamentoFim',
+  ]),
   _FaseCiclo('Encerramento', Icons.flag_outlined, ['encerramentoEm']),
 ];
 
@@ -520,7 +642,11 @@ class _CardFase extends StatelessWidget {
 }
 
 class _CardSecao extends StatelessWidget {
-  const _CardSecao({required this.icone, required this.titulo, required this.child});
+  const _CardSecao({
+    required this.icone,
+    required this.titulo,
+    required this.child,
+  });
   final IconData icone;
   final String titulo;
   final Widget child;
@@ -543,7 +669,10 @@ class _CardSecao extends StatelessWidget {
               Container(
                 width: 36,
                 height: 36,
-                decoration: const BoxDecoration(color: AppColors.lavender, shape: BoxShape.circle),
+                decoration: const BoxDecoration(
+                  color: AppColors.lavender,
+                  shape: BoxShape.circle,
+                ),
                 child: Icon(icone, color: AppColors.primary, size: 18),
               ),
               const SizedBox(width: 10),

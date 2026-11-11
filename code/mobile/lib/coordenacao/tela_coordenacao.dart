@@ -12,8 +12,9 @@ import 'tela_candidaturas_coord.dart';
 import 'tela_configuracoes_coord.dart';
 import 'tela_dashboard_coord.dart';
 import 'tela_formularios_coord.dart';
-import 'tela_mais_coord.dart';
 import 'tela_matching_coord.dart';
+import 'tela_matching_manual_coord.dart';
+import 'tela_mais_coord.dart';
 import 'tela_programas_coord.dart';
 import 'tela_totens_coord.dart';
 import 'tela_usuarios_coord.dart';
@@ -219,6 +220,20 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
     });
   }
 
+  void _abrirMatching(String codigo) {
+    final api = _api;
+    if (api == null) return;
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => TelaMatchingCoord(api: api, programa: codigo),
+          ),
+        )
+        .then((_) {
+          if (mounted) _carregarProgramas();
+        });
+  }
+
   /// Destinos do dashboard (pontos de atenção / ações rápidas) e da aba Mais.
   void _abrirDestino(String destino, Map<String, String> query) {
     if (destino == 'comunicado') destino = 'feed';
@@ -276,8 +291,9 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         eventsClientFactory: widget.feedEventsClientFactory,
       ),
       'usuarios' => TelaUsuariosCoord(api: api, programa: _programa),
-      'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
       'matching' => TelaMatchingCoord(api: api, programa: _programa!),
+      'matching_manual' => TelaMatchingManualCoord(api: api, programa: _programa!),
+      'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
       'totens' => TelaTotensCoord(api: api),
       'mapa' => MapaPage(
         coordenadorAccessToken: _sessao!.accessToken,
@@ -292,6 +308,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
           _aba = 0;
           _carregarProgramas(preferido: codigo);
         },
+        onAbrirMatching: _abrirMatching,
         onProgramaExcluido: (codigo) {
           if (_programaSolicitado == codigo) _programaSolicitado = null;
           if (_programa == codigo) {

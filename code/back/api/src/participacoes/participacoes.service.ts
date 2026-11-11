@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { ChatService } from '../chat/chat.service.js';
+import { matchingLiberado } from '../programas/etapas.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import {
   MatchingSugestaoEntity,
@@ -478,6 +480,7 @@ export class ParticipacoesService {
   async vincular(
     apadrinhadoId: number,
     padrinhoId: number,
+    responsavel?: string,
   ): Promise<{
     apadrinhado: ParticipacaoEntity;
     padrinho: ParticipacaoEntity;
@@ -495,6 +498,11 @@ export class ParticipacoesService {
       });
       if (!programa || programa.etapaAtual === 'encerramento')
         throw new BadRequestException('Ciclo indisponível para matching.');
+      if (!matchingLiberado(programa)) {
+        throw new BadRequestException(
+          'O matching ainda não foi liberado para este ciclo.',
+        );
+      }
       const registros = [];
       for (const id of [apadrinhadoId, padrinhoId].sort((a, b) => a - b)) {
         registros.push(
@@ -539,24 +547,62 @@ export class ParticipacoesService {
       });
       if (outrosPadrinhos.some((r) => r.id !== padrinho.id))
         throw new ConflictException('Grupo já pertence a outro padrinho.');
-      if (apadrinhado.grupo?.trim() && legadoOuAtivo)
-        return { apadrinhado, padrinho };
-      apadrinhado.grupo = padrinho.grupo;
-      padrinho.papel = 'padrinho';
-      padrinho.status = 'em_andamento';
-      if (aprovado) padrinho.inicioEm = new Date();
-      await repo.save(apadrinhado);
-      padrinho.apadrinhados = (
-        await repo.find({
+      const jaVinculado =
+        apadrinhado.grupo?.trim() === padrinho.grupo && legadoOuAtivo;
+      if (!jaVinculado) {
+        apadrinhado.grupo = padrinho.grupo;
+        padrinho.papel = 'padrinho';
+        padrinho.status = 'em_andamento';
+        if (aprovado) padrinho.inicioEm = new Date();
+        await repo.save(apadrinhado);
+        padrinho.apadrinhados = (
+          await repo.find({
+            where: {
+              programa: padrinho.programa,
+              grupo: padrinho.grupo,
+              papel: 'apadrinhado',
+              status: 'em_andamento',
+            },
+          })
+        ).length;
+        await repo.save(padrinho);
+      }
+      if (this.matchingDisponivel()) {
+        const repoVinculos = manager.getRepository(MatchingVinculoEntity);
+        const existentes = await repoVinculos.find({
           where: {
-            programa: padrinho.programa,
-            grupo: padrinho.grupo,
-            papel: 'apadrinhado',
-            status: 'em_andamento',
+            programaId: programa.id,
+            apadrinhadoParticipacaoId: apadrinhado.id,
+            ativo: true,
           },
-        })
-      ).length;
-      await repo.save(padrinho);
+        });
+        if (
+          existentes.some(
+            (vinculo) => vinculo.padrinhoParticipacaoId !== padrinho.id,
+          )
+        ) {
+          throw new ConflictException(
+            'Apadrinhado já possui vínculo com outro padrinho.',
+          );
+        }
+        const vinculo =
+          existentes.find(
+            (item) => item.padrinhoParticipacaoId === padrinho.id,
+          ) ??
+          (await repoVinculos.save(
+            repoVinculos.create({
+              programaId: programa.id,
+              padrinhoParticipacaoId: padrinho.id,
+              apadrinhadoParticipacaoId: apadrinhado.id,
+              ativo: true,
+              origem: 'manual',
+              sugestaoId: null,
+              confirmadoPor: responsavel ?? null,
+              encerradoEm: null,
+            }),
+          ));
+        await ChatService.criarParaVinculoNaTransacao(manager, vinculo.id);
+      }
       return { apadrinhado, padrinho };
     });
   }

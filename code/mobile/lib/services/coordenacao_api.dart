@@ -252,6 +252,16 @@ class CoordenacaoApi {
     ),
   );
 
+  Future<Map<String, dynamic>> matchingConfiguracao(String programa) async =>
+      _mapa(
+        await _enviar(
+          'GET',
+          '/coordenacao/matching/config',
+          query: {'programa': programa},
+          erro: 'Falha ao carregar a configuração de matching',
+        ),
+      );
+
   Future<List<Map<String, dynamic>>> criteriosMatching({String? busca}) async =>
       _lista(
         await _enviar(
@@ -351,18 +361,6 @@ class CoordenacaoApi {
         'criterios': criterios,
       },
       erro: 'Falha ao salvar a configuração de matching',
-    ),
-  );
-
-  Future<Map<String, dynamic>> liberarMatching(
-    String programa,
-    bool liberado,
-  ) async => _mapa(
-    await _enviar(
-      'POST',
-      '/coordenacao/matching/liberar',
-      corpo: {'programa': programa, 'liberado': liberado},
-      erro: 'Falha ao atualizar a liberação do matching',
     ),
   );
 
@@ -467,6 +465,34 @@ class CoordenacaoApi {
       erro: 'Falha ao atualizar o programa',
     ),
   );
+
+  Future<Map<String, dynamic>> encerrarInscricoes(String codigo) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/programas/encerrar-inscricoes',
+      query: {'codigo': codigo},
+      erro: 'Falha ao encerrar as inscrições',
+    ),
+  );
+
+  Future<Map<String, dynamic>> liberarMatching(String codigo) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/programas/liberar-matching',
+      query: {'codigo': codigo},
+      erro: 'Falha ao liberar o matching',
+    ),
+  );
+
+  Future<Map<String, dynamic>> matching({required String programa}) async =>
+      _mapa(
+        await _enviar(
+          'GET',
+          '/coordenacao/matching/pool',
+          query: {'programa': programa},
+          erro: 'Falha ao carregar o matching',
+        ),
+      );
 
   /// Formulário para edição (`padrinho` | `apadrinhado`), mesmo não publicado.
   Future<Formulario> formulario(String tipo, {String? programa}) async =>

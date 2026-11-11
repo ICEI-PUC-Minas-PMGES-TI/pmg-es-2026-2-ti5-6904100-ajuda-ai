@@ -137,6 +137,15 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       ...respostas,
     },
   });
+  const respostasApadrinhado = {
+    declaraPrimeiroPeriodo: true,
+    expectativa: 'Espero apoio nos estudos.',
+    areas: ['Acadêmico'],
+    disponibilidade: ['Noite'],
+    genero: 'Prefiro não informar',
+    bolsistaProuni: false,
+    deOutraCidade: false,
+  };
 
   async function aprovadoEm2026_2() {
     const { participacao } = await cadastro.registrar(padrinho('2026/2'));
@@ -458,7 +467,6 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     const { participacao } = await cadastro.registrar(padrinho('2027/1', 2));
 
     await conferirTudo(participacoesService, participacao.id);
-
     await coordenacao.aprovarCandidatura(participacao.id, COORD);
 
     expect(participacao).toMatchObject({

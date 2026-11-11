@@ -39,10 +39,16 @@ class TelaMaisCoord extends StatelessWidget {
       'usuarios',
     ),
     (
-      Icons.auto_awesome_outlined,
-      'Matching',
-      'Critérios, sugestões e decisões individuais',
+      Icons.auto_awesome,
+      'Matching automático',
+      'Gere e revise sugestões com os critérios do ciclo',
       'matching',
+    ),
+    (
+      Icons.link,
+      'Vínculos manuais',
+      'Gerencie vínculos individuais separadamente das sugestões',
+      'matching_manual',
     ),
     (
       Icons.link,

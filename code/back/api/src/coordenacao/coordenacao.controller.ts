@@ -18,6 +18,7 @@ import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CadastroService } from '../cadastro/cadastro.service.js';
 import { RejeitarCadastroDto } from '../cadastro/dto/rejeitar-cadastro.dto.js';
+import type { EntradaVerificacao } from '../participacoes/verificacao-academica.js';
 import { CoordenacaoService } from './coordenacao.service.js';
 
 @Controller('coordenacao')
@@ -88,7 +89,7 @@ export class CoordenacaoController {
   registrarVerificacao(
     @Req() requisicao: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
-    @Body() corpo: { itens?: unknown; observacoes?: unknown },
+    @Body() corpo: EntradaVerificacao,
   ) {
     return this.coordenacaoService.registrarVerificacao(
       id,
@@ -199,13 +200,21 @@ export class CoordenacaoController {
   }
 
   @Post('vinculos')
-  vincular(@Body() corpo: { apadrinhadoId?: unknown; padrinhoId?: unknown }) {
-    return this.coordenacaoService.vincular(corpo);
+  vincular(
+    @Body() corpo: { apadrinhadoId?: unknown; padrinhoId?: unknown },
+    @Req() requisicao: AuthenticatedRequest,
+  ) {
+    return this.coordenacaoService.vincular(corpo, requisicao.user.email);
   }
 
   @Get('programas')
   programas() {
     return this.coordenacaoService.listarProgramas();
+  }
+
+  @Get('programas/item')
+  programa(@Query('codigo') codigo: string) {
+    return this.coordenacaoService.obterPrograma(codigo ?? '');
   }
 
   @Post('programas')
@@ -229,6 +238,16 @@ export class CoordenacaoController {
     @Body() corpo: Record<string, unknown>,
   ) {
     return this.coordenacaoService.atualizarPrograma(codigo ?? '', corpo);
+  }
+
+  @Post('programas/encerrar-inscricoes')
+  encerrarInscricoes(@Query('codigo') codigo: string) {
+    return this.coordenacaoService.encerrarInscricoes(codigo);
+  }
+
+  @Post('programas/liberar-matching')
+  liberarMatching(@Query('codigo') codigo: string) {
+    return this.coordenacaoService.liberarMatching(codigo);
   }
 
   @Get('formularios')
@@ -274,6 +293,15 @@ export class CoordenacaoController {
     @Query('programa') programa?: string,
   ) {
     return this.coordenacaoService.respostasPorPergunta(tipo, programa);
+  }
+
+  /**
+   * Conjunto elegível para vínculos manuais. Recusa se o matching não foi
+   * liberado — o bloqueio vale mesmo chamando o endpoint direto.
+   */
+  @Get('matching/pool')
+  matching(@Query('programa') programa?: string) {
+    return this.coordenacaoService.obterMatching(programa);
   }
 
   @Get('formularios/:tipo')

@@ -11,6 +11,7 @@ import PadrinhoPage from './pages/aluno/PadrinhoPage';
 import PerfilEditarPage from './pages/aluno/PerfilEditarPage';
 import PerfilAlunoPage from './pages/aluno/PerfilAlunoPage';
 import StatusCandidaturaPage from './pages/aluno/StatusCandidaturaPage';
+import ChatPage from './pages/aluno/ChatPage';
 import CadastroPage from './pages/cadastro/CadastroPage';
 import CandidaturasPage from './pages/coordenacao/CandidaturasPage';
 import RedirectCadastros from './pages/coordenacao/RedirectCadastros';
@@ -22,6 +23,7 @@ import EventosPage from './pages/coordenacao/EventosPage';
 import FormularioRespostasPage from './pages/coordenacao/FormularioRespostasPage';
 import FormulariosPage from './pages/coordenacao/FormulariosPage';
 import MatchingPage from './pages/coordenacao/MatchingPage';
+import MatchingManualPage from './pages/coordenacao/MatchingManualPage';
 import ProgramasPage from './pages/coordenacao/ProgramasPage';
 import PucStopsPage from './pages/coordenacao/PucStopsPage';
 import RecompensasPage from './pages/coordenacao/RecompensasPage';
@@ -46,6 +48,7 @@ export default function App() {
               <Route path="candidatura" element={<StatusCandidaturaPage />} />
               <Route path="candidatura/editar" element={<EditarCandidaturaPage />} />
               <Route path="padrinho" element={<PadrinhoPage />} />
+              <Route path="chat" element={<ChatPage />} />
               <Route path="historico" element={<HistoricoPage />} />
               <Route path="configuracoes" element={<ConfiguracoesAlunoPage />} />
               <Route path="mapa" element={<CampusMapPage />} />
@@ -58,6 +61,8 @@ export default function App() {
               <Route path="matching" element={<MatchingPage />} />
               <Route path="usuarios" element={<UsuariosPage />} />
               <Route path="programas" element={<ProgramasPage />} />
+              <Route path="matching" element={<MatchingPage />} />
+              <Route path="matching/manual" element={<MatchingManualPage />} />
               <Route path="formularios" element={<FormulariosPage />} />
               <Route path="formularios/respostas" element={<FormularioRespostasPage />} />
               <Route path="pucstops" element={<PucStopsPage />} />

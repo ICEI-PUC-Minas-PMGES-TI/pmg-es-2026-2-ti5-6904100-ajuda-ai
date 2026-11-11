@@ -75,6 +75,7 @@ export default function AlunoLayout() {
     {to: '/aluno/mapa', label: 'Mapa do campus', icon: 'map'},
     ...(resolucao.candidatura ? [{to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard'}] : []),
     ...(resolucao.ativo ? [{to: '/aluno/padrinho', label: papel === 'padrinho' ? 'Meus apadrinhados' : 'Meu padrinho', icon: 'users'}] : []),
+    {to: '/aluno/chat', label: 'Conversas', icon: 'chat'},
     {to: '/aluno/historico', label: 'Histórico', icon: 'history'},
     {to: '/aluno/configuracoes', label: 'Configurações', icon: 'settings'},
   ];

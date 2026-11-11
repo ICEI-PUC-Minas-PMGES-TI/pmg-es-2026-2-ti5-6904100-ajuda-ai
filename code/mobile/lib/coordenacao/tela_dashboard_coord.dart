@@ -373,9 +373,11 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
   }
 
   List<Widget> _conteudo() {
-    final ind = Map<String, dynamic>.from(_dados!['indicadores'] as Map);
+    final ind = Map<String, dynamic>.from(
+      _dados!['indicadores'] as Map? ?? const {},
+    );
     final chart = Map<String, dynamic>.from(
-      _dados!['candidaturasVisaoGeral'] as Map,
+      _dados!['candidaturasVisaoGeral'] as Map? ?? const {},
     );
     final recentes = (_dados!['candidaturasRecentes'] as List? ?? const [])
         .whereType<Map>()

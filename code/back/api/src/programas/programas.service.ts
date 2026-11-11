@@ -17,7 +17,7 @@ import {
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { FormularioEntity } from '../formularios/entities/formulario.entity.js';
 import { AvisoEntity } from '../avisos/entities/aviso.entity.js';
-import { ORDEM_ETAPAS } from './etapas.js';
+import { matchingLiberado, ORDEM_ETAPAS } from './etapas.js';
 import { DATAS_PROGRAMA, validarCronograma } from './cronograma.js';
 
 @Injectable()
@@ -354,6 +354,95 @@ export class ProgramasService implements OnModuleInit {
     );
   }
 
+  /**
+   * Encerra inscrições sem decidir candidaturas e sem executar matching.
+   * Idempotente se o ciclo já estiver fechado na análise.
+   */
+  async encerrarInscricoes(codigo: string): Promise<ProgramaEntity> {
+    const alvo = ProgramasService.validarCodigoCiclo(codigo ?? '');
+    return this.programas.manager.transaction(async (manager) => {
+      const repo = manager.getRepository(ProgramaEntity);
+      const programa = await repo.findOne({
+        where: { codigo: alvo },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!programa) throw new NotFoundException(`Programa ${alvo} não encontrado.`);
+      if (programa.etapaAtual === 'encerramento') {
+        throw new BadRequestException('Ciclo encerrado: inscrições não podem ser reabertas nem reencerradas.');
+      }
+      programa.inscricoesAbertas = false;
+      if (programa.etapaAtual === 'inscricoes') programa.etapaAtual = 'analise';
+      return repo.save(programa);
+    });
+  }
+
+  /**
+   * Libera a formação de grupos. Exige inscrições encerradas, etapa de análise
+   * e ao menos um padrinho aprovado. Não gera vínculos automaticamente.
+   */
+  async liberarMatching(codigo: string): Promise<ProgramaEntity> {
+    const alvo = ProgramasService.validarCodigoCiclo(codigo ?? '');
+    return this.programas.manager.transaction(async (manager) => {
+      const repo = manager.getRepository(ProgramaEntity);
+      const programa = await repo.findOne({
+        where: { codigo: alvo },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!programa) throw new NotFoundException(`Programa ${alvo} não encontrado.`);
+      if (matchingLiberado(programa)) return programa;
+      if (programa.etapaAtual === 'encerramento') {
+        throw new BadRequestException('Ciclo encerrado: matching indisponível.');
+      }
+      if (programa.inscricoesAbertas || programa.etapaAtual === 'inscricoes') {
+        throw new BadRequestException(
+          'Encerre as inscrições antes de liberar o matching.',
+        );
+      }
+      if (programa.etapaAtual !== 'analise') {
+        throw new BadRequestException(
+          'O matching só pode ser liberado na etapa de análise.',
+        );
+      }
+      const registros = await manager.getRepository(ParticipacaoEntity).find({
+        where: { programa: alvo },
+        lock: { mode: 'pessimistic_write' },
+      });
+      const semDecisao = registros.filter((r) =>
+        ['pendente', 'em_analise'].includes(r.status),
+      );
+      if (semDecisao.length) {
+        throw new BadRequestException(
+          'Decida todas as solicitações do ciclo antes de liberar o matching.',
+        );
+      }
+      const aprovados = registros.filter(
+        (r) =>
+          (r.papel === 'candidato' && r.status === 'aprovado') ||
+          (r.papel === 'padrinho' && r.status === 'em_andamento'),
+      ).length;
+      if (!aprovados) {
+        throw new BadRequestException(
+          'Prepare o conjunto de aprovados antes de liberar o matching.',
+        );
+      }
+      programa.etapaAtual = 'formacao';
+      programa.inscricoesAbertas = false;
+      programa.matchingPendente = true;
+      return repo.save(programa);
+    });
+  }
+
+  exigirMatchingLiberado(ciclo: ProgramaEntity): void {
+    if (ciclo.etapaAtual === 'encerramento') {
+      throw new BadRequestException('Ciclo indisponível para matching.');
+    }
+    if (!matchingLiberado(ciclo)) {
+      throw new BadRequestException(
+        'Matching ainda não foi liberado para este ciclo.',
+      );
+    }
+  }
+
   /** Atualiza etapa, flags, vagas e datas do programa (painel "Programas"). */
   async atualizar(
     codigo: string,
@@ -380,7 +469,12 @@ export class ProgramasService implements OnModuleInit {
       if (!ORDEM_ETAPAS.includes(corpo.etapaAtual as EtapaPrograma)) {
         throw new BadRequestException('Etapa do programa inválida.');
       }
+      this.validarTransicaoEtapa(
+        programa.etapaAtual,
+        corpo.etapaAtual as EtapaPrograma,
+      );
       programa.etapaAtual = corpo.etapaAtual as EtapaPrograma;
+      if (programa.etapaAtual !== 'inscricoes') programa.inscricoesAbertas = false;
     }
     for (const chave of [
       'inscricoesAbertas',
@@ -388,6 +482,18 @@ export class ProgramasService implements OnModuleInit {
       'matchingPendente',
     ] as const) {
       if (typeof corpo[chave] === 'boolean') programa[chave] = corpo[chave];
+    }
+    if (typeof corpo.inscricoesAbertas === 'boolean') {
+      if (corpo.inscricoesAbertas) {
+        if (matchingLiberado(programa) || programa.etapaAtual === 'encerramento') {
+          throw new BadRequestException(
+            'Não é possível reabrir inscrições após a liberação do matching ou o encerramento do ciclo.',
+          );
+        }
+        programa.etapaAtual = 'inscricoes';
+      } else if (programa.etapaAtual === 'inscricoes') {
+        programa.etapaAtual = 'analise';
+      }
     }
     for (const chave of ['vagasApadrinhados', 'gruposPrevistos'] as const) {
       if (corpo[chave] !== undefined) {
@@ -412,6 +518,30 @@ export class ProgramasService implements OnModuleInit {
       validarCronograma({ ...programa });
     }
     return this.programas.save(programa);
+  }
+
+  private validarTransicaoEtapa(atual: EtapaPrograma, nova: EtapaPrograma): void {
+    if (atual === nova) return;
+    if (atual === 'encerramento') {
+      throw new BadRequestException('Ciclo encerrado: a etapa não pode ser alterada.');
+    }
+    if (nova === 'formacao') {
+      throw new BadRequestException(
+        'Use a operação de liberar matching após encerrar as inscrições.',
+      );
+    }
+    if (nova === 'encerramento') return;
+    if (nova === 'andamento' && atual !== 'formacao') {
+      throw new BadRequestException(
+        'O andamento só começa após a liberação do matching.',
+      );
+    }
+    if (nova === 'analise' && atual !== 'inscricoes') {
+      throw new BadRequestException('Transição de etapa inválida.');
+    }
+    if (nova === 'inscricoes' && atual !== 'analise') {
+      throw new BadRequestException('Transição de etapa inválida.');
+    }
   }
 
   private proximoCodigo(): string {

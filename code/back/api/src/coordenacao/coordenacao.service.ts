@@ -14,6 +14,7 @@ import { ParticipacoesService } from '../participacoes/participacoes.service.js'
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import {
   formatarData,
+  matchingLiberado,
   montarEtapas,
   ROTULOS_STATUS_PROGRAMA,
 } from '../programas/etapas.js';
@@ -32,7 +33,6 @@ import { CriterioCatalogoService } from '../matching/criterio-catalogo.service.j
 import { MatchingService } from '../matching/matching.service.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
 import type { EntradaVerificacao } from '../participacoes/verificacao-academica.js';
-
 /** "Situação da análise" na listagem: conferência acadêmica registrada ou não. */
 const FILTROS_CONFERENCIA = [
   'pendente',
@@ -691,11 +691,14 @@ export class CoordenacaoService implements OnModuleInit {
       titulo: programa.titulo || `Programa ${programa.codigo}`,
       nome: programa.titulo || `Programa ${programa.codigo}`,
       etapaAtual: programa.etapaAtual,
+      matchingLiberado: matchingLiberado(programa),
       statusRotulo:
         ROTULOS_STATUS_PROGRAMA[programa.etapaAtual] ?? programa.etapaAtual,
       vigente,
       encerrado: programa.etapaAtual === 'encerramento',
       inscricoesAbertas: programa.inscricoesAbertas,
+      podeEncerrarInscricoes:
+        programa.etapaAtual === 'inscricoes' && programa.inscricoesAbertas,
       formularioPublicado: programa.formularioPublicado,
       matchingPendente: programa.matchingPendente,
       vagasApadrinhados: programa.vagasApadrinhados,
@@ -1080,7 +1083,10 @@ export class CoordenacaoService implements OnModuleInit {
     return lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   }
 
-  async vincular(corpo: { apadrinhadoId?: unknown; padrinhoId?: unknown }) {
+  async vincular(
+    corpo: { apadrinhadoId?: unknown; padrinhoId?: unknown },
+    responsavel?: string,
+  ) {
     const apadrinhadoId = Number(corpo.apadrinhadoId);
     const padrinhoId = Number(corpo.padrinhoId);
     if (!Number.isInteger(apadrinhadoId) || !Number.isInteger(padrinhoId)) {
@@ -1089,6 +1095,7 @@ export class CoordenacaoService implements OnModuleInit {
     const { apadrinhado, padrinho } = await this.participacoesService.vincular(
       apadrinhadoId,
       padrinhoId,
+      responsavel,
     );
     return {
       apadrinhado: this.enriquecerCandidatura(apadrinhado),
@@ -1108,6 +1115,10 @@ export class CoordenacaoService implements OnModuleInit {
         const padrinhos = registros.filter((r) => r.papel === 'padrinho');
         return {
           ...this.serializarPrograma(programa, codigoAtual),
+          podeLiberarMatching: this.podeLiberarMatching(
+            programa,
+            registros,
+          ),
           etapas: montarEtapas(programa),
           datas: {
             inscricoesInicio: programa.inscricoesInicio,
@@ -1137,6 +1148,39 @@ export class CoordenacaoService implements OnModuleInit {
     );
   }
 
+  async obterPrograma(codigo: string) {
+    const programa = await this.resolverPrograma(codigo);
+    const registros = await this.participacoesService.listarPorPrograma({
+      programa: programa.codigo,
+    });
+    return {
+      ...this.serializarPrograma(
+        programa,
+        ParticipacoesService.programaAtual(),
+      ),
+      podeLiberarMatching: this.podeLiberarMatching(programa, registros),
+    };
+  }
+
+  private podeLiberarMatching(
+    programa: ProgramaEntity,
+    registros: ParticipacaoEntity[],
+  ): boolean {
+    return (
+      programa.etapaAtual === 'analise' &&
+      !programa.inscricoesAbertas &&
+      !registros.some((registro) =>
+        ['pendente', 'em_analise'].includes(registro.status),
+      ) &&
+      registros.some(
+        (registro) =>
+          (registro.papel === 'candidato' && registro.status === 'aprovado') ||
+          (registro.papel === 'padrinho' &&
+            registro.status === 'em_andamento'),
+      )
+    );
+  }
+
   excluirPrograma(codigo: string, confirmacao: unknown) {
     return this.programasService.excluir(codigo, confirmacao);
   }
@@ -1145,6 +1189,22 @@ export class CoordenacaoService implements OnModuleInit {
     const atualizado = await this.programasService.atualizar(codigo, corpo);
     return this.serializarPrograma(
       atualizado,
+      ParticipacoesService.programaAtual(),
+    );
+  }
+
+  async encerrarInscricoes(codigo: string) {
+    const programa = await this.programasService.encerrarInscricoes(codigo);
+    return this.serializarPrograma(
+      programa,
+      ParticipacoesService.programaAtual(),
+    );
+  }
+
+  async liberarMatching(codigo: string) {
+    const programa = await this.programasService.liberarMatching(codigo);
+    return this.serializarPrograma(
+      programa,
       ParticipacoesService.programaAtual(),
     );
   }
@@ -1181,6 +1241,34 @@ export class CoordenacaoService implements OnModuleInit {
     );
   }
 
+  /** Pool para vínculos manuais; não calcula pontuação nem cria grupos. */
+  async obterMatching(programaCodigo?: string) {
+    const programa = await this.resolverPrograma(programaCodigo);
+    this.programasService.exigirMatchingLiberado(programa);
+    const registros = await this.participacoesService.listarPorPrograma({
+      programa: programa.codigo,
+    });
+    const padrinhos = registros.filter(
+      (r) =>
+        (r.papel === 'candidato' && r.status === 'aprovado') ||
+        r.papel === 'padrinho',
+    );
+    const apadrinhados = registros.filter(
+      (r) => r.papel === 'apadrinhado' && r.status === 'em_andamento',
+    );
+    return {
+      programa: this.serializarPrograma(
+        programa,
+        ParticipacoesService.programaAtual(),
+      ),
+      matchingLiberado: true,
+      padrinhos: padrinhos.map((r) => this.enriquecerCandidatura(r)),
+      apadrinhados: apadrinhados.map((r) => ({
+        ...this.enriquecerCandidatura(r),
+        vinculado: ParticipacoesService.vinculoValido(r, registros),
+      })),
+    };
+  }
   obterFormulario(tipo: string, programa?: string) {
     return this.formulariosService.obter(
       FormulariosService.validarTipo(tipo),
@@ -1474,5 +1562,3 @@ const REQUISITOS_INICIAIS_DEMO = [
     obrigatorio: true,
   },
 ];
-
-

@@ -305,14 +305,17 @@ export const api = {
   matchingVisao(programa) {
     return request(`/coordenacao/matching${query({ programa })}`);
   },
+  matchingPool(programa) {
+    return request(`/coordenacao/matching/pool${query({ programa })}`);
+  },
   matchingConfiguracao(programa) {
     return request(`/coordenacao/matching/config${query({ programa })}`);
   },
   salvarMatchingConfiguracao(dados) {
     return request('/coordenacao/matching/config', { method: 'PUT', body: dados });
   },
-  liberarMatching(programa, liberado) {
-    return request('/coordenacao/matching/liberar', { method: 'POST', body: { programa, liberado } });
+  liberarMatching(codigo) {
+    return request(`/coordenacao/programas/liberar-matching${query({ codigo })}`, { method: 'POST' });
   },
   executarMatching(programa) {
     return request('/coordenacao/matching/executar', { method: 'POST', body: { programa } });

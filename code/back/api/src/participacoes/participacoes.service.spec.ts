@@ -17,7 +17,10 @@ const ciclos = () =>
         '2026/2',
         ParticipacoesService.programaAtual(),
       ]),
-    ].map((codigo, i) => ({ id: i + 1, codigo }) as ProgramaEntity),
+    ].map(
+      (codigo, i) =>
+        ({ id: i + 1, codigo, etapaAtual: 'formacao' }) as ProgramaEntity,
+    ),
   );
 
 describe('ParticipacoesService', () => {
@@ -67,6 +70,39 @@ describe('ParticipacoesService', () => {
 
     expect(registro.papel).toBe('candidato');
     expect(registro.status).not.toBe('em_andamento');
+  });
+
+  it.each([true, false])(
+    'preserva a resposta booleana %s no cadastro',
+    async (resposta) => {
+      const registro = await service.registrarCandidaturaPadrinho({
+        usuarioId: '1',
+        programa: '2026/2',
+        respostas: { extras: { 'pergunta-sim-nao': resposta } },
+      });
+
+      expect(registro.respostas?.extras).toEqual({
+        'pergunta-sim-nao': resposta,
+      });
+    },
+  );
+
+  it('mantém a sanitização dos demais tipos de respostas extras', async () => {
+    const registro = await service.registrarCandidaturaPadrinho({
+      usuarioId: '1',
+      programa: '2026/2',
+      respostas: {
+        extras: {
+          texto: '  resposta  ',
+          checklist: [' opção 1 ', 'opção 2'],
+        },
+      },
+    });
+
+    expect(registro.respostas?.extras).toEqual({
+      texto: 'resposta',
+      checklist: ['opção 1', 'opção 2'],
+    });
   });
 
   it('confirma ingresso e preserva histórico de ciclos distintos', async () => {
@@ -129,5 +165,32 @@ describe('ParticipacoesService', () => {
     expect(lista.find((p) => p.programa === '2025/2')?.papel).toBe(
       'apadrinhado',
     );
+  });
+
+  it('registra justificativa e coordenador na auditoria da revogação', async () => {
+    const justificativa = 'Revisão dos requisitos.';
+    const coordenador = 'coordenador@example.com';
+    const candidatura = await service.registrarCandidaturaPadrinho({
+      usuarioId: 'candidato@example.com',
+      programa: '2026/2',
+    });
+    await conferirTudo(service, candidatura.id);
+    await service.aprovarCandidatura(candidatura.id, coordenador);
+
+    const revogada = await service.revogarAprovacao(
+      candidatura.id,
+      justificativa,
+      coordenador,
+    );
+
+    expect(revogada.status).toBe('nao_aprovado');
+    expect(revogada.respostas?._servidor?.decisao).toMatchObject({
+      resultado: 'nao_aprovado',
+      justificativa,
+      por: coordenador,
+    });
+    expect(
+      new Date(revogada.respostas?._servidor?.decisao?.em ?? '').toString(),
+    ).not.toBe('Invalid Date');
   });
 });

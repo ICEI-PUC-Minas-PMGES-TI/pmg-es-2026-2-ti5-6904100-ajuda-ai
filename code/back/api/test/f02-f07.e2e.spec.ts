@@ -604,7 +604,7 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
     expect(participacoes[0].status).toBe('pendente');
   });
 
-  async function prepararMatching() {
+  async function prepararAprovados() {
     await enviar().expect(201);
     const candidato = participacoes[0];
     await conferirTudo(service, candidato.id);
@@ -617,6 +617,34 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
     await service.aprovarCandidatura(apadrinhado.id);
     return { candidato, apadrinhado };
   }
+
+  async function prepararMatching() {
+    const aprovados = await prepararAprovados();
+    const programasService = app.get(ProgramasService);
+    await programasService.encerrarInscricoes(ciclo);
+    await programasService.liberarMatching(ciclo);
+    return aprovados;
+  }
+
+  it('encerrar inscrições não aprova nem vincula; matching fica bloqueado até a liberação', async () => {
+    const { candidato, apadrinhado } = await prepararAprovados();
+    const programasService = app.get(ProgramasService);
+    await expect(service.vincular(apadrinhado.id, candidato.id)).rejects.toThrow(
+      /não foi liberado/,
+    );
+    const encerrado = await programasService.encerrarInscricoes(ciclo);
+    expect(encerrado).toMatchObject({
+      inscricoesAbertas: false,
+      etapaAtual: 'analise',
+    });
+    expect(candidato).toMatchObject({ papel: 'candidato', status: 'aprovado' });
+    expect(apadrinhado.grupo).toBeUndefined();
+    await expect(service.vincular(apadrinhado.id, candidato.id)).rejects.toThrow(
+      /não foi liberado/,
+    );
+    await programasService.liberarMatching(ciclo);
+    expect(programas[0].etapaAtual).toBe('formacao');
+  });
 
   it('matching confirma vínculo e só então ativa padrinho; repetição é idempotente', async () => {
     const { candidato, apadrinhado } = await prepararMatching();
