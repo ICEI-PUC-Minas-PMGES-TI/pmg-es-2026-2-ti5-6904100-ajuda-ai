@@ -12,6 +12,9 @@ final _biblioteca = CampusPlace(
   id: 'P26',
   name: 'Biblioteca',
   code: '26',
+  type: 'LIBRARY',
+  kind: CampusPlaceKind.building,
+  heightMeters: 6,
   center: [-43.9931464, -19.92077335],
 );
 final _icei = CampusPlace(
@@ -90,7 +93,7 @@ void main() {
   final card = find.byKey(const Key('campus-route-card'));
   final summary = find.byKey(const Key('campus-route-summary'));
 
-  testWidgets('sem serviço de rota não há card', (tester) async {
+  testWidgets('sem serviço de rota mantém detalhes, sem ação de rota', (tester) async {
     final semRota = CampusMapController(
       placeRepository: _Repository(),
       locationService: location,
@@ -98,7 +101,12 @@ void main() {
     addTearDown(semRota.dispose);
     await mount(tester, other: semRota);
     await select(tester, 'biblioteca');
-    expect(card, findsNothing);
+    expect(card, findsOneWidget);
+    expect(
+      find.descendant(of: card, matching: find.text('Biblioteca')),
+      findsOneWidget,
+    );
+    expect(find.text('Ir até o local'), findsNothing);
     expect(camera.focused, ['P26']);
   });
 
@@ -109,7 +117,7 @@ void main() {
     expect(card, findsNothing);
     await select(tester, 'biblioteca');
     expect(card, findsOneWidget);
-    expect(find.text('Traçar rota'), findsOneWidget);
+    expect(find.text('Ir até o local'), findsOneWidget);
     expect(find.text('Rota acessível'), findsOneWidget);
     expect(routes.calls, isEmpty);
     expect(location.calls, 0); // GPS só ao pedir a rota.
@@ -119,6 +127,27 @@ void main() {
     expect(routes.calls, [('P26', false, _location)]);
     expect(camera.routes.single.destinationId, 'P26');
     expect(find.text('2 min a pé · 150 m'), findsOneWidget);
+  });
+
+  testWidgets('prédio tocado no mapa abre detalhes e opções de rota', (
+    tester,
+  ) async {
+    await mount(tester);
+    controller.selectPlace(_biblioteca);
+    await tester.pumpAndSettle();
+
+    expect(card, findsOneWidget);
+    expect(
+      find.descendant(of: card, matching: find.text('Biblioteca')),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Código 26 · Biblioteca · Altura aproximada: 6 m'),
+      findsOneWidget,
+    );
+    expect(find.text('Rota acessível'), findsOneWidget);
+    expect(find.text('Ir até o local'), findsOneWidget);
+    expect(camera.focused, ['P26']);
   });
 
   testWidgets('rota acessível: pedido acessível e troca refaz a rota', (

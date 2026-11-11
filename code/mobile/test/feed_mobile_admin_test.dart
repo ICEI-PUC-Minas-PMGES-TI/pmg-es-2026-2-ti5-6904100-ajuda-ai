@@ -328,7 +328,7 @@ void main() {
     },
   );
 
-  testWidgets('atalho Criar comunicado abre o Feed sem exigir ciclo', (
+  testWidgets('comunicado fica somente no Feed, sem atalho duplicado', (
     tester,
   ) async {
     tamanho(tester);
@@ -352,8 +352,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tocar(tester, find.text('Mais').last);
-    await tester.scrollUntilVisible(find.text('Criar comunicado'), 250);
-    await tocar(tester, find.text('Criar comunicado'));
+    expect(find.text('Criar comunicado'), findsNothing);
+    await tocar(tester, find.text('Feed do programa'));
     expect(find.text('Feed do programa'), findsOneWidget);
     expect(find.text('Compartilhe algo com a comunidade...'), findsOneWidget);
     expect(

@@ -509,28 +509,13 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _AcaoRapida(
-                        label: 'Formulários',
-                        icon: Icons.dynamic_form_outlined,
-                        onTap: () => widget.onAbrirDestino?.call(
-                          'formularios',
-                          const {},
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _AcaoRapida(
-                        label: 'Comunicado',
-                        icon: Icons.campaign_outlined,
-                        onTap: () =>
-                            widget.onAbrirDestino?.call('comunicado', const {}),
-                      ),
-                    ),
-                  ],
+                _AcaoRapida(
+                  label: 'Formulários',
+                  icon: Icons.dynamic_form_outlined,
+                  onTap: () => widget.onAbrirDestino?.call(
+                    'formularios',
+                    const {},
+                  ),
                 ),
                 if (resumo['encerrado'] == true) ...[
                   const SizedBox(height: 8),

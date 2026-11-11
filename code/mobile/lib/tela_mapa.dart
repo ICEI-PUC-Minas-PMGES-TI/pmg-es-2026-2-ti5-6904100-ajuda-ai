@@ -1,10 +1,15 @@
 import 'package:campus_map/campus_map.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 import 'services/campus_conteudo_api.dart';
 import 'services/mapa_api.dart';
+import 'services/mapa_local_admin_api.dart';
 import 'services/pucstops_api.dart';
+import 'services/feed_image_save.dart';
+import 'services/api_config.dart';
+import 'coordenacao/formulario_local_mapa.dart';
 import 'sessao_usuario.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
@@ -18,6 +23,8 @@ class MapaPage extends StatefulWidget {
     this.pucStopService,
     this.contentService,
     this.openExternalUrl,
+    this.coordenadorAccessToken,
+    this.coordenadorBaseUrl = apiBaseUrl,
   });
 
   /// Busca remota; padrão: API do Ajuda-aí (`API_BASE_URL`). Testes injetam.
@@ -35,6 +42,8 @@ class MapaPage extends StatefulWidget {
 
   /// Abre o cardápio em PDF fora do app; padrão: `url_launcher`.
   final Future<bool> Function(Uri url)? openExternalUrl;
+  final String? coordenadorAccessToken;
+  final String coordenadorBaseUrl;
 
   @override
   State<MapaPage> createState() => _MapaPageState();
@@ -43,14 +52,20 @@ class MapaPage extends StatefulWidget {
 class _MapaPageState extends State<MapaPage> {
   // Uma instância por tela: o mapa só recria a busca se a instância mudar.
   late final CampusPlaceRepository _placeRepository =
-      widget.placeRepository ?? MapaApiPlaceRepository();
+      widget.placeRepository ??
+      MapaApiPlaceRepository(baseUrl: widget.coordenadorBaseUrl);
   late final CampusRouteService _routeService =
-      widget.routeService ?? MapaApiRouteService();
+      widget.routeService ??
+      MapaApiRouteService(baseUrl: widget.coordenadorBaseUrl);
   late final CampusPucStopService _pucStopService =
       widget.pucStopService ??
-      MapaApiPucStopService(accessToken: () => SessaoUsuario.atual.accessToken);
+      MapaApiPucStopService(
+        accessToken: () => SessaoUsuario.atual.accessToken,
+        baseUrl: widget.coordenadorBaseUrl,
+      );
   late final CampusContentService _contentService =
-      widget.contentService ?? MapaApiCampusContentService();
+      widget.contentService ??
+      MapaApiCampusContentService(baseUrl: widget.coordenadorBaseUrl);
 
   /// PDF no visualizador do aparelho (navegador/leitor). Falha → `false`: o
   /// mapa mostra o link para copiar.
@@ -65,6 +80,32 @@ class _MapaPageState extends State<MapaPage> {
   /// XP do app = total devolvido pelo servidor (nunca somado no cliente).
   void _coletou(CampusPucStopClaim coleta) {
     SessaoUsuario.atual.xp.value = coleta.xpTotal;
+  }
+
+  Future<void> _baixarImagem(Uri url) async {
+    final client = http.Client();
+    try {
+      await salvarImagemDoFeed(url.toString(), client: client);
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<bool> _editarLocal(CampusPlace local) async {
+    final token = widget.coordenadorAccessToken;
+    if (token == null || !mounted) return false;
+    return await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => FormularioLocalMapa(
+              local: local,
+              api: MapaLocalAdminApi(
+                accessToken: token,
+                baseUrl: widget.coordenadorBaseUrl,
+              ),
+            ),
+          ),
+        ) ??
+        false;
   }
 
   @override
@@ -95,14 +136,24 @@ class _MapaPageState extends State<MapaPage> {
           onPucStopClaimed: _coletou,
           contentService: _contentService,
           openExternalUrl: widget.openExternalUrl ?? _abrirExterno,
+          canEditPlaces: widget.coordenadorAccessToken != null,
+          onEditPlace: widget.coordenadorAccessToken == null
+              ? null
+              : _editarLocal,
+          onDownloadPlaceImage: _baixarImagem,
         ),
       ),
-      bottomNavigationBar: AppBottomNavigation(
-        selected: AppDestination.mapa,
-        destinations: SessaoUsuario.atual.destinos,
-        onSelected: (destination) =>
-            navegarDestino(context, destination, atual: AppDestination.mapa),
-      ),
+      bottomNavigationBar: widget.coordenadorAccessToken != null
+          ? null
+          : AppBottomNavigation(
+              selected: AppDestination.mapa,
+              destinations: SessaoUsuario.atual.destinos,
+              onSelected: (destination) => navegarDestino(
+                context,
+                destination,
+                atual: AppDestination.mapa,
+              ),
+            ),
     );
   }
 }

@@ -1,6 +1,7 @@
 import type { Polygon } from 'typeorm';
 import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import type { EntradaMapa } from '../entities/predio.entity.js';
+import type { ImagemLocalDto } from './local-conteudo.dto.js';
 
 /**
  * Contratos públicos de leitura do mapa. O cliente nunca recebe entidade
@@ -23,7 +24,7 @@ export interface VersaoMapaDto {
   contagens: { predios: number; areas: number; salas: number };
 }
 
-/** Item da listagem: só o necessário para lista/mapa, sem polígono. */
+/** Item da listagem do mapa, incluindo o footprint usado no cliente web. */
 export interface PredioResumoDto {
   id: string;
   nome: string | null;
@@ -34,14 +35,16 @@ export interface PredioResumoDto {
   /** Centro do bbox do polígono (igual ao `center` do app) ou o ponto do prédio. */
   latitude: number;
   longitude: number;
+  /** GeoJSON do footprint; nulo para locais representados apenas por ponto. */
+  geometria: Polygon | null;
 }
 
 export interface PredioDto extends PredioResumoDto {
   osmId: string | null;
   alturaBase: number | null;
   entradas: EntradaMapa[];
-  /** GeoJSON; nulo para portões (só ponto na origem). */
-  geometria: Polygon | null;
+  descricao?: string;
+  imagens?: ImagemLocalDto[];
 }
 
 export interface AreaDto {

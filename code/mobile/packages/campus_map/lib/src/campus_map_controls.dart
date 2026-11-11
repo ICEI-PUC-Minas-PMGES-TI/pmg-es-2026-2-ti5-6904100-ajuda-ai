@@ -25,6 +25,9 @@ class CampusMapControls extends StatefulWidget {
     this.showEvents = true,
     this.showRestaurants = true,
     this.openExternalUrl,
+    this.canEditPlaces = false,
+    this.onEditPlace,
+    this.onDownloadPlaceImage,
   });
   final CampusMapController controller;
 
@@ -38,6 +41,9 @@ class CampusMapControls extends StatefulWidget {
   /// Abre o cardápio em PDF fora do app; sem ele (ou se falhar) o link
   /// aparece para copiar.
   final Future<bool> Function(Uri url)? openExternalUrl;
+  final bool canEditPlaces;
+  final Future<bool> Function(CampusPlace place)? onEditPlace;
+  final Future<void> Function(Uri originalUrl)? onDownloadPlaceImage;
 
   @override
   State<CampusMapControls> createState() => _CampusMapControlsState();
@@ -435,6 +441,34 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     } catch (_) {
       if (mounted) _message('Não foi possível focar o local. Tente novamente.');
     }
+    try {
+      final detalhado = await widget.controller.placeRepository.findById(
+        place.id,
+      );
+      if (mounted && _selected?.id == place.id && detalhado != null) {
+        setState(() => _selected = detalhado);
+      }
+    } catch (_) {
+      // O resumo local continua funcional para rota mesmo sem conteúdo remoto.
+    }
+  }
+
+  Future<void> _editarLocal() async {
+    final place = _selected;
+    final editar = widget.onEditPlace;
+    if (place == null || editar == null) return;
+    final salvo = await editar(place);
+    if (!mounted || !salvo || _selected?.id != place.id) return;
+    try {
+      final atualizado = await widget.controller.placeRepository.findById(
+        place.id,
+      );
+      if (mounted && atualizado != null && _selected?.id == place.id) {
+        setState(() => _selected = atualizado);
+      }
+    } catch (_) {
+      _message('As informações foram salvas. Reabra o local para atualizar.');
+    }
   }
 
   void _message(String message, {SnackBarAction? action}) {
@@ -619,6 +653,26 @@ class _CampusMapControlsState extends State<CampusMapControls> {
     );
   }
 
+  Widget _routeCard(
+    CampusPlace place, {
+    ScrollController? scrollController,
+    bool mobileSheet = false,
+  }) => _RouteCard(
+    place: place,
+    route: _route,
+    accessible: _accessible,
+    routing: _routing,
+    onAccessible: _setAccessible,
+    onTrace: _traceRoute,
+    onClose: _closeRoute,
+    canRoute: widget.controller.canRoute,
+    canEdit: widget.canEditPlaces && widget.onEditPlace != null,
+    onEdit: _editarLocal,
+    onDownloadImage: widget.onDownloadPlaceImage,
+    scrollController: scrollController,
+    mobileSheet: mobileSheet,
+  );
+
   Widget _shortcutRow(List<Widget> chips, String label, Key key) => Padding(
     padding: const EdgeInsets.only(top: 6),
     child: Semantics(
@@ -696,22 +750,33 @@ class _CampusMapControlsState extends State<CampusMapControls> {
               ),
             ),
           )
-        else if (_selected case final place? when widget.controller.canRoute)
-          Positioned(
-            left: 12,
-            right: sideCardWidth == null ? 76 : null,
-            width: sideCardWidth,
-            bottom: 44,
-            child: _RouteCard(
-              place: place,
-              route: _route,
-              accessible: _accessible,
-              routing: _routing,
-              onAccessible: _setAccessible,
-              onTrace: _traceRoute,
-              onClose: _closeRoute,
+        else if (_selected case final place?)
+          if (sideCardWidth == null)
+            Positioned.fill(
+              child: DraggableScrollableSheet(
+                key: const Key('campus-place-sheet'),
+                initialChildSize: .42,
+                minChildSize: .2,
+                maxChildSize: .88,
+                snap: true,
+                snapSizes: const [.2, .42, .88],
+                builder: (context, scrollController) => Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _routeCard(
+                    place,
+                    scrollController: scrollController,
+                    mobileSheet: true,
+                  ),
+                ),
+              ),
+            )
+          else
+            Positioned(
+              left: 12,
+              width: sideCardWidth,
+              bottom: 44,
+              child: _routeCard(place),
             ),
-          ),
         Positioned(
           top: 12,
           left: 12,
@@ -820,32 +885,33 @@ class _CampusMapControlsState extends State<CampusMapControls> {
             ),
           ),
         ),
-        Positioned(
-          right: 16,
-          bottom: 52, // Reserva o rodapé para logo/attribution nativos.
-          child: SizedBox(
-            width: 48,
-            height: 48,
-            child: Material(
-              color: colors.surface,
-              elevation: 3,
-              shape: const CircleBorder(),
-              child: IconButton(
-                tooltip: _locating
-                    ? 'Obtendo localização'
-                    : 'Minha localização',
-                onPressed: _locating ? null : _locate,
-                icon: _locating
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.my_location),
+        if (pucStop == null && _content == null && _selected == null)
+          Positioned(
+            right: 16,
+            bottom: 52, // Reserva o rodapé para logo/attribution nativos.
+            child: SizedBox(
+              width: 48,
+              height: 48,
+              child: Material(
+                color: colors.surface,
+                elevation: 3,
+                shape: const CircleBorder(),
+                child: IconButton(
+                  tooltip: _locating
+                      ? 'Obtendo localização'
+                      : 'Minha localização',
+                  onPressed: _locating ? null : _locate,
+                  icon: _locating
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.my_location),
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -860,6 +926,12 @@ class _RouteCard extends StatelessWidget {
     required this.onAccessible,
     required this.onTrace,
     required this.onClose,
+    required this.canRoute,
+    required this.canEdit,
+    required this.onEdit,
+    required this.onDownloadImage,
+    this.scrollController,
+    this.mobileSheet = false,
   });
 
   final CampusPlace place;
@@ -869,57 +941,134 @@ class _RouteCard extends StatelessWidget {
   final ValueChanged<bool> onAccessible;
   final VoidCallback onTrace;
   final VoidCallback onClose;
+  final bool canRoute;
+  final bool canEdit;
+  final VoidCallback onEdit;
+  final Future<void> Function(Uri originalUrl)? onDownloadImage;
+  final ScrollController? scrollController;
+  final bool mobileSheet;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final route = this.route;
-    return Material(
-      key: const Key('campus-route-card'),
-      color: colors.surface,
-      elevation: 3,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 4, 12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    place.displayName,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.titleSmall,
-                  ),
+    final details = <String>[
+      if (place.code?.trim().isNotEmpty == true) 'Código ${place.code}',
+      ?_placeTypeLabel(place.type),
+      if (place.heightMeters case final height? when height > 0)
+        'Altura aproximada: ${_formatHeight(height)}',
+    ];
+    final content = SingleChildScrollView(
+      controller: scrollController,
+      padding: EdgeInsets.fromLTRB(16, mobileSheet ? 10 : 4, 16, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (mobileSheet)
+            Center(
+              child: Container(
+                key: const Key('campus-place-sheet-handle'),
+                width: 42,
+                height: 5,
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: colors.outlineVariant,
+                  borderRadius: BorderRadius.circular(99),
                 ),
-                IconButton(
-                  key: const Key('campus-route-clear'),
-                  tooltip: 'Limpar rota',
-                  onPressed: onClose,
-                  icon: const Icon(Icons.close),
-                ),
-              ],
+              ),
             ),
-            if (route != null)
-              Text(
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  place.displayName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: mobileSheet ? text.titleLarge : text.titleSmall,
+                ),
+              ),
+              IconButton(
+                key: const Key('campus-route-clear'),
+                tooltip: 'Limpar rota',
+                onPressed: onClose,
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+          if (details.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                details.join(' · '),
+                key: const Key('campus-place-details'),
+                style: text.bodySmall?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ),
+          if (place.description.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 8),
+              child: Text(place.description, style: text.bodyMedium),
+            ),
+          if (place.images.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 6),
+              child: Text('Imagens', style: text.titleSmall),
+            ),
+            SizedBox(
+              height: 132,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: place.images.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  final image = place.images[index];
+                  return InkWell(
+                    onTap: () =>
+                        _showPlaceImage(context, image, onDownloadImage),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.network(
+                        image.url.toString(),
+                        width: 180,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => const SizedBox(
+                          width: 180,
+                          child: Center(
+                            child: Icon(Icons.broken_image_outlined),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+          if (route != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
                 campusRouteSummary(route),
                 key: const Key('campus-route-summary'),
                 style: text.bodyMedium?.copyWith(color: colors.primary),
               ),
+            ),
+          if (canRoute)
             SwitchListTile(
               key: const Key('campus-route-accessible'),
               dense: true,
-              contentPadding: const EdgeInsets.only(right: 12),
+              contentPadding: EdgeInsets.zero,
               title: const Text('Rota acessível'),
               value: accessible,
               onChanged: routing ? null : onAccessible,
             ),
-            Padding(
-              padding: const EdgeInsets.only(right: 12),
+          if (canRoute)
+            SizedBox(
+              width: double.infinity,
               child: FilledButton.icon(
                 key: const Key('campus-route-trace'),
                 onPressed: routing ? null : onTrace,
@@ -930,15 +1079,114 @@ class _RouteCard extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.directions_walk),
-                label: Text(routing ? 'Calculando rota' : 'Traçar rota'),
+                label: Text(routing ? 'Calculando rota' : 'Ir até o local'),
               ),
             ),
-          ],
-        ),
+          if (canEdit)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  key: const Key('campus-place-edit'),
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Editar informações'),
+                ),
+              ),
+            ),
+        ],
       ),
+    );
+    return Material(
+      key: const Key('campus-route-card'),
+      color: colors.surface,
+      elevation: 3,
+      borderRadius: mobileSheet
+          ? const BorderRadius.vertical(top: Radius.circular(28))
+          : BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: mobileSheet
+          ? content
+          : ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * .62,
+              ),
+              child: content,
+            ),
     );
   }
 }
+
+Future<void> _showPlaceImage(
+  BuildContext context,
+  CampusPlaceImage image,
+  Future<void> Function(Uri originalUrl)? onDownload,
+) => showDialog<void>(
+  context: context,
+  builder: (dialogContext) => Dialog.fullscreen(
+    child: SafeArea(
+      child: Column(
+        children: [
+          AppBar(
+            title: const Text('Imagem do local'),
+            leading: IconButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              icon: const Icon(Icons.close),
+            ),
+            actions: [
+              if (onDownload != null)
+                TextButton.icon(
+                  onPressed: () async {
+                    try {
+                      await onDownload(image.originalUrl);
+                      if (dialogContext.mounted) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(content: Text('Imagem salva.')),
+                        );
+                      }
+                    } catch (_) {
+                      if (dialogContext.mounted) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content: Text('Não foi possível baixar a imagem.'),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.download_outlined),
+                  label: const Text('Baixar imagem'),
+                ),
+            ],
+          ),
+          Expanded(
+            child: InteractiveViewer(
+              minScale: 1,
+              maxScale: 6,
+              child: Center(child: Image.network(image.originalUrl.toString())),
+            ),
+          ),
+        ],
+      ),
+    ),
+  ),
+);
+
+String? _placeTypeLabel(String? value) => switch (value?.toUpperCase()) {
+  'ACADEMIC' => 'Acadêmico',
+  'CLASSROOM' => 'Salas de aula',
+  'AUDITORIUM' => 'Auditório',
+  'LAB' => 'Laboratório',
+  'LIBRARY' => 'Biblioteca',
+  'SPORTS' => 'Esportes',
+  null || '' => null,
+  final other => other,
+};
+
+String _formatHeight(double value) => value == value.roundToDouble()
+    ? '${value.toInt()} m'
+    : '${value.toStringAsFixed(1)} m';
 
 /// Estado do card do PucStop (só da tela; nada persiste).
 class _PucStopView {

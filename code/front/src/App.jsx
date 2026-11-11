@@ -27,6 +27,7 @@ import PucStopsPage from './pages/coordenacao/PucStopsPage';
 import RecompensasPage from './pages/coordenacao/RecompensasPage';
 import RestaurantesPage from './pages/coordenacao/RestaurantesPage';
 import UsuariosPage from './pages/coordenacao/UsuariosPage';
+import CampusMapPage from './pages/CampusMapPage';
 
 export default function App() {
   return (
@@ -47,6 +48,7 @@ export default function App() {
               <Route path="padrinho" element={<PadrinhoPage />} />
               <Route path="historico" element={<HistoricoPage />} />
               <Route path="configuracoes" element={<ConfiguracoesAlunoPage />} />
+              <Route path="mapa" element={<CampusMapPage />} />
             </Route>
             <Route path="/coordenacao" element={<CoordLayout />}>
               <Route index element={<DashboardPage />} />
@@ -64,6 +66,7 @@ export default function App() {
               <Route path="restaurantes" element={<RestaurantesPage />} />
               <Route path="comunicados" element={<ComunicadosPage />} />
               <Route path="configuracoes" element={<ConfiguracoesPage />} />
+              <Route path="mapa" element={<CampusMapPage coordenador />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

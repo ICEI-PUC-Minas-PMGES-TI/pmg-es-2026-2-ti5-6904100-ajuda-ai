@@ -22,6 +22,7 @@ import 'campus_pucstop_layer.dart';
 import 'campus_map_defaults.dart';
 import 'campus_map_features.dart';
 import 'campus_map_lighting.dart';
+import 'campus_map_layer_ids.dart';
 import 'campus_map_renderer.dart';
 import 'campus_route.dart';
 import 'campus_route_layer.dart';
@@ -48,6 +49,9 @@ class CampusMapView extends StatefulWidget {
     this.contentService,
     this.openExternalUrl,
     this.localTime,
+    this.canEditPlaces = false,
+    this.onEditPlace,
+    this.onDownloadPlaceImage,
   });
 
   final CampusMapConfig config;
@@ -84,6 +88,10 @@ class CampusMapView extends StatefulWidget {
 
   /// Relógio local injetável para validação; padrão: relógio do aparelho.
   final DateTime Function()? localTime;
+
+  final bool canEditPlaces;
+  final Future<bool> Function(CampusPlace place)? onEditPlace;
+  final Future<void> Function(Uri originalUrl)? onDownloadPlaceImage;
 
   @override
   State<CampusMapView> createState() => _CampusMapViewState();
@@ -210,6 +218,39 @@ class _CampusMapViewState extends State<CampusMapView>
     });
     _categoryPaint = result.catchError((_) {});
     return _categoryPaint;
+  }
+
+  /// Tocar na própria footprint (inclusive sob o 3D) abre o mesmo card usado
+  /// pela busca/categorias. Áreas do campus não são tratadas como prédios.
+  void _addBuildingInteractions(MapboxMap map) {
+    map.addInteraction(
+      TapInteraction(FeaturesetDescriptor(layerId: CampusMapLayerIds.fill), (
+        feature,
+        _,
+      ) {
+        if (!mounted || !identical(map, _map)) return;
+        final id = feature.properties['id'];
+        if (id is String) unawaited(_selectBuilding(map, id));
+      }, radius: 2),
+      interactionID: '${CampusMapLayerIds.fill}-tap',
+    );
+  }
+
+  Future<void> _selectBuilding(MapboxMap map, String id) async {
+    try {
+      final snapshot = await _loadSnapshot();
+      if (!mounted || !identical(map, _map)) return;
+      for (final feature in snapshot.features) {
+        if (feature.id != id) continue;
+        final place = feature.toPlace();
+        if (place != null && place.kind == CampusPlaceKind.building) {
+          _controller.selectPlace(place);
+        }
+        return;
+      }
+    } catch (_) {
+      // O renderer já apresenta a falha do snapshot; o toque não a duplica.
+    }
   }
 
   void _addCategoryInteractions(MapboxMap map) {
@@ -1007,6 +1048,7 @@ class _CampusMapViewState extends State<CampusMapView>
                   if (!mounted || generation != _generation) return;
                   _map = map;
                   _diagnostics?.attach(map);
+                  _addBuildingInteractions(map);
                   _addCategoryInteractions(map);
                   if (_features.pucStops) _addPucStopInteractions(map);
                   if (_features.events || _features.canteens) {
@@ -1125,6 +1167,9 @@ class _CampusMapViewState extends State<CampusMapView>
                 showEvents: _features.events,
                 showRestaurants: _features.canteens,
                 openExternalUrl: widget.openExternalUrl,
+                canEditPlaces: widget.canEditPlaces,
+                onEditPlace: widget.onEditPlace,
+                onDownloadPlaceImage: widget.onDownloadPlaceImage,
               ),
             ],
           ),

@@ -1,5 +1,11 @@
 import { Module } from '@nestjs/common';
-import { MapaController } from './mapa.controller.js';
+import { AuthModule } from '../auth/auth.module.js';
+import { StorageModule } from '../storage/storage.module.js';
+import { LocalConteudoService } from './local-conteudo.service.js';
+import {
+  MapaController,
+  MapaLocaisAdminController,
+} from './mapa.controller.js';
 import { MapaService } from './mapa.service.js';
 import { RotasController } from './rotas/rotas.controller.js';
 import { RotasService } from './rotas/rotas.service.js';
@@ -12,7 +18,8 @@ import { RotasService } from './rotas/rotas.service.js';
  * carregam o grafo da versão ativa em memória e calculam sem gravar nada.
  */
 @Module({
-  controllers: [MapaController, RotasController],
-  providers: [MapaService, RotasService],
+  imports: [AuthModule, StorageModule],
+  controllers: [MapaController, MapaLocaisAdminController, RotasController],
+  providers: [MapaService, LocalConteudoService, RotasService],
 })
 export class MapaModule {}

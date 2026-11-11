@@ -187,10 +187,17 @@ class CampusMapController {
     if (_disposed) return;
     for (final place in categoryFilter.value.places) {
       if (place.id == id) {
-        _placeSelections.add(place);
+        selectPlace(place);
         return;
       }
     }
+  }
+
+  /// Abre o card normal de um lugar conhecido pelo mapa (ex.: prédio tocado).
+  /// A resolução da feature é local; nenhuma consulta remota é necessária.
+  void selectPlace(CampusPlace place) {
+    if (_disposed) return;
+    _placeSelections.add(place);
   }
 
   final Duration Function() _elapsed;

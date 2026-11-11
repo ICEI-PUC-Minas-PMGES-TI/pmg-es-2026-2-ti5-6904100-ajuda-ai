@@ -309,7 +309,7 @@ void main() {
         expect(find.byKey(const Key('campus-route-card')), findsOneWidget);
         await tester.tap(find.byType(Switch));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Traçar rota'));
+        await tester.tap(find.text('Ir até o local'));
         await tester.pumpAndSettle();
         expect(routes.targets.single.key, 'P26');
         expect(camera.routes.single.accessible, isTrue);

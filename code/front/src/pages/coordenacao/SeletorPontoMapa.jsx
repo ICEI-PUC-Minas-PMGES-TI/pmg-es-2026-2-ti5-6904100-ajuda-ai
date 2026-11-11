@@ -99,6 +99,24 @@ function feicoesOutros(outros) {
   };
 }
 
+function feicoesPredios(predios) {
+  return {
+    type: 'FeatureCollection',
+    features: (predios || [])
+      .filter((p) => p.geometria?.type)
+      .map((p) => ({
+        type: 'Feature',
+        id: p.id,
+        properties: {
+          id: p.id,
+          nome: p.nome || p.codigo || p.id,
+          altura: Number(p.altura) || 4,
+        },
+        geometry: p.geometria,
+      })),
+  };
+}
+
 const arredondar = (valor) => Number(valor.toFixed(7));
 
 /**
@@ -122,6 +140,8 @@ export default function SeletorPontoMapa({
   rotuloMapa = 'Mapa do campus: clique para escolher o ponto ou arraste o marcador',
   rotuloMarcador = 'Ponto escolhido (arraste para mover)',
   mostrarCoordenadas = true,
+  predios = [],
+  pinCentral = false,
   onChange,
   token = MAPBOX_TOKEN,
   estilo = MAPBOX_ESTILO,
@@ -155,11 +175,16 @@ export default function SeletorPontoMapa({
         mapboxgl.accessToken = token;
         mapboxRef.current = mapboxgl;
         const { west, south, east, north } = campus.bbox;
+        const abertura = temPonto
+          ? { center: [ponto.longitude, ponto.latitude], zoom: 18 }
+          : { bounds: [[west, south], [east, north]], fitBoundsOptions: { padding: 24 } };
         mapa = new mapboxgl.Map({
           container: containerRef.current,
           style: estilo,
-          bounds: [[west, south], [east, north]],
-          fitBoundsOptions: { padding: 24 },
+          ...abertura,
+          pitch: 50,
+          bearing: -12,
+          antialias: true,
           attributionControl: true,
         });
         mapaRef.current = mapa;
@@ -173,6 +198,18 @@ export default function SeletorPontoMapa({
           if (cancelado) return;
           carregado = true;
           mapa.resize();
+          mapa.addSource('predios-campus-3d', { type: 'geojson', data: feicoesPredios(predios) });
+          mapa.addLayer({
+            id: 'predios-campus-3d',
+            type: 'fill-extrusion',
+            source: 'predios-campus-3d',
+            paint: {
+              'fill-extrusion-color': ['interpolate', ['linear'], ['get', 'altura'], 3, '#b9a5f5', 12, '#5b21b6'],
+              'fill-extrusion-height': ['get', 'altura'],
+              'fill-extrusion-base': 0,
+              'fill-extrusion-opacity': .86,
+            },
+          });
           mapa.addSource('area-permitida', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: campus.limite } });
           mapa.addLayer({ id: 'area-permitida-fill', type: 'fill', source: 'area-permitida', paint: { 'fill-color': COR, 'fill-opacity': 0.06 } });
           mapa.addLayer({ id: 'area-permitida-line', type: 'line', source: 'area-permitida', paint: { 'line-color': COR, 'line-width': 2, 'line-dasharray': [2, 1.5], 'line-opacity': 0.7 } });
@@ -201,9 +238,16 @@ export default function SeletorPontoMapa({
           mapa.addSource('geofence', { type: 'geojson', data: VAZIO });
           mapa.addLayer({ id: 'geofence-fill', type: 'fill', source: 'geofence', paint: { 'fill-color': COR, 'fill-opacity': 0.18 } });
           mapa.addLayer({ id: 'geofence-line', type: 'line', source: 'geofence', paint: { 'line-color': COR, 'line-width': 1.5 } });
-          mapa.on('click', (evento) => {
-            onChangeRef.current?.({ latitude: arredondar(evento.lngLat.lat), longitude: arredondar(evento.lngLat.lng) });
-          });
+          if (pinCentral) {
+            mapa.on('moveend', () => {
+              const centro = mapa.getCenter();
+              onChangeRef.current?.({ latitude: arredondar(centro.lat), longitude: arredondar(centro.lng) });
+            });
+          } else {
+            mapa.on('click', (evento) => {
+              onChangeRef.current?.({ latitude: arredondar(evento.lngLat.lat), longitude: arredondar(evento.lngLat.lng) });
+            });
+          }
           setPronto(true);
         });
       } catch (error) {
@@ -218,7 +262,7 @@ export default function SeletorPontoMapa({
       mapa?.remove();
       mapaRef.current = null;
     };
-  }, [problemaToken, token, estilo, campus]);
+  }, [problemaToken, token, estilo, campus, pinCentral]);
 
   // Marcador (+ círculo da geofence, se pedido) acompanham o ponto e o raio.
   useEffect(() => {
@@ -231,23 +275,30 @@ export default function SeletorPontoMapa({
       mapa.getSource('geofence')?.setData(VAZIO);
       return;
     }
-    const posicao = [ponto.longitude, ponto.latitude];
-    if (!marcadorRef.current) {
-      const marcador = new mapboxgl.Marker({ draggable: true, color: COR }).setLngLat(posicao).addTo(mapa);
-      marcador.getElement().setAttribute('aria-label', rotuloMarcadorRef.current);
-      marcador.on('dragend', () => {
-        const { lat, lng } = marcador.getLngLat();
-        onChangeRef.current?.({ latitude: arredondar(lat), longitude: arredondar(lng) });
-      });
-      marcadorRef.current = marcador;
-    } else {
-      marcadorRef.current.setLngLat(posicao);
+    if (!pinCentral) {
+      const posicao = [ponto.longitude, ponto.latitude];
+      if (!marcadorRef.current) {
+        const marcador = new mapboxgl.Marker({ draggable: true, color: COR }).setLngLat(posicao).addTo(mapa);
+        marcador.getElement().setAttribute('aria-label', rotuloMarcadorRef.current);
+        marcador.on('dragend', () => {
+          const { lat, lng } = marcador.getLngLat();
+          onChangeRef.current?.({ latitude: arredondar(lat), longitude: arredondar(lng) });
+        });
+        marcadorRef.current = marcador;
+      } else {
+        marcadorRef.current.setLngLat(posicao);
+      }
     }
     const raio = Number(raioMetros);
     mapa.getSource('geofence')?.setData(geofence && Number.isFinite(raio) && raio > 0
       ? { type: 'Feature', properties: {}, geometry: circuloGeofence(ponto.latitude, ponto.longitude, raio) }
       : VAZIO);
-  }, [pronto, temPonto, ponto?.latitude, ponto?.longitude, raioMetros, geofence]);
+  }, [pronto, temPonto, ponto?.latitude, ponto?.longitude, raioMetros, geofence, pinCentral]);
+
+  useEffect(() => {
+    if (!pronto) return;
+    mapaRef.current?.getSource('predios-campus-3d')?.setData(feicoesPredios(predios));
+  }, [pronto, predios]);
 
   // Outros pontos (contexto), em círculos discretos.
   useEffect(() => {
@@ -274,12 +325,15 @@ export default function SeletorPontoMapa({
         <div className="pucstop-map pucstop-map-loading" role="status"><div className="coord-spinner" aria-hidden="true" /><span>Carregando área do campus…</span></div>
       ) : (
         <>
-          <div
-            ref={containerRef}
-            className="pucstop-map"
-            role="region"
-            aria-label={rotuloMapa}
-          />
+          <div className="pucstop-map-wrap">
+            <div
+              ref={containerRef}
+              className="pucstop-map"
+              role="region"
+              aria-label={rotuloMapa}
+            />
+            {pinCentral && <span className="pucstop-center-pin" aria-hidden="true"><Icon name="pin" size={46} /></span>}
+          </div>
           <p className="pucstop-legend">
             <span><i className="legend-area" aria-hidden="true" /> Área permitida</span>
             {geofence && <span><i className="legend-geofence" aria-hidden="true" /> Geofence</span>}
