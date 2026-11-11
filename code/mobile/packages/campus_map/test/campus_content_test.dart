@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:campus_map/campus_map.dart';
 import 'package:campus_map/src/campus_content_layer.dart';
@@ -360,11 +361,11 @@ void main() {
       );
     });
 
-    test('pontos a partir do zoom 15, nome a partir do 17, sem sprite', () {
+    test('pinos a partir do zoom 15, nome a partir do 17', () {
       final layers = {for (final l in CampusContentLayer.layers) l['id']: l};
       final dot = layers[CampusContentLayer.dot]!;
       final label = layers[CampusContentLayer.label]!;
-      expect(dot['type'], 'circle');
+      expect(dot['type'], 'symbol');
       expect(dot['minzoom'], 15.0);
       expect(label['minzoom'], 17.0);
       expect((label['layout'] as Map).containsKey('icon-image'), isFalse);
@@ -381,7 +382,12 @@ void main() {
         final dot = layers[CampusContentLayer.dot]!;
         expect(dot['slot'], 'top');
         expect(layers[CampusContentLayer.label]!['slot'], 'top');
-        expect((dot['paint'] as Map)['circle-pitch-alignment'], 'viewport');
+        expect((dot['layout'] as Map)['symbol-z-elevate'], isTrue);
+        // Pino do PUCMaps pelo tipo: evento roxo, restaurante com talheres.
+        expect(
+          jsonEncode((dot['layout'] as Map)['icon-image']),
+          allOf(contains('campus-poi-event'), contains('campus-poi-food')),
+        );
       },
     );
   });
@@ -910,8 +916,17 @@ void main() {
       expect(card, findsOneWidget);
       await tester.enterText(find.byType(TextField), 'biblioteca');
       await tester.pumpAndSettle();
+      // Resultado da busca (o card aberto tem o ListTile "Rota acessível").
       await tester.tap(
-        find.widgetWithIcon(ListTile, Icons.place_outlined).first,
+        find
+            .byWidgetPredicate(
+              (w) =>
+                  w.key is ValueKey<String> &&
+                  (w.key! as ValueKey<String>).value.startsWith(
+                    'campus-search-result-',
+                  ),
+            )
+            .first,
       );
       await tester.pumpAndSettle();
       expect(card, findsNothing);

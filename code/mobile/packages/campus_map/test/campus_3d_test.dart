@@ -84,12 +84,20 @@ void main() {
     });
 
     test('cores fixas por prédio: sem zoom, categoria ou paleta antiga', () {
-      final json = jsonEncode([
+      final layers = [
         ...Campus3dLayers.extrusions(manifest),
         ...CampusMapRenderer.layersFor(clipBasemapModels: true),
+      ];
+      final json = jsonEncode(layers).toLowerCase();
+      // Cor nunca varia com o zoom (tamanho de rótulo e espessura podem,
+      // como nos rótulos do PUCMaps).
+      final colors = jsonEncode([
+        for (final layer in layers)
+          for (final entry in ((layer['paint'] as Map?) ?? const {}).entries)
+            if ((entry.key as String).endsWith('color')) entry.value,
       ]).toLowerCase();
-      expect(json, isNot(contains('zoom"]')));
-      expect(json, isNot(contains('interpolate')));
+      expect(colors, isNot(contains('zoom"]')));
+      expect(colors, isNot(contains('interpolate')));
       for (final legacy in [
         '#3388ff',
         '#7b6bb2',

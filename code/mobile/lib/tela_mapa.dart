@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'services/campus_conteudo_api.dart';
 import 'services/mapa_api.dart';
+import 'services/mapa_locais_salvos.dart';
 import 'services/mapa_local_admin_api.dart';
 import 'services/pucstops_api.dart';
 import 'services/feed_image_save.dart';
@@ -22,6 +23,7 @@ class MapaPage extends StatefulWidget {
     this.routeService,
     this.pucStopService,
     this.contentService,
+    this.savedPlacesStore,
     this.openExternalUrl,
     this.coordenadorAccessToken,
     this.coordenadorBaseUrl = apiBaseUrl,
@@ -39,6 +41,9 @@ class MapaPage extends StatefulWidget {
   /// Eventos, restaurantes e cardápios; padrão: `/mapa/eventos` e
   /// `/mapa/restaurantes` da mesma API (públicos). Testes injetam.
   final CampusContentService? contentService;
+
+  /// "Salvar local"; padrão: arquivo no aparelho, um por conta. Testes injetam.
+  final CampusSavedPlacesStore? savedPlacesStore;
 
   /// Abre o cardápio em PDF fora do app; padrão: `url_launcher`.
   final Future<bool> Function(Uri url)? openExternalUrl;
@@ -66,6 +71,20 @@ class _MapaPageState extends State<MapaPage> {
   late final CampusContentService _contentService =
       widget.contentService ??
       MapaApiCampusContentService(baseUrl: widget.coordenadorBaseUrl);
+  late final CampusSavedPlacesStore _savedPlaces =
+      widget.savedPlacesStore ??
+      ArquivoLocaisSalvos(
+        conta: () =>
+            SessaoUsuario.atual.identidade?.email ??
+            SessaoUsuario.atual.dados?.email,
+      );
+
+  /// Portarias e alimentação vêm da mesma API da busca (`/mapa/predios`).
+  CampusPointOfInterestCatalog? get _pontosPermanentes =>
+      switch (_placeRepository) {
+        final CampusPointOfInterestCatalog catalogo => catalogo,
+        _ => null,
+      };
 
   /// PDF no visualizador do aparelho (navegador/leitor). Falha → `false`: o
   /// mapa mostra o link para copiar.
@@ -112,7 +131,12 @@ class _MapaPageState extends State<MapaPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(
+      // Como no PUCMaps, o mapa vai até o topo da tela; a busca e os chips
+      // respeitam a área segura dentro dos controles do mapa.
+      body: MediaQuery.removePadding(
+        context: context,
+        // Rodapé já reservado pela navegação inferior do app.
+        removeBottom: widget.coordenadorAccessToken == null,
         child: CampusMapView(
           config: const CampusMapConfig(
             mapboxAccessToken: String.fromEnvironment('MAPBOX_ACCESS_TOKEN'),
@@ -135,6 +159,8 @@ class _MapaPageState extends State<MapaPage> {
           pucStopService: _pucStopService,
           onPucStopClaimed: _coletou,
           contentService: _contentService,
+          pointOfInterestCatalog: _pontosPermanentes,
+          savedPlacesStore: _savedPlaces,
           openExternalUrl: widget.openExternalUrl ?? _abrirExterno,
           canEditPlaces: widget.coordenadorAccessToken != null,
           onEditPlace: widget.coordenadorAccessToken == null

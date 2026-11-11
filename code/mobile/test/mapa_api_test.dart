@@ -175,6 +175,57 @@ void main() {
     },
   );
 
+  test(
+    'pontos permanentes: GET /mapa/predios, só portarias e alimentação',
+    () async {
+      late Uri pedido;
+      final api = MapaApiPlaceRepository(
+        baseUrl: 'http://api.test',
+        client: MockClient((r) async {
+          pedido = r.url;
+          return json([
+            biblioteca,
+            {
+              'id': 'GATE_9028126517',
+              'nome': 'Portaria 1',
+              'codigo': '9028126517',
+              'categoria': 'GATE',
+              'altura': null,
+              'latitude': -19.922374,
+              'longitude': -43.9896082,
+              'geometria': null,
+            },
+            {
+              'id': 'P16',
+              'nome': 'Cantina - Prédio 16',
+              'codigo': '16',
+              'categoria': 'CAFETERIA',
+              'latitude': -19.92260803,
+              'longitude': -43.99299141,
+              'geometria': {'type': 'Polygon', 'coordinates': []},
+            },
+            // Posto médico (SERVICE) não ganha pino de restaurante.
+            {
+              'id': 'P08',
+              'nome': 'Posto Médico - Prédio 8',
+              'categoria': 'SERVICE',
+              'latitude': -19.922961489,
+              'longitude': -43.993316256,
+            },
+            {'id': 'GATE_sem_centro', 'categoria': 'GATE', 'nome': 'Portão'},
+          ]);
+        }),
+      );
+      final pontos = await api.pointsOfInterest();
+      expect(pedido.path, '/mapa/predios');
+      expect(pontos.map((p) => p.id), ['GATE_9028126517', 'P16']);
+      expect(pontos.first.center, [-43.9896082, -19.922374]);
+      expect(pontos.first.kind, CampusPlaceKind.building);
+      expect(pontos.last.type, 'CAFETERIA');
+      expect(api, isA<CampusPointOfInterestCatalog>());
+    },
+  );
+
   group('rotas', () {
     const origem = CampusUserLocation(
       latitude: -19.92255,
@@ -230,6 +281,47 @@ void main() {
       expect(r.durationSeconds, 158);
       expect(r.accessible, isTrue);
     });
+
+    test(
+      'ponto de partida escolhido: origem por id de prédio ou coordenada',
+      () async {
+        final pedidos = <Map<String, dynamic>>[];
+        final api = MapaApiRouteService(
+          baseUrl: 'http://api.test',
+          client: MockClient((r) async {
+            pedidos.add(jsonDecode(r.body) as Map<String, dynamic>);
+            return json(rota);
+          }),
+        );
+        final r = await api.routeBetween(
+          origin: CampusRouteTarget.place('GATE_9028126517'),
+          destination: CampusRouteTarget.place('P26'),
+          accessible: true,
+        );
+        await api.routeBetween(
+          origin: CampusRouteTarget.coordinate(
+            longitude: -43.9925,
+            latitude: -19.9229,
+          ),
+          destination: CampusRouteTarget.place('P26'),
+          accessible: false,
+        );
+        expect(pedidos, [
+          {
+            'origem': {'id': 'GATE_9028126517'},
+            'destino': {'id': 'P26'},
+            'acessivel': true,
+          },
+          {
+            'origem': {'latitude': -19.9229, 'longitude': -43.9925},
+            'destino': {'id': 'P26'},
+            'acessivel': false,
+          },
+        ]);
+        expect(r.destinationId, 'P26');
+        expect(api, isA<CampusPlaceRouteService>());
+      },
+    );
 
     test('destino por coordenada (área, evento, restaurante)', () async {
       late http.Request pedido;

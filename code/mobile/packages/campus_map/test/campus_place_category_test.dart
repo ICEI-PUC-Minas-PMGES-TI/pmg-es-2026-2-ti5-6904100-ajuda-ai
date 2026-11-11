@@ -274,7 +274,7 @@ void main() {
           expect(state.places.length, ids.length);
           expect(
             tester
-                .widget<FilterChip>(
+                .widget<CampusCategoryChip>(
                   find.byKey(Key('campus-category-quick-${category.name}')),
                 )
                 .selected,
@@ -307,9 +307,9 @@ void main() {
           (await _repository().findById('P26'))!.center,
         );
         expect(find.byKey(const Key('campus-route-card')), findsOneWidget);
-        await tester.tap(find.byType(Switch));
+        await tester.tap(find.byKey(const Key('campus-accessible-routes')));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Ir até o local'));
+        await tester.tap(find.text('Ir até aqui'));
         await tester.pumpAndSettle();
         expect(routes.targets.single.key, 'P26');
         expect(camera.routes.single.accessible, isTrue);
@@ -331,32 +331,57 @@ void main() {
         expect(find.byKey(const Key('campus-route-card')), findsOneWidget);
       },
     );
-    testWidgets('Eventos e Onde comer mantêm conteúdo e cards independentes', (
-      tester,
-    ) async {
-      await controller.loadContent();
-      await mount(tester);
-      await tapCategory(tester, CampusPlaceCategory.sports);
-      for (final (button, id) in [
-        ('campus-events-button', _Content.event.id),
-        ('campus-restaurants-button', _Content.restaurant.id),
-      ]) {
-        await tester.tap(find.byKey(Key(button)));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(Key('campus-content-item-$id')));
-        await tester.pumpAndSettle();
-        expect(controller.selectedContent.value!.id, id);
-        expect(find.byKey(const Key('campus-content-card')), findsOneWidget);
+    testWidgets(
+      'Eventos e Onde comer: filtro único, lista e cards independentes',
+      (tester) async {
+        await controller.loadContent();
+        await mount(tester);
+        // Ordem do Ajuda-aí: Eventos, Prédios acadêmicos, Onde comer, demais.
+        double x(String key) => tester.getTopLeft(find.byKey(Key(key))).dx;
         expect(
-          controller.categoryFilter.value.category,
-          CampusPlaceCategory.sports,
+          x('campus-events-button'),
+          lessThan(x('campus-category-quick-academic')),
         );
-      }
-      controller.selectCategoryPlace('P65');
-      await tester.pumpAndSettle();
-      expect(controller.selectedContent.value, isNull);
-      expect(find.byKey(const Key('campus-route-card')), findsOneWidget);
-    });
+        expect(
+          x('campus-category-quick-academic'),
+          lessThan(x('campus-restaurants-button')),
+        );
+        expect(
+          x('campus-restaurants-button'),
+          lessThan(x('campus-category-quick-lab')),
+        );
+        await tapCategory(tester, CampusPlaceCategory.sports);
+        for (final (button, id, kind) in [
+          ('campus-events-button', _Content.event.id, CampusContentKind.event),
+          (
+            'campus-restaurants-button',
+            _Content.restaurant.id,
+            CampusContentKind.restaurant,
+          ),
+        ]) {
+          await tester.ensureVisible(find.byKey(Key(button)));
+          await tester.tap(find.byKey(Key(button)));
+          await tester.pumpAndSettle();
+          // Um filtro por vez, como no PUCMaps: a categoria sai.
+          expect(controller.contentFilter.value, kind);
+          expect(controller.categoryFilter.value.category, isNull);
+          expect(
+            tester.widget<CampusCategoryChip>(find.byKey(Key(button))).selected,
+            isTrue,
+          );
+          await tester.tap(find.byKey(Key('campus-content-item-$id')));
+          await tester.pumpAndSettle();
+          expect(controller.selectedContent.value!.id, id);
+          expect(find.byKey(const Key('campus-content-card')), findsOneWidget);
+        }
+        await tapCategory(tester, CampusPlaceCategory.sports);
+        expect(controller.contentFilter.value, isNull);
+        controller.selectCategoryPlace('P65');
+        await tester.pumpAndSettle();
+        expect(controller.selectedContent.value, isNull);
+        expect(find.byKey(const Key('campus-route-card')), findsOneWidget);
+      },
+    );
     testWidgets('reentrada dos controles e fonte ampliada em tela estreita', (
       tester,
     ) async {
