@@ -26,26 +26,16 @@ enum PapelCiclo {
 }
 
 enum StatusCiclo {
-  concluido(
-    'Concluído',
+  pendente('Recebida', AppColors.primary, AppColors.lavender),
+  aprovado(
+    'Aprovada aguardando matching',
     AppColors.primary,
     AppColors.lavender,
   ),
-  naoAprovado(
-    'Não aprovado',
-    Color(0xFFB45309),
-    Color(0xFFFFF7ED),
-  ),
-  emAndamento(
-    'Em andamento',
-    AppAccents.success,
-    AppAccents.successBg,
-  ),
-  emAnalise(
-    'Em análise',
-    AppColors.primary,
-    AppColors.lavender,
-  );
+  concluido('Concluído', AppColors.primary, AppColors.lavender),
+  naoAprovado('Não aprovado', Color(0xFFB45309), Color(0xFFFFF7ED)),
+  emAndamento('Em andamento', AppAccents.success, AppAccents.successBg),
+  emAnalise('Em análise', AppColors.primary, AppColors.lavender);
 
   const StatusCiclo(this.rotulo, this.corSelo, this.fundoSelo);
   final String rotulo;
@@ -59,12 +49,16 @@ enum StatusCiclo {
       'em_andamento' => StatusCiclo.emAndamento,
       'concluido' => StatusCiclo.concluido,
       'nao_aprovado' => StatusCiclo.naoAprovado,
-      'pendente' || 'em_analise' => StatusCiclo.emAnalise,
+      'pendente' => StatusCiclo.pendente,
+      'aprovado' => StatusCiclo.aprovado,
+      'em_analise' => StatusCiclo.emAnalise,
       _ => StatusCiclo.emAnalise,
     };
   }
 
   String get apiValue => switch (this) {
+    StatusCiclo.pendente => 'pendente',
+    StatusCiclo.aprovado => 'aprovado',
     StatusCiclo.emAndamento => 'em_andamento',
     StatusCiclo.concluido => 'concluido',
     StatusCiclo.naoAprovado => 'nao_aprovado',
@@ -94,13 +88,15 @@ class CicloParticipacao {
   final DateTime? terminoEm;
 
   String get titulo => switch (papel) {
-    PapelCiclo.padrinho when status == StatusCiclo.emAndamento =>
-      'Padrinho',
+    PapelCiclo.padrinho when status == StatusCiclo.emAndamento => 'Padrinho',
     PapelCiclo.candidato => 'Candidatura de padrinho',
     _ => papel.rotulo,
   };
 
   String get descricao => switch (status) {
+    StatusCiclo.pendente => 'Candidatura recebida, aguardando análise.',
+    StatusCiclo.aprovado =>
+      'Candidatura aprovada, aguardando definição do grupo.',
     StatusCiclo.emAnalise =>
       'Sua candidatura está sendo analisada pela coordenação.',
     StatusCiclo.emAndamento =>
@@ -116,10 +112,7 @@ class CicloParticipacao {
       itens.add(('Grupo', grupo!));
     }
     if (papel == PapelCiclo.padrinho && apadrinhados > 0) {
-      itens.add((
-        'Apadrinhados',
-        '$apadrinhados',
-      ));
+      itens.add(('Apadrinhados', '$apadrinhados'));
     }
     if (inicioEm != null) {
       itens.add(('Início', _formatarMesAno(inicioEm!)));

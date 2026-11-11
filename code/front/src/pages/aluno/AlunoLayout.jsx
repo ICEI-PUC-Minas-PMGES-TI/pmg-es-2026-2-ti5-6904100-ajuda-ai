@@ -1,17 +1,14 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Link, NavLink, Navigate, Outlet, useLocation, useSearchParams } from 'react-router-dom';
-import { api } from '../../api/client';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Link, NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { api, getAlunoSession, clearAlunoSession, programaAluno, selecionarProgramaAluno } from '../../api/client';
+import {escolherCiclo, resolverAluno} from '../../auth/resolverAluno';
 import {
   aplicarAparencia,
-  emailDaUrl,
   iniciaisDe,
   lerPreferencias,
-  lerSessaoAluno,
-  nomeDoEmail,
-  salvarSessaoAluno,
 } from '../../auth/sessaoAluno';
 import Icon from '../../components/Icon';
-import { formatarData, papelDaSituacao } from './util';
+import { formatarData } from './util';
 
 const VISTOS_KEY = 'ajudaai.aluno.avisosVistos';
 
@@ -33,114 +30,109 @@ function gravarVistos(ids) {
   }
 }
 
-/** Sessão do aluno, trocando de identidade quando chega `?email=` diferente. */
-function resolverSessao(searchParams) {
-  const atual = lerSessaoAluno();
-  const emailUrl = emailDaUrl(searchParams);
-  if (emailUrl && emailUrl !== atual?.email) {
-    return salvarSessaoAluno({ email: emailUrl, perfil: null, escolha: null, respostas: null });
-  }
-  return atual;
-}
-
 export default function AlunoLayout() {
-  const [params] = useSearchParams();
   const location = useLocation();
-  const [sessao, setSessao] = useState(() => resolverSessao(params));
+  const [sessao, setSessao] = useState(() => getAlunoSession());
+  const [perfil, setPerfil] = useState({nome: '', interesses: []});
   const [situacao, setSituacao] = useState(null);
+  const [programas, setProgramas] = useState([]);
+  const [codigo, setCodigo] = useState(programaAluno);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
   const [menuAberto, setMenuAberto] = useState(false);
+  const consultaAtual = useRef(0);
   const email = sessao?.email || '';
-
-  useEffect(() => {
-    aplicarAparencia();
-    const anterior = document.title;
-    document.title = 'Área do aluno | Ajuda-aí';
-    return () => {
-      document.title = anterior;
-    };
-  }, []);
-
-  useEffect(() => {
-    const nova = emailDaUrl(params);
-    if (nova && nova !== sessao?.email) setSessao(resolverSessao(params));
-  }, [params, sessao?.email]);
-
   const recarregar = useCallback(async () => {
     if (!email) return;
-    setCarregando(true);
-    setErro('');
+    const consulta = ++consultaAtual.current;
+    setCarregando(true); setErro(''); setSituacao(null);
     try {
-      setSituacao(await api.situacao(email));
-    } catch (error) {
-      setErro(error.message || 'Não foi possível carregar sua situação no programa.');
-    } finally {
-      setCarregando(false);
-    }
-  }, [email]);
-
-  useEffect(() => {
-    recarregar();
-  }, [recarregar]);
-
-  useEffect(() => {
-    setMenuAberto(false);
-  }, [location.pathname]);
-
-  const atualizarSessao = useCallback((parcial) => {
-    setSessao((atual) => salvarSessaoAluno({ ...atual, ...parcial }));
-  }, []);
-
-  const perfil = useMemo(() => {
-    const respostas = situacao?.registro?.respostas || sessao?.respostas || {};
-    const salvo = sessao?.perfil || {};
-    const doServidor = situacao?.perfil || {};
-    const cursoServidor = doServidor.curso === 'Curso não informado' ? '' : doServidor.curso;
-    return {
-      nome: salvo.nome || respostas.nome || doServidor.nome || nomeDoEmail(email),
-      curso: salvo.curso || respostas.curso || cursoServidor || '',
-      periodo: salvo.periodo ?? respostas.periodo ?? doServidor.periodo ?? null,
-      turno: salvo.turno || respostas.turno || '',
-      interesses: (salvo.interesses?.length ? salvo.interesses : respostas.interesses) || doServidor.interesses || [],
-    };
-  }, [sessao, situacao, email]);
-
-  if (!sessao) return <Navigate to="/" replace />;
-
-  const papel = papelDaSituacao(situacao?.situacao) || (situacao?.registro?.papel === 'apadrinhado' ? 'apadrinhado' : situacao?.registro ? 'padrinho' : null);
-  const ehPadrinho = situacao?.situacao === 'padrinho_ativo';
-
+      const [p, ciclos] = await Promise.all([api.perfilAluno(), api.programasAluno()]);
+      if (consulta !== consultaAtual.current) return;
+      setPerfil(p); setProgramas(ciclos);
+      const alvo = codigo || escolherCiclo(ciclos);
+      selecionarProgramaAluno(alvo); setCodigo(alvo);
+      if (alvo || ciclos.length === 0) {
+        const retorno = await api.situacao(email, alvo);
+        if (consulta === consultaAtual.current) setSituacao(retorno);
+      }
+    } catch (e) {
+      if (consulta !== consultaAtual.current) return;
+      setErro(e.message);
+      if (e.status === 401) {clearAlunoSession(); setSessao(null);}
+    } finally {if (consulta === consultaAtual.current) setCarregando(false);}
+  }, [email, codigo]);
+  useEffect(() => { aplicarAparencia(); recarregar(); return () => {consultaAtual.current++;}; }, [recarregar, location.pathname]);
+  useEffect(() => {setMenuAberto(false);}, [location.pathname]);
+  const resolucao = resolverAluno(perfil, situacao, programas.find(p => p.codigo === codigo));
+  if (!sessao) return <Navigate to="/login" replace />;
+  if (sessao.onboardingToken) return <Navigate to="/" replace />;
+  if (!carregando && !erro && !resolucao.completo) return <Navigate to="/" replace />;
+  const papel = resolucao.candidatura || resolucao.estado === 'padrinho_ativo' ? 'padrinho' : resolucao.estado?.startsWith('apadrinhado') ? 'apadrinhado' : null;
   const nav = [
-    { to: '/aluno/perfil', label: 'Meu perfil', icon: 'home' },
-    { to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard' },
-    { to: '/aluno/padrinho', label: ehPadrinho ? 'Meus apadrinhados' : 'Meu padrinho', icon: 'users' },
-    { to: '/aluno/historico', label: 'Histórico', icon: 'history' },
-    { to: '/aluno/configuracoes', label: 'Configurações', icon: 'settings' },
+    {to: '/aluno/feed', label: 'Feed', icon: 'megaphone'},
+    {to: '/aluno/perfil', label: 'Meu perfil', icon: 'home'},
+    {to: '/aluno/mapa', label: 'Mapa do campus', icon: 'map'},
+    ...(resolucao.candidatura ? [{to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard'}] : []),
+    ...(resolucao.ativo ? [{to: '/aluno/padrinho', label: papel === 'padrinho' ? 'Meus apadrinhados' : 'Meu padrinho', icon: 'users'}] : []),
+    {to: '/aluno/chat', label: 'Conversas', icon: 'chat'},
+    {to: '/aluno/historico', label: 'Histórico', icon: 'history'},
+    {to: '/aluno/configuracoes', label: 'Configurações', icon: 'settings'},
   ];
+  const contexto = {email, sessao, perfil, situacao, carregando, erro, recarregar, papel, resolucao, programa: codigo,
+    atualizarSessao: parcial => setSessao(atual => ({...atual, ...parcial}))};
+  function trocarCiclo(novo) {
+    if (novo === codigo) return;
+    consultaAtual.current++;
+    setCarregando(true);
+    setSituacao(null);
+    selecionarProgramaAluno(novo);
+    setCodigo(novo);
+  }
+  return <div className="aluno-shell">
+    <AlunoTopbar
+      nome={perfil.nome}
+      email={email}
+      pronto={!carregando}
+      publico={resolucao.ativo ? `${papel}s` : undefined}
+      menuAberto={menuAberto}
+      onMenu={() => setMenuAberto(v => !v)}
+      ciclo={codigo}
+      programas={programas}
+      onCiclo={trocarCiclo}
+      cicloDesabilitado={carregando}
+    />
+    <div className="aluno-body"><aside className="aluno-sidebar"><AlunoNav itens={nav}/><SidebarArt/></aside>
+    {menuAberto && <AlunoDrawer itens={nav} onFechar={() => setMenuAberto(false)}/>}
+    <main className="aluno-content" id="conteudo">
+      {erro ? <div className="aluno-state error" role="alert"><p>{erro}</p><button type="button" className="outline-button" onClick={recarregar}>Tentar novamente</button></div>
+        : carregando ? <p className="aluno-loading" role="status">Carregando perfil e situação…</p> : <Outlet context={contexto}/>}
+    </main></div></div>;
+}
 
-  const contexto = { email, sessao, perfil, situacao, carregando, erro, recarregar, atualizarSessao, papel };
+const ROTULO_TIPO = { padrinho: 'padrinho', apadrinhado: 'apadrinhado' };
 
-  return (
-    <div className="aluno-shell">
-      <AlunoTopbar
-        nome={perfil.nome}
-        email={email}
-        pronto={Boolean(situacao) || !carregando}
-        publico={papel === 'apadrinhado' ? 'apadrinhados' : papel === 'padrinho' ? 'padrinhos' : undefined}
-        menuAberto={menuAberto}
-        onMenu={() => setMenuAberto((v) => !v)}
-      />
-      <div className="aluno-body">
-        <aside className="aluno-sidebar" aria-label="Menu do aluno">
-          <AlunoNav itens={nav} />
-          <SidebarArt />
-        </aside>
-        {menuAberto && <AlunoDrawer itens={nav} onFechar={() => setMenuAberto(false)} />}
-        <main className="aluno-content" id="conteudo">
-          <Outlet context={contexto} />
-        </main>
+/** Faixa com o estado do cadastro enquanto ele não está aprovado. */
+function AvisoCadastro({ cadastro }) {
+  if (!cadastro || cadastro.status === 'aprovado') return null;
+  const tipo = ROTULO_TIPO[cadastro.tipoParticipacao] || 'participante';
+  if (cadastro.status === 'rejeitado') {
+    return (
+      <div className="existing-notice cadastro-notice rejeitado" role="status">
+        <Icon name="alert" size={18} />
+        <span>
+          <strong>Seu cadastro como {tipo} não foi aprovado pela coordenação.</strong>
+          {cadastro.motivoRejeicao ? ` Motivo: ${cadastro.motivoRejeicao}` : ''} Em caso de dúvida, procure a coordenação do programa.
+        </span>
       </div>
+    );
+  }
+  return (
+    <div className="existing-notice cadastro-notice" role="status">
+      <Icon name="clock" size={18} />
+      <span>
+        <strong>Seu cadastro como {tipo} está aguardando a análise da coordenação.</strong> Os recursos de {tipo} são liberados após a aprovação.
+      </span>
     </div>
   );
 }
@@ -187,17 +179,22 @@ function AlunoDrawer({ itens, onFechar }) {
   );
 }
 
-function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu }) {
+function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, programas = [], onCiclo, cicloDesabilitado }) {
   const [avisos, setAvisos] = useState([]);
   const [erroAvisos, setErroAvisos] = useState(false);
   const [aberto, setAberto] = useState(false);
   const [contaAberta, setContaAberta] = useState(false);
+  const [cicloAberto, setCicloAberto] = useState(false);
   const [vistos, setVistos] = useState(() => lerVistos());
   const prefs = lerPreferencias();
   const painelId = useId();
   const contaId = useId();
+  const cicloId = useId();
   const wrapRef = useRef(null);
   const contaRef = useRef(null);
+  const cicloRef = useRef(null);
+  const cicloBtnRef = useRef(null);
+  const cicloAtual = programas.find((p) => p.codigo === ciclo);
 
   useEffect(() => {
     if (!pronto) return undefined;
@@ -209,15 +206,17 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu }) {
   }, [publico, pronto]);
 
   useEffect(() => {
-    if (!aberto && !contaAberta) return undefined;
+    if (!aberto && !contaAberta && !cicloAberto) return undefined;
     function onClick(event) {
       if (aberto && !wrapRef.current?.contains(event.target)) setAberto(false);
       if (contaAberta && !contaRef.current?.contains(event.target)) setContaAberta(false);
+      if (cicloAberto && !cicloRef.current?.contains(event.target)) setCicloAberto(false);
     }
     function onKey(event) {
       if (event.key === 'Escape') {
         setAberto(false);
         setContaAberta(false);
+        setCicloAberto(false);
       }
     }
     document.addEventListener('mousedown', onClick);
@@ -226,13 +225,15 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu }) {
       document.removeEventListener('mousedown', onClick);
       document.removeEventListener('keydown', onKey);
     };
-  }, [aberto, contaAberta]);
+  }, [aberto, contaAberta, cicloAberto]);
 
   const naoLidos = avisos.filter((a) => !vistos.includes(a.id)).length;
 
   function abrirAvisos() {
     const novo = !aberto;
     setAberto(novo);
+    setCicloAberto(false);
+    setContaAberta(false);
     if (novo && avisos.length) {
       const ids = Array.from(new Set([...vistos, ...avisos.map((a) => a.id)]));
       setVistos(ids);
@@ -258,6 +259,61 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu }) {
           <span className="brand-divider" />
           <img src="/images/puclogo.png" alt="PUC Minas" className="puc-logo" />
         </Link>
+      </div>
+      <div className="aluno-cycle-picker program-select" ref={cicloRef}>
+        <button
+          ref={cicloBtnRef}
+          type="button"
+          id={cicloId}
+          className="program-select-btn aluno-cycle-btn"
+          aria-haspopup="listbox"
+          aria-expanded={cicloAberto}
+          aria-controls={`${cicloId}-lista`}
+          aria-label="Ciclo do programa"
+          disabled={cicloDesabilitado || !programas.length}
+          onClick={() => { setCicloAberto((v) => !v); setAberto(false); setContaAberta(false); }}
+        >
+          <Icon name="calendar" size={16} />
+          <span className="program-select-label aluno-cycle-copy">
+            <span className="aluno-cycle-label">Ciclo</span>
+            <strong>
+              {cicloAtual
+                ? `${cicloAtual.titulo || `Programa ${cicloAtual.codigo}`}${cicloAtual.atual ? ' · atual' : ''}`
+                : (ciclo ? `Programa ${ciclo}` : 'Selecione')}
+            </strong>
+          </span>
+          <Icon name="chevronDown" size={16} className={`select-chevron${cicloAberto ? ' open' : ''}`} />
+        </button>
+        {cicloAberto && (
+          <ul
+            id={`${cicloId}-lista`}
+            className="program-select-list aluno-cycle-list"
+            role="listbox"
+            aria-label="Selecionar ciclo"
+          >
+            {programas.map((p) => (
+              <li key={p.codigo} role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={p.codigo === ciclo}
+                  className={p.codigo === ciclo ? 'selected' : ''}
+                  onClick={() => {
+                    setCicloAberto(false);
+                    onCiclo?.(p.codigo);
+                    cicloBtnRef.current?.focus();
+                  }}
+                >
+                  <span className="program-option-main">
+                    <strong>{p.titulo || `Programa ${p.codigo}`}</strong>
+                    <span>{p.atual ? 'Ciclo atual' : 'Histórico'}</span>
+                  </span>
+                  {p.codigo === ciclo && <Icon name="check" size={16} />}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <div className="account-actions">
         <div className="notif-wrap" ref={wrapRef}>
@@ -301,7 +357,7 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu }) {
           )}
         </div>
         <div className="account-menu" ref={contaRef}>
-          <button type="button" className="account-trigger" aria-haspopup="true" aria-expanded={contaAberta} aria-controls={contaId} onClick={() => setContaAberta((v) => !v)}>
+          <button type="button" className="account-trigger" aria-haspopup="true" aria-expanded={contaAberta} aria-controls={contaId} onClick={() => { setContaAberta((v) => !v); setCicloAberto(false); setAberto(false); }}>
             <span className="account-avatar" aria-hidden="true">{iniciaisDe(nome)}</span>
             <span className="account-name">{nome}</span>
             <Icon name="chevronDown" size={16} />
@@ -311,7 +367,7 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu }) {
               <span className="account-email">{email}</span>
               <Link to="/aluno/perfil" onClick={() => setContaAberta(false)}><Icon name="person" size={16} /> Meu perfil</Link>
               <Link to="/aluno/configuracoes" onClick={() => setContaAberta(false)}><Icon name="settings" size={16} /> Configurações</Link>
-              <Link to="/login" onClick={() => setContaAberta(false)}><Icon name="lock" size={16} /> Área da coordenação</Link>
+              <Link to="/login" onClick={() => {clearAlunoSession(); setContaAberta(false);}}><Icon name="logout" size={16} /> Sair da conta</Link>
             </div>
           )}
         </div>

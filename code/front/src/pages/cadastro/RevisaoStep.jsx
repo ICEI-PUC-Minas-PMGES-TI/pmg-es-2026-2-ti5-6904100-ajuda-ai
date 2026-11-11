@@ -1,8 +1,9 @@
 import Icon from '../../components/Icon';
-import { textoResposta } from '../../components/PerguntasAdicionais';
+import { textoResposta, formularioSuportado, ERRO_FORMULARIO_NAO_SUPORTADO } from '../../components/PerguntasAdicionais';
 import { Progress, SidePanel } from './partes';
 
 export default function RevisaoStep({ profile, initials, perguntas, onBack, onEditProfile, onSubmit, enviando, erro }) {
+  if (!formularioSuportado(perguntas)) return <p role="alert" className="form-error">{ERRO_FORMULARIO_NAO_SUPORTADO}</p>;
   const items = [
     { icon: 'person', title: 'Gênero', value: profile.gender },
     { icon: 'school', title: 'É bolsista ProUni?', value: profile.prouni },
@@ -11,8 +12,8 @@ export default function RevisaoStep({ profile, initials, perguntas, onBack, onEd
     { icon: 'tag', title: 'Áreas em que gostaria de receber apoio', value: profile.supportAreas.join(', ') },
     { icon: 'chat', title: 'O que você espera do seu padrinho?', value: profile.expectation },
     { icon: 'file', title: 'Outras informações', value: profile.additionalInfo || 'Não informado' },
+    { icon: 'school', title: 'Declaração de 1º período', value: profile.firstSemesterDeclaration ? 'Declarado' : 'Não declarado' },
     ...perguntas
-      .filter((p) => p.tipo !== 'upload')
       .map((p) => ({ icon: 'form', title: p.enunciado, value: textoResposta(profile.extras[p.id]) || 'Não respondido' })),
   ];
 

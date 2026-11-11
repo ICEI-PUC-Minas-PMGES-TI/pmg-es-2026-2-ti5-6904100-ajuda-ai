@@ -8,6 +8,11 @@ export const ORDEM_ETAPAS: EtapaPrograma[] = [
   'encerramento',
 ];
 
+/** Matching só após liberação explícita (etapa formação ou andamento). */
+export function matchingLiberado(programa: Pick<ProgramaEntity, 'etapaAtual'>): boolean {
+  return programa.etapaAtual === 'formacao' || programa.etapaAtual === 'andamento';
+}
+
 export const TITULOS_ETAPAS: Record<EtapaPrograma, string> = {
   inscricoes: 'Inscrições abertas',
   analise: 'Análise de candidaturas',

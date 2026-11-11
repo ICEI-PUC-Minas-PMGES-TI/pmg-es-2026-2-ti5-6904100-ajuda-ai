@@ -8,9 +8,12 @@ import 'widgets/navegacao_app.dart';
 
 const double _gutter = 20;
 
-// Valores de exemplo até a home ler o XP real da API.
-const int _xpAtual = 1430;
+// Meta visual da barra; o XP é real (`GET /me/xp`), mas ainda não existe
+// regra de nível no Ajuda-aí (ver docs/tecnico/gamificacao/xp.md).
 const int _metaNivel = 2000;
+
+/// Saldo exibido: 0 até a API responder (ou sem login).
+int _saldoXp(int? saldo) => saldo ?? 0;
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -174,6 +177,19 @@ class _SinoNotificacoes extends StatelessWidget {
   }
 }
 
+String _saudacao() {
+  final nome = SessaoUsuario.atual.nomeExibicao;
+  if (nome == null) return 'Olá!';
+  final primeiro = nome.split(RegExp(r'\s+')).first;
+  return 'Olá, $primeiro!';
+}
+
+String _inicialCabecalho() {
+  final nome = SessaoUsuario.atual.nomeExibicao;
+  if (nome == null || nome.isEmpty) return '';
+  return nome[0].toUpperCase();
+}
+
 class _Saudacao extends StatelessWidget {
   const _Saudacao();
 
@@ -182,21 +198,21 @@ class _Saudacao extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Expanded(
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Olá, Camila!',
-                style: TextStyle(
+                _saudacao(),
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 26,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.5,
                 ),
               ),
-              SizedBox(height: 6),
-              Text(
+              const SizedBox(height: 6),
+              const Text(
                 'Bem-vinda à PUC Minas!',
                 style: TextStyle(
                   fontFamily: 'Inter',
@@ -210,7 +226,7 @@ class _Saudacao extends StatelessWidget {
         const SizedBox(width: 12),
         const _BotaoResgatar(),
         const SizedBox(width: 12),
-        const _AvatarNivel(iniciais: 'C', nivel: 4),
+        _AvatarNivel(iniciais: _inicialCabecalho(), nivel: 4),
       ],
     );
   }
@@ -229,7 +245,8 @@ class _BotaoResgatar extends StatelessWidget {
         child: InkWell(
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => const ResgatarPage(saldoXp: _xpAtual),
+              builder: (_) =>
+                  ResgatarPage(saldoXp: _saldoXp(SessaoUsuario.atual.xp.value)),
             ),
           ),
           borderRadius: BorderRadius.circular(20),
@@ -418,11 +435,30 @@ class _Cartao extends StatelessWidget {
   }
 }
 
-class _CardPontos extends StatelessWidget {
+class _CardPontos extends StatefulWidget {
   const _CardPontos();
 
   @override
+  State<_CardPontos> createState() => _CardPontosState();
+}
+
+class _CardPontosState extends State<_CardPontos> {
+  @override
+  void initState() {
+    super.initState();
+    // Um GET ao abrir a home; coletas no mapa atualizam o mesmo valor.
+    SessaoUsuario.atual.atualizarXp();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<int?>(
+      valueListenable: SessaoUsuario.atual.xp,
+      builder: (context, saldo, _) => _conteudo(context, _saldoXp(saldo)),
+    );
+  }
+
+  Widget _conteudo(BuildContext context, int xpAtual) {
     return _Cartao(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -454,7 +490,7 @@ class _CardPontos extends StatelessWidget {
               const Icon(Icons.star_rounded, size: 34, color: AppAccents.star),
               const SizedBox(width: 10),
               Text(
-                formatarXp(_xpAtual),
+                formatarXp(xpAtual),
                 style: const TextStyle(
                   color: AppColors.ink,
                   fontSize: 32,
@@ -481,18 +517,18 @@ class _CardPontos extends StatelessWidget {
           const SizedBox(height: 16),
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: const LinearProgressIndicator(
-              value: _xpAtual / _metaNivel,
+            child: LinearProgressIndicator(
+              value: (xpAtual / _metaNivel).clamp(0.0, 1.0),
               minHeight: 10,
               backgroundColor: AppColors.lavender,
-              valueColor: AlwaysStoppedAnimation(AppColors.primary),
+              valueColor: const AlwaysStoppedAnimation(AppColors.primary),
             ),
           ),
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerRight,
             child: Text(
-              '${formatarXp(_xpAtual)} / ${formatarXp(_metaNivel)} XP',
+              '${formatarXp(xpAtual)} / ${formatarXp(_metaNivel)} XP',
               style: const TextStyle(
                 fontFamily: 'Inter',
                 color: AppColors.muted,
@@ -787,11 +823,7 @@ class _CardPadrinho extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Row(
-                      children: [
-                        avatar,
-                        SizedBox(width: 12),
-                        identidade,
-                      ],
+                      children: [avatar, SizedBox(width: 12), identidade],
                     ),
                     const SizedBox(height: 12),
                     botao,

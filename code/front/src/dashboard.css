@@ -731,3 +731,16 @@
   .program-select, .program-select-btn { width: 100%; }
   .program-select-list { left: 0; right: 0; }
 }
+
+/* Login: Microsoft + usuário de teste */
+.login-card .primary-button { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
+.login-ms-icon { width: 18px; height: 18px; object-fit: contain; background: #fff; border-radius: 3px; padding: 1px; }
+.login-demo { display: grid; gap: 8px; margin-top: 18px; }
+.login-demo-sep { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .76rem; }
+.login-demo-sep::before, .login-demo-sep::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.login-demo-label { margin-top: 4px; color: var(--ink); font-size: .82rem; font-weight: 600; }
+.login-demo-select { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: 12px; background: #fff; color: var(--ink); font: inherit; font-size: .9rem; }
+.login-demo-select:focus { outline: 2px solid var(--purple); outline-offset: 1px; }
+.login-demo .outline-button { margin-top: 4px; }
+.login-demo .outline-button:disabled { opacity: .6; cursor: wait; }
+.login-erro { margin-top: 12px; font-size: .82rem; }

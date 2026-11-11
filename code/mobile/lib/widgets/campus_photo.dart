@@ -3,14 +3,16 @@ import 'package:flutter/material.dart';
 import '../theme/colors.dart';
 
 class CampusPhoto extends StatelessWidget {
-  const CampusPhoto({super.key});
+  const CampusPhoto({super.key, this.height});
+
+  final double? height;
 
   static double heightFor(BuildContext context) =>
       (MediaQuery.sizeOf(context).height * 0.27).clamp(130.0, 260.0);
 
   @override
   Widget build(BuildContext context) {
-    final height = heightFor(context);
+    final height = this.height ?? heightFor(context);
 
     return IgnorePointer(
       child: ClipRRect(

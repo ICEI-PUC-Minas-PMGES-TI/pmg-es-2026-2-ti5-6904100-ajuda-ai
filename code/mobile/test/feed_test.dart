@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:ajuda_ai/services/participacoes_api.dart';
+import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/tela_feed.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,8 +33,9 @@ void main() {
     expect(find.text('Marina Souza'), findsNothing);
     expect(find.text('Central de Carreiras'), findsNothing);
     expect(find.text('Mapa'), findsOneWidget);
-    expect(find.text('Missões'), findsOneWidget);
+    expect(find.text('Missões'), findsNothing);
     expect(find.text('Perfil'), findsOneWidget);
+    expect(find.text('Camila Duarte'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -40,7 +43,12 @@ void main() {
     tester,
   ) async {
     configurarTela(tester);
-    final backend = _FeedBackendFake();
+    SessaoUsuario.atual.definirIdentidade(
+      nome: 'Ana Souza',
+      email: 'ana.souza@pucminas.edu.br',
+    );
+    addTearDown(SessaoUsuario.atual.limpar);
+    final backend = _FeedBackendFake()..podePublicar = true;
     final client = MockClient(backend.responder);
     addTearDown(client.close);
 
@@ -58,8 +66,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Minha primeira dica para a turma.'), findsOneWidget);
-    expect(find.text('Camila Duarte'), findsOneWidget);
+    expect(find.text('Ana Souza'), findsWidgets);
+    expect(find.text('Camila Duarte'), findsNothing);
     expect(backend.publicacoes, hasLength(1));
+    expect(backend.publicacoes.single['autor'], 'Ana Souza');
     expect(
       backend.publicacoes.single['texto'],
       'Minha primeira dica para a turma.',
@@ -80,6 +90,10 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.byTooltip('Curtir'));
+    expect(find.byTooltip('Comentar'), findsOneWidget);
+    expect(find.byTooltip('Compartilhar'), findsOneWidget);
+    expect(find.byTooltip('Salvar'), findsNothing);
+    expect(find.byIcon(Icons.bookmark_border_rounded), findsNothing);
     await tester.tap(find.byTooltip('Curtir'));
     await tester.pumpAndSettle();
 
@@ -99,9 +113,29 @@ void main() {
     expect(backend.comentarios, 1);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('com token do aluno o feed não envia x-user-id', (tester) async {
+    configurarTela(tester);
+    SessaoUsuario.atual.configurarApi(ParticipacoesApi()..accessToken = 'tk');
+    addTearDown(SessaoUsuario.atual.limpar);
+    final pedidos = <http.Request>[];
+    final client = MockClient((request) async {
+      pedidos.add(request);
+      return http.Response('[]', 200);
+    });
+    addTearDown(client.close);
+
+    await tester.pumpWidget(app(client));
+    await tester.pumpAndSettle();
+
+    expect(pedidos, isNotEmpty);
+    expect(pedidos.first.headers['authorization'], 'Bearer tk');
+    expect(pedidos.first.headers.containsKey('x-user-id'), isFalse);
+  });
 }
 
 class _FeedBackendFake {
+  bool podePublicar = false;
   final List<Map<String, dynamic>> publicacoes = [];
   int _proximoId = 1;
 
@@ -120,8 +154,12 @@ class _FeedBackendFake {
   }
 
   Future<http.Response> responder(http.Request request) async {
-    const usuarioId = '1';
-    expect(request.headers['x-user-id'], usuarioId);
+    final usuarioId = request.headers['x-user-id'] ?? 'visitante';
+    expect(request.headers['x-user-id'], isNot('1'));
+
+    if (request.url.path == '/publicacoes/permissoes') {
+      return _json(200, {'podePublicar': podePublicar});
+    }
 
     if (request.method == 'GET' && request.url.path == '/publicacoes') {
       return _json(
@@ -164,9 +202,9 @@ class _FeedBackendFake {
 
   Map<String, dynamic> _novoRegistro(Map<String, dynamic> corpo) => {
     'id': _proximoId++,
-    'autor': corpo['autor'] ?? 'Camila Duarte',
-    'iniciais': corpo['iniciais'] ?? 'CD',
-    'descricaoAutor': corpo['descricaoAutor'] ?? 'Engenharia de Software',
+    'autor': 'Ana Souza',
+    'iniciais': corpo['iniciais'] ?? '',
+    'descricaoAutor': corpo['descricaoAutor'] ?? '',
     'tempo': 'agora',
     'categoria': corpo['categoria'] ?? 'Dicas acadêmicas',
     'texto': corpo['texto'],
@@ -192,6 +230,7 @@ class _FeedBackendFake {
       'texto': registro['texto'],
       'imagens': registro['imagens'],
       'curtidas': curtidasPor.length,
+      'podeInteragir': true,
       'curtidoPeloUsuario': curtidasPor.contains(usuarioId),
       'comentarios': comentariosTexto.length,
       'comentariosTexto': comentariosTexto,

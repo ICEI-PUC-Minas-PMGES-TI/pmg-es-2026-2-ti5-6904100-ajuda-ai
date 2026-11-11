@@ -1,6 +1,5 @@
 import 'package:ajuda_ai/dados_cadastro.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
-import 'package:ajuda_ai/tela_cadastro_padrinho.dart';
 import 'package:ajuda_ai/tela_candidatura_enviada.dart';
 import 'package:ajuda_ai/tela_padrinho_definido.dart';
 import 'package:ajuda_ai/tela_participacao.dart';
@@ -50,7 +49,20 @@ Map<String, dynamic> _emAnalise() => {
       'genero': 'Feminino',
       'bolsistaProuni': false,
       'deOutraCidade': true,
-      'declaraPreRequisitos': true,
+      'requisitos': [
+        {
+          'id': 'calculo-i',
+          'descricao': 'Cálculo I',
+          'obrigatorio': true,
+          'cumpre': true,
+        },
+        {
+          'id': 'aed-i',
+          'descricao': 'AED I',
+          'obrigatorio': true,
+          'cumpre': true,
+        },
+      ],
     },
   },
   'grupo': null,
@@ -67,7 +79,11 @@ void _telaGrande(WidgetTester tester) {
 void main() {
   late ApiFalsa api;
 
-  setUp(() => api = ApiFalsa().instalar());
+  setUp(() {
+    api = ApiFalsa().instalar();
+    SessaoUsuario.atual.definirIdentidade(nome: _ana.nome, email: _ana.email);
+    SessaoUsuario.atual.onboardingToken = 'onboarding-teste';
+  });
   tearDown(SessaoUsuario.atual.limpar);
 
   testWidgets('timeline da candidatura em análise', (tester) async {
@@ -92,52 +108,18 @@ void main() {
     expect(find.text('Início das atividades'), findsOneWidget);
     expect(find.textContaining('01 set. de 2026 a 30 set.'), findsOneWidget);
     expect(find.text('Dúvidas?'), findsOneWidget);
-    expect(find.text('Editar candidatura'), findsOneWidget);
+    expect(find.text('Editar candidatura'), findsNothing);
   });
 
-  testWidgets('editar candidatura reabre o formulário preenchido e reenvia', (
+  testWidgets('candidatura enviada não oferece edição nem reenvio', (
     tester,
   ) async {
     _telaGrande(tester);
     api.situacao = _emAnalise();
-    SessaoUsuario.atual.definir(
-      dadosCadastro: _ana,
-      escolha: Participacao.padrinho,
-    );
-
     await tester.pumpWidget(const MaterialApp(home: StatusCandidaturaPage()));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Editar candidatura'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(CadastroPadrinhoPage), findsOneWidget);
-    expect(
-      find.text('Quero contribuir com a adaptação dos novos alunos.'),
-      findsOneWidget,
-    );
-    expect(find.text('Monitoria de AEDS I.'), findsOneWidget);
-    expect(tester.widget<Checkbox>(find.byType(Checkbox).first).value, isTrue);
-
-    await tester.enterText(
-      find.byType(TextField).first,
-      'Motivação atualizada.',
-    );
-    await tester.scrollUntilVisible(
-      find.text('Salvar alterações'),
-      300,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(find.text('Salvar alterações'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(StatusCandidaturaPage), findsOneWidget);
-    expect(find.text('Candidatura atualizada com sucesso.'), findsOneWidget);
-    final respostas =
-        api.corpo(api.posts('/candidatura-padrinho').single)['respostas']
-            as Map<String, dynamic>;
-    expect(respostas['motivacao'], 'Motivação atualizada.');
-    expect(respostas['disponibilidade'], ['Manhã', 'Tarde']);
-    expect(respostas['declaraPreRequisitos'], isTrue);
+    expect(find.text('Editar candidatura'), findsNothing);
+    expect(api.posts('/cadastro'), isEmpty);
   });
 
   testWidgets('candidatura enviada leva ao status', (tester) async {
@@ -147,6 +129,7 @@ void main() {
       escolha: Participacao.padrinho,
     );
 
+    api.situacao = _emAnalise();
     await tester.pumpWidget(const MaterialApp(home: CandidaturaEnviadaPage()));
     await tester.tap(find.text('Acompanhar status da candidatura'));
     await tester.pumpAndSettle();

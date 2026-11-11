@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'configuracoes/tela_config_suporte.dart';
 import 'sessao_usuario.dart';
 import 'status_participacao.dart';
-import 'tela_cadastro_padrinho.dart';
+import 'tela_perfil.dart';
 import 'theme/colors.dart';
 import 'widgets/cabecalho_logos.dart';
 import 'widgets/campos_cadastro.dart';
@@ -20,6 +20,7 @@ class StatusCandidaturaPage extends StatefulWidget {
 
 class _StatusCandidaturaPageState extends State<StatusCandidaturaPage> {
   bool _sincronizando = true;
+  String? _erro;
 
   SessaoUsuario get _sessao => SessaoUsuario.atual;
 
@@ -31,46 +32,12 @@ class _StatusCandidaturaPageState extends State<StatusCandidaturaPage> {
 
   Future<void> _sincronizar() async {
     setState(() => _sincronizando = true);
-    await _sessao.sincronizarSituacao();
+    final ok = await _sessao.sincronizarSituacao();
+    _erro = ok ? null : 'Não foi possível consultar a candidatura. Atualize para tentar novamente.';
     if (mounted) setState(() => _sincronizando = false);
   }
 
-  /// Situação do backend; sem sincronização, deriva do estado local.
-  String get _situacao {
-    final remota = _sessao.situacao?.situacao;
-    if (remota != null && remota != 'nenhuma') return remota;
-    return switch (_sessao.status) {
-      StatusParticipacao.padrinhoEmAnalise => 'candidatura_em_analise',
-      StatusParticipacao.padrinhoRejeitado => 'candidatura_rejeitada',
-      StatusParticipacao.padrinhoAtivo => 'padrinho_ativo',
-      _ => remota ?? 'nenhuma',
-    };
-  }
-
-  bool get _podeEditar =>
-      _situacao == 'candidatura_pendente' ||
-      _situacao == 'candidatura_em_analise';
-
-  Future<void> _editar() async {
-    final base = _sessao.dados;
-    if (base == null) return;
-    final respostas = _sessao.situacao?.respostas;
-    final dados = respostas == null
-        ? base
-        : base.comRespostas(respostas, padrinho: true);
-    final atualizou = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => CadastroPadrinhoPage(dados: dados, edicao: true),
-      ),
-    );
-    if (!mounted || atualizou != true) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(content: Text('Candidatura atualizada com sucesso.')),
-      );
-    await _sincronizar();
-  }
+  String get _situacao => _sessao.situacao?.situacao ?? 'nenhuma';
 
   static const _meses = [
     'jan.', 'fev.', 'mar.', 'abr.', 'mai.', 'jun.', //
@@ -90,7 +57,9 @@ class _StatusCandidaturaPageState extends State<StatusCandidaturaPage> {
         _sessao.situacao?.criadoEm ?? _sessao.candidaturaEnviadaEm;
     final grupo = _sessao.grupo;
     final analisada =
-        situacao == 'candidatura_rejeitada' || situacao == 'padrinho_ativo';
+        situacao == 'candidatura_rejeitada' ||
+        situacao == 'padrinho_ativo' ||
+        situacao == 'candidatura_aprovada_aguardando_matching';
 
     return [
       (
@@ -100,7 +69,7 @@ class _StatusCandidaturaPageState extends State<StatusCandidaturaPage> {
       ),
       switch (situacao) {
         'candidatura_pendente' => (
-          'Em análise',
+          'Candidatura recebida',
           'Sua candidatura está na fila de análise da coordenação.',
           _EstadoEtapa.atual,
         ),
@@ -118,9 +87,17 @@ class _StatusCandidaturaPageState extends State<StatusCandidaturaPage> {
       switch (situacao) {
         'candidatura_rejeitada' => (
           'Resultado',
-          'Sua candidatura não foi aprovada neste ciclo. Você poderá tentar '
-              'novamente nas próximas inscrições.',
+          _sessao.motivoRejeicao == null
+              ? 'Sua candidatura não foi aprovada neste ciclo. Você poderá '
+                    'tentar novamente nas próximas inscrições.'
+              : 'Sua candidatura não foi aprovada. Motivo: '
+                    '${_sessao.motivoRejeicao}',
           _EstadoEtapa.negativa,
+        ),
+        'candidatura_aprovada_aguardando_matching' => (
+          'Candidatura aprovada',
+          'Aguardando definição do seu grupo.',
+          _EstadoEtapa.concluida,
         ),
         'padrinho_ativo' => (
           'Resultado',
@@ -208,8 +185,20 @@ class _StatusCandidaturaPageState extends State<StatusCandidaturaPage> {
                       height: 1.4,
                     ),
                   ),
+                  Text(_sessao.status.titulo),
+                  Text('Ciclo: ${_sessao.programaAtual}'),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pushReplacement(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const ProfilePage(),
+                      ),
+                    ),
+                    child: const Text('Meu perfil'),
+                  ),
                   const SizedBox(height: 18),
-                  if (semCandidatura)
+                  if (_erro != null)
+                    Text(_erro!, style: const TextStyle(color: Colors.red))
+                  else if (semCandidatura)
                     const AvisoCadastro(
                       child: Text(
                         'Você ainda não tem uma candidatura a padrinho neste '
@@ -224,6 +213,8 @@ class _StatusCandidaturaPageState extends State<StatusCandidaturaPage> {
                       ),
                     )
                   else ...[
+                    const _Agradecimento(),
+                    const SizedBox(height: 14),
                     _Linha(etapas: _etapas()),
                     const SizedBox(height: 14),
                     AvisoCadastro(
@@ -260,34 +251,6 @@ class _StatusCandidaturaPageState extends State<StatusCandidaturaPage> {
                         ],
                       ),
                     ),
-                    if (_podeEditar) ...[
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        height: 50,
-                        child: OutlinedButton.icon(
-                          onPressed: _editar,
-                          icon: const Icon(Icons.edit_outlined),
-                          label: const Text('Editar candidatura'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.primary,
-                            side: const BorderSide(
-                              color: AppColors.primary,
-                              width: 1.2,
-                            ),
-                            textStyle: const TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 18),
-                    const _Agradecimento(),
                   ],
                   const SizedBox(height: 12),
                   _CardDuvidas(
@@ -391,12 +354,12 @@ class _Marcador extends StatelessWidget {
     return switch (estado) {
       _EstadoEtapa.concluida => const CircleAvatar(
         radius: 13,
-        backgroundColor: AppColors.primary,
+        backgroundColor: Color(0xFF13A05F),
         child: Icon(Icons.check, size: 16, color: Colors.white),
       ),
       _EstadoEtapa.negativa => const CircleAvatar(
         radius: 13,
-        backgroundColor: Color(0xFFB45309),
+        backgroundColor: Color(0xFFC2334F),
         child: Icon(Icons.close, size: 16, color: Colors.white),
       ),
       _EstadoEtapa.atual => Container(
@@ -405,11 +368,11 @@ class _Marcador extends StatelessWidget {
         alignment: Alignment.center,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: AppColors.primary, width: 2),
+          border: Border.all(color: const Color(0xFF13A05F), width: 2),
         ),
         child: const CircleAvatar(
           radius: 6,
-          backgroundColor: AppColors.primary,
+          backgroundColor: Color(0xFF13A05F),
         ),
       ),
       _EstadoEtapa.futura => Container(

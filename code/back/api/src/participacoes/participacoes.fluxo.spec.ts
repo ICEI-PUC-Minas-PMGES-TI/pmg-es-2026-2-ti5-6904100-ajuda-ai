@@ -1,20 +1,45 @@
-import type { Repository } from 'typeorm';
 import { ParticipacaoEntity } from './entities/participacao.entity.js';
+import {
+  repositorioEmMemoria,
+  conectarRepositorios,
+} from '../../test/helpers/repositorio-memoria.js';
+import { conferirTudo } from '../../test/helpers/conferencia-academica.js';
+import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ParticipacoesService } from './participacoes.service.js';
+
+/** Ciclos cadastrados usados nestes testes (participação exige ciclo existente). */
+const ciclos = () =>
+  repositorioEmMemoria(
+    [
+      ...new Set([
+        '2025/2',
+        '2026/1',
+        '2026/2',
+        ParticipacoesService.programaAtual(),
+      ]),
+    ].map(
+      (codigo, i) =>
+        ({ id: i + 1, codigo, etapaAtual: 'formacao' }) as ProgramaEntity,
+    ),
+  );
 
 /** Fluxo completo: cadastro → análise → aprovação/rejeição → vínculo. */
 describe('ParticipacoesService (fluxo da coordenação)', () => {
   let registros: ParticipacaoEntity[];
-  let proximoId: number;
   let service: ParticipacoesService;
 
   beforeEach(() => {
     registros = [];
-    proximoId = 1;
-    service = new ParticipacoesService(criarRepo());
+    const repo = repositorioEmMemoria(registros);
+    const programas = ciclos();
+    conectarRepositorios({
+      ParticipacaoEntity: repo,
+      ProgramaEntity: programas,
+    });
+    service = new ParticipacoesService(repo, programas);
   });
 
-  it('cadastra apadrinhado aguardando match e limpa respostas', async () => {
+  it('cadastra apadrinhado pendente de aprovação e limpa respostas', async () => {
     const registro = await service.cadastrarApadrinhado({
       usuarioId: 'Fernanda@PUCMinas.edu.br',
       programa: '2026/2',
@@ -30,30 +55,112 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
 
     expect(registro.usuarioId).toBe('fernanda@pucminas.edu.br');
     expect(registro.papel).toBe('apadrinhado');
-    expect(registro.status).toBe('em_andamento');
+    expect(registro.status).toBe('pendente');
     expect(registro.respostas?.nome).toBe('Fernanda');
     expect(registro.respostas?.areas).toEqual(['Projetos']);
     expect(registro.respostas?.expectativa).toHaveLength(500);
     expect(registro.respostas).not.toHaveProperty('senha');
     expect(ParticipacoesService.situacaoDe(registro)).toBe(
+      'apadrinhado_pendente',
+    );
+  });
+
+  it('aprovar o cadastro do apadrinhado o deixa aguardando match', async () => {
+    const registro = await service.cadastrarApadrinhado({
+      usuarioId: 'a1@pucminas.edu.br',
+      programa: '2026/2',
+    });
+    await conferirTudo(service, registro.id);
+    const aprovado = await service.aprovarCandidatura(registro.id);
+
+    expect(aprovado.papel).toBe('apadrinhado');
+    expect(aprovado.status).toBe('em_andamento');
+    expect(ParticipacoesService.situacaoDe(aprovado)).toBe(
       'apadrinhado_aguardando',
     );
   });
 
-  it('reenviar candidatura pendente atualiza as respostas sem duplicar', async () => {
+  it('rejeita cadastro de apadrinhado pendente e bloqueia edição', async () => {
+    const registro = await service.cadastrarApadrinhado({
+      usuarioId: 'a1@pucminas.edu.br',
+      programa: '2026/2',
+      respostas: { expectativa: 'original' },
+    });
+    const rejeitado = await service.rejeitarCandidaturaPorId(
+      registro.id,
+      'Requisitos não confirmados.',
+    );
+    await expect(
+      service.cadastrarApadrinhado({
+        usuarioId: 'a1@pucminas.edu.br',
+        programa: '2026/2',
+        respostas: { expectativa: 'nova' },
+      }),
+    ).rejects.toThrow(/Já existe/);
+
+    expect(rejeitado.status).toBe('nao_aprovado');
+    expect(ParticipacoesService.situacaoDe(rejeitado)).toBe(
+      'apadrinhado_rejeitado',
+    );
+    expect(rejeitado.respostas?.expectativa).toBe('original');
+  });
+
+  it('não vincula apadrinhado com cadastro pendente', async () => {
+    const candidatura = await service.registrarCandidaturaPadrinho({
+      usuarioId: 'padrinho@pucminas.edu.br',
+      programa: '2026/2',
+    });
+    await conferirTudo(service, candidatura.id);
+    const padrinho = await service.aprovarCandidatura(candidatura.id);
+    const pendente = await service.cadastrarApadrinhado({
+      usuarioId: 'a1@pucminas.edu.br',
+      programa: '2026/2',
+    });
+
+    await expect(service.vincular(pendente.id, padrinho.id)).rejects.toThrow(
+      /apadrinhado aprovado/,
+    );
+  });
+
+  it('não cria participação em ciclo inexistente (padrinho, apadrinhado, ingresso)', async () => {
+    await expect(
+      service.cadastrarApadrinhado({
+        usuarioId: 'a@pucminas.edu.br',
+        programa: '2099/1',
+      }),
+    ).rejects.toThrow(/Ciclo 2099\/1 não cadastrado/);
+    await expect(
+      service.registrarCandidaturaPadrinho({
+        usuarioId: 'p@pucminas.edu.br',
+        programa: '2099/1',
+      }),
+    ).rejects.toThrow(/não cadastrado/);
+    await expect(
+      service.confirmarIngresso({
+        usuarioId: 'x@pucminas.edu.br',
+        papel: 'padrinho',
+        programa: '2099/1',
+      }),
+    ).rejects.toThrow(/não cadastrado/);
+    expect(registros).toHaveLength(0);
+  });
+
+  it('reenviar candidatura pendente é recusado e preserva respostas', async () => {
     await service.registrarCandidaturaPadrinho({
       usuarioId: 'rafa@pucminas.edu.br',
       programa: '2026/2',
       respostas: { motivacao: 'primeira' },
     });
-    const editada = await service.registrarCandidaturaPadrinho({
-      usuarioId: 'rafa@pucminas.edu.br',
-      programa: '2026/2',
-      respostas: { motivacao: 'segunda' },
-    });
+    await expect(
+      service.registrarCandidaturaPadrinho({
+        usuarioId: 'rafa@pucminas.edu.br',
+        programa: '2026/2',
+        respostas: { motivacao: 'segunda' },
+      }),
+    ).rejects.toThrow(/Já existe/);
 
     expect(registros).toHaveLength(1);
-    expect(editada.respostas?.motivacao).toBe('segunda');
+    expect(registros[0].respostas?.motivacao).toBe('primeira');
   });
 
   it('candidatura rejeitada não é mais editável', async () => {
@@ -62,12 +169,18 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       programa: '2026/2',
       respostas: { motivacao: 'original' },
     });
-    await service.rejeitarCandidaturaPorId(candidatura.id);
-    const tentativa = await service.registrarCandidaturaPadrinho({
-      usuarioId: 'rafa@pucminas.edu.br',
-      programa: '2026/2',
-      respostas: { motivacao: 'nova' },
-    });
+    await service.rejeitarCandidaturaPorId(
+      candidatura.id,
+      'Requisitos não confirmados.',
+    );
+    await expect(
+      service.registrarCandidaturaPadrinho({
+        usuarioId: 'rafa@pucminas.edu.br',
+        programa: '2026/2',
+        respostas: { motivacao: 'nova' },
+      }),
+    ).rejects.toThrow(/Já existe/);
+    const tentativa = await service.buscarPorId(candidatura.id);
 
     expect(tentativa.status).toBe('nao_aprovado');
     expect(tentativa.respostas?.motivacao).toBe('original');
@@ -81,13 +194,52 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       usuarioId: 'rafa@pucminas.edu.br',
       programa: '2026/2',
     });
+    await conferirTudo(service, candidatura.id);
     const aprovada = await service.aprovarCandidatura(candidatura.id);
 
-    expect(aprovada.papel).toBe('padrinho');
-    expect(aprovada.status).toBe('em_andamento');
+    expect(aprovada.papel).toBe('candidato');
+    expect(aprovada.status).toBe('aprovado');
     await expect(
-      service.rejeitarCandidaturaPorId(candidatura.id),
-    ).rejects.toThrow(/não aprovadas/);
+      service.rejeitarCandidaturaPorId(
+        candidatura.id,
+        'Requisitos não confirmados.',
+      ),
+    ).rejects.toThrow(/aguardando decisão/);
+  });
+
+  it('desfaz vínculo e só então permite revogar aprovação', async () => {
+    const candidatura = await service.registrarCandidaturaPadrinho({
+      usuarioId: 'padrinho@pucminas.edu.br',
+      programa: '2026/2',
+    });
+    await conferirTudo(service, candidatura.id);
+    const padrinho = await service.aprovarCandidatura(candidatura.id);
+    const apadrinhado = await service.cadastrarApadrinhado({
+      usuarioId: 'a1@pucminas.edu.br',
+      programa: '2026/2',
+      statusInicial: 'em_andamento',
+      respostas: { periodo: 1, declaraPrimeiroPeriodo: true },
+    });
+    await service.vincular(apadrinhado.id, padrinho.id);
+
+    await expect(
+      service.revogarAprovacao(apadrinhado.id, 'erro de análise'),
+    ).rejects.toThrow(/Desfaça o vínculo/);
+
+    const { apadrinhado: solto, padrinho: candidato } =
+      await service.desvincular(apadrinhado.id);
+    expect(solto.grupo).toBeFalsy();
+    expect(candidato?.papel).toBe('candidato');
+    expect(candidato?.status).toBe('aprovado');
+
+    const revogado = await service.revogarAprovacao(
+      solto.id,
+      'Requisitos não confirmados no sistema acadêmico.',
+    );
+    expect(revogado.status).toBe('nao_aprovado');
+    expect(revogado.respostas?._servidor?.decisao?.justificativa).toMatch(
+      /sistema acadêmico/,
+    );
   });
 
   it('volta para análise e guarda observações aparadas', async () => {
@@ -112,14 +264,17 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       usuarioId: 'padrinho@pucminas.edu.br',
       programa: '2026/2',
     });
+    await conferirTudo(service, candidatura.id);
     const padrinho = await service.aprovarCandidatura(candidatura.id);
     const a1 = await service.cadastrarApadrinhado({
       usuarioId: 'a1@pucminas.edu.br',
       programa: '2026/2',
+      statusInicial: 'em_andamento',
     });
     const a2 = await service.cadastrarApadrinhado({
       usuarioId: 'a2@pucminas.edu.br',
       programa: '2026/2',
+      statusInicial: 'em_andamento',
     });
 
     await service.vincular(a1.id, padrinho.id);
@@ -128,10 +283,10 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       padrinho.id,
     );
 
-    expect(atualizado.grupo).toBe('Grupo 01');
-    expect(apadrinhado.grupo).toBe('Grupo 01');
+    expect(atualizado.grupo).toBe('Grupo-1');
+    expect(apadrinhado.grupo).toBe('Grupo-1');
     expect(atualizado.apadrinhados).toBe(2);
-    expect(ParticipacoesService.situacaoDe(apadrinhado)).toBe(
+    expect(await service.situacaoDoRegistro(apadrinhado)).toBe(
       'apadrinhado_ativo',
     );
   });
@@ -144,11 +299,12 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
     const apadrinhado = await service.cadastrarApadrinhado({
       usuarioId: 'a1@pucminas.edu.br',
       programa: '2026/2',
+      statusInicial: 'em_andamento',
     });
 
     await expect(
       service.vincular(apadrinhado.id, candidatura.id),
-    ).rejects.toThrow(/padrinho aprovado/);
+    ).rejects.toThrow(/candidato aprovado/);
   });
 
   it('registro principal prioriza padrinho sobre apadrinhado', async () => {
@@ -156,11 +312,14 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       usuarioId: 'duplo@pucminas.edu.br',
       programa: '2026/2',
     });
-    const candidatura = await service.registrarCandidaturaPadrinho({
+    // Registros legados com múltiplos papéis continuam legíveis.
+    registros.push({
+      id: 99,
       usuarioId: 'duplo@pucminas.edu.br',
       programa: '2026/2',
-    });
-    await service.aprovarCandidatura(candidatura.id);
+      papel: 'padrinho',
+      status: 'em_andamento',
+    } as ParticipacaoEntity);
 
     const principal = await service.registroPrincipal(
       'duplo@pucminas.edu.br',
@@ -169,36 +328,32 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
     expect(principal?.papel).toBe('padrinho');
   });
 
-  /** Repositório em memória que entende `where` simples (igualdade). */
-  function criarRepo(): Repository<ParticipacaoEntity> {
-    const corresponde = (
-      registro: ParticipacaoEntity,
-      where: Record<string, unknown> = {},
-    ) =>
-      Object.entries(where).every(([chave, valor]) => {
-        const atual = (registro as unknown as Record<string, unknown>)[chave];
-        if (valor && typeof valor === 'object' && '_value' in valor) {
-          return (valor as { _value: unknown[] })._value.includes(atual);
-        }
-        return atual === valor;
-      });
+  it('registro principal prioriza apadrinhado ativo sobre candidatura residual', async () => {
+    registros.push(
+      {
+        id: 1,
+        usuarioId: 'camila@pucminas.edu.br',
+        programa: '2026/2',
+        papel: 'candidato',
+        status: 'em_analise',
+      } as ParticipacaoEntity,
+      {
+        id: 8,
+        usuarioId: 'camila@pucminas.edu.br',
+        programa: '2026/2',
+        papel: 'apadrinhado',
+        status: 'em_andamento',
+        grupo: 'Grupo 08',
+      } as ParticipacaoEntity,
+    );
 
-    return {
-      create: (dados: Partial<ParticipacaoEntity>) =>
-        ({ ...dados }) as ParticipacaoEntity,
-      save: async (entidade: ParticipacaoEntity) => {
-        if (!entidade.id) {
-          entidade.id = proximoId++;
-          entidade.criadoEm = new Date(Date.now() + entidade.id);
-          registros.push(entidade);
-        }
-        entidade.atualizadoEm = new Date();
-        return entidade;
-      },
-      find: async (opcoes?: { where?: Record<string, unknown> }) =>
-        registros.filter((r) => corresponde(r, opcoes?.where)),
-      findOne: async (opcoes: { where: Record<string, unknown> }) =>
-        registros.find((r) => corresponde(r, opcoes.where)) ?? null,
-    } as unknown as Repository<ParticipacaoEntity>;
-  }
+    const principal = await service.registroPrincipal(
+      'camila@pucminas.edu.br',
+      '2026/2',
+    );
+    expect(principal?.papel).toBe('apadrinhado');
+    expect(principal?.status).toBe('em_andamento');
+  });
+
+  /** Repositório em memória que entende `where` simples (igualdade). */
 });

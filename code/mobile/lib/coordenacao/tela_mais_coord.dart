@@ -14,15 +14,22 @@ class TelaMaisCoord extends StatelessWidget {
 
   final String nomeCoordenador;
 
-  /// Destino: formularios | usuarios | programas | comunicado | sem_vinculo.
+  /// Destino: feed | formularios | usuarios | matching | programas |
+  /// configuracoes | sem_vinculo | totens.
   final ValueChanged<String> onAbrir;
   final VoidCallback onSair;
 
   static const _itens = <(IconData, String, String, String)>[
     (
+      Icons.dynamic_feed_outlined,
+      'Feed do programa',
+      'Publicar notícias, imagens e acompanhar comentários',
+      'feed',
+    ),
+    (
       Icons.dynamic_form_outlined,
       'Formulários',
-      'Perguntas adicionais dos cadastros',
+      'Perguntas adicionais das candidaturas',
       'formularios',
     ),
     (
@@ -30,6 +37,18 @@ class TelaMaisCoord extends StatelessWidget {
       'Usuários',
       'Participantes, situação e vínculos',
       'usuarios',
+    ),
+    (
+      Icons.auto_awesome,
+      'Matching automático',
+      'Gere e revise sugestões com os critérios do ciclo',
+      'matching',
+    ),
+    (
+      Icons.link,
+      'Vínculos manuais',
+      'Gerencie vínculos individuais separadamente das sugestões',
+      'matching_manual',
     ),
     (
       Icons.link,
@@ -44,10 +63,22 @@ class TelaMaisCoord extends StatelessWidget {
       'programas',
     ),
     (
-      Icons.campaign_outlined,
-      'Criar comunicado',
-      'Aviso para padrinhos e/ou apadrinhados',
-      'comunicado',
+      Icons.location_on_outlined,
+      'Gerenciar totens',
+      'Posição no mapa, recompensa em XP e disponibilidade',
+      'totens',
+    ),
+    (
+      Icons.map_outlined,
+      'Mapa do campus',
+      'Consultar locais e editar descrições e imagens',
+      'mapa',
+    ),
+    (
+      Icons.settings_outlined,
+      'Configurações',
+      'Conta da coordenação e sessão',
+      'configuracoes',
     ),
   ];
 

@@ -35,18 +35,15 @@ class _RevisaoCadastroPageState extends State<RevisaoCadastroPage> {
   };
   void _editar(BuildContext context) => Navigator.of(context).pop();
 
-  /// Envia o cadastro (`POST /participacoes/cadastro-apadrinhado`).
-  /// Sem conexão, segue com o estado local (ver [SessaoUsuario]); com erro do
-  /// backend, fica na tela e oferece "Tentar novamente".
+  /// Envia o cadastro (`POST /cadastro`): o backend cria o usuário PENDENTE e
+  /// a inscrição do ciclo. Com erro (inclusive sem conexão), fica na tela e
+  /// oferece "Tentar novamente".
   Future<void> _enviar() async {
     if (_enviando) return;
     setState(() => _enviando = true);
     try {
-      final enviado = await SessaoUsuario.atual.cadastrarApadrinhado(
-        dadosCadastro: dados,
-      );
+      await SessaoUsuario.atual.cadastrarApadrinhado(dadosCadastro: dados);
       if (!mounted) return;
-      if (!enviado) mostrarSalvoLocalmente(context);
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const CadastroConcluidoPage()),
         (_) => false,
@@ -56,6 +53,8 @@ class _RevisaoCadastroPageState extends State<RevisaoCadastroPage> {
       setState(() => _enviando = false);
       final mensagem = erro is ApiException
           ? 'Não foi possível enviar seu cadastro: ${erro.mensagem}'
+          : erro is ApiIndisponivelException
+          ? 'Sem conexão com o servidor. Seu cadastro ainda não foi enviado.'
           : 'Não foi possível enviar seu cadastro. Tente novamente.';
       mostrarErroComRetentativa(context, mensagem, _enviar);
     }
@@ -90,6 +89,11 @@ class _RevisaoCadastroPageState extends State<RevisaoCadastroPage> {
         Icons.description_outlined,
         'Outras informações',
         dados.outrasInformacoes,
+      ),
+      (
+        Icons.verified_user_outlined,
+        'Declaração de 1º período',
+        dados.declaraPrimeiroPeriodo ? 'Declarado' : 'Não declarado',
       ),
       for (final pergunta in widget.perguntasAdicionais)
         (

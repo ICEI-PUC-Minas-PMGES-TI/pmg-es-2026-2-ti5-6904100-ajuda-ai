@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'configuracoes/tela_config_suporte.dart';
@@ -11,6 +12,7 @@ import 'tela_feed.dart';
 import 'tela_historico.dart';
 import 'tela_login.dart';
 import 'tela_padrinho_definido.dart';
+import 'tela_resgatar.dart' show formatarXp;
 import 'tela_status_candidatura.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
@@ -75,18 +77,21 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  static const _semSobre = 'Nada informado.';
+
   static const _fallback = _DadosPerfil(
-    nome: 'Ana Clara',
-    curso: 'Engenharia Química',
+    nome: 'Perfil não carregado',
+    curso: '',
     periodo: '1º período',
-    email: 'ana.clara@pucminas.edu.br',
-    sobre:
-        'Gosto de tecnologia, inovação e projetos no campus. '
-        'Estou no primeiro período e quero conhecer a rotina da PUC.',
+    email: '',
+    sobre: _semSobre,
   );
 
   late _DadosPerfil _dados;
   bool _editando = false;
+  bool _salvando = false;
+  String? _erro;
+  String? _erroFoto;
   bool _detalhesCandidaturaAbertos = false;
 
   late final TextEditingController _nomeController;
@@ -94,6 +99,8 @@ class _ProfilePageState extends State<ProfilePage> {
   late final TextEditingController _periodoController;
   late final TextEditingController _emailController;
   late final TextEditingController _sobreController;
+  late final TextEditingController _turnoController;
+  late final TextEditingController _interessesController;
 
   SessaoUsuario get _sessao => SessaoUsuario.atual;
 
@@ -105,16 +112,64 @@ class _ProfilePageState extends State<ProfilePage> {
     _cursoController = TextEditingController(text: _dados.curso);
     _periodoController = TextEditingController(text: _dados.periodo);
     _emailController = TextEditingController(text: _dados.email);
-    _sobreController = TextEditingController(text: _dados.sobre);
+    _sobreController = TextEditingController(
+      text: _dados.sobre == _semSobre ? '' : _dados.sobre,
+    );
+    _turnoController = TextEditingController();
+    _interessesController = TextEditingController();
     _sincronizar();
   }
 
-  /// Atualiza a situação real (GET /participacoes/situacao). Sem rede,
-  /// mantém o estado local.
   Future<void> _sincronizar() async {
-    if (_sessao.dados == null) return;
-    final ok = await _sessao.sincronizarSituacao();
-    if (ok && mounted) setState(() {});
+    try {
+      await _sessao.carregarContexto();
+      if (mounted) {
+        setState(() {
+          _dados = _dadosDaSessao();
+          _erro = null;
+        });
+      }
+    } catch (erro) {
+      if (mounted) setState(() => _erro = '$erro');
+    }
+    try {
+      final email = _sessao.identidade?.email;
+      final foto = await _sessao.participacoesApi.foto();
+      if (mounted && email == _sessao.identidade?.email) {
+        setState(() {
+          _sessao.fotoUrl = foto;
+          _erroFoto = null;
+        });
+      }
+    } catch (erro) {
+      if (mounted) {
+        setState(() => _erroFoto = 'Não foi possível carregar a foto. $erro');
+      }
+    }
+  }
+
+  Future<void> _escolherFoto() async {
+    if (_salvando) return;
+    try {
+      final resultado = await FilePicker.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      final bytes = resultado?.files.single.bytes;
+      if (bytes == null || !mounted) return;
+      setState(() => _salvando = true);
+      final url = await _sessao.participacoesApi.enviarFoto(bytes);
+      if (mounted) {
+        setState(() {
+          _sessao.fotoUrl = url;
+          _erroFoto = null;
+        });
+      }
+    } catch (erro) {
+      if (mounted) setState(() => _erroFoto = 'Foto não salva: $erro');
+    } finally {
+      if (mounted) setState(() => _salvando = false);
+    }
   }
 
   void _abrir(Widget pagina) {
@@ -128,16 +183,13 @@ class _ProfilePageState extends State<ProfilePage> {
   _DadosPerfil _dadosDaSessao() {
     final sessao = _sessao.dados;
     if (sessao == null) return _fallback;
+    final sobre = sessao.sobre?.trim();
     return _DadosPerfil(
       nome: sessao.nome,
       curso: sessao.curso,
       periodo: '${sessao.periodo}º período',
       email: sessao.email,
-      sobre: sessao.expectativaPadrinho?.trim().isNotEmpty == true
-          ? sessao.expectativaPadrinho!.trim()
-          : sessao.outrasInformacoes?.trim().isNotEmpty == true
-          ? sessao.outrasInformacoes!.trim()
-          : 'Ainda não há uma descrição no perfil.',
+      sobre: sobre == null || sobre.isEmpty ? _semSobre : sobre,
     );
   }
 
@@ -148,6 +200,8 @@ class _ProfilePageState extends State<ProfilePage> {
     _periodoController.dispose();
     _emailController.dispose();
     _sobreController.dispose();
+    _turnoController.dispose();
+    _interessesController.dispose();
     super.dispose();
   }
 
@@ -156,54 +210,51 @@ class _ProfilePageState extends State<ProfilePage> {
     _cursoController.text = _dados.curso;
     _periodoController.text = _dados.periodo;
     _emailController.text = _dados.email;
-    _sobreController.text = _dados.sobre;
+    _sobreController.text = _dados.sobre == _semSobre ? '' : _dados.sobre;
+    _turnoController.text = _sessao.dados?.turno ?? '';
+    _interessesController.text = _sessao.dados?.interesses.join(', ') ?? '';
     setState(() => _editando = true);
   }
 
   void _cancelarEdicao() => setState(() => _editando = false);
 
-  void _confirmarEdicao() {
-    final nome = _nomeController.text.trim();
-    final curso = _cursoController.text.trim();
-    final periodo = _periodoController.text.trim();
-    final email = _emailController.text.trim();
-    final sobre = _sobreController.text.trim();
-
-    if (nome.isEmpty || curso.isEmpty || periodo.isEmpty || email.isEmpty) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text('Preencha nome, curso, período e e-mail.'),
-          ),
-        );
-      return;
+  Future<void> _confirmarEdicao() async {
+    if (_salvando || _sessao.dados == null) return;
+    setState(() => _salvando = true);
+    try {
+      await _sessao.salvarPerfil(
+        _sessao.dados!.copyWith(
+          nome: _nomeController.text.trim(),
+          curso: _cursoController.text.trim(),
+          periodo:
+              int.tryParse(
+                _periodoController.text.replaceAll(RegExp(r'[^0-9]'), ''),
+              ) ??
+              0,
+          turno: _turnoController.text.trim(),
+          interesses: _interessesController.text
+              .split(',')
+              .map((v) => v.trim())
+              .where((v) => v.isNotEmpty)
+              .toList(),
+          sobre: _sobreController.text.trim().isEmpty
+              ? null
+              : _sobreController.text.trim(),
+          limparSobre: _sobreController.text.trim().isEmpty,
+        ),
+      );
+      if (mounted) {
+        setState(() {
+          _dados = _dadosDaSessao();
+          _editando = false;
+          _erro = null;
+        });
+      }
+    } catch (erro) {
+      if (mounted) setState(() => _erro = '$erro');
+    } finally {
+      if (mounted) setState(() => _salvando = false);
     }
-
-    setState(() {
-      _dados = _dados.copyWith(
-        nome: nome,
-        curso: curso,
-        periodo: periodo,
-        email: email,
-        sobre: sobre,
-      );
-      _editando = false;
-    });
-    final atual = _sessao.dados;
-    if (atual != null) {
-      _sessao.dados = atual.copyWith(
-        nome: nome,
-        curso: curso,
-        periodo: int.tryParse(periodo.replaceAll(RegExp(r'[^0-9]'), '')),
-      );
-    }
-
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(content: Text('Perfil atualizado com sucesso.')),
-      );
   }
 
   String _formatarData(DateTime data) {
@@ -271,6 +322,64 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
               const SizedBox(height: 20),
+              if (_erro != null)
+                Text(_erro!, style: const TextStyle(color: Colors.red)),
+              if (_erro != null)
+                TextButton(
+                  onPressed: _sincronizar,
+                  child: const Text('Tentar novamente'),
+                ),
+              if (_sessao.programas.isNotEmpty)
+                DropdownButton<String>(
+                  value:
+                      _sessao.programas.any(
+                        (p) => p['codigo'] == _sessao.programaAtual,
+                      )
+                      ? _sessao.programaAtual
+                      : null,
+                  hint: const Text('Selecione o ciclo'),
+                  items: _sessao.programas
+                      .map(
+                        (p) => DropdownMenuItem(
+                          value: p['codigo'] as String,
+                          child: Text('${p['titulo']}'),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (codigo) async {
+                    if (codigo == null) return;
+                    try {
+                      await _sessao.selecionarPrograma(codigo);
+                      if (mounted) setState(() => _erro = null);
+                    } catch (erro) {
+                      if (mounted) setState(() => _erro = '$erro');
+                    }
+                  },
+                ),
+              if (_sessao.fotoUrl != null)
+                Image.network(
+                  _sessao.fotoUrl!,
+                  width: 72,
+                  height: 72,
+                  errorBuilder: (_, erro, stack) =>
+                      const Text('Foto indisponível'),
+                ),
+              if (_erroFoto != null) Text(_erroFoto!),
+              TextButton(
+                onPressed: _salvando ? null : _escolherFoto,
+                child: const Text('Selecionar ou substituir foto'),
+              ),
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'PNG, JPG ou WEBP · até 2 MB',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: AppColors.muted,
+                  ),
+                ),
+              ),
               _Identidade(
                 dados: _dados,
                 editando: _editando,
@@ -280,23 +389,20 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               if (_editando) ...[
                 const SizedBox(height: 20),
-                const _Titulo('Sobre mim'),
-                const SizedBox(height: 8),
-                _CampoTexto(
-                  controller: _sobreController,
-                  dica: 'Conte um pouco sobre você',
-                  maxLines: 4,
-                ),
-                const SizedBox(height: 16),
                 const _Titulo('Informações acadêmicas'),
                 const SizedBox(height: 8),
                 _CampoTexto(controller: _cursoController, dica: 'Curso'),
                 const SizedBox(height: 8),
                 _CampoTexto(controller: _periodoController, dica: 'Período'),
                 const SizedBox(height: 8),
+                Text('E-mail institucional: ${_dados.email}'),
+                const SizedBox(height: 8),
+                _CampoTexto(controller: _turnoController, dica: 'Turno'),
+                const SizedBox(height: 8),
                 _CampoTexto(
-                  controller: _emailController,
-                  dica: 'E-mail institucional',
+                  controller: _interessesController,
+                  dica: 'Interesses separados por vírgula',
+                  maxLines: 2,
                 ),
                 const SizedBox(height: 20),
                 Row(
@@ -318,7 +424,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: FilledButton(
-                        onPressed: _confirmarEdicao,
+                        onPressed: _salvando ? null : _confirmarEdicao,
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           foregroundColor: Colors.white,
@@ -411,6 +517,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 10),
                 AcessosRapidos(itens: _acessosRapidos(status)),
                 if (status == StatusParticipacao.apadrinhadoAguardandoMatch ||
+                    status == StatusParticipacao.apadrinhadoPendente ||
                     status == StatusParticipacao.padrinhoEmAnalise ||
                     status == StatusParticipacao.explorar) ...[
                   const SizedBox(height: 14),
@@ -419,8 +526,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 28),
                 SizedBox(
                   width: double.infinity,
-                  child: TextButton(
+                  child: TextButton.icon(
                     onPressed: () => _sair(context),
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text('Sair da conta'),
                     style: TextButton.styleFrom(
                       foregroundColor: const Color(0xFFB91C1C),
                       minimumSize: const Size.fromHeight(44),
@@ -430,7 +539,6 @@ class _ProfilePageState extends State<ProfilePage> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    child: const Text('Sair da conta'),
                   ),
                 ),
               ],
@@ -454,8 +562,7 @@ class _ProfilePageState extends State<ProfilePage> {
         'Meu padrinho',
         () => _abrir(const PadrinhoDefinidoPage()),
       ),
-    if (status == StatusParticipacao.padrinhoEmAnalise ||
-        status == StatusParticipacao.padrinhoRejeitado)
+    if (status.candidatura)
       ItemAcessoRapido(
         Icons.fact_check_outlined,
         'Status da candidatura',
@@ -490,7 +597,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   void _candidatarPadrinho(BuildContext context) {
     final dados = _sessao.dados;
-    if (dados == null) return;
+    if (dados == null || !_sessao.podeCandidatarPadrinho) return;
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => CadastroPadrinhoPage(dados: dados)),
     );
@@ -504,13 +611,7 @@ class _ProfilePageState extends State<ProfilePage> {
     ).push(MaterialPageRoute(builder: (_) => PerfilCadastroPage(dados: dados)));
   }
 
-  void _sair(BuildContext context) {
-    _sessao.limpar();
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginPage()),
-      (route) => false,
-    );
-  }
+  void _sair(BuildContext context) => encerrarSessao(context);
 }
 
 class _Titulo extends StatelessWidget {
@@ -625,6 +726,7 @@ class _Identidade extends StatelessWidget {
                         fontSize: 13,
                       ),
                     ),
+                    const _XpGlobal(),
                     if (onEditar != null) ...[
                       const SizedBox(height: 8),
                       TextButton(
@@ -844,6 +946,57 @@ class _CampoTexto extends StatelessWidget {
           borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
         ),
       ),
+    );
+  }
+}
+
+/// XP global do aluno (`GET /me/xp`), igual para qualquer ciclo. Some sem
+/// sessão ou sem resposta (ex.: coordenação, que não acumula XP).
+class _XpGlobal extends StatefulWidget {
+  const _XpGlobal();
+
+  @override
+  State<_XpGlobal> createState() => _XpGlobalState();
+}
+
+class _XpGlobalState extends State<_XpGlobal> {
+  @override
+  void initState() {
+    super.initState();
+    SessaoUsuario.atual.atualizarXp();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int?>(
+      valueListenable: SessaoUsuario.atual.xp,
+      builder: (context, saldo, _) {
+        if (saldo == null) return const SizedBox.shrink();
+        return Padding(
+          key: const Key('perfil-xp'),
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.star_rounded,
+                size: 18,
+                color: Color(0xFFF59E0B),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '${formatarXp(saldo)} XP',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  color: AppColors.ink,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

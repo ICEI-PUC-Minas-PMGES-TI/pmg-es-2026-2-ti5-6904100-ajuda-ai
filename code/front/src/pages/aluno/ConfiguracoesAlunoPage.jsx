@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { lerPreferencias, limparPreferencias, limparSessaoAluno, salvarPreferencias } from '../../auth/sessaoAluno';
+import {clearAlunoSession} from '../../api/client';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import Toggle from '../../components/Toggle';
@@ -13,7 +14,7 @@ const SECOES = [
   { id: 'apadrinhamento', icon: 'users', titulo: 'Apadrinhamento' },
   { id: 'aparencia', icon: 'eye', titulo: 'Aparência e acessibilidade' },
   { id: 'dados', icon: 'database', titulo: 'Dados e armazenamento' },
-  { id: 'suporte', icon: 'compass', titulo: 'Suporte' },
+  { id: 'suporte', icon: 'help', titulo: 'Suporte' },
 ];
 
 const ROTULOS_SITUACAO = {
@@ -21,6 +22,9 @@ const ROTULOS_SITUACAO = {
   candidatura_pendente: 'Candidatura a padrinho enviada',
   candidatura_em_analise: 'Candidatura a padrinho em análise',
   candidatura_rejeitada: 'Candidatura a padrinho não aprovada',
+  candidatura_aprovada_aguardando_matching: 'Candidatura aprovada aguardando definição do grupo',
+  apadrinhado_pendente: 'Cadastro aguardando aprovação',
+  apadrinhado_rejeitado: 'Cadastro não aprovado',
   padrinho_ativo: 'Padrinho ativo',
   apadrinhado_aguardando: 'Apadrinhado aguardando padrinho',
   apadrinhado_ativo: 'Apadrinhado com padrinho definido',
@@ -29,8 +33,8 @@ const ROTULOS_SITUACAO = {
 
 const FAQ = [
   { p: 'Como funciona o match com o padrinho?', r: 'A coordenação compara as respostas do cadastro (curso, interesses, disponibilidade e áreas de apoio) e confirma o vínculo durante a formação dos grupos.' },
-  { p: 'Quem pode ser padrinho?', r: 'Alunos a partir do 2º período aprovados em AEDS 1 e Cálculo 1. A candidatura passa pela análise da coordenação.' },
-  { p: 'Posso editar minha candidatura?', r: 'Sim, enquanto ela estiver enviada ou em análise. Use “Editar candidatura” na tela Status da candidatura.' },
+  { p: 'Quem pode ser padrinho?', r: 'Alunos a partir do 2º período que cumpram os requisitos definidos pela coordenação para o semestre (exibidos no formulário de candidatura). A candidatura passa pela análise da coordenação.' },
+  { p: 'Posso editar minha candidatura?', r: 'Revise e edite antes de confirmar o envio. Após o envio, as respostas ficam registradas e não podem ser editadas.' },
   { p: 'Onde fica o mapa do campus?', r: 'O mapa e as PUC Stops ficam no app Mapa da PUC, que está em desenvolvimento.' },
 ];
 
@@ -64,6 +68,7 @@ export default function ConfiguracoesAlunoPage() {
   }
 
   function limparTudo() {
+    clearAlunoSession();
     limparSessaoAluno();
     limparPreferencias();
     try {
@@ -73,7 +78,7 @@ export default function ConfiguracoesAlunoPage() {
     }
     setConfirmarLimpeza(false);
     mostrarToast('Dados locais removidos deste navegador.');
-    navigate('/', { replace: true });
+    navigate('/login', { replace: true });
   }
 
   return (
@@ -132,20 +137,28 @@ export default function ConfiguracoesAlunoPage() {
           </Secao>
 
           <Secao {...SECOES[5]}>
-            <div className="faq">
-              {FAQ.map((item) => (
-                <details key={item.p}>
-                  <summary>{item.p}</summary>
-                  <p>{item.r}</p>
-                </details>
-              ))}
-            </div>
-            <div className="contact-card">
-              <Icon name="mail" size={20} />
-              <div>
-                <strong>Coordenação do programa</strong>
-                <span>Renata — <a href="mailto:renata@pucminas.edu.br">renata@pucminas.edu.br</a></span>
+            <div className="support-layout">
+              <div className="support-faq">
+                <p className="support-lead">Perguntas frequentes</p>
+                <div className="faq">
+                  {FAQ.map((item) => (
+                    <details key={item.p}>
+                      <summary>{item.p}</summary>
+                      <p>{item.r}</p>
+                    </details>
+                  ))}
+                </div>
               </div>
+              <aside className="support-aside">
+                <p className="support-lead">Contato</p>
+                <p className="support-copy">Não encontrou o que precisava? Fale com a coordenação do programa.</p>
+                <a className="contact-card" href="mailto:renata@pucminas.edu.br">
+                  <span>
+                    <strong>Renata</strong>
+                    <small>renata@pucminas.edu.br</small>
+                  </span>
+                </a>
+              </aside>
             </div>
           </Secao>
         </div>

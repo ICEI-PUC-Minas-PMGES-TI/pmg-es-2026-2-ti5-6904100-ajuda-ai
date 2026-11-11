@@ -9,5 +9,7 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.spec.ts'],
+    // Testes usam repositórios em memória com a base demo.
+    env: { SEED_DEMO_DATA: 'true' },
   },
 });

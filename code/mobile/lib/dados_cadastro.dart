@@ -6,6 +6,7 @@ class DadosCadastro {
     required this.periodo,
     required this.turno,
     this.interesses = const [],
+    this.sobre,
     this.expectativaPadrinho,
     this.outrasInformacoes,
     this.areasApoio = const [],
@@ -13,7 +14,8 @@ class DadosCadastro {
     this.genero,
     this.bolsistaProuni,
     this.deOutraCidade,
-    this.declaraPreRequisitos,
+    this.requisitosCumpridos = const {},
+    this.declaraPrimeiroPeriodo = false,
     this.extras = const {},
   });
 
@@ -23,6 +25,9 @@ class DadosCadastro {
   final int periodo;
   final String turno;
   final List<String> interesses;
+
+  /// Texto opcional exibido no perfil, preenchido pelo próprio aluno.
+  final String? sobre;
 
   /// Apadrinhado: o que espera do padrinho. Padrinho: motivação.
   final String? expectativaPadrinho;
@@ -37,8 +42,12 @@ class DadosCadastro {
   final bool? bolsistaProuni;
   final bool? deOutraCidade;
 
-  /// Padrinho: declarou aprovação em AEDS 1 e Cálculo 1.
-  final bool? declaraPreRequisitos;
+  /// Padrinho: id do requisito do ciclo → declarou que cumpre. Os
+  /// requisitos vêm da coordenação (backend); nada é fixo no app.
+  final Map<String, bool> requisitosCumpridos;
+
+  /// Apadrinhado: declaração explícita de 1º período.
+  final bool declaraPrimeiroPeriodo;
 
   /// Respostas às perguntas adicionais do formulário publicado.
   final Map<String, dynamic> extras;
@@ -57,7 +66,8 @@ class DadosCadastro {
     required String? genero,
     required bool? bolsistaProuni,
     required bool? deOutraCidade,
-    bool? declaraPreRequisitos,
+    Map<String, bool>? requisitosCumpridos,
+    bool? declaraPrimeiroPeriodo,
     Map<String, dynamic>? extras,
   }) {
     return DadosCadastro(
@@ -67,6 +77,7 @@ class DadosCadastro {
       periodo: periodo,
       turno: turno,
       interesses: interesses,
+      sobre: sobre,
       expectativaPadrinho: expectativaPadrinho,
       outrasInformacoes: outrasInformacoes,
       areasApoio: areasApoio,
@@ -74,7 +85,9 @@ class DadosCadastro {
       genero: genero,
       bolsistaProuni: bolsistaProuni,
       deOutraCidade: deOutraCidade,
-      declaraPreRequisitos: declaraPreRequisitos ?? this.declaraPreRequisitos,
+      requisitosCumpridos: requisitosCumpridos ?? this.requisitosCumpridos,
+      declaraPrimeiroPeriodo:
+          declaraPrimeiroPeriodo ?? this.declaraPrimeiroPeriodo,
       extras: extras ?? this.extras,
     );
   }
@@ -86,6 +99,8 @@ class DadosCadastro {
     int? periodo,
     String? turno,
     List<String>? interesses,
+    String? sobre,
+    bool limparSobre = false,
   }) {
     return DadosCadastro(
       nome: nome ?? this.nome,
@@ -94,6 +109,7 @@ class DadosCadastro {
       periodo: periodo ?? this.periodo,
       turno: turno ?? this.turno,
       interesses: interesses ?? this.interesses,
+      sobre: limparSobre ? null : sobre ?? this.sobre,
       expectativaPadrinho: expectativaPadrinho,
       outrasInformacoes: outrasInformacoes,
       areasApoio: areasApoio,
@@ -101,7 +117,8 @@ class DadosCadastro {
       genero: genero,
       bolsistaProuni: bolsistaProuni,
       deOutraCidade: deOutraCidade,
-      declaraPreRequisitos: declaraPreRequisitos,
+      requisitosCumpridos: requisitosCumpridos,
+      declaraPrimeiroPeriodo: declaraPrimeiroPeriodo,
       extras: extras,
     );
   }
@@ -119,7 +136,7 @@ class DadosCadastro {
     'interesses': interesses,
   };
 
-  /// Corpo `respostas` de `POST /participacoes/cadastro-apadrinhado`.
+  /// Corpo `respostas` do cadastro como apadrinhado (`POST /cadastro`).
   Map<String, dynamic> respostasApadrinhado() => {
     ..._perfil(),
     'genero': ?genero,
@@ -129,10 +146,11 @@ class DadosCadastro {
     'areas': areasApoio,
     'expectativa': ?_texto(expectativaPadrinho),
     'outrasInformacoes': ?_texto(outrasInformacoes),
+    'declaraPrimeiroPeriodo': declaraPrimeiroPeriodo,
     'extras': extras,
   };
 
-  /// Corpo `respostas` de `POST /participacoes/candidatura-padrinho`.
+  /// Corpo `respostas` do cadastro como padrinho (`POST /cadastro`).
   Map<String, dynamic> respostasPadrinho() => {
     ..._perfil(),
     'motivacao': ?_texto(expectativaPadrinho),
@@ -142,7 +160,10 @@ class DadosCadastro {
     'genero': ?genero,
     'bolsistaProuni': ?bolsistaProuni,
     'deOutraCidade': ?deOutraCidade,
-    'declaraPreRequisitos': declaraPreRequisitos ?? false,
+    'requisitos': [
+      for (final item in requisitosCumpridos.entries)
+        {'id': item.key, 'cumpre': item.value},
+    ],
     'extras': extras,
   };
 
@@ -164,6 +185,7 @@ class DadosCadastro {
       interesses: respostas['interesses'] is List
           ? lista(respostas['interesses'])
           : interesses,
+      sobre: _texto(respostas['sobre'] as String?) ?? sobre,
       expectativaPadrinho:
           (padrinho ? respostas['motivacao'] : respostas['expectativa'])
               as String?,
@@ -177,7 +199,12 @@ class DadosCadastro {
       genero: respostas['genero'] as String?,
       bolsistaProuni: respostas['bolsistaProuni'] as bool?,
       deOutraCidade: respostas['deOutraCidade'] as bool?,
-      declaraPreRequisitos: respostas['declaraPreRequisitos'] as bool?,
+      requisitosCumpridos: {
+        for (final item in (respostas['requisitos'] as List? ?? const []))
+          if (item is Map && item['id'] != null)
+            '${item['id']}': item['cumpre'] == true,
+      },
+      declaraPrimeiroPeriodo: respostas['declaraPrimeiroPeriodo'] == true,
       extras: extrasSalvos is Map
           ? Map<String, dynamic>.from(extrasSalvos)
           : const {},

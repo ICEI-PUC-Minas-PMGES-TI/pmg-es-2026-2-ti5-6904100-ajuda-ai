@@ -4,20 +4,15 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'dados_cadastro.dart';
+import 'sessao_usuario.dart';
 import 'tela_participacao.dart';
 import 'theme/colors.dart';
 import 'widgets/campos_cadastro.dart';
 
 class CadastroPage extends StatefulWidget {
-  // TODO: receber nome e e-mail do login com a Microsoft;
-  const CadastroPage({
-    super.key,
-    this.nome = 'Camila Duarte',
-    this.email = 'camila@pucminas.edu.br',
-  });
-
-  final String nome;
-  final String email;
+  /// Nome e e-mail vêm de [SessaoUsuario.identidade]. Sem essa conta, a tela
+  /// não preenche ninguém e não deixa continuar.
+  const CadastroPage({super.key});
 
   @override
   State<CadastroPage> createState() => _CadastroPageState();
@@ -44,6 +39,7 @@ class _CadastroPageState extends State<CadastroPage> {
 
   late final TextEditingController _nomeController;
   Uint8List? _foto;
+  bool _salvando = false;
   String _curso = _cursos.first;
   int _periodo = 1;
   String _turno = 'Noite';
@@ -52,7 +48,9 @@ class _CadastroPageState extends State<CadastroPage> {
   @override
   void initState() {
     super.initState();
-    _nomeController = TextEditingController(text: widget.nome);
+    _nomeController = TextEditingController(
+      text: SessaoUsuario.atual.identidade?.nome ?? '',
+    );
   }
 
   @override
@@ -71,7 +69,19 @@ class _CadastroPageState extends State<CadastroPage> {
     setState(() => _foto = bytes);
   }
 
-  void _continuar() {
+  Future<void> _continuar() async {
+    if (_salvando) return;
+    final email = SessaoUsuario.atual.identidade?.email;
+    if (email == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Entre com a conta institucional antes de completar o perfil.',
+          ),
+        ),
+      );
+      return;
+    }
     if (_nomeController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Informe seu nome completo.')),
@@ -79,20 +89,45 @@ class _CadastroPageState extends State<CadastroPage> {
       return;
     }
 
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ParticipacaoPage(
-          dados: DadosCadastro(
-            nome: _nomeController.text.trim(),
-            email: widget.email,
-            curso: _curso,
-            periodo: _periodo,
-            turno: _turno,
-            interesses: List.of(_interesses),
-          ),
+    setState(() => _salvando = true);
+    try {
+      final sessao = SessaoUsuario.atual;
+      await sessao.salvarPerfil(
+        DadosCadastro(
+          nome: _nomeController.text.trim(),
+          email: email,
+          curso: _curso,
+          periodo: _periodo,
+          turno: _turno,
+          interesses: List.of(_interesses),
         ),
-      ),
-    );
+      );
+      if (_foto != null) {
+        try {
+          sessao.fotoUrl = await sessao.participacoesApi.enviarFoto(_foto!);
+        } catch (erro) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Perfil salvo. Foto não enviada: $erro')),
+            );
+          }
+        }
+      }
+      await sessao.carregarContexto();
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ParticipacaoPage(dados: sessao.dados!),
+        ),
+      );
+    } catch (erro) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$erro')));
+      }
+    } finally {
+      if (mounted) setState(() => _salvando = false);
+    }
   }
 
   @override
@@ -135,7 +170,7 @@ class _CadastroPageState extends State<CadastroPage> {
           icone: Icons.mail_outline,
           bloqueado: true,
           child: Text(
-            widget.email,
+            SessaoUsuario.atual.identidade?.email ?? '',
             overflow: TextOverflow.ellipsis,
             style: EstiloCampo.valor.copyWith(color: AppColors.muted),
           ),

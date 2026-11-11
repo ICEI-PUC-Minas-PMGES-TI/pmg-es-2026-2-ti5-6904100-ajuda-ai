@@ -1,22 +1,47 @@
-import type { Repository } from 'typeorm';
 import { ParticipacaoEntity } from './entities/participacao.entity.js';
+import {
+  repositorioEmMemoria,
+  conectarRepositorios,
+} from '../../test/helpers/repositorio-memoria.js';
+import { conferirTudo } from '../../test/helpers/conferencia-academica.js';
+import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ParticipacoesService } from './participacoes.service.js';
+
+/** Ciclos cadastrados usados nestes testes (participação exige ciclo existente). */
+const ciclos = () =>
+  repositorioEmMemoria(
+    [
+      ...new Set([
+        '2025/2',
+        '2026/1',
+        '2026/2',
+        ParticipacoesService.programaAtual(),
+      ]),
+    ].map(
+      (codigo, i) =>
+        ({ id: i + 1, codigo, etapaAtual: 'formacao' }) as ProgramaEntity,
+    ),
+  );
 
 describe('ParticipacoesService', () => {
   let registros: ParticipacaoEntity[];
-  let proximoId: number;
   let service: ParticipacoesService;
 
   beforeEach(() => {
     registros = [];
-    proximoId = 1;
-    service = new ParticipacoesService(criarRepo());
+    const repo = repositorioEmMemoria(registros);
+    const programas = ciclos();
+    conectarRepositorios({
+      ParticipacaoEntity: repo,
+      ProgramaEntity: programas,
+    });
+    service = new ParticipacoesService(repo, programas);
   });
 
   it('lista vazio quando o usuário não tem participações', async () => {
-    await expect(service.listarPorUsuario('camila@pucminas.edu.br')).resolves.toEqual(
-      [],
-    );
+    await expect(
+      service.listarPorUsuario('camila@pucminas.edu.br'),
+    ).resolves.toEqual([]);
   });
 
   it('registra candidatura uma única vez (idempotente)', async () => {
@@ -24,12 +49,14 @@ describe('ParticipacoesService', () => {
       usuarioId: 'camila@pucminas.edu.br',
       programa: '2026/2',
     });
-    const segunda = await service.registrarCandidaturaPadrinho({
-      usuarioId: 'Camila@pucminas.edu.br',
-      programa: '2026/2',
-    });
+    await expect(
+      service.registrarCandidaturaPadrinho({
+        usuarioId: 'Camila@pucminas.edu.br',
+        programa: '2026/2',
+      }),
+    ).rejects.toThrow(/Já existe/);
 
-    expect(primeira.id).toBe(segunda.id);
+    expect(primeira.id).toBeDefined();
     expect(primeira.papel).toBe('candidato');
     expect(primeira.status).toBe('pendente');
     expect(registros).toHaveLength(1);
@@ -45,23 +72,57 @@ describe('ParticipacoesService', () => {
     expect(registro.status).not.toBe('em_andamento');
   });
 
-  it('confirma ingresso e preserva histórico de ciclos distintos', async () => {
-    await service.confirmarIngresso({
+  it.each([true, false])(
+    'preserva a resposta booleana %s no cadastro',
+    async (resposta) => {
+      const registro = await service.registrarCandidaturaPadrinho({
+        usuarioId: '1',
+        programa: '2026/2',
+        respostas: { extras: { 'pergunta-sim-nao': resposta } },
+      });
+
+      expect(registro.respostas?.extras).toEqual({
+        'pergunta-sim-nao': resposta,
+      });
+    },
+  );
+
+  it('mantém a sanitização dos demais tipos de respostas extras', async () => {
+    const registro = await service.registrarCandidaturaPadrinho({
       usuarioId: '1',
-      papel: 'apadrinhado',
+      programa: '2026/2',
+      respostas: {
+        extras: {
+          texto: '  resposta  ',
+          checklist: [' opção 1 ', 'opção 2'],
+        },
+      },
+    });
+
+    expect(registro.respostas?.extras).toEqual({
+      texto: 'resposta',
+      checklist: ['opção 1', 'opção 2'],
+    });
+  });
+
+  it('confirma ingresso e preserva histórico de ciclos distintos', async () => {
+    await service.cadastrarApadrinhado({
+      usuarioId: '1',
       programa: '2026/1',
     });
     await service.registrarCandidaturaPadrinho({
       usuarioId: '1',
       programa: '2026/2',
     });
-    await service.confirmarIngresso({
-      usuarioId: '1',
-      papel: 'padrinho',
+    const candidato = (await service.registroPrincipal('1', '2026/2'))!;
+    await conferirTudo(service, candidato.id);
+    await service.aprovarCandidatura(candidato.id);
+    const apadrinhado = await service.cadastrarApadrinhado({
+      usuarioId: 'calouro',
       programa: '2026/2',
-      grupo: 'Grupo 08',
-      apadrinhados: 2,
+      statusInicial: 'em_andamento',
     });
+    await service.vincular(apadrinhado.id, candidato.id);
 
     // confirmação repetida não duplica
     await service.confirmarIngresso({
@@ -70,7 +131,9 @@ describe('ParticipacoesService', () => {
       programa: '2026/2',
     });
 
-    const lista = await service.listarPorUsuario('1');
+    const lista = (await service.listarPorUsuario('1')).sort((a, b) =>
+      b.programa.localeCompare(a.programa),
+    );
     expect(lista).toHaveLength(2);
     expect(lista[0].programa).toBe('2026/2');
     expect(lista[0].papel).toBe('padrinho');
@@ -80,9 +143,8 @@ describe('ParticipacoesService', () => {
   });
 
   it('rejeita candidatura sem apagar histórico anterior', async () => {
-    await service.confirmarIngresso({
+    await service.cadastrarApadrinhado({
       usuarioId: '2',
-      papel: 'apadrinhado',
       programa: '2025/2',
     });
     await service.registrarCandidaturaPadrinho({
@@ -90,6 +152,7 @@ describe('ParticipacoesService', () => {
       programa: '2026/2',
     });
     await service.rejeitarCandidatura({
+      justificativa: 'Requisitos não confirmados.',
       usuarioId: '2',
       programa: '2026/2',
     });
@@ -104,52 +167,30 @@ describe('ParticipacoesService', () => {
     );
   });
 
-  function criarRepo(): Repository<ParticipacaoEntity> {
-    return {
-      create: (dados: Partial<ParticipacaoEntity>) =>
-        ({ ...dados }) as ParticipacaoEntity,
-      save: async (entidade: ParticipacaoEntity) => {
-        if (!entidade.id) {
-          entidade.id = proximoId++;
-          entidade.criadoEm = new Date();
-          entidade.atualizadoEm = new Date();
-          registros.push(entidade);
-          return entidade;
-        }
-        const indice = registros.findIndex((r) => r.id === entidade.id);
-        entidade.atualizadoEm = new Date();
-        if (indice >= 0) {
-          registros[indice] = entidade;
-        } else {
-          registros.push(entidade);
-        }
-        return entidade;
-      },
-      find: async (opcoes?: {
-        where?: { usuarioId?: string };
-        order?: { programa?: 'ASC' | 'DESC' };
-      }) => {
-        let lista = registros.filter(
-          (r) => r.usuarioId === opcoes?.where?.usuarioId,
-        );
-        lista = [...lista].sort((a, b) =>
-          b.programa.localeCompare(a.programa),
-        );
-        return lista;
-      },
-      findOne: async (opcoes: {
-        where: {
-          usuarioId: string;
-          programa: string;
-          papel: string;
-        };
-      }) =>
-        registros.find(
-          (r) =>
-            r.usuarioId === opcoes.where.usuarioId &&
-            r.programa === opcoes.where.programa &&
-            r.papel === opcoes.where.papel,
-        ) ?? null,
-    } as unknown as Repository<ParticipacaoEntity>;
-  }
+  it('registra justificativa e coordenador na auditoria da revogação', async () => {
+    const justificativa = 'Revisão dos requisitos.';
+    const coordenador = 'coordenador@example.com';
+    const candidatura = await service.registrarCandidaturaPadrinho({
+      usuarioId: 'candidato@example.com',
+      programa: '2026/2',
+    });
+    await conferirTudo(service, candidatura.id);
+    await service.aprovarCandidatura(candidatura.id, coordenador);
+
+    const revogada = await service.revogarAprovacao(
+      candidatura.id,
+      justificativa,
+      coordenador,
+    );
+
+    expect(revogada.status).toBe('nao_aprovado');
+    expect(revogada.respostas?._servidor?.decisao).toMatchObject({
+      resultado: 'nao_aprovado',
+      justificativa,
+      por: coordenador,
+    });
+    expect(
+      new Date(revogada.respostas?._servidor?.decisao?.em ?? '').toString(),
+    ).not.toBe('Invalid Date');
+  });
 });
