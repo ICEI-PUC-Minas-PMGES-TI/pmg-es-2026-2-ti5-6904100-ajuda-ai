@@ -251,17 +251,11 @@ export class CadastroService {
         manager.getRepository(FormularioEntity),
         programasService,
       );
-      const formulario =
-        d.tipoParticipacao === 'padrinho'
-          ? await formularios.validarRespostasPadrinho(
-              ciclo.codigo,
-              d.respostas.extras,
-            )
-          : await formularios.validarRespostas(
-              'apadrinhado',
-              ciclo.codigo,
-              d.respostas.extras,
-            );
+      const formulario = await formularios.validarRespostas(
+        d.tipoParticipacao,
+        ciclo.codigo,
+        d.respostas.extras,
+      );
       const requisitos =
         d.tipoParticipacao === 'padrinho'
           ? await this.avaliarRequisitosPadrinho(ciclo.codigo, d.respostas)
@@ -287,6 +281,34 @@ export class CadastroService {
         ) {
           throw new BadRequestException(
             'Preencha motivação, áreas de apoio, disponibilidade, gênero, ProUni e cidade.',
+          );
+        }
+      } else {
+        const respostas = d.respostas;
+        if (respostas.declaraPrimeiroPeriodo !== true) {
+          throw new BadRequestException(
+            'Declare que você está no 1º período para se candidatar como apadrinhado.',
+          );
+        }
+        if (
+          typeof respostas.expectativa !== 'string' ||
+          !respostas.expectativa.trim() ||
+          respostas.expectativa.length > 500 ||
+          !Array.isArray(respostas.areas) ||
+          !respostas.areas.length ||
+          respostas.areas.some((v) => typeof v !== 'string' || !v.trim()) ||
+          !Array.isArray(respostas.disponibilidade) ||
+          !respostas.disponibilidade.length ||
+          respostas.disponibilidade.some(
+            (v) => typeof v !== 'string' || !v.trim(),
+          ) ||
+          typeof respostas.genero !== 'string' ||
+          !respostas.genero.trim() ||
+          typeof respostas.bolsistaProuni !== 'boolean' ||
+          typeof respostas.deOutraCidade !== 'boolean'
+        ) {
+          throw new BadRequestException(
+            'Preencha expectativa, áreas de apoio, disponibilidade, gênero, ProUni e cidade.',
           );
         }
       }
@@ -357,6 +379,16 @@ export class CadastroService {
       email,
       programa,
     );
+    if (registro) {
+      const canonicos =
+        await this.participacoesService.listarVinculados(registro);
+      if (canonicos.length)
+        return canonicos.map(({ participacao, vinculoId }) => ({
+          ...perfilDoRegistro(participacao),
+          grupo: null,
+          vinculoId,
+        }));
+    }
     const grupo = registro?.grupo?.trim();
     if (
       !registro ||
@@ -447,6 +479,9 @@ export class CadastroService {
           ? (participacao.respostas?._servidor?.decisao?.justificativa ?? null)
           : null,
       analisadoPor: participacao?.respostas?._servidor?.decisao?.por ?? null,
+      analisadoEm: participacao?.respostas?._servidor?.decisao?.em ?? null,
+      formularioRespondido:
+        participacao?.respostas?._servidor?.formulario ?? null,
       participacao: participacao ? serializarParticipacao(participacao) : null,
       respostas: participacao?.respostas ?? {},
       historico: participacoes
@@ -472,6 +507,32 @@ export class CadastroService {
       throw new BadRequestException(
         'Conta sem candidatura. Selecione uma participação.',
       );
+    const periodo = Number(participacao.respostas?.periodo);
+    if (participacao.papel === 'candidato') {
+      if (Number.isInteger(periodo) && periodo < 2) {
+        throw new BadRequestException(
+          'Não é possível aprovar: padrinhos precisam estar a partir do 2º período.',
+        );
+      }
+      await this.avaliarRequisitosPadrinho(
+        participacao.programa,
+        participacao.respostas ?? {},
+      );
+    } else if (participacao.papel === 'apadrinhado') {
+      if (Number.isInteger(periodo) && periodo !== 1) {
+        throw new BadRequestException(
+          'Não é possível aprovar: apadrinhados precisam estar no 1º período.',
+        );
+      }
+      if (
+        participacao.respostas?.declaraPrimeiroPeriodo !== true &&
+        periodo !== 1
+      ) {
+        throw new BadRequestException(
+          'Não é possível aprovar sem declaração de 1º período.',
+        );
+      }
+    }
     await this.participacoesService.aprovarCandidatura(
       participacao.id,
       coordenador,
@@ -485,6 +546,12 @@ export class CadastroService {
     coordenador: string,
     programa?: string,
   ) {
+    const justificativa = typeof motivo === 'string' ? motivo.trim() : '';
+    if (!justificativa) {
+      throw new BadRequestException(
+        'Justificativa de rejeição obrigatória (até 1000 caracteres).',
+      );
+    }
     const usuario = await this.usuariosService.buscarPorId(id);
     const participacao = this.participacaoDoCadastro(
       usuario,
@@ -497,7 +564,7 @@ export class CadastroService {
       );
     await this.participacoesService.rejeitarCandidaturaPorId(
       participacao.id,
-      motivo,
+      justificativa,
       coordenador,
     );
     return this.detalhar(id, participacao.programa);

@@ -5,8 +5,12 @@ import {
 } from '../../test/helpers/repositorio-memoria.js';
 import type { AuthService } from '../auth/auth.service.js';
 import { CoordenacaoService } from '../coordenacao/coordenacao.service.js';
-import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
+import {
+  ParticipacaoEntity,
+  type RespostasCadastro,
+} from '../participacoes/entities/participacao.entity.js';
 import { ParticipacoesService } from '../participacoes/participacoes.service.js';
+import { conferirTudo } from '../../test/helpers/conferencia-academica.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ProgramasService } from '../programas/programas.service.js';
 import { UsuarioEntity } from '../usuarios/entities/usuario.entity.js';
@@ -23,6 +27,16 @@ const cronograma = {
   analiseInicio: '2099-12-31', analiseFim: '2099-12-31',
   formacaoInicio: '2099-12-31', formacaoFim: '2099-12-31',
   andamentoInicio: '2099-12-31', andamentoFim: '2099-12-31', encerramentoEm: '2099-12-31',
+};
+
+const respostasApadrinhado: RespostasCadastro = {
+  areas: ['Rotina'],
+  disponibilidade: ['Noite'],
+  genero: 'Prefiro não informar',
+  bolsistaProuni: false,
+  deOutraCidade: false,
+  expectativa: 'Quero apoio na adaptação.',
+  declaraPrimeiroPeriodo: true,
 };
 describe('Cadastro × ciclos, requisitos e transição', () => {
   const COORD = 'renata@pucminas.edu.br';
@@ -95,12 +109,13 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
   const EMAIL = 'veterano@pucminas.edu.br';
   const usuario = () => usuarios.find((u) => u.email === EMAIL)!;
   const todos = (programa: string) =>
+    // O payload envia id/cumpre; descrição e obrigatoriedade vêm do servidor.
     ({
       requisitos: (programa === '2026/2'
         ? ['calculo-i']
         : ['calculo-i', 'aed-i']
       ).map((id) => ({ id, cumpre: true })),
-    }) as never;
+    }) as Pick<RespostasCadastro, 'requisitos'>;
   const padrinho = (
     programa: string,
     periodo = 4,
@@ -122,9 +137,19 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       ...respostas,
     },
   });
+  const respostasApadrinhado = {
+    declaraPrimeiroPeriodo: true,
+    expectativa: 'Espero apoio nos estudos.',
+    areas: ['Acadêmico'],
+    disponibilidade: ['Noite'],
+    genero: 'Prefiro não informar',
+    bolsistaProuni: false,
+    deOutraCidade: false,
+  };
 
   async function aprovadoEm2026_2() {
     const { participacao } = await cadastro.registrar(padrinho('2026/2'));
+    await conferirTudo(participacoesService, participacao.id);
     await coordenacao.aprovarCandidatura(participacao.id, COORD);
     expect(usuario().statusCadastro).toBe('aprovado');
     return usuario().analisadoEm;
@@ -227,7 +252,10 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       periodo: 1,
       tipoParticipacao: 'apadrinhado',
       programa: '2027/1',
-      respostas: { requisitos: [{ id: 'x', cumpre: true }] } as never,
+      respostas: {
+        ...respostasApadrinhado,
+        requisitos: [{ id: 'x', cumpre: true }],
+      } as never,
     });
     expect(participacao.respostas?.requisitos).toBeUndefined();
   });
@@ -278,6 +306,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       periodo: 1,
       tipoParticipacao: 'apadrinhado',
       programa: '2028/2',
+      respostas: respostasApadrinhado,
     });
     expect(participacao.programa).toBe('2028/2');
   });
@@ -300,6 +329,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
 
   it('aprovação inicial decide somente a candidatura', async () => {
     const { participacao } = await cadastro.registrar(padrinho('2026/2'));
+    await conferirTudo(participacoesService, participacao.id);
     await coordenacao.aprovarCandidatura(participacao.id, COORD);
     expect(usuario()).toMatchObject({
       statusCadastro: 'aprovado',
@@ -350,8 +380,20 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     });
 
     const { participacao: f2 } = await cadastro.registrar(padrinho('2027/2'));
+    // Aprovação em massa também exige a conferência acadêmica (F09).
+    const semConferencia = await coordenacao.acaoEmMassa(
+      { ids: [f2.id], acao: 'aprovar' },
+      COORD,
+    );
+    expect(semConferencia.sucesso).toBe(0);
+    expect(semConferencia.falhas[0].erro).toMatch(/conferência acadêmica/);
+    // a falha desfaz a transação: relê o registro em vez de usar `f2`
+    const atual = () => participacoes.find((p) => p.id === f2.id)!;
+    expect(atual().status).toBe('pendente');
+
+    await conferirTudo(participacoesService, f2.id);
     await coordenacao.acaoEmMassa({ ids: [f2.id], acao: 'aprovar' }, COORD);
-    expect(f2).toMatchObject({ papel: 'candidato', status: 'aprovado' });
+    expect(atual()).toMatchObject({ papel: 'candidato', status: 'aprovado' });
     expect(usuario()).toMatchObject({
       statusCadastro: 'aprovado',
       analisadoEm,
@@ -382,7 +424,9 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       periodo: 1,
       tipoParticipacao: 'apadrinhado',
       programa: '2026/2',
+      respostas: respostasApadrinhado,
     });
+    await conferirTudo(participacoesService, participacao.id);
     await cadastro.aprovar(u.id, COORD);
     expect(participacao.status).toBe('em_andamento');
     return { usuario: u, apadrinhado: participacao };
@@ -422,6 +466,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
     const analisadoEm = usuario().analisadoEm;
     const { participacao } = await cadastro.registrar(padrinho('2027/1', 2));
 
+    await conferirTudo(participacoesService, participacao.id);
     await coordenacao.aprovarCandidatura(participacao.id, COORD);
 
     expect(participacao).toMatchObject({
@@ -469,6 +514,7 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       periodo: 1,
       tipoParticipacao: 'apadrinhado',
       programa: '2026/2',
+      respostas: respostasApadrinhado,
     });
     const nova = await cadastro.registrar(padrinho('2027/1', 2));
     expect(nova.participacao).toMatchObject({
@@ -477,5 +523,132 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       status: 'pendente',
     });
     expect(participacoes).toHaveLength(2);
+  });
+
+  /* ---------- F09: verificação acadêmica e aprovação ---------- */
+
+  const ITENS_2026_2 = [
+    'matricula_ativa',
+    'periodo_minimo',
+    'programa:calculo-i',
+  ];
+  const marcar = (naoAtende: string[] = []) =>
+    ITENS_2026_2.map((id) => ({ id, atende: !naoAtende.includes(id) }));
+
+  it('F09: detalhe traz os dados para conferência e os itens do papel e do programa', async () => {
+    const { participacao } = await cadastro.registrar(padrinho('2026/2'));
+    const detalhe = await coordenacao.detalharCandidatura(participacao.id);
+    expect(detalhe.conferencia.itens.map((i) => i.id)).toEqual(ITENS_2026_2);
+    expect(detalhe.conferencia).toMatchObject({
+      verificacao: null,
+      anteriores: [],
+      podeRegistrar: true,
+      dadosParaConsulta: {
+        nome: 'Veterano',
+        email: EMAIL,
+        curso: 'SI',
+        periodo: 4,
+        programa: '2026/2',
+        papel: 'Candidato a padrinho',
+      },
+    });
+    expect(detalhe.vinculos).toEqual([]);
+  });
+
+  it('F09: registra a conferência e só aprova com os requisitos atendidos', async () => {
+    const { participacao } = await cadastro.registrar(padrinho('2026/2'));
+    await expect(
+      coordenacao.aprovarCandidatura(participacao.id, COORD),
+    ).rejects.toThrow(/conferência acadêmica/);
+
+    const naoAtende = await coordenacao.registrarVerificacao(
+      participacao.id,
+      {
+        itens: marcar(['programa:calculo-i']),
+        observacoes: 'Histórico sem Cálculo I.',
+      },
+      COORD,
+    );
+    expect(naoAtende.status).toBe('em_analise');
+    expect(naoAtende.conferencia.verificacao).toMatchObject({
+      resultado: 'requisitos_nao_atendidos',
+      observacoes: 'Histórico sem Cálculo I.',
+      por: COORD,
+    });
+    expect(
+      Number.isNaN(Date.parse(naoAtende.conferencia.verificacao!.em)),
+    ).toBe(false);
+    await expect(
+      coordenacao.aprovarCandidatura(participacao.id, COORD),
+    ).rejects.toThrow(/não atendidos/);
+
+    // "situação da análise" na listagem
+    const comPendencia = await coordenacao.listarCandidaturas(
+      '2026/2',
+      undefined,
+      'candidato',
+      'requisitos_nao_atendidos',
+    );
+    expect(comPendencia.map((c) => [c.id, c.conferencia])).toEqual([
+      [participacao.id, 'requisitos_nao_atendidos'],
+    ]);
+    expect(
+      await coordenacao.listarCandidaturas(
+        '2026/2',
+        undefined,
+        'candidato',
+        'pendente',
+      ),
+    ).toEqual([]);
+
+    const corrigida = await coordenacao.registrarVerificacao(
+      participacao.id,
+      { itens: marcar() },
+      COORD,
+    );
+    expect(corrigida.conferencia.verificacao?.resultado).toBe(
+      'requisitos_atendidos',
+    );
+    expect(corrigida.conferencia.anteriores).toHaveLength(1);
+
+    const aprovada = await coordenacao.aprovarCandidatura(
+      participacao.id,
+      COORD,
+    );
+    expect(aprovada).toMatchObject({
+      status: 'aprovado',
+      conferencia: { podeRegistrar: false },
+      decisao: { resultado: 'aprovado', por: COORD },
+    });
+  });
+
+  it('F09: lista candidaturas por papel e valida os filtros', async () => {
+    await cadastro.registrar(padrinho('2026/2'));
+    await cadastro.registrar({
+      email: 'calouro@pucminas.edu.br',
+      nome: 'Calouro',
+      curso: 'SI',
+      periodo: 1,
+      tipoParticipacao: 'apadrinhado',
+      programa: '2026/2',
+      respostas: respostasApadrinhado,
+    });
+    const apadrinhados = await coordenacao.listarCandidaturas(
+      '2026/2',
+      'aguardando',
+      'apadrinhado',
+    );
+    expect(apadrinhados.map((c) => [c.papel, c.email])).toEqual([
+      ['apadrinhado', 'calouro@pucminas.edu.br'],
+    ]);
+    expect(
+      (await coordenacao.listarCandidaturas('2026/2')).map((c) => c.papel),
+    ).toEqual(['candidato']);
+    await expect(
+      coordenacao.listarCandidaturas('2026/2', undefined, 'coordenador'),
+    ).rejects.toThrow(/Papel inválido/);
+    await expect(
+      coordenacao.listarCandidaturas('2026/2', undefined, undefined, 'talvez'),
+    ).rejects.toThrow(/Conferência inválida/);
   });
 });

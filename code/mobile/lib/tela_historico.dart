@@ -92,23 +92,43 @@ class _HistoricoParticipacaoPageState extends State<HistoricoParticipacaoPage> {
               children: [
                 const CabecalhoLogos(),
                 const SizedBox(height: 16),
-                const Text(
-                  'Histórico de participação',
-                  style: TextStyle(
-                    color: AppColors.ink,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Veja sua trajetória no programa Ajuda Aí.',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    color: AppColors.muted,
-                    fontSize: 13,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Image.asset(
+                      'assets/images/historico.png',
+                      width: 72,
+                      height: 72,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Histórico de participação',
+                            style: TextStyle(
+                              color: AppColors.ink,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.4,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Veja sua evolução no programa e seus papéis em cada ciclo.',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              color: AppColors.muted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 20),
                 if (_carregando)

@@ -1,12 +1,89 @@
 import 'dart:convert';
 
 import 'package:ajuda_ai/coordenacao/tela_matching_coord.dart';
+import 'package:ajuda_ai/coordenacao/tela_matching_manual_coord.dart';
 import 'package:ajuda_ai/coordenacao/tela_programas_coord.dart';
 import 'package:ajuda_ai/services/coordenacao_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+http.Response _json(Object valor, [int status = 200]) => http.Response(
+  jsonEncode(valor),
+  status,
+  headers: {'content-type': 'application/json'},
+);
+
+Map<String, dynamic> get _visao => {
+  'programa': {'codigo': '2026/2'},
+  'configuracao': {
+    'versao': 2,
+    'liberado': true,
+    'capacidadePorPadrinho': 3,
+    'capacidadePorApadrinhado': 1,
+    'criterios': [
+      {
+        'campoPadrinho': 'areas',
+        'campoApadrinhado': 'areas',
+        'operacao': 'intersecao',
+        'peso': 100,
+      },
+    ],
+  },
+  'podeExecutar': true,
+  'bloqueios': [],
+  'criteriosDisponiveis': const [],
+  'totais': {
+    'padrinhosElegiveis': 2,
+    'apadrinhadosElegiveis': 3,
+    'sugestoesPendentes': 1,
+    'vinculos': 0,
+    'pessoasSemVinculo': 3,
+    'outboxPendentes': 0,
+  },
+  'chat': {'disponivel': true, 'pendencias': 0},
+};
+
+Map<String, dynamic> get _sugestao => {
+  'id': 7,
+  'status': 'pendente',
+  'score': '1.0000',
+  'padrinho': {
+    'id': 10,
+    'nome': 'Ana Padrinho',
+    'curso': 'Engenharia',
+    'periodo': 5,
+  },
+  'apadrinhado': {
+    'id': 11,
+    'nome': 'Bia Apadrinhada',
+    'curso': 'Engenharia',
+    'periodo': 1,
+  },
+  'capacidade': {
+    'padrinho': {'restante': 3, 'limite': 3},
+    'apadrinhado': {'restante': 1, 'limite': 1},
+  },
+  'explicacao': {
+    'score': 1,
+    'criterios': [
+      {
+        'campoPadrinho': 'areas',
+        'campoApadrinhado': 'areas',
+        'rotuloPadrinho': 'Áreas',
+        'rotuloApadrinhado': 'Áreas',
+        'considerado': true,
+        'compativel': true,
+        'contribuicao': 100,
+        'peso': 100,
+        'valorPadrinho': ['Tecnologia'],
+        'valorApadrinhado': ['Tecnologia'],
+      },
+    ],
+  },
+  'outbox': [],
+};
 
 Map<String, dynamic> _programa({required bool liberado}) => {
   'codigo': '2026/2',
@@ -39,6 +116,56 @@ Map<String, dynamic> _programaComAcoes({
 };
 
 void main() {
+  test('CoordenacaoApi preserva contratos separados para matching', () async {
+    final pedidos = <http.Request>[];
+    final api = CoordenacaoApi(
+      accessToken: 'jwt',
+      baseUrl: '',
+      client: MockClient((pedido) async {
+        pedidos.add(pedido);
+        return _json({});
+      }),
+    );
+
+    await api.matchingVisao('2026/2');
+    await api.matching(programa: '2026/2');
+    await api.matchingConfiguracao('2026/2');
+    await api.salvarMatchingConfiguracao(
+      programa: '2026/2',
+      liberado: true,
+      capacidadePorPadrinho: 3,
+      capacidadePorApadrinhado: 1,
+      criterios: const [],
+    );
+    await api.encerrarInscricoes('2026/2');
+    await api.liberarMatching('2026/2');
+    await api.executarMatching('2026/2');
+    await api.execucoesMatching('2026/2');
+    await api.sugestoesMatching('2026/2', status: 'pendente');
+    await api.sugestaoMatching(7);
+    await api.aprovarSugestaoMatching(7);
+    await api.recusarSugestaoMatching(7, motivo: 'Revisão');
+
+    expect(pedidos.map((pedido) => pedido.url.path), [
+      '/coordenacao/matching',
+      '/coordenacao/matching/pool',
+      '/coordenacao/matching/config',
+      '/coordenacao/matching/config',
+      '/coordenacao/programas/encerrar-inscricoes',
+      '/coordenacao/programas/liberar-matching',
+      '/coordenacao/matching/executar',
+      '/coordenacao/matching/execucoes',
+      '/coordenacao/matching/sugestoes',
+      '/coordenacao/matching/sugestao/7',
+      '/coordenacao/matching/sugestao/7/aprovar',
+      '/coordenacao/matching/sugestao/7/recusar',
+    ]);
+    expect(pedidos[0].url.queryParameters, containsPair('programa', '2026/2'));
+    expect(pedidos[1].url.queryParameters, containsPair('programa', '2026/2'));
+    expect(pedidos[4].url.queryParameters, containsPair('codigo', '2026/2'));
+    expect(pedidos[5].url.queryParameters, containsPair('codigo', '2026/2'));
+  });
+
   group('Ações do programa', () {
     testWidgets('encerra inscrições sem decidir candidaturas', (tester) async {
       tester.view.physicalSize = const Size(412, 1400);
@@ -157,7 +284,7 @@ void main() {
         isTrue,
       );
       expect(find.textContaining('Matching liberado'), findsWidgets);
-      expect(find.text('Abrir matching manual'), findsOneWidget);
+      expect(find.text('Abrir sugestões de matching'), findsOneWidget);
     });
   });
 
@@ -177,7 +304,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: TelaMatchingCoord(
+          home: TelaMatchingManualCoord(
             api: CoordenacaoApi(
               accessToken: 'token',
               client: client,
@@ -191,7 +318,9 @@ void main() {
 
       expect(find.text('Matching ainda não liberado'), findsOneWidget);
       expect(
-        pedidos.any((request) => request.url.path == '/coordenacao/matching'),
+        pedidos.any(
+          (request) => request.url.path == '/coordenacao/matching/pool',
+        ),
         isFalse,
       );
     });
@@ -225,7 +354,7 @@ void main() {
             headers: {'content-type': 'application/json'},
           );
         }
-        if (request.url.path == '/coordenacao/matching') {
+        if (request.url.path == '/coordenacao/matching/pool') {
           return http.Response(
             jsonEncode({
               'programa': _programa(liberado: true),
@@ -257,7 +386,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: TelaMatchingCoord(
+          home: TelaMatchingManualCoord(
             api: CoordenacaoApi(
               accessToken: 'token',
               client: client,
@@ -311,7 +440,7 @@ void main() {
       expect(pedidos.map((request) => request.url.path), [
         '/coordenacao/programas/encerrar-inscricoes',
         '/coordenacao/programas/liberar-matching',
-        '/coordenacao/matching',
+        '/coordenacao/matching/pool',
       ]);
       for (final request in pedidos) {
         expect(
@@ -321,5 +450,145 @@ void main() {
         );
       }
     });
+
+    test('separa a visão automática do pool manual', () async {
+      final pedidos = <http.Request>[];
+      final client = MockClient((request) async {
+        pedidos.add(request);
+        return http.Response(
+          '{}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final api = CoordenacaoApi(
+        accessToken: 'token',
+        client: client,
+        baseUrl: '',
+      );
+
+      await api.matchingVisao('2026/2');
+      await api.matching(programa: '2026/2');
+
+      expect(pedidos.map((request) => request.url.path), [
+        '/coordenacao/matching',
+        '/coordenacao/matching/pool',
+      ]);
+    });
+  });
+
+  testWidgets('a tela principal carrega as sugestões do contrato automático', (
+    tester,
+  ) async {
+    final pedidos = <http.Request>[];
+    final client = MockClient((request) async {
+      pedidos.add(request);
+      if (request.url.path == '/coordenacao/matching') {
+        return http.Response(
+          jsonEncode({
+            'podeExecutar': false,
+            'bloqueios': ['Ciclo ainda não liberado.'],
+            'configuracao': null,
+            'criteriosDisponiveis': [],
+            'totais': {},
+            'chat': {'disponivel': true, 'pendencias': 0},
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response(
+        '[]',
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TelaMatchingCoord(
+          api: CoordenacaoApi(
+            accessToken: 'token',
+            client: client,
+            baseUrl: '',
+          ),
+          programa: '2026/2',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Matching'), findsWidgets);
+    expect(
+      pedidos.any((request) => request.url.path == '/coordenacao/matching'),
+      isTrue,
+    );
+    expect(
+      pedidos.any((request) => request.url.path == '/coordenacao/matching/pool'),
+      isFalse,
+    );
+  });
+
+  testWidgets('aprovar sugestão cria a conversa privada', (tester) async {
+    tester.view.physicalSize = const Size(600, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final pedidos = <http.Request>[];
+    final client = MockClient((pedido) async {
+      pedidos.add(pedido);
+      switch (pedido.url.path) {
+        case '/coordenacao/matching':
+          return _json(_visao);
+        case '/coordenacao/matching/execucoes':
+          return _json([]);
+        case '/coordenacao/matching/sugestoes':
+          return _json([_sugestao]);
+        case '/coordenacao/matching/sugestao/7':
+          return _json(_sugestao);
+        case '/coordenacao/matching/sugestao/7/aprovar':
+          return _json({
+            'sugestao': {..._sugestao, 'status': 'aprovada'},
+            'chat': {'criado': true, 'eventosPendentes': 0},
+          });
+        default:
+          return _json({'message': 'Rota não simulada'}, 404);
+      }
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TelaMatchingCoord(
+          api: CoordenacaoApi(accessToken: 'jwt', baseUrl: '', client: client),
+          programa: '2026/2',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Chat integrado'), findsOneWidget);
+
+    await tester.tap(find.text('Comparar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Conversa privada'), findsOneWidget);
+    expect(
+      find.text('A conversa privada será criada junto com a aprovação do vínculo.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Aprovar match'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirmar match'));
+    await tester.pumpAndSettle();
+
+    expect(
+      pedidos.where(
+        (pedido) =>
+            pedido.url.path == '/coordenacao/matching/sugestao/7/aprovar',
+      ),
+      hasLength(1),
+    );
+    expect(
+      find.text('Match aprovado. Conversa privada criada.'),
+      findsOneWidget,
+    );
   });
 }

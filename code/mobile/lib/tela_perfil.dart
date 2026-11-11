@@ -12,6 +12,7 @@ import 'tela_feed.dart';
 import 'tela_historico.dart';
 import 'tela_login.dart';
 import 'tela_padrinho_definido.dart';
+import 'tela_resgatar.dart' show formatarXp;
 import 'tela_status_candidatura.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
@@ -76,12 +77,14 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  static const _semSobre = 'Nada informado.';
+
   static const _fallback = _DadosPerfil(
     nome: 'Perfil não carregado',
     curso: '',
     periodo: '1º período',
     email: '',
-    sobre: 'Carregue seu perfil para consultar os dados.',
+    sobre: _semSobre,
   );
 
   late _DadosPerfil _dados;
@@ -109,7 +112,9 @@ class _ProfilePageState extends State<ProfilePage> {
     _cursoController = TextEditingController(text: _dados.curso);
     _periodoController = TextEditingController(text: _dados.periodo);
     _emailController = TextEditingController(text: _dados.email);
-    _sobreController = TextEditingController(text: _dados.sobre);
+    _sobreController = TextEditingController(
+      text: _dados.sobre == _semSobre ? '' : _dados.sobre,
+    );
     _turnoController = TextEditingController();
     _interessesController = TextEditingController();
     _sincronizar();
@@ -178,16 +183,13 @@ class _ProfilePageState extends State<ProfilePage> {
   _DadosPerfil _dadosDaSessao() {
     final sessao = _sessao.dados;
     if (sessao == null) return _fallback;
+    final sobre = sessao.sobre?.trim();
     return _DadosPerfil(
       nome: sessao.nome,
       curso: sessao.curso,
       periodo: '${sessao.periodo}º período',
       email: sessao.email,
-      sobre: sessao.expectativaPadrinho?.trim().isNotEmpty == true
-          ? sessao.expectativaPadrinho!.trim()
-          : sessao.outrasInformacoes?.trim().isNotEmpty == true
-          ? sessao.outrasInformacoes!.trim()
-          : 'Ainda não há uma descrição no perfil.',
+      sobre: sobre == null || sobre.isEmpty ? _semSobre : sobre,
     );
   }
 
@@ -208,7 +210,7 @@ class _ProfilePageState extends State<ProfilePage> {
     _cursoController.text = _dados.curso;
     _periodoController.text = _dados.periodo;
     _emailController.text = _dados.email;
-    _sobreController.text = _dados.sobre;
+    _sobreController.text = _dados.sobre == _semSobre ? '' : _dados.sobre;
     _turnoController.text = _sessao.dados?.turno ?? '';
     _interessesController.text = _sessao.dados?.interesses.join(', ') ?? '';
     setState(() => _editando = true);
@@ -235,6 +237,10 @@ class _ProfilePageState extends State<ProfilePage> {
               .map((v) => v.trim())
               .where((v) => v.isNotEmpty)
               .toList(),
+          sobre: _sobreController.text.trim().isEmpty
+              ? null
+              : _sobreController.text.trim(),
+          limparSobre: _sobreController.text.trim().isEmpty,
         ),
       );
       if (mounted) {
@@ -362,6 +368,17 @@ class _ProfilePageState extends State<ProfilePage> {
               TextButton(
                 onPressed: _salvando ? null : _escolherFoto,
                 child: const Text('Selecionar ou substituir foto'),
+              ),
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'PNG, JPG ou WEBP · até 2 MB',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: AppColors.muted,
+                  ),
+                ),
               ),
               _Identidade(
                 dados: _dados,
@@ -509,8 +526,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 28),
                 SizedBox(
                   width: double.infinity,
-                  child: TextButton(
+                  child: TextButton.icon(
                     onPressed: () => _sair(context),
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text('Sair da conta'),
                     style: TextButton.styleFrom(
                       foregroundColor: const Color(0xFFB91C1C),
                       minimumSize: const Size.fromHeight(44),
@@ -520,7 +539,6 @@ class _ProfilePageState extends State<ProfilePage> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    child: const Text('Sair da conta'),
                   ),
                 ),
               ],
@@ -708,6 +726,7 @@ class _Identidade extends StatelessWidget {
                         fontSize: 13,
                       ),
                     ),
+                    const _XpGlobal(),
                     if (onEditar != null) ...[
                       const SizedBox(height: 8),
                       TextButton(
@@ -927,6 +946,57 @@ class _CampoTexto extends StatelessWidget {
           borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
         ),
       ),
+    );
+  }
+}
+
+/// XP global do aluno (`GET /me/xp`), igual para qualquer ciclo. Some sem
+/// sessão ou sem resposta (ex.: coordenação, que não acumula XP).
+class _XpGlobal extends StatefulWidget {
+  const _XpGlobal();
+
+  @override
+  State<_XpGlobal> createState() => _XpGlobalState();
+}
+
+class _XpGlobalState extends State<_XpGlobal> {
+  @override
+  void initState() {
+    super.initState();
+    SessaoUsuario.atual.atualizarXp();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int?>(
+      valueListenable: SessaoUsuario.atual.xp,
+      builder: (context, saldo, _) {
+        if (saldo == null) return const SizedBox.shrink();
+        return Padding(
+          key: const Key('perfil-xp'),
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.star_rounded,
+                size: 18,
+                color: Color(0xFFF59E0B),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '${formatarXp(saldo)} XP',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  color: AppColors.ink,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

@@ -4,24 +4,35 @@ import '../services/coordenacao_api.dart';
 import '../theme/colors.dart';
 import 'componentes_coord.dart';
 import 'detalhe_candidatura_coord.dart';
+import 'tela_cadastros_coord.dart';
 
-/// Filtros aceitos por `GET /coordenacao/candidaturas?status=`.
-const filtrosCandidaturas = <(String?, String)>[
+/// Filtros de candidatura a padrinho.
+const filtrosPadrinho = <(String?, String)>[
   (null, 'Todas'),
   ('aguardando', 'Aguardando decisão'),
   ('pendente', 'Novas'),
   ('em_analise', 'Em análise'),
   ('aprovadas', 'Aprovadas'),
   ('nao_aprovado', 'Rejeitadas'),
-  ('sem_vinculo', 'Apadrinhados sem vínculo'),
 ];
 
-String rotuloFiltro(String? status) => filtrosCandidaturas
-    .firstWhere(
-      (filtro) => filtro.$1 == status,
-      orElse: () => (status, status ?? 'Todas'),
-    )
-    .$2;
+/// Filtros do público apadrinhado (cadastro + matching).
+const filtrosApadrinhado = <(String?, String)>[
+  ('pendente', 'Aguardando aprovação'),
+  ('sem_vinculo', 'Sem vínculo'),
+  ('aprovado', 'Aprovados'),
+  ('rejeitado', 'Rejeitados'),
+];
+
+String rotuloFiltro(String? status, {required bool apadrinhado}) {
+  final lista = apadrinhado ? filtrosApadrinhado : filtrosPadrinho;
+  return lista
+      .firstWhere(
+        (filtro) => filtro.$1 == status,
+        orElse: () => (status, status ?? 'Todas'),
+      )
+      .$2;
+}
 
 /// Candidaturas para padrinho (p24): busca, filtro, seleção múltipla com
 /// ações em massa e detalhe completo em bottom sheet.
@@ -31,11 +42,14 @@ class TelaCandidaturasCoord extends StatefulWidget {
     required this.api,
     required this.programa,
     this.status,
+    this.publico,
   });
 
   final CoordenacaoApi api;
   final String? programa;
   final String? status;
+  /// `padrinho` | `apadrinhado` | null (padrão padrinho, salvo sem_vinculo).
+  final String? publico;
 
   @override
   State<TelaCandidaturasCoord> createState() => _TelaCandidaturasCoordState();
@@ -46,14 +60,28 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
   String? _erro;
   bool _carregando = true;
   bool _processando = false;
+  /// `padrinho` | `apadrinhado`
+  late String _publico;
   String? _status;
   String _busca = '';
   final Set<int> _selecionados = {};
 
+  bool get _apadrinhado => _publico == 'apadrinhado';
+  bool get _semVinculo => _apadrinhado && _status == 'sem_vinculo';
+  bool get _cadastroApadrinhado => _apadrinhado && !_semVinculo;
+
+  void _aplicarFiltrosIniciais() {
+    final inicial = widget.status;
+    _publico = inicial == 'sem_vinculo' || widget.publico == 'apadrinhado'
+        ? 'apadrinhado'
+        : 'padrinho';
+    _status = _publico == 'apadrinhado' ? (inicial ?? 'sem_vinculo') : inicial;
+  }
+
   @override
   void initState() {
     super.initState();
-    _status = widget.status;
+    _aplicarFiltrosIniciais();
     _carregar();
   }
 
@@ -61,8 +89,9 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
   void didUpdateWidget(covariant TelaCandidaturasCoord oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.programa != widget.programa ||
-        oldWidget.status != widget.status) {
-      _status = widget.status;
+        oldWidget.status != widget.status ||
+        oldWidget.publico != widget.publico) {
+      _aplicarFiltrosIniciais();
       _carregar();
     }
   }
@@ -73,11 +102,29 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
       _erro = null;
     });
     try {
-      final lista = await widget.api.candidaturas(
-        programa: widget.programa,
-        status: _status,
-      );
+      final List<Map<String, dynamic>> lista;
+      if (_semVinculo) {
+        lista = await widget.api.candidaturas(
+          programa: widget.programa,
+          status: 'sem_vinculo',
+        );
+      } else if (_cadastroApadrinhado) {
+        final todos = await widget.api.cadastros(
+          status: _status,
+          programa: widget.programa,
+        );
+        lista = [
+          for (final item in todos)
+            if (item['tipoParticipacao'] == 'apadrinhado') item,
+        ];
+      } else {
+        lista = await widget.api.candidaturas(
+          programa: widget.programa,
+          status: _status,
+        );
+      }
       if (!mounted) return;
+      lista.sort(_ordenarLista);
       setState(() {
         _itens = lista;
         _carregando = false;
@@ -94,21 +141,40 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
     }
   }
 
+  /// Pendente de decisão (pode aprovar/rejeitar em massa).
+  bool _aindaPendente(Map<String, dynamic> item) {
+    final statusCadastro = '${item['statusCadastro'] ?? ''}';
+    if (statusCadastro.isNotEmpty) return statusCadastro == 'pendente';
+    final status = '${item['status'] ?? ''}';
+    return status == 'pendente' || status == 'em_analise';
+  }
+
   bool _selecionavel(Map<String, dynamic> item) =>
-      item['papel'] == 'candidato' && idDe(item) != null;
+      item['papel'] == 'candidato' &&
+      idDe(item) != null &&
+      _aindaPendente(item);
+
+  int _ordenarLista(Map<String, dynamic> a, Map<String, dynamic> b) {
+    final diff =
+        (_aindaPendente(a) ? 0 : 1) - (_aindaPendente(b) ? 0 : 1);
+    if (diff != 0) return diff;
+    return '${b['criadoEm'] ?? ''}'.compareTo('${a['criadoEm'] ?? ''}');
+  }
 
   List<Map<String, dynamic>> get _visiveis {
     final termo = _busca.trim().toLowerCase();
-    if (termo.isEmpty) return _itens;
-    return _itens.where((item) {
-      final texto = [
-        item['nome'],
-        item['email'],
-        item['curso'],
-        if (item['periodo'] != null) '${item['periodo']}º período',
-      ].join(' ').toLowerCase();
-      return texto.contains(termo);
-    }).toList();
+    final base = termo.isEmpty
+        ? _itens
+        : _itens.where((item) {
+            final texto = [
+              item['nome'],
+              item['email'],
+              item['curso'],
+              if (item['periodo'] != null) '${item['periodo']}º período',
+            ].join(' ').toLowerCase();
+            return texto.contains(termo);
+          }).toList();
+    return [...base]..sort(_ordenarLista);
   }
 
   List<int> get _idsSelecionaveis => [
@@ -127,6 +193,7 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
   }
 
   Future<void> _escolherFiltro() async {
+    final filtros = _apadrinhado ? filtrosApadrinhado : filtrosPadrinho;
     final escolhido = await showModalBottomSheet<(String?,)>(
       context: context,
       showDragHandle: true,
@@ -135,7 +202,7 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            for (final (valor, rotulo) in filtrosCandidaturas)
+            for (final (valor, rotulo) in filtros)
               ListTile(
                 title: Text(rotulo),
                 trailing: valor == _status
@@ -153,6 +220,17 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
       _selecionados.clear();
     });
     await _carregar();
+  }
+
+  void _trocarPublico(String publico) {
+    if (publico == _publico) return;
+    setState(() {
+      _publico = publico;
+      _status = publico == 'apadrinhado' ? 'sem_vinculo' : null;
+      _selecionados.clear();
+      _busca = '';
+    });
+    _carregar();
   }
 
   Future<void> _acaoEmMassa(String acao) async {
@@ -211,19 +289,65 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
     }
   }
 
-  Future<void> _detalhe(Map<String, dynamic> item) async {
+  Future<void> _detalhe(Map<String, dynamic> item, {bool avancar = true}) async {
+    if (_cadastroApadrinhado) {
+      final id = idDe(item);
+      if (id == null) return;
+      final alterado = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => TelaDetalheCadastroCoord(
+            api: widget.api,
+            programa: widget.programa,
+            id: id,
+          ),
+        ),
+      );
+      if (alterado == true && mounted) {
+        await _carregar();
+        if (avancar) await _abrirProximoPendente(id);
+      }
+      return;
+    }
+    final idAtual = idDe(item);
     final alterado = await mostrarDetalheCandidatura(
       context,
       api: widget.api,
       item: item,
       programa: widget.programa,
     );
-    if (alterado && mounted) await _carregar();
+    if (alterado && mounted) {
+      await _carregar();
+      if (avancar && idAtual != null) await _abrirProximoPendente(idAtual);
+    }
+  }
+
+  /// Depois de decidir, abre o próximo pendente (fluxo rápido da coordenação).
+  Future<void> _abrirProximoPendente(int idAtual) async {
+    final lista = _visiveis;
+    final idx = lista.indexWhere((i) => idDe(i) == idAtual);
+    Map<String, dynamic>? proximo;
+    for (var i = idx + 1; i < lista.length; i++) {
+      if (_aindaPendente(lista[i])) {
+        proximo = lista[i];
+        break;
+      }
+    }
+    if (proximo == null) {
+      for (var i = 0; i < lista.length; i++) {
+        if (i == idx) continue;
+        if (_aindaPendente(lista[i])) {
+          proximo = lista[i];
+          break;
+        }
+      }
+    }
+    if (proximo != null && mounted) {
+      await _detalhe(proximo);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final semVinculo = _status == 'sem_vinculo';
     final visiveis = _visiveis;
     final selecionaveis = _idsSelecionaveis;
     final todasMarcadas =
@@ -234,15 +358,27 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           CabecalhoCoord(
-            titulo: semVinculo
-                ? 'Apadrinhados sem vínculo'
-                : 'Candidaturas para padrinho',
+            titulo: 'Candidaturas',
             subtitulo: [
               if (widget.programa != null) 'Programa ${widget.programa}',
-              semVinculo
-                  ? 'Defina um padrinho para cada apadrinhado.'
+              _apadrinhado
+                  ? 'Aprove cadastros e defina vínculos de apadrinhados.'
                   : 'Analise as candidaturas e selecione os novos padrinhos.',
             ].join(' · '),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'padrinho', label: Text('Padrinhos')),
+                ButtonSegment(
+                  value: 'apadrinhado',
+                  label: Text('Apadrinhados'),
+                ),
+              ],
+              selected: {_publico},
+              onSelectionChanged: (sel) => _trocarPublico(sel.first),
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
@@ -294,17 +430,21 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
               child: InputChip(
-                label: Text('Filtro: ${rotuloFiltro(_status)}'),
-                onDeleted: () {
-                  setState(() {
-                    _status = null;
-                    _selecionados.clear();
-                  });
-                  _carregar();
-                },
+                label: Text(
+                  'Filtro: ${rotuloFiltro(_status, apadrinhado: _apadrinhado)}',
+                ),
+                onDeleted: _apadrinhado
+                    ? null
+                    : () {
+                        setState(() {
+                          _status = null;
+                          _selecionados.clear();
+                        });
+                        _carregar();
+                      },
               ),
             ),
-          if (!semVinculo && selecionaveis.isNotEmpty)
+          if (!_apadrinhado && selecionaveis.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
               child: Material(
@@ -316,7 +456,7 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
                   controlAffinity: ListTileControlAffinity.leading,
                   activeColor: AppColors.primary,
                   title: Text(
-                    'Selecionar todas (${selecionaveis.length})',
+                    'Selecionar pendentes (${selecionaveis.length})',
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   onChanged: (marcar) => _alternarTodas(marcar ?? false),
@@ -361,7 +501,9 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
                         Center(
                           child: Text(
                             _busca.isEmpty
-                                ? 'Nenhuma candidatura encontrada.'
+                                ? (_apadrinhado
+                                      ? 'Nenhum apadrinhado encontrado.'
+                                      : 'Nenhuma candidatura encontrada.')
                                 : 'Nenhum resultado para "$_busca".',
                             style: const TextStyle(color: AppColors.muted),
                           ),
@@ -377,8 +519,9 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
                         final id = idDe(item);
                         return _ItemCandidatura(
                           item: item,
-                          selecionavel: !semVinculo && _selecionavel(item),
+                          selecionavel: !_apadrinhado && _selecionavel(item),
                           selecionado: id != null && _selecionados.contains(id),
+                          modoCadastro: _cadastroApadrinhado,
                           onSelecionar: (marcar) => setState(() {
                             if (id == null) return;
                             marcar
@@ -397,7 +540,6 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
               processando: _processando,
               onRejeitar: () => _acaoEmMassa('rejeitar'),
               onAprovar: () => _acaoEmMassa('aprovar'),
-              onEmAnalise: () => _acaoEmMassa('em_analise'),
             ),
         ],
       ),
@@ -412,17 +554,19 @@ class _ItemCandidatura extends StatelessWidget {
     required this.selecionado,
     required this.onSelecionar,
     required this.onTap,
+    this.modoCadastro = false,
   });
 
   final Map<String, dynamic> item;
   final bool selecionavel;
   final bool selecionado;
+  final bool modoCadastro;
   final ValueChanged<bool> onSelecionar;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final apadrinhado = item['papel'] == 'apadrinhado';
+    final apadrinhado = item['papel'] == 'apadrinhado' || modoCadastro;
     return Material(
       color: selecionado ? AppColors.lavender : Colors.white,
       shape: RoundedRectangleBorder(
@@ -500,14 +644,12 @@ class _BarraSelecao extends StatelessWidget {
     required this.processando,
     required this.onRejeitar,
     required this.onAprovar,
-    required this.onEmAnalise,
   });
 
   final int quantidade;
   final bool processando;
   final VoidCallback onRejeitar;
   final VoidCallback onAprovar;
-  final VoidCallback onEmAnalise;
 
   @override
   Widget build(BuildContext context) {
@@ -526,23 +668,17 @@ class _BarraSelecao extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '$quantidade selecionada(s)',
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '$quantidade selecionada(s)',
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w700,
               ),
-              TextButton(
-                onPressed: processando ? null : onEmAnalise,
-                child: const Text('Marcar em análise'),
-              ),
-            ],
+            ),
           ),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(

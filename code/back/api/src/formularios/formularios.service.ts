@@ -206,10 +206,6 @@ export class FormulariosService {
     };
   }
 
-  async validarRespostasPadrinho(programa: string, extras: unknown) {
-    return this.validarRespostas('padrinho', programa, extras);
-  }
-
   private normalizarExtras(extras: unknown): Record<string, unknown> {
     if (extras == null) return {};
     if (typeof extras !== 'object' || Array.isArray(extras))

@@ -67,6 +67,7 @@ export class AzureBlobStorageService {
     blobName: string,
     dados: Buffer,
     contentType: string,
+    opcoes: { cacheControl?: string } = {},
   ): Promise<BlobGravado> {
     const nome = validarNomeBlob(blobName);
     const tipo = this.exigirMime(contentType);
@@ -77,7 +78,12 @@ export class AzureBlobStorageService {
     const blob = cliente.getBlockBlobClient(nome);
     try {
       await blob.uploadData(dados, {
-        blobHTTPHeaders: { blobContentType: tipo },
+        blobHTTPHeaders: {
+          blobContentType: tipo,
+          ...(opcoes.cacheControl
+            ? { blobCacheControl: opcoes.cacheControl }
+            : {}),
+        },
         conditions: { ifNoneMatch: '*' },
       });
     } catch (erro) {

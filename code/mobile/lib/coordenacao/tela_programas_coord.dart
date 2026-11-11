@@ -580,7 +580,7 @@ class _CardPrograma extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onMatching,
               icon: const Icon(Icons.groups_outlined),
-              label: const Text('Abrir matching manual'),
+              label: const Text('Abrir sugestões de matching'),
             ),
           Align(
             alignment: Alignment.centerRight,

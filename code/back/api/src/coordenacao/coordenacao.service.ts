@@ -22,9 +22,23 @@ import { perfilDoRegistro } from '../participacoes/perfil.js';
 import { ProgramasService } from '../programas/programas.service.js';
 import { AvisosService } from '../avisos/avisos.service.js';
 import { FormulariosService } from '../formularios/formularios.service.js';
+import {
+  PAPEIS_DO_FORMULARIO,
+  respostasIndividuais,
+  respostasPorPergunta,
+} from '../formularios/respostas-formulario.js';
 import { CadastroService } from '../cadastro/cadastro.service.js';
 import { seedDemoHabilitado } from '../config/seguranca.js';
+import { CriterioCatalogoService } from '../matching/criterio-catalogo.service.js';
+import { MatchingService } from '../matching/matching.service.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
+import type { EntradaVerificacao } from '../participacoes/verificacao-academica.js';
+/** "Situação da análise" na listagem: conferência acadêmica registrada ou não. */
+const FILTROS_CONFERENCIA = [
+  'pendente',
+  'requisitos_atendidos',
+  'requisitos_nao_atendidos',
+];
 
 @Injectable()
 export class CoordenacaoService implements OnModuleInit {
@@ -35,6 +49,8 @@ export class CoordenacaoService implements OnModuleInit {
     private readonly avisosService: AvisosService,
     private readonly cadastroService: CadastroService,
     private readonly usuariosService: UsuariosService,
+    private readonly matchingService: MatchingService,
+    private readonly criterioCatalogoService: CriterioCatalogoService,
     @InjectRepository(ParticipacaoEntity)
     private readonly participacoes: Repository<ParticipacaoEntity>,
   ) {}
@@ -54,7 +70,146 @@ export class CoordenacaoService implements OnModuleInit {
     await this.programasService.garantirProgramaAtual();
     await this.programasService.garantirProgramaHistoricoDemo();
     await this.semearRequisitosDemo();
+    await this.semearFormulariosDemo();
     await this.semearParticipacoesDemo();
+    await this.semearMatchingDemo();
+  }
+
+  /**
+   * Publica as perguntas sugeridas do ciclo atual quando ainda não há
+   * formulário salvo/publicado — senão o aluno vê perguntas=[] na demo.
+   * Não sobrescreve rascunho ou publicação já persistidos pela coordenação.
+   */
+  private async semearFormulariosDemo() {
+    const programa = await this.programasService.garantirProgramaAtual();
+    for (const tipo of ['padrinho', 'apadrinhado'] as const) {
+      const atual = await this.formulariosService.obter(tipo, programa.codigo);
+      if (atual.salvo || atual.publicado) continue;
+      await this.formulariosService.salvar(tipo, {
+        programa: programa.codigo,
+        publicado: true,
+        perguntas: atual.perguntas,
+      });
+    }
+  }
+
+  /**
+   * Habilita matching na demo: catálogo mínimo, pergunta vinculada nos dois
+   * formulários, configuração liberada e extras nas participações elegíveis.
+   * Idempotente — não sobrescreve configuração já salva pela coordenação.
+   */
+  private async semearMatchingDemo() {
+    const programa = await this.programasService.garantirProgramaAtual();
+    let catalogo =
+      await this.criterioCatalogoService.listarAtivosParaFormulario();
+    if (!catalogo.length) {
+      await this.criterioCatalogoService.criar(
+        {
+          nome: 'Áreas de apoio',
+          descricao:
+            'Áreas em que o padrinho pode apoiar ou o apadrinhado precisa de apoio.',
+          enunciadoPadrao: 'Quais áreas de apoio são relevantes para você?',
+          tipo: 'multipla_escolha',
+          alternativas: [
+            { id: 'academico', rotulo: 'Acadêmico' },
+            { id: 'carreira', rotulo: 'Carreira' },
+            { id: 'pessoal', rotulo: 'Pessoal' },
+            { id: 'social', rotulo: 'Social' },
+          ],
+          ativo: true,
+        },
+        'seed:demo',
+      );
+      catalogo =
+        await this.criterioCatalogoService.listarAtivosParaFormulario();
+    }
+    const criterio =
+      catalogo.find((c) => c.versao?.tipo === 'multipla_escolha') ??
+      catalogo[0];
+    if (!criterio?.versao) return;
+
+    const perguntaId = `match-criterio-${criterio.id}`;
+    const perguntaMatching = {
+      id: perguntaId,
+      enunciado: criterio.versao.enunciadoPadrao,
+      tipo: criterio.versao.tipo,
+      opcoes: [] as string[],
+      alternativas: criterio.versao.alternativas,
+      obrigatoria: false,
+      criterioId: criterio.id,
+      criterioVersao: criterio.versao.versao,
+    };
+
+    for (const tipo of ['padrinho', 'apadrinhado'] as const) {
+      const form = await this.formulariosService.obter(tipo, programa.codigo);
+      const jaTem = (form.perguntas ?? []).some(
+        (p) => Number(p.criterioId) === criterio.id,
+      );
+      if (jaTem) continue;
+      await this.formulariosService.salvar(tipo, {
+        programa: programa.codigo,
+        publicado: true,
+        perguntas: [...(form.perguntas ?? []), perguntaMatching],
+      });
+    }
+
+    const config = await this.matchingService.obterConfiguracao(
+      programa.codigo,
+    );
+    if (!config) {
+      await this.matchingService.salvarConfiguracao(
+        {
+          programa: programa.codigo,
+          liberado: true,
+          capacidadePorPadrinho: 3,
+          capacidadePorApadrinhado: 1,
+          criterios: [
+            {
+              criterioPadrinhoId: criterio.id,
+              criterioApadrinhadoId: criterio.id,
+              operacao: 'intersecao',
+              peso: 100,
+            },
+          ],
+        },
+        'seed:demo',
+      );
+    } else if (!config.liberado) {
+      await this.matchingService.liberar(
+        programa.codigo,
+        true,
+        'seed:demo',
+      );
+    }
+
+    const alternativa =
+      criterio.versao.alternativas?.[0]?.id ?? 'academico';
+    const elegiveis = [
+      'thiago@pucminas.edu.br',
+      'camila@pucminas.edu.br',
+      'lucas.almeida@pucminas.edu.br',
+    ];
+    for (const email of elegiveis) {
+      const registros = await this.participacoes.find({
+        where: { usuarioId: email, programa: programa.codigo },
+      });
+      for (const registro of registros) {
+        if (
+          registro.papel !== 'padrinho' &&
+          registro.papel !== 'apadrinhado' &&
+          !(registro.papel === 'candidato' && registro.status === 'aprovado')
+        ) {
+          continue;
+        }
+        const extras: Record<string, string | string[] | boolean> = {
+          ...(registro.respostas?.extras ?? {}),
+        };
+        if (extras[perguntaId] != null) continue;
+        extras[perguntaId] = [alternativa];
+        registro.respostas = { ...registro.respostas, extras };
+        await this.participacoes.save(registro);
+      }
+    }
   }
 
   /**
@@ -129,7 +284,7 @@ export class CoordenacaoService implements OnModuleInit {
         ativos.push(padrinho);
     }
     const padrinhosComVinculo = ativos.length;
-    const gruposFormados = new Set(ativos.map((r) => r.grupo)).size;
+    const gruposFormados = ativos.length;
 
     const candidaturasInscritas =
       pendentes + emAnalise + rejeitadas + aprovadas;
@@ -142,9 +297,11 @@ export class CoordenacaoService implements OnModuleInit {
       .slice(0, 6)
       .map((item) => this.enriquecerCandidatura(item));
 
-    const semVinculoLista = apadrinhados.filter(
-      (r) => !ParticipacoesService.vinculoValido(r, registros),
-    );
+    const semVinculoLista: ParticipacaoEntity[] = [];
+    for (const apadrinhado of apadrinhados) {
+      if (!(await this.participacoesService.temVinculoValido(apadrinhado)))
+        semVinculoLista.push(apadrinhado);
+    }
     const gruposIncompletos = Math.max(
       0,
       (programa.gruposPrevistos || 0) - gruposFormados,
@@ -238,56 +395,114 @@ export class CoordenacaoService implements OnModuleInit {
     };
   }
 
-  async listarCandidaturas(programa: string, status?: string) {
+  /**
+   * Candidaturas do ciclo. `papel`: candidato (padrão, padrinhos) ou
+   * apadrinhado; `status`: situação da inscrição; `conferencia`: pendente,
+   * requisitos_atendidos ou requisitos_nao_atendidos.
+   */
+  async listarCandidaturas(
+    programa: string,
+    status?: string,
+    papel?: string,
+    conferencia?: string,
+  ) {
+    const publico = papel?.trim() || 'candidato';
+    if (!['candidato', 'padrinho', 'apadrinhado'].includes(publico)) {
+      throw new BadRequestException(
+        'Papel inválido: use candidato (padrinho) ou apadrinhado.',
+      );
+    }
+    const conf = conferencia?.trim();
+    if (conf && !FILTROS_CONFERENCIA.includes(conf)) {
+      throw new BadRequestException(
+        'Conferência inválida: use pendente, requisitos_atendidos ou requisitos_nao_atendidos.',
+      );
+    }
+    const registros =
+      publico === 'apadrinhado'
+        ? await this.apadrinhadosPorStatus(programa, status)
+        : await this.candidatosPorStatus(programa, status);
+    return registros
+      .filter((r) =>
+        !conf
+          ? true
+          : conf === 'pendente'
+            ? !r.verificacao?.atual
+            : r.verificacao?.atual?.resultado === conf,
+      )
+      .map((item) => this.enriquecerCandidatura(item));
+  }
+
+  private async candidatosPorStatus(programa: string, status?: string) {
     const filtro = status?.trim();
 
     if (filtro === 'aprovadas') {
       const registros = await this.participacoesService.listarPorPrograma({
         programa,
       });
-      return registros
-        .filter(
-          (r) =>
-            (r.papel === 'candidato' && r.status === 'aprovado') ||
-            (r.papel === 'padrinho' &&
-              ['em_andamento', 'concluido'].includes(r.status)),
-        )
-        .map((item) => this.enriquecerCandidatura(item));
+      return registros.filter(
+        (r) =>
+          (r.papel === 'candidato' && r.status === 'aprovado') ||
+          (r.papel === 'padrinho' &&
+            ['em_andamento', 'concluido'].includes(r.status)),
+      );
     }
 
-    if (filtro === 'sem_vinculo') {
-      const apadrinhados = await this.participacoesService.listarPorPrograma({
-        programa,
-        papel: 'apadrinhado',
-        status: 'em_andamento',
-      });
-      const semVinculo = [];
-      for (const registro of apadrinhados) {
-        if (!(await this.participacoesService.temVinculoValido(registro)))
-          semVinculo.push(registro);
-      }
-      return semVinculo.map((item) => this.enriquecerCandidatura(item));
-    }
+    // Compatibilidade: a tela pede `sem_vinculo` sem informar o papel.
+    if (filtro === 'sem_vinculo')
+      return this.apadrinhadosPorStatus(programa, filtro);
 
     if (filtro === 'aguardando') {
       const registros = await this.participacoesService.listarPorPrograma({
         programa,
         papel: 'candidato',
       });
-      return registros
-        .filter((r) => r.status === 'pendente' || r.status === 'em_analise')
-        .map((item) => this.enriquecerCandidatura(item));
+      return registros.filter(
+        (r) => r.status === 'pendente' || r.status === 'em_analise',
+      );
     }
 
-    const registros = await this.participacoesService.listarPorPrograma({
+    return this.participacoesService.listarPorPrograma({
       programa,
       papel: 'candidato',
       ...(filtro ? { status: filtro as StatusParticipacaoRegistro } : {}),
     });
-    return registros.map((item) => this.enriquecerCandidatura(item));
   }
 
-  async criarNovoCiclo(codigo?: string, configuracao: Record<string, unknown> = {}) {
+  private async apadrinhadosPorStatus(programa: string, status?: string) {
+    const filtro = status?.trim();
+    const apadrinhados = await this.participacoesService.listarPorPrograma({
+      programa,
+      papel: 'apadrinhado',
+    });
+    if (filtro === 'sem_vinculo') {
+      const semVinculo: ParticipacaoEntity[] = [];
+      for (const registro of apadrinhados) {
+        if (
+          registro.status === 'em_andamento' &&
+          !(await this.participacoesService.temVinculoValido(registro))
+        )
+          semVinculo.push(registro);
+      }
+      return semVinculo;
+    }
+    if (filtro === 'aguardando')
+      return apadrinhados.filter((r) =>
+        ['pendente', 'em_analise'].includes(r.status),
+      );
+    if (filtro === 'aprovadas')
+      return apadrinhados.filter((r) =>
+        ['em_andamento', 'concluido'].includes(r.status),
+      );
+    return filtro
+      ? apadrinhados.filter((r) => r.status === filtro)
+      : apadrinhados;
+  }
+
+  async criarNovoCiclo(
+    codigo?: string,
+    configuracao: Record<string, unknown> = {},
+  ) {
     return this.serializarPrograma(
       await this.programasService.criarNovoCiclo(codigo, configuracao),
     );
@@ -311,6 +526,8 @@ export class CoordenacaoService implements OnModuleInit {
       fotoUrl: perfil.fotoUrl,
       iniciais: perfil.iniciais,
       statusRotulo: this.rotuloStatus(item),
+      /** Resultado da última conferência acadêmica; null = não conferida. */
+      conferencia: item.verificacao?.atual?.resultado ?? null,
     };
   }
 
@@ -394,12 +611,12 @@ export class CoordenacaoService implements OnModuleInit {
       const n = input.cadastrosApadrinhadoPendentes;
       itens.push({
         id: 'cadastros',
-        titulo: 'Cadastros de apadrinhados aguardando aprovação',
-        descricao: `${n} cadastro${n === 1 ? '' : 's'} de apadrinhado aguardando aprovação da coordenação.`,
-        texto: `${n} cadastro${n === 1 ? '' : 's'} de apadrinhado pendente${n === 1 ? '' : 's'}`,
+        titulo: 'Apadrinhados aguardando aprovação',
+        descricao: `${n} apadrinhado${n === 1 ? '' : 's'} aguardando aprovação da coordenação.`,
+        texto: `${n} apadrinhado${n === 1 ? '' : 's'} pendente${n === 1 ? '' : 's'}`,
         icon: 'clipboard',
-        destino: 'cadastros',
-        query: { status: 'pendente' },
+        destino: 'candidaturas',
+        query: { publico: 'apadrinhado', status: 'pendente' },
         severidade: 'alta',
         urgencia: 95 + n,
       });
@@ -474,6 +691,7 @@ export class CoordenacaoService implements OnModuleInit {
       titulo: programa.titulo || `Programa ${programa.codigo}`,
       nome: programa.titulo || `Programa ${programa.codigo}`,
       etapaAtual: programa.etapaAtual,
+      matchingLiberado: matchingLiberado(programa),
       statusRotulo:
         ROTULOS_STATUS_PROGRAMA[programa.etapaAtual] ?? programa.etapaAtual,
       vigente,
@@ -481,14 +699,6 @@ export class CoordenacaoService implements OnModuleInit {
       inscricoesAbertas: programa.inscricoesAbertas,
       formularioPublicado: programa.formularioPublicado,
       matchingPendente: programa.matchingPendente,
-      matchingLiberado: matchingLiberado(programa),
-      podeEncerrarInscricoes:
-        programa.etapaAtual !== 'encerramento' &&
-        (programa.inscricoesAbertas || programa.etapaAtual === 'inscricoes'),
-      podeLiberarMatching:
-        programa.etapaAtual === 'analise' &&
-        !programa.inscricoesAbertas &&
-        !matchingLiberado(programa),
       vagasApadrinhados: programa.vagasApadrinhados,
       gruposPrevistos: programa.gruposPrevistos,
       inscricoesFim: programa.inscricoesFim,
@@ -541,8 +751,33 @@ export class CoordenacaoService implements OnModuleInit {
       (await this.programasService.requisitosPadrinho(item.programa)).map(
         (r) => ({ ...r, cumpre: null }),
       );
+    const resumo = this.enriquecerCandidatura(item);
     return {
-      ...this.enriquecerCandidatura(item),
+      ...resumo,
+      conferencia: {
+        itens: await this.participacoesService.itensDaConferencia(item),
+        verificacao: item.verificacao?.atual ?? null,
+        anteriores: item.verificacao?.anteriores ?? [],
+        podeRegistrar:
+          item.papel !== 'padrinho' &&
+          ['pendente', 'em_analise'].includes(item.status),
+        /** O que a coordenação procura no sistema da faculdade. */
+        dadosParaConsulta: {
+          nome: resumo.nome,
+          email: resumo.email,
+          curso: resumo.curso,
+          periodo: resumo.periodo,
+          turno: item.respostas?.turno ?? null,
+          papel:
+            item.papel === 'apadrinhado'
+              ? 'Apadrinhado'
+              : item.papel === 'padrinho'
+                ? 'Padrinho'
+                : 'Candidato a padrinho',
+          programa: item.programa,
+        },
+      },
+      vinculos: await this.vinculosDe(item),
       respostas: item.respostas ?? {},
       observacoes: item.observacoes ?? '',
       decisao: item.respostas?._servidor?.decisao ?? null,
@@ -559,8 +794,137 @@ export class CoordenacaoService implements OnModuleInit {
     };
   }
 
+  /**
+   * Vínculos ativos da participação: pares do matching (F11/F12) e, para
+   * registros antigos, o grupo legado. Precisam ser tratados antes de revogar.
+   */
+  private async vinculosDe(item: ParticipacaoEntity) {
+    const pessoa = (p: ParticipacaoEntity) => {
+      const perfil = perfilDoRegistro(p);
+      return {
+        participacaoId: p.id,
+        papel: p.papel,
+        nome: perfil.nome,
+        email: perfil.email,
+        curso: perfil.curso,
+        iniciais: perfil.iniciais,
+      };
+    };
+    const lista: Array<
+      ReturnType<typeof pessoa> & {
+        vinculoId: number | null;
+        origem: 'matching' | 'grupo';
+        grupo: string | null;
+      }
+    > = (await this.participacoesService.listarVinculados(item)).map(
+      ({ participacao, vinculoId }) => ({
+        ...pessoa(participacao),
+        vinculoId,
+        origem: 'matching',
+        grupo: null,
+      }),
+    );
+    const grupo = item.grupo?.trim();
+    if (grupo && (item.papel === 'padrinho' || item.papel === 'apadrinhado')) {
+      const membros =
+        item.papel === 'padrinho'
+          ? (
+              await this.participacoesService.listarApadrinhadosDoGrupo(
+                item.programa,
+                grupo,
+              )
+            ).filter((m) => m.status === 'em_andamento')
+          : [
+              await this.participacoesService.buscarPadrinhoDoGrupo(
+                item.programa,
+                grupo,
+              ),
+            ].filter((m): m is ParticipacaoEntity => Boolean(m));
+      for (const membro of membros) {
+        if (lista.some((v) => v.participacaoId === membro.id)) continue;
+        lista.push({
+          ...pessoa(membro),
+          vinculoId: null,
+          origem: 'grupo',
+          grupo,
+        });
+      }
+    }
+    return lista;
+  }
+
+  /** Registra a conferência feita no sistema da faculdade (F09). */
+  async registrarVerificacao(
+    id: number,
+    corpo: EntradaVerificacao,
+    coordenador?: string,
+  ) {
+    await this.participacoesService.registrarVerificacao(
+      id,
+      corpo ?? {},
+      coordenador,
+    );
+    return this.detalharCandidatura(id);
+  }
+
+  /** Encerra um vínculo do matching para permitir revogar a aprovação. */
+  async encerrarVinculo(id: number, vinculoId: number) {
+    await this.participacoesService.encerrarVinculo(id, vinculoId);
+    return this.detalharCandidatura(id);
+  }
+
+  /**
+   * Confere requisitos do papel (e critérios do ciclo para padrinho) antes de
+   * aprovar. A conferência acadêmica no sistema da faculdade continua manual;
+   * aqui bloqueamos declarações incompatíveis.
+   */
+  private async garantirRequisitosParaAprovar(id: number) {
+    const registro = await this.participacoesService.buscarPorId(id);
+    const periodo = Number(registro.respostas?.periodo);
+    const periodoOk = Number.isInteger(periodo) ? periodo : null;
+
+    if (registro.papel === 'candidato') {
+      if (periodoOk !== null && periodoOk < 2) {
+        throw new BadRequestException(
+          'Não é possível aprovar: padrinhos precisam estar a partir do 2º período.',
+        );
+      }
+      const respostas = registro.respostas ?? {};
+      // Foto por requisito (envios novos): bloqueia se faltou declaração.
+      // Legado só com `declaraPreRequisitos`: a coordenação confere e decide.
+      if (Array.isArray(respostas.requisitos)) {
+        await this.cadastroService.avaliarRequisitosPadrinho(
+          registro.programa,
+          respostas,
+        );
+      } else if (respostas.declaraPreRequisitos !== true) {
+        throw new BadRequestException(
+          'Não é possível aprovar: o candidato não declarou cumprir os pré-requisitos do ciclo.',
+        );
+      }
+      return;
+    }
+
+    if (registro.papel === 'apadrinhado') {
+      if (periodoOk !== null && periodoOk !== 1) {
+        throw new BadRequestException(
+          'Não é possível aprovar: apadrinhados precisam estar no 1º período.',
+        );
+      }
+      if (registro.respostas?.declaraPrimeiroPeriodo !== true) {
+        // Envios legados sem declaração: ainda exigem período 1.
+        if (periodoOk !== 1) {
+          throw new BadRequestException(
+            'Não é possível aprovar sem declaração de 1º período.',
+          );
+        }
+      }
+    }
+  }
+
   /** Decisão acadêmica da candidatura; conta e permissões ativas são independentes. */
   async aprovarCandidatura(id: number, coordenador?: string) {
+    await this.garantirRequisitosParaAprovar(id);
     const registro = await this.participacoesService.aprovarCandidatura(
       id,
       coordenador,
@@ -568,6 +932,33 @@ export class CoordenacaoService implements OnModuleInit {
     await this.cadastroService.refletirDecisaoDaCandidatura(
       registro,
       'aprovado',
+      coordenador,
+    );
+    return this.detalharCandidatura(id);
+  }
+
+  async desvincularCandidatura(id: number) {
+    const { apadrinhado, padrinho } =
+      await this.participacoesService.desvincular(id);
+    return {
+      apadrinhado: this.enriquecerCandidatura(apadrinhado),
+      padrinho: padrinho ? this.enriquecerCandidatura(padrinho) : null,
+    };
+  }
+
+  async revogarAprovacao(
+    id: number,
+    coordenador?: string,
+    justificativa?: string,
+  ) {
+    const registro = await this.participacoesService.revogarAprovacao(
+      id,
+      justificativa,
+      coordenador,
+    );
+    await this.cadastroService.refletirDecisaoDaCandidatura(
+      registro,
+      'rejeitado',
       coordenador,
     );
     return this.detalharCandidatura(id);
@@ -690,7 +1081,10 @@ export class CoordenacaoService implements OnModuleInit {
     return lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   }
 
-  async vincular(corpo: { apadrinhadoId?: unknown; padrinhoId?: unknown }) {
+  async vincular(
+    corpo: { apadrinhadoId?: unknown; padrinhoId?: unknown },
+    responsavel?: string,
+  ) {
     const apadrinhadoId = Number(corpo.apadrinhadoId);
     const padrinhoId = Number(corpo.padrinhoId);
     if (!Number.isInteger(apadrinhadoId) || !Number.isInteger(padrinhoId)) {
@@ -699,6 +1093,7 @@ export class CoordenacaoService implements OnModuleInit {
     const { apadrinhado, padrinho } = await this.participacoesService.vincular(
       apadrinhadoId,
       padrinhoId,
+      responsavel,
     );
     return {
       apadrinhado: this.enriquecerCandidatura(apadrinhado),
@@ -747,6 +1142,32 @@ export class CoordenacaoService implements OnModuleInit {
     );
   }
 
+  async obterPrograma(codigo: string) {
+    const programa = await this.resolverPrograma(codigo);
+    const registros = await this.participacoesService.listarPorPrograma({
+      programa: programa.codigo,
+    });
+    const podeLiberarMatching =
+      programa.etapaAtual === 'analise' &&
+      !programa.inscricoesAbertas &&
+      !registros.some((registro) =>
+        ['pendente', 'em_analise'].includes(registro.status),
+      ) &&
+      registros.some(
+        (registro) =>
+          (registro.papel === 'candidato' && registro.status === 'aprovado') ||
+          (registro.papel === 'padrinho' &&
+            registro.status === 'em_andamento'),
+      );
+    return {
+      ...this.serializarPrograma(
+        programa,
+        ParticipacoesService.programaAtual(),
+      ),
+      podeLiberarMatching,
+    };
+  }
+
   excluirPrograma(codigo: string, confirmacao: unknown) {
     return this.programasService.excluir(codigo, confirmacao);
   }
@@ -759,27 +1180,51 @@ export class CoordenacaoService implements OnModuleInit {
     );
   }
 
-  async obterPrograma(codigo: string) {
-    const ciclo = ProgramasService.validarCodigoCiclo(codigo);
-    const programas = await this.listarProgramas();
-    const encontrado = programas.find((p) => p.codigo === ciclo);
-    if (!encontrado) throw new NotFoundException(`Programa ${ciclo} não encontrado.`);
-    return encontrado;
-  }
-
   async encerrarInscricoes(codigo: string) {
-    const atualizado = await this.programasService.encerrarInscricoes(codigo);
+    const programa = await this.programasService.encerrarInscricoes(codigo);
     return this.serializarPrograma(
-      atualizado,
+      programa,
       ParticipacoesService.programaAtual(),
     );
   }
 
   async liberarMatching(codigo: string) {
-    const atualizado = await this.programasService.liberarMatching(codigo);
+    const programa = await this.programasService.liberarMatching(codigo);
     return this.serializarPrograma(
-      atualizado,
+      programa,
       ParticipacoesService.programaAtual(),
+    );
+  }
+
+  listarFormularios(programa?: string) {
+    return this.formulariosService.listar(programa);
+  }
+
+  /** Só o ciclo vigente pode criar/alterar/encerrar formulários. */
+  private async assertFormularioEditavel(programaCodigo?: string) {
+    const codigo =
+      (programaCodigo || '').trim() || ParticipacoesService.programaAtual();
+    const programa = await this.programasService.resolverConsulta(codigo);
+    if (!programa) {
+      throw new NotFoundException('Nenhum programa cadastrado.');
+    }
+    const vigente = this.serializarPrograma(
+      programa,
+      ParticipacoesService.programaAtual(),
+    ).vigente;
+    if (!vigente || programa.etapaAtual === 'encerramento') {
+      throw new BadRequestException(
+        'Formulários de ciclos passados ou encerrados são somente leitura. Duplicar para o ciclo vigente se precisar alterar.',
+      );
+    }
+    return programa;
+  }
+
+  async excluirFormulario(tipo: string, programa?: string) {
+    await this.assertFormularioEditavel(programa);
+    return this.formulariosService.excluir(
+      FormulariosService.validarTipo(tipo),
+      programa,
     );
   }
 
@@ -811,7 +1256,6 @@ export class CoordenacaoService implements OnModuleInit {
       })),
     };
   }
-
   obterFormulario(tipo: string, programa?: string) {
     return this.formulariosService.obter(
       FormulariosService.validarTipo(tipo),
@@ -823,23 +1267,87 @@ export class CoordenacaoService implements OnModuleInit {
     tipo: string,
     corpo: { programa?: string; publicado?: boolean; perguntas?: unknown },
   ) {
+    await this.assertFormularioEditavel(corpo?.programa);
     const formulario = await this.formulariosService.salvar(
       FormulariosService.validarTipo(tipo),
       corpo,
     );
-    // O selo "Formulário publicado" do dashboard reflete o que foi salvo.
-    if (typeof corpo.publicado === 'boolean') {
-      const [padrinho, apadrinhado] = await Promise.all([
-        this.formulariosService.obter('padrinho', formulario.programa),
-        this.formulariosService.obter('apadrinhado', formulario.programa),
-      ]);
-      await this.programasService
-        .atualizar(formulario.programa, {
-          formularioPublicado: padrinho.publicado || apadrinhado.publicado,
-        })
-        .catch(() => undefined);
-    }
+    if (typeof corpo.publicado === 'boolean')
+      await this.sincronizarPublicacao(formulario.programa);
     return formulario;
+  }
+
+  async encerrarFormulario(tipo: string, programa?: string) {
+    await this.assertFormularioEditavel(programa);
+    const formulario = await this.formulariosService.encerrar(
+      FormulariosService.validarTipo(tipo),
+      programa,
+    );
+    await this.sincronizarPublicacao(formulario.programa);
+    return formulario;
+  }
+
+  duplicarFormulario(
+    tipo: string,
+    corpo: { programaOrigem?: string; programaDestino?: string },
+  ) {
+    return this.formulariosService.duplicar(
+      FormulariosService.validarTipo(tipo),
+      corpo,
+    );
+  }
+
+  /** Envios de um público no programa, com a versão do formulário respondido. */
+  async respostasFormulario(tipo: string, programa?: string) {
+    const { formulario, itens } = await this.enviosDoFormulario(tipo, programa);
+    return {
+      programa: formulario.programa,
+      tipo: formulario.tipo,
+      versaoAtual: formulario.versao,
+      total: itens.length,
+      envios: respostasIndividuais(itens),
+    };
+  }
+
+  /** As mesmas respostas, agrupadas por pergunta. */
+  async respostasPorPergunta(tipo: string, programa?: string) {
+    const { formulario, itens } = await this.enviosDoFormulario(tipo, programa);
+    return {
+      programa: formulario.programa,
+      tipo: formulario.tipo,
+      versaoAtual: formulario.versao,
+      total: itens.length,
+      perguntas: respostasPorPergunta(itens),
+    };
+  }
+
+  private async enviosDoFormulario(tipo: string, programa?: string) {
+    const formulario = await this.formulariosService.obter(
+      FormulariosService.validarTipo(tipo),
+      programa,
+    );
+    const lotes = await Promise.all(
+      PAPEIS_DO_FORMULARIO[formulario.tipo].map((papel) =>
+        this.participacoesService.listarPorPrograma({
+          programa: formulario.programa,
+          papel,
+        }),
+      ),
+    );
+    return { formulario, itens: lotes.flat() };
+  }
+
+  /** O selo "Formulário publicado" do dashboard reflete o que foi salvo. */
+  private async sincronizarPublicacao(programa: string) {
+    const [padrinho, apadrinhado] = await Promise.all([
+      this.formulariosService.obter('padrinho', programa),
+      this.formulariosService.obter('apadrinhado', programa),
+    ]);
+    await this.programasService
+      .atualizar(programa, {
+        formularioPublicado: padrinho.publicado || apadrinhado.publicado,
+      })
+      .catch(() => undefined);
   }
 
   criarComunicado(corpo: {
@@ -979,6 +1487,23 @@ export class CoordenacaoService implements OnModuleInit {
           deOutraCidade: true,
         },
       },
+      {
+        usuarioId: 'marina.souza@pucminas.edu.br',
+        programa,
+        papel: 'apadrinhado',
+        status: 'pendente',
+        apadrinhados: 0,
+        inicioEm: dias(1),
+        respostas: {
+          expectativa: 'Preciso de apoio para montar a grade e conhecer o campus.',
+          areas: ['Rotina universitária', 'Vida no campus'],
+          disponibilidade: ['Manhã', 'Tarde'],
+          genero: 'Feminino',
+          bolsistaProuni: false,
+          deOutraCidade: true,
+          declaraPrimeiroPeriodo: true,
+        },
+      },
     ];
 
     for (const item of seed) {
@@ -994,6 +1519,19 @@ export class CoordenacaoService implements OnModuleInit {
       } else if (!existe.respostas && item.respostas) {
         existe.respostas = item.respostas;
         await this.participacoes.save(existe);
+      }
+
+      // Demo: se o seed define participação ativa, remove candidatura órfã
+      // no mesmo ciclo (ex.: Camila com candidato+apadrinhado simultâneos).
+      if (item.papel === 'padrinho' || item.papel === 'apadrinhado') {
+        const orfaos = await this.participacoes.find({
+          where: {
+            usuarioId: item.usuarioId!,
+            programa: item.programa!,
+            papel: 'candidato',
+          },
+        });
+        if (orfaos.length) await this.participacoes.remove(orfaos);
       }
     }
   }

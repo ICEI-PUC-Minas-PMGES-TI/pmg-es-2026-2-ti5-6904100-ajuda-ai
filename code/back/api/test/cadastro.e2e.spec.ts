@@ -1,5 +1,7 @@
 import { ParticipacoesService } from '../src/participacoes/participacoes.service.js';
+import { conferirTudo } from './helpers/conferencia-academica.js';
 import { FormularioEntity } from '../src/formularios/entities/formulario.entity.js';
+import { FormulariosService } from '../src/formularios/formularios.service.js';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -22,6 +24,17 @@ describe('Cadastro (e2e)', () => {
   let app: INestApplication;
   let usuarios: UsuarioEntity[];
   let participacoes: ParticipacaoEntity[];
+  let formularios: FormularioEntity[];
+
+  const respostasApadrinhado = {
+    areas: ['Projetos'],
+    disponibilidade: ['Noite'],
+    genero: 'Prefiro não informar',
+    bolsistaProuni: false,
+    deOutraCidade: false,
+    expectativa: 'Quero apoio na adaptação.',
+    declaraPrimeiroPeriodo: true,
+  };
 
   const base = {
     nome: 'Rafaela Souza',
@@ -41,15 +54,23 @@ describe('Cadastro (e2e)', () => {
     },
   };
 
+  const baseApadrinhado = {
+    ...base,
+    periodo: 1,
+    tipoParticipacao: 'apadrinhado' as const,
+    respostas: respostasApadrinhado,
+  };
+
   beforeEach(async () => {
     usuarios = [];
     participacoes = [];
+    formularios = [];
     const repos = conectarRepositorios({
       UsuarioEntity: repositorioEmMemoria<UsuarioEntity>(usuarios),
       ParticipacaoEntity:
         repositorioEmMemoria<ParticipacaoEntity>(participacoes),
       ProgramaEntity: repositorioEmMemoria<ProgramaEntity>(),
-      FormularioEntity: repositorioEmMemoria<FormularioEntity>(),
+      FormularioEntity: repositorioEmMemoria<FormularioEntity>(formularios),
     });
     const modulo = await Test.createTestingModule({
       imports: [AuthModule, ParticipacoesModule, CadastroModule],
@@ -95,7 +116,9 @@ describe('Cadastro (e2e)', () => {
 
   const http = () => request(app.getHttpServer());
 
-  const postCadastro = (corpo: { email: string; nome?: string }) => {
+  const postCadastro = <T extends { email: string; nome?: string }>(
+    corpo: T,
+  ) => {
     const token = app.get(JwtService).sign({
       sub: corpo.email,
       email: corpo.email,
@@ -168,11 +191,9 @@ describe('Cadastro (e2e)', () => {
     );
 
     const resposta = await postCadastro({
-      ...base,
-      periodo: 1,
-      tipoParticipacao: 'apadrinhado',
+      ...baseApadrinhado,
       respostas: {
-        ...base.respostas,
+        ...baseApadrinhado.respostas,
         extras: { expectativa: 'Apoio nos estudos.' },
       },
     }).expect(201);
@@ -198,9 +219,7 @@ describe('Cadastro (e2e)', () => {
 
   it('aceita APADRINHADO no 1º período, pendente de aprovação', async () => {
     const resposta = await postCadastro({
-      ...base,
-      periodo: 1,
-      tipoParticipacao: 'apadrinhado',
+      ...baseApadrinhado,
     }).expect(201);
 
     expect(resposta.body.usuario.statusCadastro).toBe('aprovado');
@@ -246,9 +265,7 @@ describe('Cadastro (e2e)', () => {
 
   it('rota antiga com token: x-user-id falso não troca a identidade', async () => {
     const { body } = await postCadastro({
-      ...base,
-      periodo: 1,
-      tipoParticipacao: 'apadrinhado',
+      ...baseApadrinhado,
     }).expect(201);
     const resposta = await http()
       .post('/participacoes/cadastro-apadrinhado')
@@ -297,9 +314,7 @@ describe('Cadastro (e2e)', () => {
 
   it('não troca de modalidade num cadastro já existente', async () => {
     await postCadastro({
-      ...base,
-      periodo: 1,
-      tipoParticipacao: 'apadrinhado',
+      ...baseApadrinhado,
     }).expect(201);
     // já no 2º período, tenta virar padrinho com o mesmo e-mail
     const resposta = await postCadastro({
@@ -318,6 +333,7 @@ describe('Cadastro (e2e)', () => {
 
     await http().get('/me/vinculos').set('Authorization', token).expect(403);
 
+    await conferirTudo(app.get(ParticipacoesService), body.participacao.id);
     await cadastro.aprovar(body.usuario.id, 'renata@pucminas.edu.br');
     await http().get('/me/vinculos').set('Authorization', token).expect(403);
     expect(participacoes[0]).toMatchObject({
@@ -328,9 +344,7 @@ describe('Cadastro (e2e)', () => {
 
   it('rejeitado não ganha acesso e não consegue reenviar', async () => {
     const { body } = await postCadastro({
-      ...base,
-      periodo: 1,
-      tipoParticipacao: 'apadrinhado',
+      ...baseApadrinhado,
     }).expect(201);
     const cadastro = app.get(CadastroService);
     await cadastro.rejeitar(
@@ -346,18 +360,14 @@ describe('Cadastro (e2e)', () => {
     expect(vinculos.body.message).toMatch(/vínculo confirmado/);
 
     const reenvio = await postCadastro({
-      ...base,
-      periodo: 1,
-      tipoParticipacao: 'apadrinhado',
+      ...baseApadrinhado,
     }).expect(409);
     expect(reenvio.body.message).toMatch(/Já existe/);
   });
 
   it('situação só traz cadastro e esconde vínculos de quem não é aprovado', async () => {
     const { body } = await postCadastro({
-      ...base,
-      periodo: 1,
-      tipoParticipacao: 'apadrinhado',
+      ...baseApadrinhado,
     }).expect(201);
 
     const situacao = await http()
@@ -382,6 +392,7 @@ describe('Cadastro (e2e)', () => {
     )!;
 
     // mesma sequência que CoordenacaoService.aprovarCandidatura executa
+    await conferirTudo(app.get(ParticipacoesService), participacao.id);
     await app
       .get(ParticipacoesService)
       .aprovarCandidatura(participacao.id, 'renata@pucminas.edu.br');
@@ -422,11 +433,9 @@ describe('Cadastro (e2e)', () => {
       .post('/cadastro')
       .set('Authorization', `Bearer ${token}`)
       .send({
-        ...base,
+        ...baseApadrinhado,
         nome: 'Gabriel',
         email: 'outra.pessoa@pucminas.edu.br',
-        periodo: 1,
-        tipoParticipacao: 'apadrinhado',
       })
       .expect(400);
 
@@ -444,5 +453,105 @@ describe('Cadastro (e2e)', () => {
       .get('/participacoes/situacao')
       .set('Authorization', 'Bearer token-falso')
       .expect(401);
+  });
+
+  describe('formulário do apadrinhado: versão e encerramento', () => {
+    const pergunta = {
+      id: 'dificuldade',
+      enunciado: 'Qual sua maior dificuldade?',
+      tipo: 'texto_curto',
+      opcoes: [],
+      obrigatoria: true,
+    };
+    const apadrinhado = (email: string, extras?: Record<string, unknown>) =>
+      postCadastro({
+        ...baseApadrinhado,
+        email,
+        respostas: extras
+          ? { ...respostasApadrinhado, extras }
+          : respostasApadrinhado,
+      });
+    const ciclo = () => formularios[0].programa;
+    const publicar = (perguntas: unknown[]) =>
+      app.get(FormulariosService).salvar('apadrinhado', {
+        programa: ciclo(),
+        publicado: true,
+        perguntas,
+      });
+    const fotoDoEnvio = (indice: number) =>
+      participacoes[indice].respostas?._servidor?.formulario;
+
+    it('sem formulário publicado o apadrinhado se inscreve sem respostas adicionais', async () => {
+      await apadrinhado('a1@pucminas.edu.br').expect(201);
+      expect(fotoDoEnvio(0)).toBeUndefined();
+    });
+
+    it('sem formulário publicado recusa respostas adicionais', async () => {
+      await apadrinhado('a1@pucminas.edu.br', { dificuldade: 'x' }).expect(400);
+      expect(participacoes).toHaveLength(0);
+    });
+
+    it('formulário publicado: valida o obrigatório e grava a versão respondida', async () => {
+      await publicar([pergunta]);
+      await apadrinhado('a1@pucminas.edu.br').expect(400);
+      await apadrinhado('a1@pucminas.edu.br', {
+        dificuldade: 'Cálculo',
+      }).expect(201);
+      expect(participacoes[0].respostas?.extras).toEqual({
+        dificuldade: 'Cálculo',
+      });
+      expect(fotoDoEnvio(0)).toMatchObject({
+        tipo: 'apadrinhado',
+        versao: 1,
+        programa: ciclo(),
+        perguntas: [expect.objectContaining({ id: 'dificuldade' })],
+      });
+    });
+
+    it('envios antigos mantêm a versão e as perguntas respondidas quando o formulário muda', async () => {
+      await publicar([pergunta]);
+      await apadrinhado('a1@pucminas.edu.br', {
+        dificuldade: 'Cálculo',
+      }).expect(201);
+      await publicar([{ ...pergunta, enunciado: 'Qual seu maior desafio?' }]);
+      await apadrinhado('a2@pucminas.edu.br', { dificuldade: 'Física' }).expect(
+        201,
+      );
+      expect(fotoDoEnvio(0)).toMatchObject({
+        versao: 1,
+        perguntas: [
+          expect.objectContaining({ enunciado: 'Qual sua maior dificuldade?' }),
+        ],
+      });
+      expect(fotoDoEnvio(1)).toMatchObject({
+        versao: 2,
+        perguntas: [
+          expect.objectContaining({ enunciado: 'Qual seu maior desafio?' }),
+        ],
+      });
+    });
+
+    it('formulário encerrado recusa novas respostas e preserva as existentes', async () => {
+      await publicar([pergunta]);
+      await apadrinhado('a1@pucminas.edu.br', {
+        dificuldade: 'Cálculo',
+      }).expect(201);
+      await app.get(FormulariosService).encerrar('apadrinhado', ciclo());
+      const recusa = await apadrinhado('a2@pucminas.edu.br', {
+        dificuldade: 'Física',
+      }).expect(400);
+      expect(recusa.body.message).toMatch(/encerrado/);
+      expect(participacoes).toHaveLength(1);
+      expect(participacoes[0].respostas?.extras).toEqual({
+        dificuldade: 'Cálculo',
+      });
+    });
+
+    it('formulário de padrinho encerrado recusa a candidatura', async () => {
+      await app.get(FormulariosService).encerrar('padrinho', ciclo());
+      const recusa = await postCadastro({ ...base, periodo: 4 }).expect(400);
+      expect(recusa.body.message).toMatch(/encerrado/);
+      expect(participacoes).toHaveLength(0);
+    });
   });
 });

@@ -15,7 +15,16 @@ export default function PerfilAlunoPage() {
   useEffect(() => {
     let ativo = true;
     api.fotoAluno().then(f => {if (ativo) {setFoto(f?.url || null); setErroFoto('');}})
-      .catch(e => {if (ativo) setErroFoto(e.message);});
+      .catch(e => {
+        if (!ativo) return;
+        // Sem Azure em dev: perfil usa iniciais, sem mensagem técnica.
+        if (/Azure Blob Storage|AZURE_STORAGE/i.test(e.message || '')) {
+          setFoto(null);
+          setErroFoto('');
+          return;
+        }
+        setErroFoto('Não foi possível carregar a foto agora.');
+      });
     return () => {ativo = false;};
   }, [email]);
 
@@ -46,29 +55,31 @@ export default function PerfilAlunoPage() {
         <Link to="/aluno/configuracoes" className="icon-link" aria-label="Configurações"><Icon name="settings" size={22} /></Link>
       </PageHeader>
 
-      <Link to="/aluno/perfil/editar" className="text-link">Editar perfil e foto</Link>
-      <section className="profile-identity" aria-label="Seus dados">
-        <span className="profile-avatar" aria-hidden="true">{foto ? <img src={foto} alt="" style={{width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover'}} onError={() => {setFoto(null); setErroFoto('Foto indisponível. Abra a edição de perfil para tentar novamente.');}}/> : iniciaisDe(perfil.nome)}</span>
-        <div className="profile-identity-copy">
-          <h2>{perfil.nome}</h2>
-          <p>{perfil.curso || 'Curso não informado'}</p>
-          <p>{rotuloPeriodo(perfil.periodo)}{perfil.turno ? ` · ${perfil.turno}` : ''}</p>
-          {perfil.interesses.length > 0 && (
-            <ul className="interest-chips" aria-label="Interesses">
-              {perfil.interesses.map((item) => <li key={item}>{item}</li>)}
-            </ul>
-          )}
-        </div>
-      </section>
+      <div className="profile-overview">
+        <section className="profile-identity" aria-label="Seus dados">
+          <span className="profile-avatar" aria-hidden="true">{foto ? <img src={foto} alt="" style={{width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover'}} onError={() => {setFoto(null); setErroFoto('Foto indisponível. Abra a edição de perfil para tentar novamente.');}}/> : iniciaisDe(perfil.nome)}</span>
+          <div className="profile-identity-copy">
+            <h2>{perfil.nome}</h2>
+            <p>{perfil.curso || 'Curso não informado'}</p>
+            <p>{rotuloPeriodo(perfil.periodo)}{perfil.turno ? ` · ${perfil.turno}` : ''}</p>
+            {perfil.interesses.length > 0 && (
+              <ul className="interest-chips" aria-label="Interesses">
+                {perfil.interesses.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            )}
+            <Link to="/aluno/perfil/editar" className="text-link profile-edit-link">Editar perfil e foto</Link>
+          </div>
+        </section>
 
-      {erroFoto && <p role="status">Foto: {erroFoto}</p>}
-      {carregando && !situacao ? (
-        <EstadoCarregando texto="Carregando sua situação no programa…" />
-      ) : erro && !situacao ? (
-        <EstadoErro mensagem={erro} onTentar={recarregar} />
-      ) : (
-        <SituacaoCard dados={situacao} perfil={perfil} resolucao={resolucao} />
-      )}
+        {erroFoto && <p className="profile-foto-aviso" role="status">{erroFoto}</p>}
+        {carregando && !situacao ? (
+          <EstadoCarregando texto="Carregando sua situação no programa…" />
+        ) : erro && !situacao ? (
+          <EstadoErro mensagem={erro} onTentar={recarregar} />
+        ) : (
+          <SituacaoCard dados={situacao} perfil={perfil} resolucao={resolucao} />
+        )}
+      </div>
 
       <section className="aluno-section" aria-labelledby="jornada-titulo">
         <div className="section-head">
@@ -185,7 +196,7 @@ function SituacaoCard({ dados, perfil, resolucao }) {
       <section className="status-card blue" aria-label="Situação no programa">
         <div className="status-card-head">
           <span className="status-card-icon" aria-hidden="true"><Icon name="userSearch" size={30} /></span>
-          <div><h2>Aguardando padrinho</h2><p>Seu cadastro no programa foi concluído. Estamos buscando o melhor match para você.</p></div>
+          <div><h2>Aprovado — aguardando matching</h2><p>Seu cadastro foi aprovado. Estamos buscando o melhor match para você.</p></div>
         </div>
         <div className="status-meta">
           {programaMeta}

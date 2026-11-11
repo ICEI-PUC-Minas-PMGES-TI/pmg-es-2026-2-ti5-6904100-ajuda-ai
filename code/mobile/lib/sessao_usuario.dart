@@ -6,6 +6,7 @@ import 'models/formulario.dart';
 import 'models/situacao_participacao.dart';
 import 'services/api_config.dart';
 import 'services/participacoes_api.dart';
+import 'services/pucstops_api.dart';
 import 'status_participacao.dart';
 import 'tela_participacao.dart';
 import 'widgets/app_bottom_navigation.dart';
@@ -76,6 +77,28 @@ class SessaoUsuario {
 
   /// Permite injetar API nos testes.
   void configurarApi(ParticipacoesApi api) => _api = api;
+
+  /// Saldo global de XP (`GET /me/xp`, ou o total devolvido por uma coleta).
+  /// `null` = ainda não lido nesta sessão (ou sem login).
+  final ValueNotifier<int?> xp = ValueNotifier(null);
+
+  XpApi _xpApi = XpApi();
+
+  /// Permite injetar a API de XP nos testes.
+  void configurarXpApi(XpApi api) => _xpApi = api;
+
+  /// Relê o saldo. Sem login ou sem rede, mantém o valor atual.
+  Future<void> atualizarXp() async {
+    final token = accessToken;
+    if (token == null) return;
+    final versao = _versaoConta;
+    try {
+      final saldo = await _xpApi.saldo(token);
+      if (versao == _versaoConta && accessToken == token) xp.value = saldo;
+    } catch (_) {
+      // Indicador de XP é informativo: falha não interrompe a tela.
+    }
+  }
 
   /// Nome vindo da autenticação ou, depois, do cadastro em andamento.
   String? get nomeExibicao {
@@ -189,6 +212,7 @@ class SessaoUsuario {
 
   void _limparConta() {
     _versaoConta++;
+    xp.value = null;
     dados = null;
     participacao = null;
     status = StatusParticipacao.nenhuma;
@@ -205,6 +229,8 @@ class SessaoUsuario {
   }
 
   void _aplicarPerfil(Map<String, dynamic> perfil) {
+    // "Sobre mim" ainda não é salvo no servidor: mantém o texto local da conta.
+    final sobreLocal = dados?.email == identidade!.email ? dados?.sobre : null;
     dados = DadosCadastro(
       nome: '${perfil['nome'] ?? identidade?.nome ?? ''}',
       email: identidade!.email,
@@ -214,6 +240,7 @@ class SessaoUsuario {
       interesses: (perfil['interesses'] as List? ?? [])
           .whereType<String>()
           .toList(),
+      sobre: sobreLocal,
     );
   }
 
@@ -242,6 +269,10 @@ class SessaoUsuario {
     } else {
       _aplicarPerfil(resposta);
     }
+    dados = dados?.copyWith(
+      sobre: perfil.sobre,
+      limparSobre: perfil.sobre == null,
+    );
     onboardingToken = null;
   }
 
@@ -542,5 +573,6 @@ class SessaoUsuario {
       ..addAll(preferenciasPadrao);
     escalaTexto.value = 1.0;
     _api = ParticipacoesApi();
+    _xpApi = XpApi();
   }
 }

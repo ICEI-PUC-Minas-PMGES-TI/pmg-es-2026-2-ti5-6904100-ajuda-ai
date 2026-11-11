@@ -2,21 +2,19 @@
 
 Back-end da aplicação, desenvolvido em NestJS com TypeScript.
 
-## Estado atual
+## Visão geral
 
-Versão parcial. Os dados de usuário e os demais dados de negócio ainda são fictícios
-e mantidos em memória (`src/dados/dados.ts`). O login, porém, valida o ID token
-emitido pelo Microsoft Entra ID e emite um JWT da própria API. Somente contas do
-domínio institucional configurado e previamente cadastradas podem entrar.
+A API reúne os domínios do programa e do campus, com PostgreSQL/PostGIS e
+armazenamento de arquivos no Azure. O login valida o ID token do Microsoft Entra ID
+e emite o JWT da aplicação; dados de demonstração dependem da configuração do ambiente.
 
-O feed não contém publicações fictícias: publicações, curtidas e comentários são
-persistidos em PostgreSQL por meio do TypeORM. A mensageria permanece prevista para
-as próximas sprints.
+Arquitetura, migrations e contratos do mapa estão na
+[documentação técnica](../../../docs/tecnico/README.md).
 
 ## Pré-requisitos
 
-* Node.js 20 ou superior
-* npm 10 ou superior
+- Node.js 20 ou superior
+- npm 10 ou superior
 
 ## Instalação
 
@@ -80,76 +78,79 @@ A API fica disponível em `http://localhost:3000`.
 
 ## Endpoints
 
-| Método | Rota | Descrição |
-| --- | --- | --- |
-| `POST` | `/auth/login` | Valida um ID token Microsoft e devolve o JWT da API e os dados do usuário. |
-| `GET` | `/me` | Dados do usuário autenticado. Exige JWT no cabeçalho `Authorization`. |
-| `GET` | `/me/vinculos` | Padrinho ou apadrinhados vinculados ao usuário. Exige JWT. |
-| `POST` | `/auth/login-demo` | Login de desenvolvimento sem Microsoft. Só com `AUTH_DEMO_ENABLED=true`, fora de produção, e só para os e-mails da base demo. |
-| `GET` | `/avisos` | Comunicados da coordenação (persistidos). `?publico=padrinhos\|apadrinhados` filtra os direcionados. |
-| `GET` | `/participacoes` | Histórico de participações do aluno (`x-user-id` ou `?usuarioId=`). |
-| `GET` | `/participacoes/situacao` | Situação do aluno no ciclo atual: candidatura, padrinho/apadrinhados, grupo e etapas do programa. |
-| `GET` | `/chats` | Lista as conversas do usuário autenticado; registra como entregues as mensagens recebidas. |
-| `GET` | `/chats/:id/participantes` | Lista participantes de uma conversa à qual o usuário pertence. |
-| `GET` | `/chats/:id/mensagens` | Carrega até 50 mensagens; abrir a conversa marca mensagens recebidas como lidas. Aceita `?antesDe=<id>` para buscar mensagens anteriores. |
-| `POST` | `/chats/:id/mensagens` | Envia `{ "texto": "..." }`; o remetente é sempre a participação autenticada. |
-| `POST` | `/participacoes/candidatura-padrinho` | Envia (ou edita, enquanto em análise) a candidatura a padrinho com as `respostas`. |
-| `POST` | `/participacoes/cadastro-apadrinhado` | Envia o cadastro do apadrinhado; fica aguardando o match da coordenação. |
-| `POST` | `/participacoes/confirmar` | Confirmação manual de ingresso. Exige JWT de coordenador. |
-| `POST` | `/participacoes/rejeitar-candidatura` | Rejeição manual por e-mail. Exige JWT de coordenador. |
-| `GET` | `/formularios/:tipo` | Perguntas extras publicadas para `padrinho` ou `apadrinhado`. |
+| Método | Rota                                  | Descrição                                                                                                                     |
+| ------ | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/auth/login`                         | Valida um ID token Microsoft e devolve o JWT da API e os dados do usuário.                                                    |
+| `GET`  | `/me`                                 | Dados do usuário autenticado. Exige JWT no cabeçalho `Authorization`.                                                         |
+| `GET`  | `/me/vinculos`                        | Padrinho ou apadrinhados vinculados ao usuário. Exige JWT.                                                                    |
+| `POST` | `/auth/login-demo`                    | Login de desenvolvimento sem Microsoft. Só com `AUTH_DEMO_ENABLED=true`, fora de produção, e só para os e-mails da base demo. |
+| `GET`  | `/avisos`                             | Comunicados da coordenação (persistidos). `?publico=padrinhos\|apadrinhados` filtra os direcionados.                          |
+| `GET`  | `/participacoes`                      | Histórico de participações do aluno (`x-user-id` ou `?usuarioId=`).                                                           |
+| `GET`  | `/participacoes/situacao`             | Situação do aluno no ciclo atual: candidatura, padrinho/apadrinhados, grupo e etapas do programa.                             |
+| `POST` | `/participacoes/candidatura-padrinho` | Envia (ou edita, enquanto em análise) a candidatura a padrinho com as `respostas`.                                            |
+| `POST` | `/participacoes/cadastro-apadrinhado` | Envia o cadastro do apadrinhado; fica aguardando o match da coordenação.                                                      |
+| `POST` | `/participacoes/confirmar`            | Confirmação manual de ingresso. Exige JWT de coordenador.                                                                     |
+| `POST` | `/participacoes/rejeitar-candidatura` | Rejeição manual por e-mail. Exige JWT de coordenador.                                                                         |
+| `GET`  | `/formularios/:tipo`                  | Perguntas extras publicadas para `padrinho` ou `apadrinhado`.                                                                 |
 
 ### Coordenação (exige JWT com perfil `coordenador`)
 
-| Método | Rota | Descrição |
-| --- | --- | --- |
-| `GET` | `/coordenacao/dashboard` | Indicadores, etapas, candidaturas recentes e pontos de atenção (`?programa=`). |
-| `GET` | `/coordenacao/candidaturas` | Lista (`?programa=&status=pendente\|em_analise\|nao_aprovado\|aguardando\|aprovadas\|sem_vinculo`). |
-| `GET` | `/coordenacao/candidaturas/:id` | Detalhe com respostas, observações, critérios e histórico do aluno. |
-| `PATCH` | `/coordenacao/candidaturas/:id` | Volta para `pendente`/`em_analise` e salva observações. |
-| `POST` | `/coordenacao/candidaturas/:id/aprovar` | Aprova: a candidatura vira padrinho ativo. |
-| `POST` | `/coordenacao/candidaturas/:id/rejeitar` | Rejeita a candidatura. |
-| `POST` | `/coordenacao/candidaturas/acoes` | Ação em massa: `{ ids, acao: "aprovar" \| "rejeitar" \| "em_analise" }`. |
-| `GET` | `/coordenacao/usuarios` | Participantes do programa (`?programa=&papel=`). |
-| `POST` | `/coordenacao/vinculos` | Define o padrinho de um apadrinhado (`{ apadrinhadoId, padrinhoId }`); cria o grupo se preciso. |
-| `GET` | `/coordenacao/programas` | Programas com etapas, datas e totais. |
-| `POST` | `/coordenacao/programas` | Abre um novo ciclo. |
-| `PATCH` | `/coordenacao/programas?codigo=2026/2` | Atualiza etapa, inscrições, vagas, grupos e datas. |
-| `GET`/`PUT` | `/coordenacao/formularios/:tipo` | Lê/salva as perguntas do formulário e a publicação. |
-| `POST` | `/coordenacao/comunicados` | Publica um comunicado para todos, padrinhos ou apadrinhados. |
-| `GET` | `/publicacoes` | Lista as publicações persistidas no backend. |
-| `POST` | `/publicacoes` | Cria uma publicação com zero curtidas e zero comentários. |
-| `POST` | `/publicacoes/:id/comentarios` | Adiciona um comentário à publicação. |
-| `POST` | `/publicacoes/:id/curtidas` | Adiciona ou remove uma curtida (`delta: 1` ou `-1`). |
-| `DELETE` | `/publicacoes/:id` | Apaga uma publicação criada pelo usuário. |
+| Método      | Rota                                                    | Descrição                                                                                                                             |
+| ----------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`       | `/coordenacao/dashboard`                                | Indicadores, etapas, candidaturas recentes e pontos de atenção (`?programa=`).                                                        |
+| `GET`       | `/coordenacao/candidaturas`                             | Lista (`?programa=&papel=candidato\|apadrinhado&status=pendente\|em_analise\|nao_aprovado\|aguardando\|aprovadas\|sem_vinculo&conferencia=pendente\|requisitos_atendidos\|requisitos_nao_atendidos`). |
+| `GET`       | `/coordenacao/candidaturas/:id`                         | Detalhe com respostas, versão do formulário, conferência acadêmica (itens, dados para consulta, registro e histórico) e vínculos ativos. |
+| `PATCH`     | `/coordenacao/candidaturas/:id`                         | Volta para `pendente`/`em_analise` e salva observações.                                                                               |
+| `PUT`       | `/coordenacao/candidaturas/:id/verificacao`             | Registra a conferência acadêmica (`{ itens: [{ id, atende }], observacoes? }`) com responsável e data; candidatura nova vai para análise. |
+| `POST`      | `/coordenacao/candidaturas/:id/aprovar`                 | Aprova só com conferência registrada e requisitos atendidos; fica aguardando matching (não cria vínculo).                             |
+| `POST`      | `/coordenacao/candidaturas/:id/rejeitar`                | Rejeita a candidatura (`{ justificativa }` obrigatória, visível ao aluno).                                                            |
+| `POST`      | `/coordenacao/candidaturas/:id/revogar`                 | Retira uma aprovação (`{ justificativa }`); recusa se houver vínculo ativo e tira as sugestões pendentes do matching.                 |
+| `POST`      | `/coordenacao/candidaturas/:id/vinculos/:vinculoId/encerrar` | Encerra um vínculo do matching da participação (tratamento antes de revogar).                                                         |
+| `POST`      | `/coordenacao/candidaturas/:id/desvincular`             | Desfaz os vínculos do apadrinhado (matching e grupo legado).                                                                          |
+| `POST`      | `/coordenacao/candidaturas/acoes`                       | Ação em massa: `{ ids, acao: "aprovar" \| "rejeitar" \| "em_analise" }`.                                                              |
+| `GET`       | `/coordenacao/usuarios`                                 | Participantes do programa (`?programa=&papel=`).                                                                                      |
+| `POST`      | `/coordenacao/vinculos`                                 | Define o padrinho de um apadrinhado (`{ apadrinhadoId, padrinhoId }`); cria o grupo se preciso.                                       |
+| `GET`       | `/coordenacao/matching?programa=`                       | Visão administrativa, totais e pendências da outbox de chat.                                                                          |
+| `GET`/`PUT` | `/coordenacao/matching/config`                          | Lê/cria uma versão da configuração (`PUT` recebe programa, liberação, capacidades e critérios).                                       |
+| `POST`      | `/coordenacao/matching/liberar`                         | Cria uma nova versão alterando a liberação (`{ programa, liberado }`).                                                                |
+| `POST`      | `/coordenacao/matching/executar`                        | Executa a alocação capacitada (`{ programa }`), sem criar vínculos ou chats.                                                          |
+| `GET`       | `/coordenacao/matching/execucoes?programa=`             | Histórico de execuções e falhas.                                                                                                      |
+| `GET`       | `/coordenacao/matching/sugestoes?programa=&status=`     | Sugestões pendentes e histórico de decisões/obsolescência.                                                                            |
+| `GET`       | `/coordenacao/matching/sugestao/:id`                    | Detalhe, explicação por critério e eventos de chat associados.                                                                        |
+| `POST`      | `/coordenacao/matching/sugestao/:id/aprovar`            | Revalida e confirma o vínculo; enfileira eventos de chat na mesma transação.                                                          |
+| `POST`      | `/coordenacao/matching/sugestao/:id/recusar`            | Registra a recusa (`{ motivo? }`) sem alterar candidatura ou vínculo.                                                                 |
+| `GET`       | `/coordenacao/programas`                                | Programas com etapas, datas e totais.                                                                                                 |
+| `POST`      | `/coordenacao/programas`                                | Abre um novo ciclo.                                                                                                                   |
+| `PATCH`     | `/coordenacao/programas?codigo=2026/2`                  | Atualiza etapa, inscrições, vagas, grupos e datas.                                                                                    |
+| `GET`       | `/coordenacao/formularios`                              | Formulários de padrinho e apadrinhado do programa (`?programa=`), com `status` (`rascunho`, `publicado`, `encerrado`) e `versao`.     |
+| `GET`/`PUT` | `/coordenacao/formularios/:tipo`                        | Lê/salva as perguntas e a publicação. Publicar, ou alterar um formulário publicado, cria nova versão; programa encerrado não publica. |
+| `DELETE`    | `/coordenacao/formularios/:tipo`                        | Exclui um rascunho nunca publicado (`?programa=`).                                                                                    |
+| `POST`      | `/coordenacao/formularios/:tipo/encerrar`               | Encerra novas respostas (`{ programa }`); os envios existentes são mantidos.                                                          |
+| `POST`      | `/coordenacao/formularios/:tipo/duplicar`               | Copia as perguntas para outro programa como rascunho (`{ programaOrigem, programaDestino }`; 409 se o destino já tem formulário).     |
+| `GET`       | `/coordenacao/formularios/:tipo/respostas`              | Envios do programa, cada um com aluno, programa e versão respondida.                                                                  |
+| `GET`       | `/coordenacao/formularios/:tipo/respostas/por-pergunta` | Mesmas respostas agrupadas por pergunta, com contagem por alternativa.                                                                |
+| `GET`       | `/coordenacao/recompensas`                              | Recompensas da lojinha (F27), com estoque, versão, transações e `disponivelAgora` (`?status=rascunho\|publicada\|inativa\|arquivada`). |
+| `GET`       | `/coordenacao/recompensas/:id`                          | Detalhe com histórico de versões (condições vistas no resgate) e ajustes de estoque. |
+| `POST`      | `/coordenacao/recompensas`                              | Cria (`nome`, `custoXp`, `condicoesRetirada`, `estoqueIlimitado`, `estoqueInicial` se limitado; opcionais `descricao`, `imagemUrl`, `limitePorAluno`, `publico`, `programaCodigo`, `disponivelDe/Ate`, `publicar`). |
+| `PATCH`     | `/coordenacao/recompensas/:id`                          | Edita; mudar nome, descrição, imagem, custo ou condições cria nova versão (resgates anteriores mantêm a sua). Exige `atualizadoEm`; 409 se outra pessoa alterou antes. |
+| `POST`      | `/coordenacao/recompensas/:id/estoque`                  | Reposição, correção ou troca ilimitado/limitado (`{ tipo, quantidade?, motivo, atualizadoEm }`); nunca abaixo do comprometido; 409 se outra pessoa alterou antes. |
+| `POST`      | `/coordenacao/recompensas/:id/publicar` \| `desativar` \| `arquivar` | Publica, tira da lojinha ou arquiva (somente leitura, histórico preservado). |
+| `DELETE`    | `/coordenacao/recompensas/:id`                          | Exclui só sem transações; com resgates responde 409 `recompensa-com-transacoes` (arquive). |
+| `GET`       | `/me/lojinha`                                           | Lojinha do aluno: publicadas, na vigência, do seu público/programa (`estoque` disponível; `null` = ilimitado). |
+| `POST`      | `/me/lojinha/:id/resgatar`                              | Resgata com XP (`{ chaveIdempotencia, versao, custoXp }`); 404 indisponível, 409 esgotada/limite/recompensa alterada, 422 saldo insuficiente. |
+| `GET`       | `/me/lojinha/resgates`                                  | Histórico de resgates do aluno, com as condições da versão resgatada. |
+| `POST`      | `/coordenacao/comunicados`                              | Publica um comunicado para todos, padrinhos ou apadrinhados.                                                                          |
+| `GET`       | `/publicacoes`                                          | Lista as publicações persistidas no backend.                                                                                          |
+| `POST`      | `/publicacoes`                                          | Cria uma publicação com zero curtidas e zero comentários.                                                                             |
+| `POST`      | `/publicacoes/:id/comentarios`                          | Adiciona um comentário à publicação.                                                                                                  |
+| `POST`      | `/publicacoes/:id/curtidas`                             | Adiciona ou remove uma curtida (`delta: 1` ou `-1`).                                                                                  |
+| `DELETE`    | `/publicacoes/:id`                                      | Exclui uma publicação; exige permissão de administração do feed.                                                                                             |
 
-As rotas do feed e de participações identificam o usuário pelo cabeçalho
-`x-user-id` (e-mail institucional) enquanto o login Microsoft no aplicativo do aluno
-não é concluído. Por isso, ações que mudam o status de alguém no programa
-(aprovar, rejeitar, vincular) ficam só nas rotas da coordenação, protegidas por JWT. O banco impõe uma restrição
-única por usuário e publicação, impedindo curtidas duplicadas.
-
-## Chat
-
-O chat usa as tabelas `chats`, `chat_participantes` e `mensagens_chat`. O serviço
-`ChatService.criarParaVinculo(manager, matchingVinculoId)` cria, de forma
-idempotente, uma conversa persistida com o padrinho e o apadrinhado de um vínculo
-ativo. Ele recebe o `EntityManager` da transação chamadora para que a integração
-futura com a aprovação do matching possa criar a conversa atomicamente; essa
-integração não está habilitada nesta etapa.
-
-As rotas exigem JWT e verificam a participação do usuário em cada conversa. O
-envio é persistido como `enviada`; ao listar a caixa de entrada, mensagens novas
-passam para `entregue`, e ao abrir a conversa passam para `lida`. O indicador
-“aguardando internet” é exclusivamente local ao cliente e não é gravado pelo
-servidor. Os recibos são atualizados nas consultas autenticadas; ainda não há
-transporte em tempo real/push para atualizar a tela sem recarregá-la.
-
-Antes de usar os endpoints, aplique a migration:
-
-```powershell
-npm run migration:run
-```
+O feed exige JWT de acesso em todas as rotas. Publicação/edição/exclusão e upload
+são controlados pela FeedPolicy; alunos comuns podem consultar, curtir e comentar.
+O banco mantém uma restrição única por usuário/publicação e as alterações são
+propagadas por RabbitMQ e SSE autenticado. Configuração, endpoints adicionais e
+demonstração notebook/celular: [Feed em tempo real](../../../docs/tecnico/feed.md).
 
 Exemplo:
 
@@ -177,15 +178,15 @@ a rota é recusada mesmo com a flag ligada.
 
 Usuários fixos (os e-mails já usados no código; não foram trocados):
 
-| Nome | E-mail | Papel no seletor |
-| --- | --- | --- |
-| Camila Duarte | `camila@pucminas.edu.br` | Apadrinhada |
-| Lucas Almeida | `lucas.almeida@pucminas.edu.br` | Apadrinhado |
-| Thiago Moreira | `thiago@pucminas.edu.br` | Padrinho |
-| Ana Beatriz Costa | `ana.beatriz@pucminas.edu.br` | Candidata a padrinho |
-| Pedro Henrique Lima | `pedro.lima@pucminas.edu.br` | Candidato a padrinho |
-| Julia Fernandes | `julia.fernandes@pucminas.edu.br` | Candidata não aprovada |
-| Renata Martins | `renata@pucminas.edu.br` | Coordenadora (não vai para o banco) |
+| Nome                | E-mail                            | Papel no seletor                    |
+| ------------------- | --------------------------------- | ----------------------------------- |
+| Camila Duarte       | `camila@pucminas.edu.br`          | Apadrinhada                         |
+| Lucas Almeida       | `lucas.almeida@pucminas.edu.br`   | Apadrinhado                         |
+| Thiago Moreira      | `thiago@pucminas.edu.br`          | Padrinho                            |
+| Ana Beatriz Costa   | `ana.beatriz@pucminas.edu.br`     | Candidata a padrinho                |
+| Pedro Henrique Lima | `pedro.lima@pucminas.edu.br`      | Candidato a padrinho                |
+| Julia Fernandes     | `julia.fernandes@pucminas.edu.br` | Candidata não aprovada              |
+| Renata Martins      | `renata@pucminas.edu.br`          | Coordenadora (não vai para o banco) |
 
 Renata continua só na base em memória. Os outros precisam de uma linha em
 `usuarios`. No ambiente compartilhado, rode **uma vez** (não em produção):

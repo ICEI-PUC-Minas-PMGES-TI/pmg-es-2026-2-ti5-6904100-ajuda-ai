@@ -105,11 +105,18 @@ describe('Período e requisitos de padrinho (e2e)', () => {
     tipoParticipacao: tipo,
     respostas: {
       motivacao: 'Quero apoiar novos alunos.',
+      expectativa: 'Espero apoio nos estudos.',
       areas: ['Projetos'],
       disponibilidade: ['Noite'],
       genero: 'Prefiro não informar',
       bolsistaProuni: false,
       deOutraCidade: false,
+      ...(tipo === 'apadrinhado'
+        ? {
+            expectativa: 'Quero apoio na adaptação.',
+            declaraPrimeiroPeriodo: true,
+          }
+        : {}),
       ...(requisitos ? { requisitos } : {}),
     },
   });

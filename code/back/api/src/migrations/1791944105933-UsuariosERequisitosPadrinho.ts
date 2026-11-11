@@ -6,6 +6,53 @@ function schemaDe(queryRunner: QueryRunner): string {
   return `"${(options.schema ?? 'feed').replaceAll('"', '""')}"`;
 }
 
+const COLUNAS_USUARIOS = [
+  'id',
+  'nome',
+  'email',
+  'curso',
+  'periodo',
+  'turno',
+  'interesses',
+  'tipo_participacao',
+  'status_cadastro',
+  'motivo_rejeicao',
+  'analisado_em',
+  'analisado_por',
+  'criado_em',
+  'atualizado_em',
+];
+
+/**
+ * `true` quando `usuarios` (com todas as colunas) e
+ * `programas.requisitos_padrinho` já existem; `false` quando nenhuma das
+ * duas existe; erro em qualquer estado intermediário.
+ */
+async function jaAplicada(queryRunner: QueryRunner): Promise<boolean> {
+  const options = queryRunner.connection.options as { schema?: string };
+  const schema = options.schema ?? 'feed';
+  const colunas = (await queryRunner.query(
+    `SELECT table_name, column_name FROM information_schema.columns ` +
+      `WHERE table_schema = $1 AND (table_name = 'usuarios' ` +
+      `OR (table_name = 'programas' AND column_name = 'requisitos_padrinho'))`,
+    [schema],
+  )) as Array<{ table_name: string; column_name: string }>;
+  const usuarios = new Set(
+    colunas
+      .filter((c) => c.table_name === 'usuarios')
+      .map((c) => c.column_name),
+  );
+  const requisitos = colunas.some((c) => c.table_name === 'programas');
+  if (usuarios.size === 0 && !requisitos) return false;
+  const faltando = COLUNAS_USUARIOS.filter((c) => !usuarios.has(c));
+  if (requisitos && usuarios.size > 0 && faltando.length === 0) return true;
+  throw new Error(
+    'UsuariosERequisitosPadrinho recusada: estado parcial ' +
+      `(usuarios: ${usuarios.size ? `faltam ${faltando.join(', ') || 'nada'}` : 'ausente'}; ` +
+      `requisitos_padrinho: ${requisitos ? 'existe' : 'ausente'}). Nada foi alterado.`,
+  );
+}
+
 /**
  * Deixa um banco criado antes do cadastro/requisitos compatível com as
  * entidades atuais, sem tocar em tabelas ou dados existentes:
@@ -27,8 +74,11 @@ export class UsuariosERequisitosPadrinho1791944105933 implements MigrationInterf
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     const s = schemaDe(queryRunner);
-    // Sem IF NOT EXISTS de propósito: se já existir, falha e a transação
-    // inteira é desfeita, em vez de seguir com uma estrutura diferente.
+    // Bancos locais criados por `synchronize` já têm as duas mudanças, mas
+    // não têm o registro desta migration. Só pula quando as duas existem e
+    // `usuarios` tem todas as colunas abaixo; estado parcial falha, sem
+    // IF NOT EXISTS, para não seguir com uma estrutura diferente.
+    if (await jaAplicada(queryRunner)) return;
     await queryRunner.query(
       `CREATE TABLE ${s}."usuarios" (` +
         `"id" SERIAL NOT NULL, ` +

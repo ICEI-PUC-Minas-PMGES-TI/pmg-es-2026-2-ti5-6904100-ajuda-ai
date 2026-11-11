@@ -31,10 +31,11 @@ No emulador, `localhost` é o próprio Android. O app em debug usa `http://10.0.
 flutter run --dart-define=API_BASE_URL=http://IP_DA_MAQUINA:3000
 ```
 
-No VS Code, a configuração **Ajuda-aí (Android Emulator)** já abre o projeto mobile em debug. O SDK usado por este workspace é `C:\Users\gabri\flutter`. O terminal integrado do VS Code enxerga o comando `flutter`. Um PowerShell aberto fora do VS Code continua sem esse comando, a menos que o PATH do Windows seja ajustado à mão:
+O comando `flutter` precisa estar no PATH da sessão. Escolha o destino listado
+por `flutter devices`:
 
 ```powershell
-& "C:\Users\gabri\flutter\bin\flutter.bat" run -d emulator-5554
+flutter run -d <device-id>
 ```
 
 ## Login demo
@@ -65,3 +66,57 @@ vínculos manuais; não gera sugestões nem grupos automaticamente.
 ### Android
 
 O scheme do redirect está em `android/app/build.gradle.kts` (`appAuthRedirectScheme`).
+
+## Feed em tempo real
+
+A tela existente recebe eventos SSE autenticados e atualiza publicações, curtidas
+e comentários abertos. O stream fecha ao sair da tela ou entrar em segundo plano.
+Para executar em celular físico, use `--dart-define=API_BASE_URL=http://IP_DO_NOTEBOOK:3000`.
+Configuração e demonstração completas: [guia do feed](../../docs/tecnico/feed.md).
+
+O fluxo principal do feed funciona entre dois celulares Flutter. A coordenação
+abre **Feed do programa** no cabeçalho ou em **Mais** para criar com imagens,
+editar, remover imagens e excluir publicações. A permissão vem da API; o aluno
+comum interage e recebe SSE. A demonstração completa está no guia acima.
+
+Comentários agora incluem identidade explícita, respostas em um nível, curtidas
+individuais e exclusão autorizada. O Flutter preserva a SAS válida pela referência
+estável da mídia e atualiza somente o post afetado. A nova migration precisa de
+revisão/aplicação manual antes de testar essa versão da API no banco compartilhado.
+Contrato, arquivos e roteiro de dois clientes: [evolução dos comentários](../../docs/tecnico/feed-comentarios.md).
+
+### Imagens em tela cheia e galeria
+
+Toque em uma imagem para abrir o viewer com transição Hero, zoom de 1x a 5x,
+arraste e botão de fechar. O ícone **Salvar imagem** baixa somente a imagem
+aberta, usando a mesma URL SAS já recebida, e salva seus bytes na galeria com
+`gal`. A URL não é enviada ao plugin nem usada como nome de arquivo. O botão
+fica indisponível durante o salvamento e o zoom é preservado.
+
+No Android, `WRITE_EXTERNAL_STORAGE` está declarada somente até API 29.
+O plugin verifica/solicita o acesso ao salvar. Android 11+ usa MediaStore sem
+permissão de leitura da galeria ou acesso amplo a arquivos. Não usamos álbum
+personalizado, portanto não precisamos de `requestLegacyExternalStorage`.
+
+Este repositório ainda não tem a plataforma `ios/`. Ao adicioná-la, configure
+em `ios/Runner/Info.plist` as descrições requeridas pelo plugin:
+
+```xml
+<key>NSPhotoLibraryAddUsageDescription</key>
+<string>O Ajuda-Aí salva as imagens do feed que você escolher em Fotos.</string>
+<key>NSPhotoLibraryUsageDescription</key>
+<string>O Ajuda-Aí precisa de acesso a Fotos para salvar imagens em versões anteriores ao iOS 14.</string>
+```
+
+Em iOS 14+, o salvamento sem álbum usa acesso de adição; versões anteriores
+também exigem a descrição de acesso à biblioteca. A integração do plugin é
+compartilhada, mas o build iOS depende da criação dessa plataforma em macOS.
+Referência: [documentação do gal](https://pub.dev/packages/gal).
+
+Para validar em Android físico, reconstrua o app com `flutter run -d <device-id>`
+(plugins novos não entram só com hot reload), abra o feed e amplie uma imagem.
+Salve, conceda a permissão se solicitada e confira **Imagem salva na galeria**
+e o arquivo na Galeria/Fotos. Verifique que o zoom continua igual, que toques
+rápidos não duplicam o download e que a segunda imagem de um carrossel salva
+somente a segunda. Negue a permissão em um Android antigo ou tente salvar uma
+URL expirada para conferir **Não foi possível salvar a imagem**.

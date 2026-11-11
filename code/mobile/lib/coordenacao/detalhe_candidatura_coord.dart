@@ -144,11 +144,6 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
     );
   }
 
-  Future<void> _solicitarRevisao() => _executar(
-    (id) => widget.api.atualizarCandidatura(id, status: 'em_analise'),
-    'Candidatura marcada para revisão (em análise).',
-  );
-
   Future<void> _salvarObservacoes() => _executar(
     (id) => widget.api.atualizarCandidatura(
       id,
@@ -170,6 +165,33 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
     if (ok) {
       widget.onAlterado();
       await _carregar();
+    }
+  }
+
+  Future<void> _desvincular() async {
+    final id = _id;
+    if (id == null || _processando) return;
+    final ok = await confirmarAcaoCoord(
+      context,
+      titulo: 'Desfazer vínculo?',
+      mensagem:
+          'O apadrinhado voltará a aguardar matching sem padrinho definido.',
+      confirmar: 'Desfazer vínculo',
+      destrutiva: true,
+    );
+    if (!ok || !mounted) return;
+    setState(() => _processando = true);
+    try {
+      await widget.api.desvincularCandidatura(id);
+      if (!mounted) return;
+      widget.onAlterado();
+      mostrarMensagemCoord(context, 'Vínculo desfeito.');
+      await _carregar();
+    } catch (erro) {
+      if (!mounted) return;
+      mostrarMensagemCoord(context, mensagemDeErro(erro));
+    } finally {
+      if (mounted) setState(() => _processando = false);
     }
   }
 
@@ -244,7 +266,10 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
         .whereType<Map>()
         .toList();
     final aprovado =
-        dados['status'] == 'aprovado' || dados['papel'] == 'padrinho';
+        dados['status'] == 'aprovado' ||
+        dados['papel'] == 'padrinho' ||
+        (_ehApadrinhado && dados['status'] == 'em_andamento');
+    final rejeitado = dados['status'] == 'nao_aprovado';
 
     return Column(
       children: [
@@ -315,6 +340,48 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
                 const LinearProgressIndicator(color: AppColors.primary),
               for (final (icone, titulo, valor) in _itens())
                 _ItemDetalhe(icone: icone, titulo: titulo, valor: valor),
+              if (_ehApadrinhado)
+                _ItemDetalhe(
+                  icone: Icons.verified_user_outlined,
+                  titulo: 'Declaração de 1º período',
+                  valor: _respostas['declaraPrimeiroPeriodo'] == true
+                      ? 'Declarado'
+                      : 'Envio legado — confira no sistema da faculdade',
+                ),
+              () {
+                final form = dados['formularioRespondido'];
+                if (form is! Map) {
+                  return _ItemDetalhe(
+                    icone: Icons.dynamic_form_outlined,
+                    titulo: 'Formulário respondido',
+                    valor: 'Sem versão registrada',
+                  );
+                }
+                return _ItemDetalhe(
+                  icone: Icons.dynamic_form_outlined,
+                  titulo: 'Formulário respondido',
+                  valor:
+                      'v${form['versao'] ?? '—'} · ${form['programa'] ?? dados['programa'] ?? ''}',
+                );
+              }(),
+              () {
+                final decisao = dados['decisao'];
+                if (decisao is! Map) return const SizedBox.shrink();
+                return _ItemDetalhe(
+                  icone: Icons.history,
+                  titulo: 'Registro da verificação',
+                  valor: [
+                    decisao['resultado'] == 'aprovado'
+                        ? 'Aprovado'
+                        : 'Não aprovado',
+                    if (decisao['em'] != null)
+                      'em ${formatarDataCoord(decisao['em'])}',
+                    if (decisao['por'] != null) 'por ${decisao['por']}',
+                    if (decisao['justificativa'] != null)
+                      'Justificativa: ${decisao['justificativa']}',
+                  ].join(' · '),
+                );
+              }(),
               for (final MapEntry(:key, :value) in extras.entries)
                 _ItemDetalhe(
                   icone: Icons.help_outline,
@@ -396,79 +463,70 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
             ],
           ),
         ),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-            child: _ehApadrinhado
-                ? (dados['grupo'] == null
-                      ? FilledButton.icon(
-                          onPressed: _processando ? null : _definirPadrinho,
-                          icon: const Icon(Icons.link),
-                          label: const Text('Definir padrinho'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            minimumSize: const Size.fromHeight(48),
+        if (_ehApadrinhado || (_ehCandidato && !aprovado && !rejeitado))
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: _ehApadrinhado
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (dados['grupo'] == null)
+                          FilledButton.icon(
+                            onPressed: _processando ? null : _definirPadrinho,
+                            icon: const Icon(Icons.link),
+                            label: const Text('Definir padrinho'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              minimumSize: const Size.fromHeight(48),
+                            ),
+                          )
+                        else
+                          TextButton(
+                            onPressed: _processando ? null : _desvincular,
+                            child: const Text('Desfazer vínculo'),
                           ),
-                        )
-                      : Text(
-                          'Vinculado ao ${dados['grupo']}.',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: AppAccents.success),
-                        ))
-                : aprovado || !_ehCandidato
-                ? const Text(
-                    'Candidatura aprovada. As atividades dependem do vínculo confirmado.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: AppAccents.success),
-                  )
-                : Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _processando ? null : _rejeitar,
-                              icon: const Icon(Icons.close),
-                              label: const Text(
-                                'Rejeitar candidatura',
-                                overflow: TextOverflow.ellipsis,
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _processando ? null : _rejeitar,
+                            icon: const Icon(Icons.close),
+                            label: const Text(
+                              'Rejeitar',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: corErroCoord,
+                              side: const BorderSide(
+                                color: Color(0xFFFCA5A5),
                               ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: corErroCoord,
-                                side: const BorderSide(
-                                  color: Color(0xFFFCA5A5),
-                                ),
-                                minimumSize: const Size.fromHeight(48),
-                              ),
+                              minimumSize: const Size.fromHeight(48),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: FilledButton.icon(
-                              onPressed: _processando ? null : _aprovar,
-                              icon: const Icon(Icons.check),
-                              label: const Text(
-                                'Aprovar candidatura',
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.primary,
-                                minimumSize: const Size.fromHeight(48),
-                              ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: _processando ? null : _aprovar,
+                            icon: const Icon(Icons.check),
+                            label: const Text(
+                              'Aprovar',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              minimumSize: const Size.fromHeight(48),
                             ),
                           ),
-                        ],
-                      ),
-                      TextButton(
-                        onPressed: _processando ? null : _solicitarRevisao,
-                        child: const Text('Solicitar revisão'),
-                      ),
-                    ],
-                  ),
+                        ),
+                      ],
+                    ),
+            ),
           ),
-        ),
       ],
     );
   }

@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import request from 'supertest';
+import { vi } from 'vitest';
 import { CadastroService } from '../src/cadastro/cadastro.service.js';
 import { CoordenacaoController } from '../src/coordenacao/coordenacao.controller.js';
 import { CoordenacaoService } from '../src/coordenacao/coordenacao.service.js';
@@ -15,6 +16,7 @@ import {
   conectarRepositorios,
   repositorioEmMemoria,
 } from './helpers/repositorio-memoria.js';
+import { conferirTudo } from './helpers/conferencia-academica.js';
 
 const cronograma = {
   inscricoesInicio: '2027-02-01',
@@ -58,6 +60,8 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
       null as never,
       null as never,
       new UsuariosService(repoUsuarios),
+      null as never,
+      null as never,
       repoParticipacoes,
     );
   });
@@ -72,11 +76,13 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
       usuarioId: 'padrinho@pucminas.edu.br',
       programa: codigo,
     });
+    await conferirTudo(participacoesService, candidato.id);
     await participacoesService.aprovarCandidatura(candidato.id);
     const apadrinhado = await participacoesService.cadastrarApadrinhado({
       usuarioId: 'calouro@pucminas.edu.br',
       programa: codigo,
     });
+    await conferirTudo(participacoesService, apadrinhado.id);
     await participacoesService.aprovarCandidatura(apadrinhado.id);
     return { candidato, apadrinhado };
   }
@@ -141,6 +147,7 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
     });
     expect(programas[0].inscricoesAbertas).toBe(true);
     await participacoesService.marcarEmAnalise(candidato.id);
+    await conferirTudo(participacoesService, candidato.id);
     const aprovado = await participacoesService.aprovarCandidatura(candidato.id);
     expect(aprovado).toMatchObject({
       papel: 'candidato',
@@ -201,6 +208,7 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
         programa: '2027/1',
       });
 
+    await conferirTudo(participacoesService, apadrinhadoPendente.id);
     await programasService.encerrarInscricoes('2027/1');
     expect(candidatoPendente.status).toBe('pendente');
     expect(apadrinhadoPendente.status).toBe('pendente');
@@ -214,6 +222,7 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
       candidatoPendente.id,
       'Não atende aos critérios.',
     );
+    await conferirTudo(participacoesService, apadrinhadoPendente.id);
     await participacoesService.aprovarCandidatura(apadrinhadoPendente.id);
     const liberado = await programasService.liberarMatching('2027/1');
     expect(liberado.etapaAtual).toBe('formacao');
@@ -295,8 +304,11 @@ describe('coordenação: rotas de etapa e permissão', () => {
       null as never,
       null as never,
       new UsuariosService(repositorioEmMemoria<UsuarioEntity>()),
+      null as never,
+      null as never,
       repoParticipacoes,
     );
+    vi.spyOn(coordenacao, 'onModuleInit').mockResolvedValue(undefined);
     const modulo = await Test.createTestingModule({
       imports: [JwtModule.register({ secret: 'segredo-apenas-testes' })],
       controllers: [CoordenacaoController],
@@ -333,7 +345,7 @@ describe('coordenação: rotas de etapa e permissão', () => {
       .set('Authorization', `Bearer ${token('nenhuma')}`)
       .expect(403);
     await http()
-      .get('/coordenacao/matching')
+      .get('/coordenacao/matching/pool')
       .query({ programa: '2027/1' })
       .set('Authorization', `Bearer ${token()}`)
       .expect(400);
@@ -344,6 +356,7 @@ describe('coordenação: rotas de etapa e permissão', () => {
       usuarioId: 'p@pucminas.edu.br',
       programa: '2027/1',
     });
+    await conferirTudo(participacoesService, candidato.id);
     await participacoesService.aprovarCandidatura(candidato.id);
     const encerrar = await http()
       .post('/coordenacao/programas/encerrar-inscricoes')
@@ -356,7 +369,7 @@ describe('coordenação: rotas de etapa e permissão', () => {
       matchingLiberado: false,
     });
     await http()
-      .get('/coordenacao/matching')
+      .get('/coordenacao/matching/pool')
       .query({ programa: '2027/1' })
       .set('Authorization', `Bearer ${token()}`)
       .expect(400);
@@ -376,7 +389,7 @@ describe('coordenação: rotas de etapa e permissão', () => {
       matchingLiberado: true,
     });
     const matching = await http()
-      .get('/coordenacao/matching')
+      .get('/coordenacao/matching/pool')
       .query({ programa: '2027/1' })
       .set('Authorization', `Bearer ${token()}`)
       .expect(200);

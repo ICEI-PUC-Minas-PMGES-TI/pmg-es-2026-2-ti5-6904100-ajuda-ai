@@ -240,7 +240,13 @@ void main() {
     await tester.pumpWidget(_app(falsa));
     await tester.pumpAndSettle();
 
-    expect(find.text('Candidaturas para padrinho'), findsOneWidget);
+    expect(find.text('Candidaturas'), findsOneWidget);
+    expect(
+      tester
+          .widget<SegmentedButton<String>>(find.byType(SegmentedButton<String>))
+          .selected,
+      {'padrinho'},
+    );
     // O padrinho já aprovado não entra na seleção.
     expect(find.text('Selecionar todas (2)'), findsOneWidget);
     expect(find.textContaining('selecionada(s)'), findsNothing);
@@ -341,7 +347,13 @@ void main() {
     await tester.pumpWidget(_app(falsa, status: 'sem_vinculo'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Apadrinhados sem vínculo'), findsWidgets);
+    expect(find.text('Sem vínculo'), findsOneWidget);
+    expect(
+      tester
+          .widget<SegmentedButton<String>>(find.byType(SegmentedButton<String>))
+          .selected,
+      {'apadrinhado'},
+    );
     expect(find.textContaining('Selecionar todas'), findsNothing);
 
     await tester.tap(find.text('Lucas Almeida'));
@@ -380,22 +392,18 @@ void main() {
     expect(find.byType(TelaFormulariosCoord), findsOneWidget);
     expect(find.text('Pergunta 1'), findsOneWidget);
 
-    await tester.tap(find.text('Adicionar nova pergunta'));
+    await tester.tap(find.text('Adicionar pergunta comum'));
     await tester.pumpAndSettle();
     expect(find.text('Pergunta 2'), findsOneWidget);
     await tester.enterText(
       find.widgetWithText(TextField, 'Enunciado').last,
       'Qual sua maior dificuldade?',
     );
+    await tester.ensureVisible(find.text('Rascunho (não publicado)'));
     await tester.tap(find.text('Rascunho (não publicado)'));
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(
-      find.text('Salvar alterações'),
-      300,
-      scrollable: find.byType(Scrollable).last,
-    );
-    await tester.tap(find.text('Salvar alterações'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
     await tester.pumpAndSettle();
 
     final salvo = falsa.formularioSalvo!;

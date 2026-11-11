@@ -1,6 +1,8 @@
 const API_BASE =
   import.meta.env.VITE_API_URL?.replace(/\/$/, '') || 'http://localhost:3000';
 
+export const feedEventsUrl = `${API_BASE}/publicacoes/events`;
+
 const TOKEN_KEY = 'ajudaai.accessToken';
 const USER_KEY = 'ajudaai.usuario';
 /** Sessão do aluno, separada da coordenação (as duas podem coexistir). */
@@ -91,7 +93,7 @@ export function clearAlunoSession() {
 }
 
 /** Aluno exige seu próprio JWT; consultas não usam identidade livre por e-mail. */
-async function request(path, { method = 'GET', body, token, aluno, anonimo = false } = {}) {
+async function request(path, { method = 'GET', body, token, aluno, anonimo = false, signal } = {}) {
   const headers = { Accept: 'application/json' };
   const multipart = typeof FormData !== 'undefined' && body instanceof FormData;
   if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json';
@@ -105,35 +107,71 @@ async function request(path, { method = 'GET', body, token, aluno, anonimo = fal
   }
 
   let response;
+  const controller = new AbortController();
+  // Quem passa o próprio sinal (ex.: fluxos do mapa) ou envia arquivo controla o prazo.
+  const timeout = signal || multipart ? undefined : setTimeout(() => controller.abort(), 12000);
   try {
     response = await fetch(`${API_BASE}${path}`, {
       method,
       headers,
       body: multipart ? body : body !== undefined ? JSON.stringify(body) : undefined,
+      signal: signal ?? controller.signal,
     });
-  } catch {
-    const error = new Error('Não foi possível conectar ao servidor. Verifique sua conexão.');
+  } catch (causa) {
+    const mensagem = causa?.name === 'AbortError'
+      ? 'O servidor demorou para responder. Verifique se o backend está em execução.'
+      : 'Não foi possível conectar ao servidor. Verifique se o backend está em execução.';
+    const error = new Error(mensagem);
     error.status = 0;
     throw error;
+  } finally {
+    clearTimeout(timeout);
   }
 
   if (!response.ok) {
     let message = `Erro ${response.status}`;
+    let motivo;
     try {
       const data = await response.json();
       message = data.message || data.error || message;
       if (Array.isArray(message)) message = message.join(', ');
+      motivo = data.motivo;
     } catch {
       /* ignore */
     }
     const error = new Error(message);
     error.status = response.status;
+    // Código estável enviado pelo servidor (ex.: 'fora-do-campus'), quando houver.
+    if (motivo) error.motivo = motivo;
     throw error;
   }
 
   if (response.status === 204) return null;
   const texto = await response.text();
   return texto ? JSON.parse(texto) : null;
+}
+
+/** Limita a espera dos fluxos do mapa, inclusive a leitura do corpo. */
+async function requestMapa(path, options = {}) {
+  const controller = new AbortController();
+  let timer;
+  const upload = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  try {
+    return await Promise.race([
+      request(path, { ...options, signal: controller.signal }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const mensagem = options.method && options.method !== 'GET'
+            ? 'O servidor demorou para responder. Não foi possível confirmar a operação. Recarregue a lista antes de tentar novamente.'
+            : 'O servidor demorou para responder. Tente novamente.';
+          reject(Object.assign(new Error(mensagem), { status: 0 }));
+          controller.abort();
+        }, upload ? 60_000 : 15_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function query(params) {
@@ -146,6 +184,15 @@ function query(params) {
 }
 
 export const api = {
+  feed(email) { return request('/publicacoes', { aluno: email }); },
+  permissoesFeed(email) { return request('/publicacoes/permissoes', { aluno: email }); },
+  criarPublicacao(dados, email) { return request('/publicacoes', { method: 'POST', body: dados, aluno: email }); },
+  atualizarPublicacao(id, dados, email) { return request(`/publicacoes/${id}`, { method: 'PATCH', body: dados, aluno: email }); },
+  excluirPublicacao(id, email) { return request(`/publicacoes/${id}`, { method: 'DELETE', aluno: email }); },
+  comentarPublicacao(id, texto, email) { return request(`/publicacoes/${id}/comentarios`, { method: 'POST', body: { texto }, aluno: email }); },
+  excluirComentario(id, comentarioId, email) { return request(`/publicacoes/${id}/comentarios/${comentarioId}`, { method: 'DELETE', aluno: email }); },
+  curtirPublicacao(id, delta, email) { return request(`/publicacoes/${id}/curtidas`, { method: 'POST', body: { delta }, aluno: email }); },
+  uploadFeed(arquivo, email) { const body = new FormData(); body.append('arquivo', arquivo); return requestMapa('/publicacoes/midias', { method: 'POST', body, aluno: email }); },
   loginMicrosoft(idToken) { return request('/auth/login', { method: 'POST', body: {idToken}, anonimo: true }); },
   perfilAluno() { return request('/me', { aluno: getAlunoSession()?.email || '__sem_sessao__' }); },
   atualizarPerfil(dados) { return request('/me', {method: 'PATCH', body: dados, aluno: getAlunoSession()?.email || '__sem_sessao__'}); },
@@ -202,8 +249,9 @@ export const api = {
   dashboard(programa) {
     return request(`/coordenacao/dashboard${query({ programa })}`);
   },
-  candidaturas(programa, status) {
-    return request(`/coordenacao/candidaturas${query({ programa, status })}`);
+  /** papel: candidato|apadrinhado; conferencia: pendente|requisitos_atendidos|requisitos_nao_atendidos. */
+  candidaturas(programa, status, { papel, conferencia } = {}) {
+    return request(`/coordenacao/candidaturas${query({ programa, status, papel, conferencia })}`);
   },
   candidatura(id) {
     return request(`/coordenacao/candidaturas/${id}`);
@@ -217,6 +265,19 @@ export const api = {
   rejeitarCandidatura(id, justificativa) {
     return request(`/coordenacao/candidaturas/${id}/rejeitar`, { method: 'POST', body: {justificativa} });
   },
+  desvincularCandidatura(id) {
+    return request(`/coordenacao/candidaturas/${id}/desvincular`, { method: 'POST' });
+  },
+  revogarAprovacao(id, justificativa) {
+    return request(`/coordenacao/candidaturas/${id}/revogar`, { method: 'POST', body: { justificativa } });
+  },
+  /** Conferência acadêmica (F09): itens = [{ id, atende }]. Devolve o detalhe atualizado. */
+  registrarVerificacao(id, itens, observacoes) {
+    return request(`/coordenacao/candidaturas/${id}/verificacao`, { method: 'PUT', body: { itens, observacoes } });
+  },
+  encerrarVinculo(id, vinculoId) {
+    return request(`/coordenacao/candidaturas/${id}/vinculos/${vinculoId}/encerrar`, { method: 'POST' });
+  },
   cadastros(status, programa) {
     return request(`/coordenacao/cadastros${query({ status, programa })}`);
   },
@@ -229,7 +290,7 @@ export const api = {
   rejeitarCadastro(id, motivo, programa) {
     return request(`/coordenacao/cadastros/${id}/rejeitar${query({programa})}`, {
       method: 'POST',
-      body: motivo ? { motivo } : {},
+      body: { motivo },
     });
   },
   acaoEmMassa(ids, acao, justificativa) {
@@ -240,6 +301,65 @@ export const api = {
   },
   vincular(apadrinhadoId, padrinhoId) {
     return request('/coordenacao/vinculos', { method: 'POST', body: { apadrinhadoId, padrinhoId } });
+  },
+  matchingVisao(programa) {
+    return request(`/coordenacao/matching${query({ programa })}`);
+  },
+  matchingPool(programa) {
+    return request(`/coordenacao/matching/pool${query({ programa })}`);
+  },
+  matchingConfiguracao(programa) {
+    return request(`/coordenacao/matching/config${query({ programa })}`);
+  },
+  salvarMatchingConfiguracao(dados) {
+    return request('/coordenacao/matching/config', { method: 'PUT', body: dados });
+  },
+  liberarMatching(codigo) {
+    return request(`/coordenacao/programas/liberar-matching${query({ codigo })}`, { method: 'POST' });
+  },
+  executarMatching(programa) {
+    return request('/coordenacao/matching/executar', { method: 'POST', body: { programa } });
+  },
+  execucoesMatching(programa) {
+    return request(`/coordenacao/matching/execucoes${query({ programa })}`);
+  },
+  sugestoesMatching(programa, status) {
+    return request(`/coordenacao/matching/sugestoes${query({ programa, status })}`);
+  },
+  sugestaoMatching(id) {
+    return request(`/coordenacao/matching/sugestao/${id}`);
+  },
+  aprovarSugestaoMatching(id) {
+    return request(`/coordenacao/matching/sugestao/${id}/aprovar`, { method: 'POST' });
+  },
+  recusarSugestaoMatching(id, motivo) {
+    return request(`/coordenacao/matching/sugestao/${id}/recusar`, { method: 'POST', body: { motivo } });
+  },
+  criteriosMatching(busca) {
+    return request(`/coordenacao/matching/criterios${query({ busca })}`);
+  },
+  criteriosMatchingAtivos() {
+    return request('/coordenacao/matching/criterios/ativos');
+  },
+  criteriosMatchingSemelhantes(nome, excetoId) {
+    return request(
+      `/coordenacao/matching/criterios/semelhantes${query({ nome, excetoId })}`,
+    );
+  },
+  criterioMatching(id) {
+    return request(`/coordenacao/matching/criterios/${id}`);
+  },
+  criarCriterioMatching(dados) {
+    return request('/coordenacao/matching/criterios', { method: 'POST', body: dados });
+  },
+  atualizarCriterioMatching(id, dados) {
+    return request(`/coordenacao/matching/criterios/${id}`, { method: 'PUT', body: dados });
+  },
+  ativarCriterioMatching(id, ativo) {
+    return request(`/coordenacao/matching/criterios/${id}/ativo`, { method: 'PATCH', body: { ativo } });
+  },
+  excluirCriterioMatching(id) {
+    return request(`/coordenacao/matching/criterios/${id}`, { method: 'DELETE' });
   },
   programas() {
     return request('/coordenacao/programas');
@@ -256,14 +376,23 @@ export const api = {
   atualizarPrograma(codigo, dados) {
     return request(`/coordenacao/programas${query({ codigo })}`, { method: 'PATCH', body: dados });
   },
-  encerrarInscricoes(codigo) {
-    return request(`/coordenacao/programas/encerrar-inscricoes${query({ codigo })}`, { method: 'POST' });
+  formulariosCoordenacao(programa) {
+    return request(`/coordenacao/formularios${query({ programa })}`);
   },
-  liberarMatching(codigo) {
-    return request(`/coordenacao/programas/liberar-matching${query({ codigo })}`, { method: 'POST' });
+  encerrarFormulario(tipo, dados) {
+    return request(`/coordenacao/formularios/${tipo}/encerrar`, { method: 'POST', body: dados });
   },
-  matching(programa) {
-    return request(`/coordenacao/matching${query({ programa })}`);
+  duplicarFormulario(tipo, dados) {
+    return request(`/coordenacao/formularios/${tipo}/duplicar`, { method: 'POST', body: dados });
+  },
+  respostasFormulario(tipo, programa) {
+    return request(`/coordenacao/formularios/${tipo}/respostas${query({ programa })}`);
+  },
+  respostasPorPergunta(tipo, programa) {
+    return request(`/coordenacao/formularios/${tipo}/respostas/por-pergunta${query({ programa })}`);
+  },
+  excluirFormulario(tipo, programa) {
+    return request(`/coordenacao/formularios/${tipo}${query({ programa })}`, { method: 'DELETE' });
   },
   formularioCoordenacao(tipo, programa) {
     return request(`/coordenacao/formularios/${tipo}${query({ programa })}`);
@@ -273,5 +402,171 @@ export const api = {
   },
   criarComunicado(dados) {
     return request('/coordenacao/comunicados', { method: 'POST', body: dados });
+  },
+
+  /* ===== PucStops (coordenação; não dependem de programa/ciclo) ===== */
+  /** Todos os PucStops, ativos e inativos, ordenados por nome. */
+  pucstops() {
+    return requestMapa('/coordenacao/pucstops');
+  },
+  /** Área do campus onde o servidor aceita PucStops (limite, bbox e centro). */
+  campusPucStops() {
+    return requestMapa('/coordenacao/pucstops/campus');
+  },
+  pucstop(id) {
+    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}`);
+  },
+  criarPucStop(dados) {
+    return requestMapa('/coordenacao/pucstops', { method: 'POST', body: dados });
+  },
+  /** Envie só os campos alterados; latitude e longitude vão sempre juntas. */
+  atualizarPucStop(id, dados) {
+    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  /** "Excluir" = desativação lógica: some do mapa dos alunos, histórico preservado. */
+  desativarPucStop(id) {
+    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  ativarPucStop(id) {
+    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+
+  /* ===== Lojinha: recompensas (coordenação; F27) ===== */
+  /** Todas as recompensas (`status` opcional: rascunho, publicada, inativa, arquivada). */
+  recompensas(status) {
+    return request(`/coordenacao/recompensas${query({ status })}`);
+  },
+  /** Detalhe com histórico de versões e de ajustes de estoque. */
+  recompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`);
+  },
+  criarRecompensa(dados) {
+    return request('/coordenacao/recompensas', { method: 'POST', body: dados });
+  },
+  /** Envie só os campos alterados; `null` remove imagem, limite, programa ou datas. */
+  atualizarRecompensa(id, dados) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  /** `{ tipo: 'reposicao'|'correcao'|'limitado'|'ilimitado', quantidade?, motivo }`. */
+  ajustarEstoqueRecompensa(id, dados) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}/estoque`, { method: 'POST', body: dados });
+  },
+  publicarRecompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}/publicar`, { method: 'POST' });
+  },
+  desativarRecompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  /** Retira de vez preservando o histórico (usada em resgates). */
+  arquivarRecompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}/arquivar`, { method: 'POST' });
+  },
+  /** Só sem transações; com resgates o servidor responde 409 (arquive). */
+  excluirRecompensa(id) {
+    return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  /* ===== Mapa do campus (seletores de local da coordenação) ===== */
+  /** Área do campus (limite, margem, bbox e centro) para eventos e restaurantes. */
+  campus() {
+    return requestMapa('/coordenacao/campus');
+  },
+  /** Prédios da versão ativa do mapa (público). */
+  predios() {
+    return requestMapa('/mapa/predios');
+  },
+  predio(id) {
+    return requestMapa(`/mapa/predios/${encodeURIComponent(id)}`, { anonimo: true });
+  },
+  rotaMapa(dados) {
+    return requestMapa('/mapa/rotas', { method: 'POST', body: dados, anonimo: true });
+  },
+  atualizarInformacoesLocal(id, descricao) {
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}`, { method: 'PATCH', body: { descricao } });
+  },
+  adicionarImagensLocal(id, arquivos) {
+    const body = new FormData();
+    arquivos.forEach((arquivo) => body.append('arquivos', arquivo));
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens`, { method: 'POST', body });
+  },
+  substituirImagemLocal(id, imagemId, arquivo) {
+    const body = new FormData(); body.append('arquivo', arquivo);
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens/${encodeURIComponent(imagemId)}`, { method: 'PATCH', body });
+  },
+  removerImagemLocal(id, imagemId) {
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens/${encodeURIComponent(imagemId)}`, { method: 'DELETE' });
+  },
+  /** Áreas da versão ativa do mapa, com a geometria (público). */
+  areas() {
+    return requestMapa('/mapa/areas');
+  },
+
+  /* ===== Eventos do campus (coordenação; não dependem de programa/ciclo) ===== */
+  /** Todos os eventos, ativos e inativos, do início mais recente para o mais antigo. */
+  eventos() {
+    return requestMapa('/coordenacao/eventos');
+  },
+  evento(id) {
+    return requestMapa(`/coordenacao/eventos/${encodeURIComponent(id)}`);
+  },
+  /** `inicio`/`fim` em ISO 8601 com fuso; `local` com exatamente uma forma (predioId, areaId ou latitude+longitude). */
+  criarEvento(dados) {
+    return requestMapa('/coordenacao/eventos', { method: 'POST', body: dados });
+  },
+  /** Envie só os campos alterados; `local: null` remove o local. */
+  atualizarEvento(id, dados) {
+    return requestMapa(`/coordenacao/eventos/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  /** "Excluir" = desativação lógica: some do mapa dos alunos e pode ser reativado. */
+  desativarEvento(id) {
+    return requestMapa(`/coordenacao/eventos/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  ativarEvento(id) {
+    return requestMapa(`/coordenacao/eventos/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+
+  /* ===== Restaurantes e cantinas (coordenação) ===== */
+  restaurantes() {
+    return requestMapa('/coordenacao/restaurantes');
+  },
+  restaurante(id) {
+    return requestMapa(`/coordenacao/restaurantes/${encodeURIComponent(id)}`);
+  },
+  /** Prédios CAFETERIA do mapa ativo, com `cadastrado` quando já há restaurante neles. */
+  sugestoesRestaurantes() {
+    return requestMapa('/coordenacao/restaurantes/sugestoes');
+  },
+  criarRestaurante(dados) {
+    return requestMapa('/coordenacao/restaurantes', { method: 'POST', body: dados });
+  },
+  /** Envie só os campos alterados; o local não pode ser removido. */
+  atualizarRestaurante(id, dados) {
+    return requestMapa(`/coordenacao/restaurantes/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  desativarRestaurante(id) {
+    return requestMapa(`/coordenacao/restaurantes/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  ativarRestaurante(id) {
+    return requestMapa(`/coordenacao/restaurantes/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+  /** Cardápios do restaurante (arquivos públicos), da vigência mais recente para a mais antiga. */
+  cardapios(restauranteId) {
+    return requestMapa(`/coordenacao/restaurantes/${encodeURIComponent(restauranteId)}/cardapios`);
+  },
+  /**
+   * Envia o arquivo do cardápio (imagem ou PDF) em multipart. O servidor grava
+   * no armazenamento público; com `substitui`, remove o cardápio antigo depois.
+   */
+  enviarCardapio(restauranteId, { arquivo, validoDe, validoAte, substitui } = {}) {
+    const body = new FormData();
+    body.append('arquivo', arquivo);
+    body.append('validoDe', validoDe);
+    body.append('validoAte', validoAte);
+    if (substitui) body.append('substitui', substitui);
+    return requestMapa(`/coordenacao/restaurantes/${encodeURIComponent(restauranteId)}/cardapios`, { method: 'POST', body });
+  },
+  /** Remove o cardápio e o arquivo (definitivo). */
+  removerCardapio(id) {
+    return requestMapa(`/coordenacao/cardapios/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 };

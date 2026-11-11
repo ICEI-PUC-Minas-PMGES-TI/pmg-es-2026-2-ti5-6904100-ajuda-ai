@@ -18,6 +18,7 @@ import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CadastroService } from '../cadastro/cadastro.service.js';
 import { RejeitarCadastroDto } from '../cadastro/dto/rejeitar-cadastro.dto.js';
+import type { EntradaVerificacao } from '../participacoes/verificacao-academica.js';
 import { CoordenacaoService } from './coordenacao.service.js';
 
 @Controller('coordenacao')
@@ -34,10 +35,13 @@ export class CoordenacaoController {
     return this.coordenacaoService.obterDashboard(programa);
   }
 
+  /** Filtros: programa, papel (candidato|apadrinhado), status e conferencia. */
   @Get('candidaturas')
   candidaturas(
     @Query('programa') programa?: string,
     @Query('status') status?: string,
+    @Query('papel') papel?: string,
+    @Query('conferencia') conferencia?: string,
   ) {
     const ciclo = programa?.trim();
     if (!ciclo) {
@@ -46,10 +50,17 @@ export class CoordenacaoController {
         return this.coordenacaoService.listarCandidaturas(
           dash.programa.codigo,
           status,
+          papel,
+          conferencia,
         );
       });
     }
-    return this.coordenacaoService.listarCandidaturas(ciclo, status);
+    return this.coordenacaoService.listarCandidaturas(
+      ciclo,
+      status,
+      papel,
+      conferencia,
+    );
   }
 
   @Post('candidaturas/acoes')
@@ -73,6 +84,28 @@ export class CoordenacaoController {
     return this.coordenacaoService.atualizarCandidatura(id, corpo);
   }
 
+  /** Conferência acadêmica: `{ itens: [{ id, atende }], observacoes? }`. */
+  @Put('candidaturas/:id/verificacao')
+  registrarVerificacao(
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() corpo: EntradaVerificacao,
+  ) {
+    return this.coordenacaoService.registrarVerificacao(
+      id,
+      corpo,
+      requisicao.user.email,
+    );
+  }
+
+  @Post('candidaturas/:id/vinculos/:vinculoId/encerrar')
+  encerrarVinculo(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('vinculoId', ParseIntPipe) vinculoId: number,
+  ) {
+    return this.coordenacaoService.encerrarVinculo(id, vinculoId);
+  }
+
   @Post('candidaturas/:id/aprovar')
   aprovar(
     @Req() requisicao: AuthenticatedRequest,
@@ -91,6 +124,24 @@ export class CoordenacaoController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.coordenacaoService.rejeitarCandidatura(
+      id,
+      requisicao.user.email,
+      corpo.justificativa,
+    );
+  }
+
+  @Post('candidaturas/:id/desvincular')
+  desvincular(@Param('id', ParseIntPipe) id: number) {
+    return this.coordenacaoService.desvincularCandidatura(id);
+  }
+
+  @Post('candidaturas/:id/revogar')
+  revogar(
+    @Body() corpo: { justificativa?: string },
+    @Req() requisicao: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.coordenacaoService.revogarAprovacao(
       id,
       requisicao.user.email,
       corpo.justificativa,
@@ -149,13 +200,21 @@ export class CoordenacaoController {
   }
 
   @Post('vinculos')
-  vincular(@Body() corpo: { apadrinhadoId?: unknown; padrinhoId?: unknown }) {
-    return this.coordenacaoService.vincular(corpo);
+  vincular(
+    @Body() corpo: { apadrinhadoId?: unknown; padrinhoId?: unknown },
+    @Req() requisicao: AuthenticatedRequest,
+  ) {
+    return this.coordenacaoService.vincular(corpo, requisicao.user.email);
   }
 
   @Get('programas')
   programas() {
     return this.coordenacaoService.listarProgramas();
+  }
+
+  @Get('programas/item')
+  programa(@Query('codigo') codigo: string) {
+    return this.coordenacaoService.obterPrograma(codigo ?? '');
   }
 
   @Post('programas')
@@ -181,28 +240,66 @@ export class CoordenacaoController {
     return this.coordenacaoService.atualizarPrograma(codigo ?? '', corpo);
   }
 
-  @Get('programas/item')
-  programa(@Query('codigo') codigo: string) {
-    return this.coordenacaoService.obterPrograma(codigo ?? '');
-  }
-
-  /** Fecha inscrições sem aprovar candidatos nem gerar matching. */
   @Post('programas/encerrar-inscricoes')
   encerrarInscricoes(@Query('codigo') codigo: string) {
-    return this.coordenacaoService.encerrarInscricoes(codigo ?? '');
+    return this.coordenacaoService.encerrarInscricoes(codigo);
   }
 
-  /** Libera a formação de grupos após o encerramento e o conjunto de aprovados. */
   @Post('programas/liberar-matching')
   liberarMatching(@Query('codigo') codigo: string) {
-    return this.coordenacaoService.liberarMatching(codigo ?? '');
+    return this.coordenacaoService.liberarMatching(codigo);
+  }
+
+  @Get('formularios')
+  formularios(@Query('programa') programa?: string) {
+    return this.coordenacaoService.listarFormularios(programa);
+  }
+
+  @Delete('formularios/:tipo')
+  excluirFormulario(
+    @Param('tipo') tipo: string,
+    @Query('programa') programa?: string,
+  ) {
+    return this.coordenacaoService.excluirFormulario(tipo, programa);
+  }
+
+  @Post('formularios/:tipo/encerrar')
+  encerrarFormulario(
+    @Param('tipo') tipo: string,
+    @Body() corpo: { programa?: string },
+  ) {
+    return this.coordenacaoService.encerrarFormulario(tipo, corpo?.programa);
+  }
+
+  @Post('formularios/:tipo/duplicar')
+  duplicarFormulario(
+    @Param('tipo') tipo: string,
+    @Body() corpo: { programaOrigem?: string; programaDestino?: string },
+  ) {
+    return this.coordenacaoService.duplicarFormulario(tipo, corpo ?? {});
+  }
+
+  @Get('formularios/:tipo/respostas')
+  respostasFormulario(
+    @Param('tipo') tipo: string,
+    @Query('programa') programa?: string,
+  ) {
+    return this.coordenacaoService.respostasFormulario(tipo, programa);
+  }
+
+  @Get('formularios/:tipo/respostas/por-pergunta')
+  respostasPorPergunta(
+    @Param('tipo') tipo: string,
+    @Query('programa') programa?: string,
+  ) {
+    return this.coordenacaoService.respostasPorPergunta(tipo, programa);
   }
 
   /**
    * Conjunto elegível para vínculos manuais. Recusa se o matching não foi
    * liberado — o bloqueio vale mesmo chamando o endpoint direto.
    */
-  @Get('matching')
+  @Get('matching/pool')
   matching(@Query('programa') programa?: string) {
     return this.coordenacaoService.obterMatching(programa);
   }

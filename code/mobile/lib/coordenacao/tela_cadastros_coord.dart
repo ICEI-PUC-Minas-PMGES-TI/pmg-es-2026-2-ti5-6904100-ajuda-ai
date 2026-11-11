@@ -259,37 +259,12 @@ class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
   }
 
   Future<void> _rejeitar() async {
-    final motivo = TextEditingController();
-    final confirmado = await showDialog<bool>(
-      context: context,
-      builder: (contexto) => AlertDialog(
-        title: const Text('Rejeitar cadastro?'),
-        content: TextField(
-          controller: motivo,
-          maxLength: 500,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            labelText: 'Motivo (opcional, visível ao aluno)',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(contexto).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: corErroCoord),
-            onPressed: () => Navigator.of(contexto).pop(true),
-            child: const Text('Rejeitar'),
-          ),
-        ],
-      ),
-    );
-    if (confirmado != true) return;
+    final justificativa = await solicitarJustificativaCoord(context);
+    if (justificativa == null || !mounted) return;
     await _decidir(
       () => widget.api.rejeitarCadastro(
         widget.id,
-        motivo: motivo.text.trim(),
+        motivo: justificativa,
         programa: widget.programa,
       ),
     );
@@ -417,45 +392,49 @@ class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
                           'Motivo informado ao aluno',
                           '${d['motivoRejeicao']}',
                         ),
-                      const SizedBox(height: 8),
-                      if (status != 'aprovado')
-                        FilledButton.icon(
-                          onPressed: _processando
-                              ? null
-                              : () => _decidir(
-                                  () => widget.api.aprovarCadastro(
-                                    widget.id,
-                                    programa: widget.programa,
+                      if (status == 'pendente' || status == 'rejeitado') ...[
+                        const SizedBox(height: 8),
+                        if (status != 'aprovado')
+                          FilledButton.icon(
+                            onPressed: _processando
+                                ? null
+                                : () => _decidir(
+                                    () => widget.api.aprovarCadastro(
+                                      widget.id,
+                                      programa: widget.programa,
+                                    ),
                                   ),
-                                ),
-                          icon: const Icon(Icons.check),
-                          label: Text(
-                            status == 'rejeitado'
-                                ? 'Rever e aprovar'
-                                : 'Aprovar cadastro',
+                            icon: const Icon(Icons.check),
+                            label: Text(
+                              status == 'rejeitado'
+                                  ? 'Rever e aprovar'
+                                  : 'Aprovar',
+                            ),
                           ),
-                        ),
-                      if (status == 'pendente')
-                        OutlinedButton.icon(
-                          onPressed: _processando ? null : _rejeitar,
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: corErroCoord,
+                        if (status == 'pendente')
+                          OutlinedButton.icon(
+                            onPressed: _processando ? null : _rejeitar,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: corErroCoord,
+                            ),
+                            icon: const Icon(Icons.close),
+                            label: const Text('Rejeitar'),
                           ),
-                          icon: const Icon(Icons.close),
-                          label: const Text('Rejeitar cadastro'),
-                        ),
-                      const SizedBox(height: 6),
-                      Text(
-                        ehPadrinho
-                            ? 'Aprovar também aprova a candidatura a padrinho '
-                                  'deste ciclo.'
-                            : 'Após a aprovação, o apadrinhado entra na fila '
-                                  'de definição de padrinho.',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: corTextoSecundarioCoord,
-                        ),
-                      ),
+                        if (status == 'pendente') ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            ehPadrinho
+                                ? 'Aprovar também aprova a candidatura a padrinho '
+                                      'deste ciclo.'
+                                : 'Após a aprovação, o apadrinhado entra na fila '
+                                      'de matching.',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: corTextoSecundarioCoord,
+                            ),
+                          ),
+                        ],
+                      ],
                     ],
                   ),
                 ),

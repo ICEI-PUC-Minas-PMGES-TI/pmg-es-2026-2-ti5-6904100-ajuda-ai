@@ -255,6 +255,13 @@ export class ChatService {
     manager: EntityManager,
     matchingVinculoId: number,
   ): Promise<ChatEntity> {
+    return ChatService.criarParaVinculoNaTransacao(manager, matchingVinculoId);
+  }
+
+  static async criarParaVinculoNaTransacao(
+    manager: EntityManager,
+    matchingVinculoId: number,
+  ): Promise<ChatEntity> {
     const vinculo = await manager
       .getRepository(MatchingVinculoEntity)
       .createQueryBuilder('vinculo')

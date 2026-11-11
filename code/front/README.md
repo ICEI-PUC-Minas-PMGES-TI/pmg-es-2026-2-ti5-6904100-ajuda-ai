@@ -1,10 +1,8 @@
 # Ajuda-aí Web
 
-Frontend em React e Vite. Inclui:
-
-- fluxo de cadastro do estudante (`/`): perfil → como quer participar (padrinho / apadrinhado / explorar) → formulário → revisão/envio;
-- área do aluno (`/aluno/perfil`, `/aluno/candidatura`, `/aluno/padrinho`, `/aluno/chat`, `/aluno/historico`, `/aluno/configuracoes`);
-- login demo e painel da coordenação (`/login`, `/coordenacao`: dashboard, candidaturas, usuários, programas, matching manual, formulários, configurações/comunicados).
+Frontend em React e Vite para cadastro, área do aluno e coordenação.
+Regras de administração do campus estão em
+[administração do mapa](../../docs/tecnico/mapa/administracao.md).
 
 ## Executar localmente
 
@@ -40,17 +38,21 @@ A candidatura passa por revisão e só é registrada ao confirmar o envio.
 Após o envio, respostas são imutáveis. Aprovação aguarda matching; somente
 `padrinho_ativo` libera acesso aos apadrinhados. Anexos não são suportados.
 
-Na coordenação, cada programa mantém seu próprio calendário e ciclo. Em
-`/coordenacao/programas`, encerre as inscrições sem decidir candidaturas e use
-“Liberar matching” somente após preparar os aprovados. A rota
-`/coordenacao/matching?programa=AAAA/semestre` só consulta participantes elegíveis
-depois dessa liberação; os vínculos são manuais e não há geração automática de
-sugestões ou grupos.
+### PucStops e mapa (coordenação)
 
-`/aluno/chat` contém uma demonstração de conversas com dados mockados, incluindo
-envio local de mensagens e simulação dos estados de entrega/leitura. O backend já
-dispõe de endpoints persistidos, mas a tela ainda não os consome; a criação
-automática de conversas na aprovação do matching também está pendente.
+`/coordenacao/pucstops` administra os totens do mapa do campus (não dependem
+de programa/ciclo). A posição é escolhida clicando no mapa (Mapbox GL JS,
+carregado sob demanda), dentro da área devolvida por
+`GET /coordenacao/pucstops/campus`; o servidor revalida tudo. "Excluir"
+desativa o PucStop e preserva o histórico de coletas.
+
+- `VITE_MAPBOX_ACCESS_TOKEN`: token **público** (`pk.`) do Mapbox, o mesmo do
+  app mobile. Nunca use token secreto (`sk.`): ele iria para o bundle. As
+  restrições de URL do token precisam permitir a origem web (ex.:
+  `http://localhost:5173`). Sem ele, a página mostra "Mapa indisponível" e só
+  permite editar nome, XP e raio de PucStops existentes.
+- `VITE_MAPBOX_STYLE_URI` (opcional): estilo do mapa; padrão
+  `mapbox://styles/mapbox/streets-v12`.
 
 ### Validação
 
@@ -62,3 +64,9 @@ npm run build
 Não há configuração de lint neste frontend. Os testes usam Node e renderização
 React no servidor; o login real no Entra e o armazenamento Azure precisam ser
 validados com a configuração externa do ambiente de integração.
+
+## Feed
+
+`/coordenacao/feed` permite publicar, editar e excluir; `/aluno/feed` permite ler,
+curtir e comentar. Ambas recebem atualizações por SSE com Bearer no header.
+Execução local com RabbitMQ e celular: [guia do feed](../../docs/tecnico/feed.md).

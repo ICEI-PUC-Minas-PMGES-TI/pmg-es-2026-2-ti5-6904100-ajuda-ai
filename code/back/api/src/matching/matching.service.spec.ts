@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
+import type { ChatService } from '../chat/chat.service.js';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import type { TipoCriterioCatalogo } from './entities/criterio-catalogo.entity.js';
@@ -20,7 +21,7 @@ const participante = (
   }) as ParticipacaoEntity;
 
 describe('MatchingService: critérios do catálogo', () => {
-  const service = new MatchingService({} as DataSource);
+  const service = new MatchingService({} as DataSource, {} as ChatService);
   const metadata = {
     formularios: [],
     snapshots: [],
@@ -116,6 +117,7 @@ describe('MatchingService: critérios do catálogo', () => {
       considerado: false,
       motivo: 'resposta_ausente',
     });
+
   });
 
   const pontuarBolsa = (
@@ -271,6 +273,18 @@ describe('MatchingService: critérios do catálogo', () => {
         inscricoesAbertas: false,
       } as ProgramaEntity),
     ).toThrow(/encerrado/);
+    expect(() =>
+      validarEtapa.call(service, {
+        etapaAtual: 'analise',
+        inscricoesAbertas: false,
+      } as ProgramaEntity),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      validarEtapa.call(service, {
+        etapaAtual: 'formacao',
+        inscricoesAbertas: false,
+      } as ProgramaEntity),
+    ).not.toThrow();
   });
 
   it('inclui somente candidaturas aprovadas de cada papel', () => {

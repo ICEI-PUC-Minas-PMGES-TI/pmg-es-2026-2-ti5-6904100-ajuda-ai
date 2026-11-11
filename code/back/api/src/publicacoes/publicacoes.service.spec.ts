@@ -1,139 +1,187 @@
-import { BadRequestException } from '@nestjs/common';
-import type { Repository } from 'typeorm';
-import { ComentarioEntity } from './entities/comentario.entity.js';
-import { CurtidaEntity } from './entities/curtida.entity.js';
-import { PublicacaoEntity } from './entities/publicacao.entity.js';
-import { PublicacoesService } from './publicacoes.service.js';
+import { ForbiddenException } from '@nestjs/common';
+import {
+  criarFeedTeste,
+  coordenador,
+  aluno,
+  padrinho,
+  somenteMapa,
+} from '../../test/helpers/feed.js';
 
 describe('PublicacoesService', () => {
-  let publicacoes: PublicacaoEntity[];
-  let proximoIdPublicacao: number;
-  let proximoIdComentario: number;
-  let proximoIdCurtida: number;
-  let service: PublicacoesService;
-
-  beforeEach(() => {
-    publicacoes = [];
-    proximoIdPublicacao = 1;
-    proximoIdComentario = 1;
-    proximoIdCurtida = 1;
-    service = criarService();
+  it('mantém o feed vazio sem conteúdo fictício', async () => {
+    const { service } = criarFeedTeste();
+    expect(await service.listar(aluno)).toEqual([]);
   });
-
-  it('inicia o feed vazio, sem publicacoes ficticias', async () => {
-    await expect(service.listar('1')).resolves.toEqual([]);
-  });
-
-  it('salva publicacao, curtida e comentario nos repositorios', async () => {
-    const criada = await service.criar(
-      {
-        autor: 'Nome enviado pelo cliente',
-        categoria: 'Dicas acadêmicas',
-        texto: 'Conteúdo criado por uma pessoa real.',
-        imagens: [],
-      },
-      '1',
+  it('coordenador publica e autoria vem do servidor; apadrinhado não publica', async () => {
+    const { service, tabelas } = criarFeedTeste();
+    await expect(service.criar({ texto: 'Teste' }, aluno)).rejects.toThrow(
+      ForbiddenException,
     );
-
-    expect(criada.autor).toBe('Camila Duarte');
-    await service.curtir(criada.id, 1, '1');
-    await service.comentar(criada.id, 'Comentário persistido.', '1');
-
-    const serviceDepoisDoReinicio = criarService();
-    await expect(serviceDepoisDoReinicio.listar('1')).resolves.toEqual([
-      expect.objectContaining({
-        id: criada.id,
-        texto: 'Conteúdo criado por uma pessoa real.',
-        curtidas: 1,
-        curtidoPeloUsuario: true,
-        comentarios: 1,
-        comentariosTexto: ['Comentário persistido.'],
-        isOwn: true,
-      }),
-    ]);
-  });
-
-  it('registra no maximo uma curtida por usuario', async () => {
-    const criada = await service.criar({ texto: 'Publicação' }, '1');
-
-    await service.curtir(criada.id, 1, '1');
-    await service.curtir(criada.id, 1, '1');
-    await service.curtir(criada.id, 1, '2');
-
-    await expect(service.listar('1')).resolves.toEqual([
-      expect.objectContaining({ curtidas: 2, curtidoPeloUsuario: true }),
-    ]);
-
-    await service.curtir(criada.id, -1, '1');
-    await expect(service.listar('1')).resolves.toEqual([
-      expect.objectContaining({ curtidas: 1, curtidoPeloUsuario: false }),
-    ]);
-  });
-
-  it('permite apagar apenas a propria publicacao', async () => {
-    const criada = await service.criar({ texto: 'Publicação' }, '1');
-
-    await expect(service.remover(criada.id, '2')).rejects.toThrow(
-      BadRequestException,
+    const post = await service.criar({ texto: 'Comunicado' }, coordenador);
+    expect(post.autor).toBe('Renata Martins');
+    expect(post.podeAdministrar).toBe(true);
+    expect(tabelas.FeedOutboxEntity[0].evento.tipo).toBe('feed.post.created');
+    expect(JSON.stringify(tabelas.FeedOutboxEntity)).not.toContain(
+      coordenador.email,
     );
-    await expect(service.listar('1')).resolves.toHaveLength(1);
-
-    await expect(service.remover(criada.id, '1')).resolves.toEqual({
-      removido: true,
+    expect((await service.listar(aluno))[0].podeAdministrar).toBe(false);
+  });
+  it('padrinho publica com autoria e categoria próprias sem ganhar administração', async () => {
+    const { service, tabelas } = criarFeedTeste();
+    const post = await service.criar(
+      { texto: 'Dica', categoria: 'Campus' },
+      padrinho,
+    );
+    expect(post).toMatchObject({
+      autor: 'Pedro Santos',
+      descricaoAutor: 'Padrinho do programa',
+      categoria: 'Campus',
+      isOwn: true,
+      podeAdministrar: false,
+      podeInteragir: true,
     });
-    await expect(service.listar('1')).resolves.toEqual([]);
+    expect(tabelas.FeedOutboxEntity[0].evento.tipo).toBe('feed.post.created');
+    expect((await service.obter(post.id, coordenador)).podeAdministrar).toBe(
+      true,
+    );
+    await expect(
+      service.atualizar(post.id, { texto: 'X' }, padrinho),
+    ).rejects.toThrow(ForbiddenException);
+    await expect(service.remover(post.id, padrinho)).rejects.toThrow(
+      ForbiddenException,
+    );
   });
 
-  function criarService(): PublicacoesService {
-    const publicacoesRepository = {
-      find: vi.fn(async () => publicacoes),
-      findOne: vi.fn(async ({ where }: { where: { id: number } }) =>
-        publicacoes.find((item) => item.id === where.id),
-      ),
-      create: vi.fn((dados: Partial<PublicacaoEntity>) =>
-        Object.assign(new PublicacaoEntity(), dados),
-      ),
-      save: vi.fn(async (item: PublicacaoEntity) => {
-        item.id ||= proximoIdPublicacao++;
-        item.criadoEm ||= new Date();
-        item.curtidas ||= [];
-        item.comentarios ||= [];
-        if (!publicacoes.includes(item)) publicacoes.push(item);
-        return item;
-      }),
-      remove: vi.fn(async (item: PublicacaoEntity) => {
-        publicacoes = publicacoes.filter((publicacao) => publicacao !== item);
-        return item;
-      }),
-    } as unknown as Repository<PublicacaoEntity>;
+  it.each([padrinho, aluno])(
+    '$perfil interage e exclui o próprio comentário, sem moderar terceiros',
+    async (usuario) => {
+      const { service } = criarFeedTeste();
+      const post = await service.criar({ texto: 'Teste' }, coordenador);
+      const comentada = await service.comentar(
+        post.id,
+        'Meu comentário',
+        usuario,
+      );
+      const c = comentada.comentariosDetalhes[0];
+      expect(c.podeExcluir).toBe(true);
+      expect((await service.curtir(post.id, 1, usuario)).curtidas).toBe(1);
+      expect((await service.curtir(post.id, -1, usuario)).curtidas).toBe(0);
+      expect(
+        (await service.curtirComentario(post.id, c.id, 1, usuario))
+          .comentariosDetalhes[0].curtidas,
+      ).toBe(1);
+      const outro = usuario === padrinho ? aluno : padrinho;
+      expect(
+        (await service.obter(post.id, outro)).comentariosDetalhes[0]
+          .podeExcluir,
+      ).toBe(false);
+      await expect(
+        service.removerComentario(post.id, c.id, outro),
+      ).rejects.toThrow(ForbiddenException);
+      expect(
+        (await service.removerComentario(post.id, c.id, usuario)).comentarios,
+      ).toBe(0);
+    },
+  );
 
-    const comentariosRepository = {
-      create: vi.fn((dados: Partial<ComentarioEntity>) =>
-        Object.assign(new ComentarioEntity(), dados),
-      ),
-      save: vi.fn(async (item: ComentarioEntity) => {
-        item.id ||= proximoIdComentario++;
-        item.criadoEm ||= new Date();
-        return item;
-      }),
-    } as unknown as Repository<ComentarioEntity>;
-
-    const curtidasRepository = {
-      create: vi.fn((dados: Partial<CurtidaEntity>) =>
-        Object.assign(new CurtidaEntity(), dados),
-      ),
-      save: vi.fn(async (item: CurtidaEntity) => {
-        item.id ||= proximoIdCurtida++;
-        item.criadoEm ||= new Date();
-        return item;
-      }),
-      remove: vi.fn(async (item: CurtidaEntity) => item),
-    } as unknown as Repository<CurtidaEntity>;
-
-    return new PublicacoesService(
-      publicacoesRepository,
-      comentariosRepository,
-      curtidasRepository,
+  it('somente mapa pode consultar, mas não publicar/comentar/curtir; conserva exclusão própria', async () => {
+    const { service } = criarFeedTeste();
+    const post = await service.criar({ texto: 'Teste' }, coordenador);
+    expect((await service.listar(somenteMapa))[0].podeInteragir).toBe(false);
+    await expect(service.criar({ texto: 'X' }, somenteMapa)).rejects.toThrow(
+      ForbiddenException,
     );
-  }
+    await expect(service.comentar(post.id, 'X', somenteMapa)).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(service.curtir(post.id, 1, somenteMapa)).rejects.toThrow(
+      ForbiddenException,
+    );
+    const c = (await service.comentar(post.id, 'Anterior', aluno))
+      .comentariosDetalhes[0];
+    await expect(
+      service.curtirComentario(post.id, c.id, 1, somenteMapa),
+    ).rejects.toThrow(ForbiddenException);
+    expect(
+      (
+        await service.removerComentario(post.id, c.id, {
+          ...aluno,
+          perfil: 'nenhuma',
+        })
+      ).comentarios,
+    ).toBe(0);
+  });
+  it('aluno comenta, curte e descurte com eventos na mesma transação', async () => {
+    const { service, tabelas } = criarFeedTeste();
+    const post = await service.criar({ texto: 'Comunicado' }, coordenador);
+    expect(
+      (await service.comentar(post.id, 'Olá', aluno)).comentariosTexto,
+    ).toEqual(['Olá']);
+    expect((await service.curtir(post.id, 1, aluno)).curtidas).toBe(1);
+    await service.curtir(post.id, 1, aluno);
+    expect((await service.curtir(post.id, -1, aluno)).curtidas).toBe(0);
+    expect(tabelas.FeedOutboxEntity.map((v: any) => v.evento.tipo)).toEqual([
+      'feed.post.created',
+      'feed.comment.created',
+      'feed.like.updated',
+      'feed.like.updated',
+    ]);
+  });
+  it('edita e exclui sem conceder administração ao aluno', async () => {
+    const { service, tabelas } = criarFeedTeste();
+    const post = await service.criar({ texto: 'Antes' }, coordenador);
+    await expect(
+      service.atualizar(post.id, { texto: 'Outro' }, aluno),
+    ).rejects.toThrow(ForbiddenException);
+    await expect(service.remover(post.id, aluno)).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(
+      (await service.atualizar(post.id, { texto: 'Depois' }, coordenador))
+        .texto,
+    ).toBe('Depois');
+    await service.remover(post.id, coordenador);
+    expect(await service.listar(aluno)).toEqual([]);
+    expect(tabelas.FeedOutboxEntity.map((v: any) => v.evento.tipo)).toContain(
+      'feed.post.deleted',
+    );
+  });
+  it('comentário só pode ser removido pelo autor ou pela administração', async () => {
+    const { service } = criarFeedTeste();
+    const post = await service.criar({ texto: 'Teste' }, coordenador);
+    const res = await service.comentar(post.id, 'Texto', aluno);
+    const id = res.comentariosDetalhes[0].id;
+    await expect(
+      service.removerComentario(post.id, id, {
+        ...aluno,
+        email: 'outro@pucminas.edu.br',
+      }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(
+      (await service.removerComentario(post.id, id, aluno)).comentarios,
+    ).toBe(0);
+  });
+  it('rollback da operação também remove o evento quando a outbox falha', async () => {
+    const { service, tabelas, repos } = criarFeedTeste();
+    repos.FeedOutboxEntity.save = async () => {
+      throw new Error('Falha DB');
+    };
+    await expect(
+      service.criar({ texto: 'Teste' }, coordenador),
+    ).rejects.toThrow('Falha DB');
+    expect(tabelas.PublicacaoEntity).toHaveLength(0);
+    expect(tabelas.FeedOutboxEntity).toHaveLength(0);
+  });
+  it('rejeita comentário vazio e mídias arbitrárias sem gravar eventos', async () => {
+    const { service, tabelas, midias } = criarFeedTeste();
+    const post = await service.criar({ texto: 'Teste' }, coordenador);
+    await expect(service.comentar(post.id, ' ', aluno)).rejects.toThrow();
+    midias.validar = async () => {
+      throw new Error('Mídia inválida');
+    };
+    await expect(
+      service.criar({ imagens: ['data:image/png;base64,abc'] }, coordenador),
+    ).rejects.toThrow();
+    expect(tabelas.FeedOutboxEntity).toHaveLength(1);
+  });
 });

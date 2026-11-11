@@ -29,4 +29,8 @@ export default new DataSource({
   migrationsTableName: 'migrations',
   synchronize: false,
   migrationsRun: false,
+  // Sem isto o TypeORM roda `CREATE EXTENSION postgis/uuid-ossp` ao conectar
+  // (há entidades com geometria/uuid) e instalaria o PostGIS no schema
+  // errado antes da migration. Extensões só por migration.
+  installExtensions: false,
 });

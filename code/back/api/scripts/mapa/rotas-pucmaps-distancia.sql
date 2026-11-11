@@ -1,0 +1,14 @@
+-- Referência DISTÂNCIA para test/mapa-rotas.pucmaps.spec.ts (somente leitura).
+-- Roda no banco do PUCMaps (docker `pucmaps-postgres`), nunca no Ajuda-aí.
+--
+-- `precalculated_routes` da versão 12 foram gravadas em 24/09/2026 pelo código
+-- ANTERIOR ao commit 69b2de0: pgr_dijkstra com custo distanceMeters e tempo
+-- = round(distância / 1,4) (vale para as 770 302 linhas). O código atual mudou
+-- o custo para walkingTimeSeconds sem recalcular a tabela.
+--
+-- Uso (Git Bash):
+--   MSYS_NO_PATHCONV=1 docker exec -i pucmaps-postgres \
+--     psql -U pucmaps -d pucmaps -v ON_ERROR_STOP=1 -At \
+--     < scripts/mapa/rotas-pucmaps-distancia.sql > /tmp/precalc.csv
+-- Colunas: origem, destino, acessivel (0/1), distancia_m, tempo_s, nos.
+\copy (SELECT "fromId", "toId", accessible::int, "distanceMeters", "estimatedTimeSeconds", cardinality(steps) FROM precalculated_routes WHERE "mapVersionId" = 'c8eaec70-bbfa-4380-8abd-52a9b600e65b' ORDER BY 1, 2, 3) TO STDOUT WITH (FORMAT csv)

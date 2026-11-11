@@ -54,6 +54,7 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
   String? _genero;
   bool? _bolsistaProuni;
   bool? _deOutraCidade;
+  bool _declaraPrimeiroPeriodo = false;
   bool _validar = false;
   List<PerguntaFormulario> _perguntas = const [];
   String? _erroFormulario;
@@ -66,6 +67,7 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
   bool get _faltaGenero => _genero == null;
   bool get _faltaProuni => _bolsistaProuni == null;
   bool get _faltaCidade => _deOutraCidade == null;
+  bool get _faltaDeclaracao => !_declaraPrimeiroPeriodo;
 
   bool get _faltaExtras =>
       PerguntasAdicionais.pendentes(_perguntas, _extras).isNotEmpty;
@@ -78,7 +80,8 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
       _faltaDisponibilidade ||
       _faltaGenero ||
       _faltaProuni ||
-      _faltaCidade;
+      _faltaCidade ||
+      _faltaDeclaracao;
 
   @override
   void initState() {
@@ -94,6 +97,7 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
     _genero = dados.genero;
     _bolsistaProuni = dados.bolsistaProuni;
     _deOutraCidade = dados.deOutraCidade;
+    _declaraPrimeiroPeriodo = dados.declaraPrimeiroPeriodo;
     _extras = Map.of(dados.extras);
     final conhecidas = widget.perguntasAdicionais;
     if (conhecidas != null) {
@@ -163,7 +167,8 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
       genero: _genero,
       bolsistaProuni: _bolsistaProuni,
       deOutraCidade: _deOutraCidade,
-      extras: PerguntasAdicionais.limpar(_extras),
+      declaraPrimeiroPeriodo: _declaraPrimeiroPeriodo,
+      extras: PerguntasAdicionais.limpar(_perguntas, _extras),
     );
     // A sessão passa a guardar também as respostas do passo 2.
     SessaoUsuario.atual.dados = completos;
@@ -283,6 +288,35 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
             if (_validar) setState(() {});
           },
         ),
+        const SizedBox(height: 12),
+        const RotuloCampo('Identificação acadêmica'),
+        CheckboxListTile(
+          value: _declaraPrimeiroPeriodo,
+          contentPadding: EdgeInsets.zero,
+          activeColor: AppColors.primary,
+          controlAffinity: ListTileControlAffinity.leading,
+          title: Text(
+            'Declaro que estou no 1º período e que os dados acadêmicos '
+            '(curso, período e e-mail institucional) estão corretos.',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              color: _validar && _faltaDeclaracao
+                  ? Colors.red.shade700
+                  : AppColors.ink,
+            ),
+          ),
+          onChanged: (valor) =>
+              setState(() => _declaraPrimeiroPeriodo = valor ?? false),
+        ),
+        if (_validar && _faltaDeclaracao)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text(
+              'Confirme a declaração de 1º período para continuar.',
+              style: TextStyle(color: Colors.red, fontSize: 12),
+            ),
+          ),
         const SizedBox(height: 22),
         BotaoCadastro(texto: 'Continuar', onPressed: _continuar),
         const SizedBox(height: 8),

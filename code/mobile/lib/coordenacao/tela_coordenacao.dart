@@ -5,19 +5,22 @@ import '../services/auth_api.dart';
 import '../services/api_config.dart';
 import '../services/coordenacao_api.dart';
 import '../tela_login.dart';
+import '../tela_mapa.dart';
+import '../tela_feed.dart';
 import '../theme/colors.dart';
 import 'tela_candidaturas_coord.dart';
-import 'tela_comunicado_coord.dart';
+import 'tela_configuracoes_coord.dart';
 import 'tela_dashboard_coord.dart';
-import 'tela_cadastros_coord.dart';
 import 'tela_formularios_coord.dart';
 import 'tela_matching_coord.dart';
+import 'tela_matching_manual_coord.dart';
 import 'tela_mais_coord.dart';
 import 'tela_programas_coord.dart';
+import 'tela_totens_coord.dart';
 import 'tela_usuarios_coord.dart';
 
 /// Shell nativo da área da coordenação (app mobile).
-/// No computador, o painel continua sendo o front web em `/coordenacao`.
+/// O feed pode ser administrado integralmente pelo aplicativo.
 class TelaCoordenacao extends StatefulWidget {
   const TelaCoordenacao({
     super.key,
@@ -25,10 +28,12 @@ class TelaCoordenacao extends StatefulWidget {
     this.client,
     this.baseUrl,
     this.sessaoAutenticada,
+    this.feedEventsClientFactory,
   });
 
   final String emailDemo;
   final SessaoAuth? sessaoAutenticada;
+  final http.Client Function()? feedEventsClientFactory;
 
   /// Cliente HTTP injetável (testes); null usa o padrão.
   final http.Client? client;
@@ -56,6 +61,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
   String? _avisoPrograma;
   int _consultaProgramas = 0;
   String? _filtroStatus;
+  String? _filtroPublico;
   int _versao = 0;
   int _versaoLista = 0;
 
@@ -98,6 +104,17 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
     }
   }
 
+  /// Preferência: ciclo vigente → marcado como atual → primeiro da lista.
+  String? _codigoProgramaPadrao(List<Map<String, dynamic>> lista) {
+    for (final p in lista) {
+      if (p['vigente'] == true) return p['codigo'] as String?;
+    }
+    for (final p in lista) {
+      if (p['atual'] == true) return p['codigo'] as String?;
+    }
+    return lista.isEmpty ? null : lista.first['codigo'] as String?;
+  }
+
   Future<void> _carregarProgramas({String? preferido}) async {
     final api = _api;
     if (api == null) return;
@@ -118,14 +135,15 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         _programaSolicitado = null;
         _programa = existe
             ? anterior
-            : !_exigirSelecao && lista.length == 1
-            ? lista.single['codigo'] as String
+            : !_exigirSelecao
+            ? _codigoProgramaPadrao(lista)
             : null;
         _avisoPrograma = anterior != null && !existe
             ? 'O programa selecionado não está mais disponível. Confira o ciclo antes de continuar.'
             : null;
         _carregandoProgramas = false;
         _filtroStatus = null;
+        _filtroPublico = null;
         _versao++;
         _versaoLista++;
       });
@@ -147,6 +165,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       _exigirSelecao = false;
       _avisoPrograma = null;
       _filtroStatus = null;
+      _filtroPublico = null;
       _versao++;
       _versaoLista++;
     });
@@ -192,9 +211,10 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
     );
   }
 
-  void _abrirCandidaturas({String? status}) {
+  void _abrirCandidaturas({String? status, String? publico}) {
     setState(() {
       _filtroStatus = status;
+      _filtroPublico = publico;
       _aba = 1;
       _versaoLista++;
     });
@@ -216,9 +236,15 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
 
   /// Destinos do dashboard (pontos de atenção / ações rápidas) e da aba Mais.
   void _abrirDestino(String destino, Map<String, String> query) {
+    if (destino == 'comunicado') destino = 'feed';
     final api = _api;
     if (api == null) return;
-    if (_programa == null && destino != 'programas') {
+    if (_programa == null &&
+        destino != 'programas' &&
+        destino != 'configuracoes' &&
+        destino != 'feed' &&
+        destino != 'totens' &&
+        destino != 'mapa') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -228,24 +254,51 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       );
       return;
     }
-    if (destino == 'candidaturas') {
-      _abrirCandidaturas(status: query['status']);
+    if (destino == 'candidaturas' || destino == 'cadastros') {
+      _abrirCandidaturas(
+        status: query['status'] ?? (destino == 'cadastros' ? 'pendente' : null),
+        publico:
+            query['publico'] ?? (destino == 'cadastros' ? 'apadrinhado' : null),
+      );
       return;
     }
     if (destino == 'sem_vinculo') {
-      _abrirCandidaturas(status: 'sem_vinculo');
+      _abrirCandidaturas(status: 'sem_vinculo', publico: 'apadrinhado');
+      return;
+    }
+    if (destino == 'configuracoes') {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => TelaConfiguracoesCoord(
+            nome: _sessao?.nome ?? 'Coordenação',
+            email: _sessao?.email ?? widget.emailDemo,
+            onSair: () {
+              Navigator.of(context).pop();
+              _sair();
+            },
+          ),
+        ),
+      );
       return;
     }
     final Widget pagina = switch (destino) {
-      'cadastros' => TelaCadastrosCoord(
-        api: api,
-        status: query['status'],
-        programa: _programa,
+      'feed' => FeedPage(
+        client: widget.client,
+        accessToken: _sessao!.accessToken,
+        baseUrl: api.baseUrl,
+        nomeAutor: _sessao!.nome,
+        coordenacao: true,
+        eventsClientFactory: widget.feedEventsClientFactory,
       ),
       'usuarios' => TelaUsuariosCoord(api: api, programa: _programa),
       'matching' => TelaMatchingCoord(api: api, programa: _programa!),
+      'matching_manual' => TelaMatchingManualCoord(api: api, programa: _programa!),
       'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
-      'comunicado' => TelaComunicadoCoord(api: api),
+      'totens' => TelaTotensCoord(api: api),
+      'mapa' => MapaPage(
+        coordenadorAccessToken: _sessao!.accessToken,
+        coordenadorBaseUrl: api.baseUrl,
+      ),
       _ => TelaProgramasCoord(
         api: api,
         pendencia: query['pendencia'],
@@ -263,6 +316,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
             _exigirSelecao = true;
             _aba = 0;
             _filtroStatus = null;
+            _filtroPublico = null;
             Navigator.of(context).pop();
           }
           _carregarProgramas();
@@ -348,10 +402,13 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         _estadoContexto(),
       if (_programa != null && !_carregandoProgramas && _erroProgramas == null)
         TelaCandidaturasCoord(
-          key: ValueKey('candidaturas-$_programa-$_versao-$_versaoLista'),
+          key: ValueKey(
+            'candidaturas-$_programa-$_versao-$_versaoLista-$_filtroPublico-$_filtroStatus',
+          ),
           api: _api!,
           programa: _programa,
           status: _filtroStatus,
+          publico: _filtroPublico,
         )
       else
         _estadoContexto(),
@@ -398,6 +455,11 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
                           ),
                   ),
                   IconButton(
+                    tooltip: 'Feed do programa',
+                    onPressed: () => _abrirDestino('feed', const {}),
+                    icon: const Icon(Icons.dynamic_feed_outlined),
+                  ),
+                  IconButton(
                     tooltip: 'Atualizar programas',
                     onPressed: _carregandoProgramas ? null : _carregarProgramas,
                     icon: const Icon(Icons.refresh),
@@ -434,7 +496,10 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         selectedIndex: _aba,
         onDestinationSelected: (i) => setState(() {
           _aba = i;
-          if (i == 0) _filtroStatus = null;
+          if (i == 0) {
+            _filtroStatus = null;
+            _filtroPublico = null;
+          }
         }),
         backgroundColor: Colors.white,
         indicatorColor: const Color(0xFFEBE4FF),

@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module.js';
-import { ChatModule } from '../chat/chat.module.js';
 import { FormularioEntity } from '../formularios/entities/formulario.entity.js';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
@@ -35,7 +34,6 @@ export const ENTIDADES_MATCHING = [
 @Module({
   imports: [
     AuthModule,
-    ChatModule,
     TypeOrmModule.forFeature([
       ProgramaEntity,
       ParticipacaoEntity,

@@ -3,6 +3,7 @@ import {
   repositorioEmMemoria,
   conectarRepositorios,
 } from '../../test/helpers/repositorio-memoria.js';
+import { conferirTudo } from '../../test/helpers/conferencia-academica.js';
 import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ParticipacoesService } from './participacoes.service.js';
 
@@ -69,6 +70,7 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       usuarioId: 'a1@pucminas.edu.br',
       programa: '2026/2',
     });
+    await conferirTudo(service, registro.id);
     const aprovado = await service.aprovarCandidatura(registro.id);
 
     expect(aprovado.papel).toBe('apadrinhado');
@@ -108,6 +110,7 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       usuarioId: 'padrinho@pucminas.edu.br',
       programa: '2026/2',
     });
+    await conferirTudo(service, candidatura.id);
     const padrinho = await service.aprovarCandidatura(candidatura.id);
     const pendente = await service.cadastrarApadrinhado({
       usuarioId: 'a1@pucminas.edu.br',
@@ -191,6 +194,7 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       usuarioId: 'rafa@pucminas.edu.br',
       programa: '2026/2',
     });
+    await conferirTudo(service, candidatura.id);
     const aprovada = await service.aprovarCandidatura(candidatura.id);
 
     expect(aprovada.papel).toBe('candidato');
@@ -201,6 +205,41 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
         'Requisitos não confirmados.',
       ),
     ).rejects.toThrow(/aguardando decisão/);
+  });
+
+  it('desfaz vínculo e só então permite revogar aprovação', async () => {
+    const candidatura = await service.registrarCandidaturaPadrinho({
+      usuarioId: 'padrinho@pucminas.edu.br',
+      programa: '2026/2',
+    });
+    await conferirTudo(service, candidatura.id);
+    const padrinho = await service.aprovarCandidatura(candidatura.id);
+    const apadrinhado = await service.cadastrarApadrinhado({
+      usuarioId: 'a1@pucminas.edu.br',
+      programa: '2026/2',
+      statusInicial: 'em_andamento',
+      respostas: { periodo: 1, declaraPrimeiroPeriodo: true },
+    });
+    await service.vincular(apadrinhado.id, padrinho.id);
+
+    await expect(
+      service.revogarAprovacao(apadrinhado.id, 'erro de análise'),
+    ).rejects.toThrow(/Desfaça o vínculo/);
+
+    const { apadrinhado: solto, padrinho: candidato } =
+      await service.desvincular(apadrinhado.id);
+    expect(solto.grupo).toBeFalsy();
+    expect(candidato?.papel).toBe('candidato');
+    expect(candidato?.status).toBe('aprovado');
+
+    const revogado = await service.revogarAprovacao(
+      solto.id,
+      'Requisitos não confirmados no sistema acadêmico.',
+    );
+    expect(revogado.status).toBe('nao_aprovado');
+    expect(revogado.respostas?._servidor?.decisao?.justificativa).toMatch(
+      /sistema acadêmico/,
+    );
   });
 
   it('volta para análise e guarda observações aparadas', async () => {
@@ -225,6 +264,7 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       usuarioId: 'padrinho@pucminas.edu.br',
       programa: '2026/2',
     });
+    await conferirTudo(service, candidatura.id);
     const padrinho = await service.aprovarCandidatura(candidatura.id);
     const a1 = await service.cadastrarApadrinhado({
       usuarioId: 'a1@pucminas.edu.br',
@@ -286,6 +326,33 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       '2026/2',
     );
     expect(principal?.papel).toBe('padrinho');
+  });
+
+  it('registro principal prioriza apadrinhado ativo sobre candidatura residual', async () => {
+    registros.push(
+      {
+        id: 1,
+        usuarioId: 'camila@pucminas.edu.br',
+        programa: '2026/2',
+        papel: 'candidato',
+        status: 'em_analise',
+      } as ParticipacaoEntity,
+      {
+        id: 8,
+        usuarioId: 'camila@pucminas.edu.br',
+        programa: '2026/2',
+        papel: 'apadrinhado',
+        status: 'em_andamento',
+        grupo: 'Grupo 08',
+      } as ParticipacaoEntity,
+    );
+
+    const principal = await service.registroPrincipal(
+      'camila@pucminas.edu.br',
+      '2026/2',
+    );
+    expect(principal?.papel).toBe('apadrinhado');
+    expect(principal?.status).toBe('em_andamento');
   });
 
   /** Repositório em memória que entende `where` simples (igualdade). */
