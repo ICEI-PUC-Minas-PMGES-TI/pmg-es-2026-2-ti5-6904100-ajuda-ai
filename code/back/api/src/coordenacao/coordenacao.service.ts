@@ -697,6 +697,8 @@ export class CoordenacaoService implements OnModuleInit {
       vigente,
       encerrado: programa.etapaAtual === 'encerramento',
       inscricoesAbertas: programa.inscricoesAbertas,
+      podeEncerrarInscricoes:
+        programa.etapaAtual === 'inscricoes' && programa.inscricoesAbertas,
       formularioPublicado: programa.formularioPublicado,
       matchingPendente: programa.matchingPendente,
       vagasApadrinhados: programa.vagasApadrinhados,
@@ -1113,6 +1115,10 @@ export class CoordenacaoService implements OnModuleInit {
         const padrinhos = registros.filter((r) => r.papel === 'padrinho');
         return {
           ...this.serializarPrograma(programa, codigoAtual),
+          podeLiberarMatching: this.podeLiberarMatching(
+            programa,
+            registros,
+          ),
           etapas: montarEtapas(programa),
           datas: {
             inscricoesInicio: programa.inscricoesInicio,
@@ -1147,7 +1153,20 @@ export class CoordenacaoService implements OnModuleInit {
     const registros = await this.participacoesService.listarPorPrograma({
       programa: programa.codigo,
     });
-    const podeLiberarMatching =
+    return {
+      ...this.serializarPrograma(
+        programa,
+        ParticipacoesService.programaAtual(),
+      ),
+      podeLiberarMatching: this.podeLiberarMatching(programa, registros),
+    };
+  }
+
+  private podeLiberarMatching(
+    programa: ProgramaEntity,
+    registros: ParticipacaoEntity[],
+  ): boolean {
+    return (
       programa.etapaAtual === 'analise' &&
       !programa.inscricoesAbertas &&
       !registros.some((registro) =>
@@ -1158,14 +1177,8 @@ export class CoordenacaoService implements OnModuleInit {
           (registro.papel === 'candidato' && registro.status === 'aprovado') ||
           (registro.papel === 'padrinho' &&
             registro.status === 'em_andamento'),
-      );
-    return {
-      ...this.serializarPrograma(
-        programa,
-        ParticipacoesService.programaAtual(),
-      ),
-      podeLiberarMatching,
-    };
+      )
+    );
   }
 
   excluirPrograma(codigo: string, confirmacao: unknown) {

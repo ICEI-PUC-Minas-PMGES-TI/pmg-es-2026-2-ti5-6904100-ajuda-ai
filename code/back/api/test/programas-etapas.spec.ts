@@ -352,6 +352,20 @@ describe('coordenação: rotas de etapa e permissão', () => {
   });
 
   it('encerra, recusa matching e libera pela API', async () => {
+    const antesDeEncerrar = await http()
+      .get('/coordenacao/programas')
+      .auth(token(), { type: 'bearer' })
+      .expect(200);
+    expect(antesDeEncerrar.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          codigo: '2027/1',
+          podeEncerrarInscricoes: true,
+          podeLiberarMatching: false,
+        }),
+      ]),
+    );
+
     const candidato = await participacoesService.registrarCandidaturaPadrinho({
       usuarioId: 'p@pucminas.edu.br',
       programa: '2027/1',
@@ -368,6 +382,19 @@ describe('coordenação: rotas de etapa e permissão', () => {
       inscricoesAbertas: false,
       matchingLiberado: false,
     });
+    const prontoParaLiberar = await http()
+      .get('/coordenacao/programas')
+      .auth(token(), { type: 'bearer' })
+      .expect(200);
+    expect(prontoParaLiberar.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          codigo: '2027/1',
+          podeEncerrarInscricoes: false,
+          podeLiberarMatching: true,
+        }),
+      ]),
+    );
     await http()
       .get('/coordenacao/matching/pool')
       .query({ programa: '2027/1' })

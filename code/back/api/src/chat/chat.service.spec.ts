@@ -1,9 +1,18 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import type { EntityManager } from 'typeorm';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
+import type { DataSource, EntityManager } from 'typeorm';
+import { vi } from 'vitest';
 import { MatchingVinculoEntity } from '../matching/entities/matching.entity.js';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
-import { ChatEntity, ChatParticipanteEntity } from './entities/chat.entity.js';
+import {
+  ChatEntity,
+  ChatParticipanteEntity,
+  MensagemChatEntity,
+} from './entities/chat.entity.js';
 import { ChatService } from './chat.service.js';
 
 function managerEmMemoria() {
@@ -152,5 +161,55 @@ describe('ChatService.criarParaVinculo', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(memoria.chats.size).toBe(0);
     expect(memoria.membros).toHaveLength(0);
+  });
+});
+
+describe('ChatService.enviarMensagem', () => {
+  it('recusa enviar mensagens quando o vínculo do chat está encerrado', async () => {
+    const membro = { chatId: 5, participacaoId: 11 };
+    const participacao = {
+      id: 11,
+      usuarioId: 'aluno@example.com',
+    } as ParticipacaoEntity;
+    const chat = { id: 5, matchingVinculoId: 7, ativo: true } as ChatEntity;
+    const vinculo = { id: 7, ativo: false } as MatchingVinculoEntity;
+    const salvarMensagem = vi.fn();
+    const atualizarChat = vi.fn();
+    const repositorios = new Map<Function, object>([
+      [
+        ParticipacaoEntity,
+        { find: vi.fn().mockResolvedValue([participacao]) },
+      ],
+      [
+        ChatParticipanteEntity,
+        { findOne: vi.fn().mockResolvedValue(membro) },
+      ],
+      [
+        ChatEntity,
+        { findOne: vi.fn().mockResolvedValue(chat), update: atualizarChat },
+      ],
+      [MatchingVinculoEntity, { findOne: vi.fn().mockResolvedValue(vinculo) }],
+      [
+        MensagemChatEntity,
+        {
+          create: vi.fn((mensagem) => mensagem),
+          save: salvarMensagem,
+        },
+      ],
+    ]);
+    const manager = {
+      getRepository: (entity: Function) => repositorios.get(entity),
+    } as unknown as EntityManager;
+    const dataSource = {
+      transaction: (acao: (tx: EntityManager) => Promise<unknown>) =>
+        acao(manager),
+    } as unknown as DataSource;
+    const service = new ChatService(dataSource);
+
+    await expect(
+      service.enviarMensagem(5, 'aluno@example.com', 'Mensagem de teste'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(salvarMensagem).not.toHaveBeenCalled();
+    expect(atualizarChat).not.toHaveBeenCalled();
   });
 });

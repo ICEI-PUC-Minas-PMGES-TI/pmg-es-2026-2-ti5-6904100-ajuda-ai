@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -71,6 +72,26 @@ export class ChatService {
     });
     if (!membro) throw new NotFoundException('Conversa não encontrada.');
     return membro;
+  }
+
+  private async exigirVinculoAtivo(
+    manager: EntityManager,
+    chatId: number,
+  ): Promise<void> {
+    const chat = await manager.getRepository(ChatEntity).findOne({
+      where: { id: chatId },
+    });
+    if (!chat) throw new NotFoundException('Conversa não encontrada.');
+    if (chat.matchingVinculoId == null) return;
+
+    const vinculo = await manager
+      .getRepository(MatchingVinculoEntity)
+      .findOne({ where: { id: chat.matchingVinculoId } });
+    if (!vinculo?.ativo) {
+      throw new ConflictException(
+        'Não é possível enviar mensagens: o vínculo associado foi encerrado.',
+      );
+    }
   }
 
   private participantes(
@@ -229,6 +250,7 @@ export class ChatService {
       );
     return this.dados.transaction(async (manager) => {
       const membro = await this.exigirMembro(manager, chatId, email);
+      await this.exigirVinculoAtivo(manager, chatId);
       const mensagem = manager.getRepository(MensagemChatEntity).create({
         chatId,
         remetenteParticipacaoId: membro.participacaoId,
