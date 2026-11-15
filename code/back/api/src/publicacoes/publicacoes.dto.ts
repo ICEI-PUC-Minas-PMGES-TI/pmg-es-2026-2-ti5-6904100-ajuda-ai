@@ -29,6 +29,8 @@ export interface AutorComentarioDto {
   fotoUrl: string | null;
 }
 export interface FeedPermissoesDto {
+  /** Participante do ciclo atual ou coordenação; os apps escondem o feed se false. */
+  podeLer: boolean;
   podePublicar: boolean;
   podeAdministrar: boolean;
   podeInteragir: boolean;

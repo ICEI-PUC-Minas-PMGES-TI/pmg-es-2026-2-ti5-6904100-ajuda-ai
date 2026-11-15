@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
+import { ParticipacoesModule } from '../participacoes/participacoes.module.js';
 import { LojinhaController } from './lojinha/lojinha.controller.js';
 import { LojinhaService } from './lojinha/lojinha.service.js';
 import { PucStopsAdminController } from './pucstops/pucstops-admin.controller.js';
@@ -23,7 +24,7 @@ import { XpService } from './xp/xp.service.js';
  * `/coordenacao/recompensas` e consulta/resgate do aluno (F28) em `/me/lojinha`.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, ParticipacoesModule],
   controllers: [
     PucStopsController,
     MinhasColetasController,

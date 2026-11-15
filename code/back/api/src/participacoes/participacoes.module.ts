@@ -6,6 +6,7 @@ import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ParticipacaoEntity } from './entities/participacao.entity.js';
 import { ParticipacoesController } from './participacoes.controller.js';
 import { ParticipacoesService } from './participacoes.service.js';
+import { PermissoesAlunoService } from './permissoes-aluno.service.js';
 
 @Module({
   imports: [
@@ -14,7 +15,7 @@ import { ParticipacoesService } from './participacoes.service.js';
     TypeOrmModule.forFeature([ParticipacaoEntity, ProgramaEntity]),
   ],
   controllers: [ParticipacoesController],
-  providers: [ParticipacoesService],
-  exports: [ParticipacoesService, TypeOrmModule],
+  providers: [ParticipacoesService, PermissoesAlunoService],
+  exports: [ParticipacoesService, PermissoesAlunoService, TypeOrmModule],
 })
 export class ParticipacoesModule {}

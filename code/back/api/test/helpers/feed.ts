@@ -2,6 +2,7 @@ import type { DataSource, Repository } from 'typeorm';
 import type { AccessTokenPayload } from '../../src/auth/authenticated-request.js';
 import { PublicacaoEntity } from '../../src/publicacoes/entities/publicacao.entity.js';
 import { PublicacoesService } from '../../src/publicacoes/publicacoes.service.js';
+import { PermissoesAlunoService } from '../../src/participacoes/permissoes-aluno.service.js';
 import { FeedPolicy } from '../../src/publicacoes/feed-policy.js';
 import type { UsuariosService } from '../../src/usuarios/usuarios.service.js';
 import type { FeedMidiasService } from '../../src/publicacoes/feed-midias.service.js';
@@ -143,10 +144,11 @@ export function criarFeedTeste() {
     validar: async () => {},
     urls: (chaves: string[]) => chaves,
   } as unknown as FeedMidiasService;
-  const policy = new FeedPolicy(
+  const permissoes = new PermissoesAlunoService(
     new ParticipacoesService(repos.ParticipacaoEntity, repos.ProgramaEntity),
     new ProgramasService(repos.ProgramaEntity),
   );
+  const policy = new FeedPolicy(permissoes);
   const service = new PublicacoesService(
     repos.PublicacaoEntity as Repository<PublicacaoEntity>,
     dados,
@@ -167,5 +169,5 @@ export function criarFeedTeste() {
     } as unknown as UsuariosService,
     midias,
   );
-  return { service, tabelas, repos, dados, midias, policy };
+  return { service, tabelas, repos, dados, midias, policy, permissoes };
 }

@@ -13,6 +13,7 @@ import { Test } from '@nestjs/testing';
 import pg from 'pg';
 import request from 'supertest';
 import { DataSource, type MigrationInterface } from 'typeorm';
+import { permissoesPeloToken } from './helpers/permissoes.js';
 import { JwtAuthGuard } from '../src/auth/jwt-auth.guard.js';
 import { RolesGuard } from '../src/auth/roles.guard.js';
 import { PucStopsAdminController } from '../src/gamificacao/pucstops/pucstops-admin.controller.js';
@@ -258,6 +259,7 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
         XpService,
         JwtAuthGuard,
         RolesGuard,
+        permissoesPeloToken(),
         { provide: DataSource, useValue: ds },
       ],
     }).compile();

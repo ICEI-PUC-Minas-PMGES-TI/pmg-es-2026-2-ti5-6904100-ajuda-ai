@@ -8,44 +8,41 @@ import type {
   AccessTokenPayload,
   AuthenticatedRequest,
 } from '../auth/authenticated-request.js';
-import { ParticipacoesService } from '../participacoes/participacoes.service.js';
-import { ProgramasService } from '../programas/programas.service.js';
+import { PermissoesAlunoService } from '../participacoes/permissoes-aluno.service.js';
 
-/** Publicação depende da participação atual; o perfil JWT sozinho não a concede. */
+/**
+ * Permissões do feed. Para alunos, vêm da participação no ciclo atual
+ * (`PermissoesAlunoService`), nunca do claim `perfil` do JWT.
+ */
 @Injectable()
 export class FeedPolicy {
-  constructor(
-    private readonly participacoes: ParticipacoesService,
-    private readonly programas: ProgramasService,
-  ) {}
+  constructor(private readonly permissoes: PermissoesAlunoService) {}
+
+  /** Resumo para `GET /publicacoes/permissoes` com uma única consulta. */
+  async resumo(usuario: AccessTokenPayload) {
+    const p = await this.permissoes.doUsuario(usuario);
+    return {
+      podeLer: p.podeLerFeed,
+      podePublicar: p.podePublicar,
+      podeAdministrar: this.podeAdministrar(usuario),
+      podeInteragir: p.podeInteragir,
+    };
+  }
+
+  async podeLer(usuario: AccessTokenPayload): Promise<boolean> {
+    return (await this.permissoes.doUsuario(usuario)).podeLerFeed;
+  }
 
   async podePublicar(usuario: AccessTokenPayload): Promise<boolean> {
-    if (this.podeAdministrar(usuario)) return true;
-    if (usuario.perfil !== 'padrinho') return false;
-
-    // O feed é global: o cliente não pode escolher um ciclo antigo para publicar.
-    const codigo = ParticipacoesService.programaAtual();
-    const programa = await this.programas.buscarPorCodigo(codigo);
-    if (!programa || programa.etapaAtual === 'encerramento') return false;
-    const registro = await this.participacoes.registroPrincipal(
-      usuario.email,
-      codigo,
-    );
-    if (!registro || registro.terminoEm) return false;
-    return (
-      (await this.participacoes.situacaoDoRegistro(registro)) ===
-      'padrinho_ativo'
-    );
+    return (await this.permissoes.doUsuario(usuario)).podePublicar;
   }
 
   podeAdministrar(usuario: AccessTokenPayload): boolean {
     return usuario.perfil === 'coordenador';
   }
 
-  podeInteragir(usuario: AccessTokenPayload): boolean {
-    return ['coordenador', 'padrinho', 'apadrinhado'].includes(
-      usuario.perfil ?? '',
-    );
+  async podeInteragir(usuario: AccessTokenPayload): Promise<boolean> {
+    return (await this.permissoes.doUsuario(usuario)).podeInteragir;
   }
 
   podeExcluirComentario(usuario: AccessTokenPayload, autorId: string): boolean {
@@ -60,16 +57,40 @@ export class FeedPolicy {
       );
   }
 
-  exigirInteracao(usuario: AccessTokenPayload): void {
-    if (!this.podeInteragir(usuario))
-      throw new ForbiddenException('Seu perfil não permite interagir no feed.');
+  async exigirLeitura(usuario: AccessTokenPayload): Promise<void> {
+    await this.permissoes.exigir(
+      usuario,
+      'podeLerFeed',
+      'O feed é dos participantes do apadrinhamento deste semestre.',
+    );
+  }
+
+  async exigirInteracao(usuario: AccessTokenPayload): Promise<void> {
+    await this.permissoes.exigir(
+      usuario,
+      'podeInteragir',
+      'Só participantes do apadrinhamento deste semestre interagem no feed.',
+    );
   }
 
   async exigirPublicacao(usuario: AccessTokenPayload): Promise<void> {
-    if (!(await this.podePublicar(usuario)))
-      throw new ForbiddenException(
-        'Você não tem permissão para publicar no feed.',
-      );
+    await this.permissoes.exigir(
+      usuario,
+      'podePublicar',
+      'Você não tem permissão para publicar no feed.',
+    );
+  }
+}
+
+/** Leitura do feed (lista, detalhe, SSE e permissões): participantes do ciclo. */
+@Injectable()
+export class FeedLeituraGuard implements CanActivate {
+  constructor(private readonly policy: FeedPolicy) {}
+  async canActivate(contexto: ExecutionContext): Promise<boolean> {
+    await this.policy.exigirLeitura(
+      contexto.switchToHttp().getRequest<AuthenticatedRequest>().user,
+    );
+    return true;
   }
 }
 

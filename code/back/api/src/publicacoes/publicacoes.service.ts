@@ -46,8 +46,11 @@ export class PublicacoesService {
       order: { criadoEm: 'DESC', id: 'DESC' },
     });
     const autores = await this.autores(itens);
+    const podeInteragir = await this.policy.podeInteragir(usuario);
     return Promise.all(
-      itens.map((item) => this.apresentar(item, usuario, autores)),
+      itens.map((item) =>
+        this.apresentar(item, usuario, autores, podeInteragir),
+      ),
     );
   }
 
@@ -57,7 +60,12 @@ export class PublicacoesService {
       relations: { curtidas: true, comentarios: true },
     });
     if (!item) throw new NotFoundException('Publicação não encontrada.');
-    return this.apresentar(item, usuario, await this.autores([item]));
+    return this.apresentar(
+      item,
+      usuario,
+      await this.autores([item]),
+      await this.policy.podeInteragir(usuario),
+    );
   }
 
   async criar(corpo: DadosPublicacao, usuario: AccessTokenPayload) {
@@ -129,7 +137,7 @@ export class PublicacoesService {
     usuario: AccessTokenPayload,
     paiId?: number,
   ) {
-    this.policy.exigirInteracao(usuario);
+    await this.policy.exigirInteracao(usuario);
     const comentario = texto?.trim();
     if (!comentario || comentario.length > 2000)
       throw new BadRequestException(
@@ -183,7 +191,7 @@ export class PublicacoesService {
   }
 
   async curtir(id: number, delta: number, usuario: AccessTokenPayload) {
-    this.policy.exigirInteracao(usuario);
+    await this.policy.exigirInteracao(usuario);
     if (delta !== 1 && delta !== -1)
       throw new BadRequestException(
         'A ação precisa ser curtir (1) ou descurtir (-1).',
@@ -209,7 +217,7 @@ export class PublicacoesService {
     delta: number,
     usuario: AccessTokenPayload,
   ) {
-    this.policy.exigirInteracao(usuario);
+    await this.policy.exigirInteracao(usuario);
     if (delta !== 1 && delta !== -1)
       throw new BadRequestException('Ação de curtida inválida.');
     await this.alterar(id, 'feed.comment.like.updated', async (manager) => {
@@ -322,6 +330,7 @@ export class PublicacoesService {
     item: PublicacaoEntity,
     usuario: AccessTokenPayload,
     autores: Map<string, AutorComentarioDto>,
+    podeInteragir: boolean,
   ) {
     const curtidas = item.curtidas ?? [];
     const comentarios = [...(item.comentarios ?? [])].sort(
@@ -373,7 +382,7 @@ export class PublicacoesService {
       comentariosDetalhes: detalhes,
       isOwn: item.ownerId === usuario.email,
       podeAdministrar: this.policy.podeAdministrar(usuario),
-      podeInteragir: this.policy.podeInteragir(usuario),
+      podeInteragir,
     };
   }
 }

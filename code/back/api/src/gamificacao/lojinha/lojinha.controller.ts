@@ -11,8 +11,7 @@ import {
 import { DataSource } from 'typeorm';
 import type { AuthenticatedRequest } from '../../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
-import { Roles } from '../../auth/roles.decorator.js';
-import { RolesGuard } from '../../auth/roles.guard.js';
+import { PermissoesAlunoService } from '../../participacoes/permissoes-aluno.service.js';
 import { usuarioDoToken } from '../gamificacao.js';
 import { ResgatarDto } from './lojinha.dto.js';
 import { type Aluno, LojinhaService } from './lojinha.service.js';
@@ -21,22 +20,30 @@ const uuid = new ParseUUIDPipe({ version: '4' });
 
 /**
  * Lojinha do aluno (F28). O cadastro pela coordenação (F27) fica em
- * `/coordenacao/recompensas` (`../recompensas`).
+ * `/coordenacao/recompensas` (`../recompensas`). Consultar e resgatar exige
+ * participar do ciclo atual (DP-07); histórico e comprovantes continuam
+ * visíveis para quem já participou.
  */
 @Controller('me/lojinha')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('padrinho', 'apadrinhado')
+@UseGuards(JwtAuthGuard)
 export class LojinhaController {
   constructor(
     private readonly lojinha: LojinhaService,
     private readonly db: DataSource,
+    private readonly permissoes: PermissoesAlunoService,
   ) {}
 
+  /** Papel vem da participação no ciclo, não do claim `perfil` do JWT. */
   private async aluno(req: AuthenticatedRequest): Promise<Aluno> {
+    const { papel } = await this.permissoes.exigir(
+      req.user,
+      'podeUsarLojinha',
+      'A lojinha é só para participantes do apadrinhamento deste semestre.',
+    );
     return {
       id: await usuarioDoToken(this.db, req.user),
       email: String(req.user.email ?? '').toLowerCase(),
-      perfil: req.user.perfil === 'padrinho' ? 'padrinho' : 'apadrinhado',
+      perfil: papel ?? 'apadrinhado',
     };
   }
 

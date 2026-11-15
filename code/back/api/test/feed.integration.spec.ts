@@ -9,6 +9,7 @@ import { FeedOutboxEntity } from '../src/publicacoes/entities/feed-outbox.entity
 import { FeedTempoReal1793300000000 } from '../src/migrations/1793300000000-FeedTempoReal.js';
 import { ThreadsComentariosFeed1793400000000 } from '../src/migrations/1793400000000-ThreadsComentariosFeed.js';
 import { PublicacoesService } from '../src/publicacoes/publicacoes.service.js';
+import { PermissoesAlunoService } from '../src/participacoes/permissoes-aluno.service.js';
 import { FeedPolicy } from '../src/publicacoes/feed-policy.js';
 import { ParticipacaoEntity } from '../src/participacoes/entities/participacao.entity.js';
 import { ParticipacoesService } from '../src/participacoes/participacoes.service.js';
@@ -109,11 +110,13 @@ describe.skipIf(!db || !amqp)(
         dados.getRepository(PublicacaoEntity),
         dados,
         new FeedPolicy(
-          new ParticipacoesService(
-            dados.getRepository(ParticipacaoEntity),
-            dados.getRepository(ProgramaEntity),
+          new PermissoesAlunoService(
+            new ParticipacoesService(
+              dados.getRepository(ParticipacaoEntity),
+              dados.getRepository(ProgramaEntity),
+            ),
+            new ProgramasService(dados.getRepository(ProgramaEntity)),
           ),
-          new ProgramasService(dados.getRepository(ProgramaEntity)),
         ),
         {
           buscarPorEmail: async () => null,
