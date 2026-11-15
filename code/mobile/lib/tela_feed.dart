@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 
@@ -13,6 +14,7 @@ import 'widgets/app_feedback.dart';
 import 'widgets/feed_comments_sheet.dart';
 import 'models/feed_comment.dart';
 import 'sessao_usuario.dart';
+import 'main.dart' show estiloBarraClara;
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
 import 'widgets/navegacao_app.dart';
@@ -685,92 +687,95 @@ class _CabecalhoFeed extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppAccents.headerTop, AppAccents.headerBottom],
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: estiloBarraClara,
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppAccents.headerTop, AppAccents.headerBottom],
+          ),
         ),
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 44),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Image.asset(
-                    'assets/images/logo.png',
-                    height: 40,
-                    color: Colors.white,
-                    semanticLabel: 'Ajuda-aí',
-                  ),
-                  const SizedBox(width: 14),
-                  Image.asset(
-                    'assets/images/puclogo.png',
-                    height: 40,
-                    color: Colors.white,
-                    semanticLabel: 'PUC Minas',
-                  ),
-                  const Spacer(),
-                  _IconeCabecalho(
-                    icone: Icons.search_rounded,
-                    tooltip: 'Buscar no feed',
-                    onTap: () => _mensagem(context, 'Busca no feed'),
-                  ),
-                  const SizedBox(width: 8),
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      _IconeCabecalho(
-                        icone: Icons.notifications_none_rounded,
-                        tooltip: 'Notificações',
-                        onTap: () => _mensagem(context, 'Notificações'),
-                      ),
-                      const Positioned(
-                        right: -1,
-                        top: -2,
-                        child: CircleAvatar(
-                          radius: 8,
-                          backgroundColor: Color(0xFF8B5CF6),
-                          child: Text(
-                            '3',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontFamily: 'Inter',
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 44),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Image.asset(
+                      'assets/images/logo.png',
+                      height: 40,
+                      color: Colors.white,
+                      semanticLabel: 'Ajuda-aí',
+                    ),
+                    const SizedBox(width: 14),
+                    Image.asset(
+                      'assets/images/puclogo.png',
+                      height: 40,
+                      color: Colors.white,
+                      semanticLabel: 'PUC Minas',
+                    ),
+                    const Spacer(),
+                    _IconeCabecalho(
+                      icone: Icons.search_rounded,
+                      tooltip: 'Buscar no feed',
+                      onTap: () => _mensagem(context, 'Busca no feed'),
+                    ),
+                    const SizedBox(width: 8),
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        _IconeCabecalho(
+                          icone: Icons.notifications_none_rounded,
+                          tooltip: 'Notificações',
+                          onTap: () => _mensagem(context, 'Notificações'),
+                        ),
+                        const Positioned(
+                          right: -1,
+                          top: -2,
+                          child: CircleAvatar(
+                            radius: 8,
+                            backgroundColor: Color(0xFF8B5CF6),
+                            child: Text(
+                              '3',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontFamily: 'Inter',
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Feed',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
                   ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Feed',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
                 ),
-              ),
-              const SizedBox(height: 7),
-              const Text(
-                'Descubra, compartilhe e viva o campus.',
-                style: TextStyle(
-                  color: Color(0xFFD9CCEC),
-                  fontFamily: 'Inter',
-                  fontSize: 15,
+                const SizedBox(height: 7),
+                const Text(
+                  'Descubra, compartilhe e viva o campus.',
+                  style: TextStyle(
+                    color: Color(0xFFD9CCEC),
+                    fontFamily: 'Inter',
+                    fontSize: 15,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

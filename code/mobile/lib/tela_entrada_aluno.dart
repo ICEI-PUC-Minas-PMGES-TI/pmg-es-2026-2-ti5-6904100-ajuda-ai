@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'sessao_usuario.dart';
 import 'status_participacao.dart';
 import 'tela_cadastro.dart';
+import 'tela_home.dart';
 import 'tela_perfil.dart';
 import 'tela_status_candidatura.dart';
 import 'tela_login.dart';
@@ -32,6 +33,8 @@ class _EntradaAlunoPageState extends State<EntradaAlunoPage> {
           ? const CadastroPage()
           : sessao.status.candidatura
           ? const StatusCandidaturaPage()
+          : sessao.status.ativo
+          ? const HomePage()
           : const ProfilePage();
       Navigator.of(context)
           .pushReplacement(MaterialPageRoute<void>(builder: (_) => destino));

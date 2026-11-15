@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:ajuda_ai/models/situacao_participacao.dart';
 import 'package:ajuda_ai/services/pucstops_api.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
+import 'package:ajuda_ai/status_participacao.dart';
 import 'package:ajuda_ai/tela_home.dart';
 import 'package:ajuda_ai/tela_perfil.dart';
 import 'package:campus_map/campus_map.dart';
@@ -269,7 +271,8 @@ void main() {
 
     testWidgets('coleta no mapa atualiza o mesmo saldo', (tester) async {
       await tester.pumpWidget(const MaterialApp(home: HomePage()));
-      expect(find.text('0'), findsOneWidget);
+      // Sem resposta da API o saldo é desconhecido: "—", nunca um 0 inventado.
+      expect(find.text('—'), findsOneWidget);
       SessaoUsuario.atual.xp.value = 320;
       await tester.pump();
       expect(find.text('320'), findsOneWidget);
@@ -292,8 +295,101 @@ void main() {
         );
       await tester.pumpWidget(const MaterialApp(home: HomePage()));
       await tester.pumpAndSettle();
-      expect(find.text('0'), findsOneWidget);
+      expect(find.text('—'), findsOneWidget);
+      expect(find.textContaining('Toque para tentar de novo'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('Home sem dados fictícios', () {
+    void abrirComo(StatusParticipacao status, SituacaoParticipacao? situacao) {
+      SessaoUsuario.atual
+        ..assumirSessao(
+          accessToken: 'jwt',
+          nome: 'Camila Duarte',
+          email: 'camila@pucminas.edu.br',
+        )
+        ..configurarXpApi(
+          XpApi(
+            baseUrl: 'http://api.test',
+            client: MockClient((_) async => json({'saldo': 40})),
+          ),
+        )
+        ..status = status
+        ..situacao = situacao;
+    }
+
+    Future<void> verificarSemTextoFixo(WidgetTester tester) async {
+      for (final texto in [
+        'Thiago Moreira',
+        'Online',
+        'Nível 4',
+        'Missão do dia',
+        'Ver ranking',
+        'Conheça a Praça da Liberdade',
+        '+150 XP',
+        '120 m',
+      ]) {
+        expect(find.text(texto), findsNothing, reason: texto);
+      }
+      expect(find.textContaining('/ 2.000'), findsNothing);
+    }
+
+    testWidgets('apadrinhado vê o padrinho real do vínculo', (tester) async {
+      abrirComo(
+        StatusParticipacao.apadrinhadoAtivo,
+        const SituacaoParticipacao(
+          situacao: 'apadrinhado_ativo',
+          padrinho: PessoaVinculo(
+            nome: 'Rafael Tavares',
+            curso: 'Sistemas de Informação',
+            periodo: 6,
+            iniciais: 'RT',
+          ),
+        ),
+      );
+      await tester.pumpWidget(const MaterialApp(home: HomePage()));
+      await tester.pumpAndSettle();
+      expect(find.text('Seu padrinho'), findsOneWidget);
+      expect(find.text('Rafael Tavares'), findsOneWidget);
+      expect(find.text('Sistemas de Informação · 6º período'), findsOneWidget);
+      expect(find.text('Apadrinhado'), findsOneWidget);
+      await verificarSemTextoFixo(tester);
+    });
+
+    testWidgets('padrinho vê os apadrinhados reais, não um padrinho', (
+      tester,
+    ) async {
+      abrirComo(
+        StatusParticipacao.padrinhoAtivo,
+        const SituacaoParticipacao(
+          situacao: 'padrinho_ativo',
+          apadrinhados: [
+            PessoaVinculo(nome: 'Bruna Lima', iniciais: 'BL'),
+            PessoaVinculo(nome: 'Caio Nunes', iniciais: 'CN'),
+          ],
+        ),
+      );
+      await tester.pumpWidget(const MaterialApp(home: HomePage()));
+      await tester.pumpAndSettle();
+      expect(find.text('Seus apadrinhados'), findsOneWidget);
+      expect(find.text('Bruna Lima'), findsOneWidget);
+      expect(find.text('Caio Nunes'), findsOneWidget);
+      expect(find.text('Seu padrinho'), findsNothing);
+      expect(find.text('Padrinho'), findsOneWidget);
+      await verificarSemTextoFixo(tester);
+    });
+
+    testWidgets('sem vínculo mostra estado vazio honesto', (tester) async {
+      abrirComo(
+        StatusParticipacao.apadrinhadoAtivo,
+        const SituacaoParticipacao(situacao: 'apadrinhado_ativo'),
+      );
+      await tester.pumpWidget(const MaterialApp(home: HomePage()));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Seu padrinho aparece aqui'), findsOneWidget);
+      expect(find.text('Conversar'), findsNothing);
+      await verificarSemTextoFixo(tester);
     });
   });
 }

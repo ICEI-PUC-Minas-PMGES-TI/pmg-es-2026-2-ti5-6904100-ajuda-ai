@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'services/api_config.dart';
 import 'services/lojinha_api.dart';
 import 'sessao_usuario.dart';
 import 'tela_resgates.dart';
+import 'main.dart' show estiloBarraClara;
 import 'theme/colors.dart';
 
 abstract final class CoresLojinha {
@@ -132,58 +134,61 @@ class EstruturaLojinha extends StatelessWidget {
       backgroundColor: AppColors.primary,
       body: Column(
         children: [
-          Container(
-            width: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [AppAccents.headerTop, AppColors.primary],
+          AnnotatedRegion<SystemUiOverlayStyle>(
+            value: estiloBarraClara,
+            child: Container(
+              width: double.infinity,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [AppAccents.headerTop, AppColors.primary],
+                ),
               ),
-            ),
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 4, 20, 36),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      height: 44,
-                      child: podeVoltar
-                          ? const BackButton(color: Colors.white)
-                          : null,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            titulo,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 26,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                          if (subtitulo != null) ...[
-                            const SizedBox(height: 6),
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 20, 36),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        height: 44,
+                        child: podeVoltar
+                            ? const BackButton(color: Colors.white)
+                            : null,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text(
-                              subtitulo!,
+                              titulo,
                               style: const TextStyle(
-                                fontFamily: 'Inter',
-                                color: Color(0xFFE4DAF7),
-                                fontSize: 14,
-                                height: 1.35,
+                                color: Colors.white,
+                                fontSize: 26,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.3,
                               ),
                             ),
+                            if (subtitulo != null) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                subtitulo!,
+                                style: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  color: Color(0xFFE4DAF7),
+                                  fontSize: 14,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
