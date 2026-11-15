@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Navigate, useOutletContext } from "react-router-dom";
 import {
   api,
   feedEventsUrl,
@@ -23,7 +24,15 @@ export function filtrarPublicacoes(itens, categoria) {
     : itens;
 }
 
+/** Aluno que não participa do ciclo não abre o feed, nem por URL direta. */
 export default function FeedPage({ coordenacao = false }) {
+  const contexto = useOutletContext();
+  if (!coordenacao && contexto?.resolucao && !contexto.resolucao.participante)
+    return <Navigate to="/aluno/perfil" replace />;
+  return <FeedConteudo coordenacao={coordenacao} />;
+}
+
+function FeedConteudo({ coordenacao }) {
   const email = coordenacao ? undefined : getAlunoSession()?.email;
   const [itens, setItens] = useState([]);
   const [carregando, setCarregando] = useState(true);

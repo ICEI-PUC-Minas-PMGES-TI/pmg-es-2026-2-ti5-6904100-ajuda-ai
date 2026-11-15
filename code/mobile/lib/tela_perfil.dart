@@ -568,11 +568,13 @@ class _ProfilePageState extends State<ProfilePage> {
         'Status da candidatura',
         () => _abrir(const StatusCandidaturaPage()),
       ),
-    ItemAcessoRapido(
-      Icons.chat_bubble_outline,
-      'Feed do campus',
-      () => _abrir(const FeedPage()),
-    ),
+    // O feed é dos participantes do ciclo (DP-01); o servidor também recusa.
+    if (status.participante)
+      ItemAcessoRapido(
+        Icons.chat_bubble_outline,
+        'Feed do campus',
+        () => _abrir(const FeedPage()),
+      ),
     ItemAcessoRapido(
       Icons.map_outlined,
       'Explorar mapa',
