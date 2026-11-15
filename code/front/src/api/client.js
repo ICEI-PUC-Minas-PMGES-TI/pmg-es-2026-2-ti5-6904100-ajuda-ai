@@ -314,6 +314,9 @@ export const api = {
   salvarMatchingConfiguracao(dados) {
     return request('/coordenacao/matching/config', { method: 'PUT', body: dados });
   },
+  encerrarInscricoes(codigo) {
+    return request(`/coordenacao/programas/encerrar-inscricoes${query({ codigo })}`, { method: 'POST' });
+  },
   liberarMatching(codigo) {
     return request(`/coordenacao/programas/liberar-matching${query({ codigo })}`, { method: 'POST' });
   },
