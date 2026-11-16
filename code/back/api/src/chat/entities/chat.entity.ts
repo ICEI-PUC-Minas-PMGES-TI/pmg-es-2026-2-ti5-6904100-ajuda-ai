@@ -6,6 +6,7 @@ import {
   JoinColumn,
   ManyToOne,
   OneToMany,
+  PrimaryColumn,
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn,
@@ -106,6 +107,14 @@ export class MensagemChatEntity {
   @Column({ type: 'text' })
   texto!: string;
 
+  @Column({
+    name: 'imagem_chave',
+    type: 'varchar',
+    length: 1024,
+    nullable: true,
+  })
+  imagemChave!: string | null;
+
   @Column({ name: 'estado', type: 'varchar', length: 20, default: 'enviada' })
   estado!: EstadoMensagemChat;
 
@@ -117,4 +126,28 @@ export class MensagemChatEntity {
 
   @CreateDateColumn({ name: 'criada_em', type: 'timestamptz' })
   criadaEm!: Date;
+}
+
+@Entity({ name: 'chat_outbox' })
+@Index('idx_chat_outbox_pendente', ['criadoEm'], {
+  where: '"publicado_em" IS NULL',
+})
+export class ChatOutboxEntity {
+  @PrimaryColumn({ type: 'uuid' })
+  id!: string;
+
+  @Column({ type: 'jsonb' })
+  evento!: {
+    id: string;
+    tipo: 'chat.message';
+    chatId: number;
+    mensagemId: number;
+    ocorridoEm: string;
+  };
+
+  @Column({ name: 'publicado_em', type: 'timestamptz', nullable: true })
+  publicadoEm!: Date | null;
+
+  @CreateDateColumn({ name: 'criado_em', type: 'timestamptz' })
+  criadoEm!: Date;
 }

@@ -931,7 +931,15 @@ export class MatchingService {
         const vinculo = await manager
           .getRepository(MatchingVinculoEntity)
           .findOne({ where: { id: sugestao.vinculoId } });
-        if (vinculo) return { sugestao, vinculo };
+        if (vinculo) {
+          if (vinculo.ativo)
+            await this.chat.criarParaVinculo(manager, vinculo.id);
+          return {
+            sugestao,
+            vinculo,
+            chat: { criado: true, eventosPendentes: 0 },
+          };
+        }
       }
       if (sugestao.status !== 'pendente')
         throw new ConflictException('A sugestão já foi concluída.');

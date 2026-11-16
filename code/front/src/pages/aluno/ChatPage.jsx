@@ -1,29 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { api, getAlunoSession, streamChatMessages } from "../../api/client";
 import Icon from "../../components/Icon";
 import { PageHeader } from "./partes";
-import { criarConversasMock } from "./chatMock";
 import "./chat.css";
 
-function horarioAgora() {
+const TAMANHO_MAXIMO_IMAGEM = 5 * 1024 * 1024;
+const TIPOS_IMAGEM = ["image/png", "image/jpeg", "image/webp"];
+
+function hora(data) {
+  if (!data) return "";
   return new Intl.DateTimeFormat("pt-BR", {
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date());
+  }).format(new Date(data));
 }
 
 function EstadoMensagem({ estado }) {
   if (!estado) return null;
-  if (estado === "pendente") {
-    return (
-      <span
-        className="chat-message-state pending"
-        aria-label="Aguardando internet para envio"
-      >
-        <Icon name="clock" size={14} />
-      </span>
-    );
-  }
   const descricao = {
     enviada: "Enviada",
     entregue: "Recebida",
@@ -31,7 +25,7 @@ function EstadoMensagem({ estado }) {
   }[estado];
   return (
     <span
-      className={`chat-message-state ${estado === 'lida' ? 'read' : estado}`}
+      className={`chat-message-state ${estado === "lida" ? "read" : estado}`}
       aria-label={descricao}
       title={descricao}
     >
@@ -40,125 +34,236 @@ function EstadoMensagem({ estado }) {
   );
 }
 
+function participanteDoOutroLado(chat) {
+  return (
+    chat.participantes.find(
+      (participante) =>
+        participante.participacaoId !== chat.minhaParticipacaoId,
+    ) ?? chat.participantes[0]
+  );
+}
+
+function resumirChat(chat) {
+  const participante = participanteDoOutroLado(chat);
+  const nome = participante?.nome || "Participante";
+  return {
+    ...chat,
+    participante: {
+      ...participante,
+      nome,
+      iniciais: nome
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((parte) => parte[0])
+        .join("")
+        .toUpperCase(),
+    },
+  };
+}
+
 function Avatar({ participante, pequeno = false }) {
   return (
     <span
       className={`chat-avatar${pequeno ? " small" : ""}`}
       aria-hidden="true"
     >
-      {participante.iniciais}
+      {participante?.iniciais || "?"}
     </span>
   );
 }
 
 export default function ChatPage() {
   const [params, setParams] = useSearchParams();
-  const [conversas, setConversas] = useState(criarConversasMock);
+  const sessao = getAlunoSession();
+  const email = sessao?.email;
+  const [conversas, setConversas] = useState([]);
+  const [mensagens, setMensagens] = useState([]);
   const [busca, setBusca] = useState("");
   const [texto, setTexto] = useState("");
-  const [offline, setOffline] = useState(false);
   const [erro, setErro] = useState("");
+  const [carregandoConversas, setCarregandoConversas] = useState(true);
+  const [carregandoMensagens, setCarregandoMensagens] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const [conectado, setConectado] = useState(false);
   const listaRef = useRef(null);
   const campoRef = useRef(null);
+  const arquivoRef = useRef(null);
   const conversaId = params.get("conversa");
+  const conversaAtiva = conversas.find(
+    (conversa) => String(conversa.id) === conversaId,
+  );
+
+  const carregarConversas = useCallback(async () => {
+    if (!email) {
+      setErro("Entre na sua conta de aluno para acessar as conversas.");
+      setCarregandoConversas(false);
+      return;
+    }
+    try {
+      const resultado = await api.chats(email);
+      setConversas(resultado.map(resumirChat));
+      setErro("");
+    } catch (falha) {
+      setErro(falha.message || "Não foi possível carregar as conversas.");
+    } finally {
+      setCarregandoConversas(false);
+    }
+  }, [email]);
+
+  const carregarMensagens = useCallback(
+    async (id, mostrarCarregamento = false) => {
+      if (!email || !id) return;
+      if (mostrarCarregamento) setCarregandoMensagens(true);
+      try {
+        const resultado = await api.mensagensChat(id, email);
+        setMensagens(resultado.mensagens);
+        setConversas((atuais) =>
+          atuais.map((chat) =>
+            chat.id === Number(id)
+              ? {
+                  ...chat,
+                  ultimaMensagem:
+                    resultado.mensagens.at(-1) ?? chat.ultimaMensagem,
+                  naoLidas: 0,
+                }
+              : chat,
+          ),
+        );
+        setErro("");
+      } catch (falha) {
+        setErro(falha.message || "Não foi possível carregar as mensagens.");
+      } finally {
+        if (mostrarCarregamento) setCarregandoMensagens(false);
+      }
+    },
+    [email],
+  );
+
+  useEffect(() => {
+    void carregarConversas();
+  }, [carregarConversas]);
+
+  useEffect(() => {
+    if (
+      !carregandoConversas &&
+      conversaId &&
+      !conversas.some((conversa) => String(conversa.id) === conversaId)
+    ) {
+      setParams({}, { replace: true });
+    }
+  }, [carregandoConversas, conversaId, conversas, setParams]);
+
+  useEffect(() => {
+    if (!conversaAtiva || !email) {
+      setMensagens([]);
+      setConectado(false);
+      return undefined;
+    }
+    const id = conversaAtiva.id;
+    const controller = new AbortController();
+    let aguardando = false;
+    void carregarMensagens(id, true);
+
+    async function conectar() {
+      while (!controller.signal.aborted) {
+        try {
+          await streamChatMessages(
+            id,
+            email,
+            () => {
+              if (!aguardando) void carregarMensagens(id);
+            },
+            controller.signal,
+            setConectado,
+          );
+        } catch (falha) {
+          setConectado(false);
+          if (falha.status === 401 && !controller.signal.aborted)
+            setErro(falha.message);
+        }
+        if (!controller.signal.aborted)
+          await new Promise((resolve) => {
+            aguardando = true;
+            window.setTimeout(() => {
+              aguardando = false;
+              resolve();
+            }, 2500);
+          });
+      }
+    }
+
+    void conectar();
+    const sincronizar = window.setInterval(() => {
+      void carregarMensagens(id);
+      void carregarConversas();
+    }, 30_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(sincronizar);
+    };
+  }, [conversaAtiva?.id, email, carregarConversas, carregarMensagens]);
+
+  useEffect(() => {
+    listaRef.current?.scrollTo({ top: listaRef.current.scrollHeight });
+  }, [mensagens.length, conversaAtiva?.id]);
 
   const filtradas = useMemo(() => {
     const consulta = busca.trim().toLocaleLowerCase("pt-BR");
-    return conversas.filter(
-      (conversa) =>
+    return conversas.filter((conversa) => {
+      const resumo = conversa.ultimaMensagem?.imagemUrl
+        ? "imagem"
+        : conversa.ultimaMensagem?.texto || "";
+      return (
         !consulta ||
         conversa.participante.nome
           .toLocaleLowerCase("pt-BR")
           .includes(consulta) ||
-        conversa.mensagens
-          .at(-1)
-          ?.texto.toLocaleLowerCase("pt-BR")
-          .includes(consulta),
-    );
+        resumo.toLocaleLowerCase("pt-BR").includes(consulta)
+      );
+    });
   }, [busca, conversas]);
-  const conversaAtiva =
-    conversas.find((conversa) => conversa.id === conversaId) || null;
 
-  useEffect(() => {
-    if (
-      conversaId &&
-      !conversas.some((conversa) => conversa.id === conversaId)
-    ) {
-      setParams({}, { replace: true });
-    }
-  }, [conversaId, conversas, setParams]);
-
-  useEffect(() => {
-    listaRef.current?.scrollTo({ top: listaRef.current.scrollHeight });
-  }, [conversaAtiva?.id, conversaAtiva?.mensagens.length]);
-
-  function selecionarConversa(id) {
-    setErro("");
-    setParams({ conversa: id });
-  }
-
-  function enviar(event) {
+  async function enviar(event) {
     event.preventDefault();
     const conteudo = texto.trim();
-    if (!conteudo) {
-      setErro("Escreva uma mensagem antes de enviar.");
-      campoRef.current?.focus();
-      return;
-    }
-    if (!conversaAtiva) return;
-
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setConversas((atuais) =>
-      atuais.map((conversa) =>
-        conversa.id === conversaAtiva.id
-          ? {
-              ...conversa,
-              mensagens: [
-                ...conversa.mensagens,
-                {
-                  id,
-                  remetente: "eu",
-                  texto: conteudo,
-                  hora: horarioAgora(),
-                  estado: offline ? "pendente" : "enviada",
-                },
-              ],
-            }
-          : conversa,
-      ),
-    );
-    setTexto("");
+    if (!conteudo || !conversaAtiva || enviando) return;
+    setEnviando(true);
     setErro("");
-    if (!offline) {
-      window.setTimeout(() => {
-        setConversas((atuais) =>
-          atuais.map((conversa) => ({
-            ...conversa,
-            mensagens: conversa.mensagens.map((mensagem) =>
-              mensagem.id === id && mensagem.estado === "enviada"
-                ? { ...mensagem, estado: "entregue" }
-                : mensagem,
-            ),
-          })),
-        );
-      }, 1800);
+    try {
+      await api.enviarMensagemChat(conversaAtiva.id, conteudo, email);
+      setTexto("");
+      await carregarMensagens(conversaAtiva.id);
+      campoRef.current?.focus();
+    } catch (falha) {
+      setErro(falha.message || "Não foi possível enviar a mensagem.");
+    } finally {
+      setEnviando(false);
     }
   }
 
-  function alternarConexao() {
-    if (offline) {
-      setConversas((atuais) =>
-        atuais.map((conversa) => ({
-          ...conversa,
-          mensagens: conversa.mensagens.map((mensagem) =>
-            mensagem.estado === "pendente"
-              ? { ...mensagem, estado: "enviada" }
-              : mensagem,
-          ),
-        })),
-      );
+  async function enviarImagem(event) {
+    const arquivo = event.target.files?.[0];
+    event.target.value = "";
+    if (!arquivo || !conversaAtiva || enviando) return;
+    if (!TIPOS_IMAGEM.includes(arquivo.type)) {
+      setErro("Escolha uma imagem PNG, JPEG ou WebP.");
+      return;
     }
-    setOffline(!offline);
+    if (!arquivo.size || arquivo.size > TAMANHO_MAXIMO_IMAGEM) {
+      setErro("A imagem deve ter até 5 MB.");
+      return;
+    }
+    setEnviando(true);
+    setErro("");
+    try {
+      await api.enviarImagemChat(conversaAtiva.id, arquivo, email);
+      await carregarMensagens(conversaAtiva.id);
+    } catch (falha) {
+      setErro(falha.message || "Não foi possível enviar a imagem.");
+    } finally {
+      setEnviando(false);
+    }
   }
 
   return (
@@ -167,9 +272,12 @@ export default function ChatPage() {
         titulo="Conversas"
         subtitulo="Converse com seu padrinho ou apadrinhado pelo Ajuda-aí."
       >
-        <span className="chat-demo-badge">
-          <Icon name="info" size={14} /> Demonstração com dados mockados
-        </span>
+        {conversaAtiva && (
+          <span className={`chat-connection${conectado ? " online" : ""}`}>
+            <span className="chat-connection-dot" />
+            {conectado ? "Mensagens em tempo real" : "Reconectando mensagens"}
+          </span>
+        )}
       </PageHeader>
 
       <section className="chat-workspace" aria-label="Mensagens">
@@ -193,28 +301,36 @@ export default function ChatPage() {
               placeholder="Buscar conversa"
             />
           </label>
+          {erro && !conversaAtiva && (
+            <p className="chat-compose-error" role="alert">
+              {erro}
+            </p>
+          )}
           <div className="chat-list" aria-label="Lista de conversas">
             {filtradas.map((conversa) => {
-              const ultima = conversa.mensagens.at(-1);
+              const ultima = conversa.ultimaMensagem;
+              const selecionada = String(conversa.id) === conversaId;
               return (
                 <button
                   type="button"
                   key={conversa.id}
-                  className={`chat-list-item${conversa.id === conversaId ? " active" : ""}`}
-                  onClick={() => selecionarConversa(conversa.id)}
-                  aria-current={conversa.id === conversaId ? "true" : undefined}
+                  className={`chat-list-item${selecionada ? " active" : ""}`}
+                  onClick={() => {
+                    setErro("");
+                    setParams({ conversa: String(conversa.id) });
+                  }}
+                  aria-current={selecionada ? "true" : undefined}
                 >
                   <Avatar participante={conversa.participante} />
                   <span className="chat-list-copy">
                     <span className="chat-list-title">
                       <strong>{conversa.participante.nome}</strong>
-                      <time>{ultima?.hora}</time>
+                      <time>{hora(ultima?.criadaEm)}</time>
                     </span>
                     <span className="chat-list-preview">
-                      {ultima?.remetente === "eu" && (
-                        <EstadoMensagem estado={ultima.estado} />
-                      )}
-                      {ultima?.texto}
+                      {ultima?.imagemUrl
+                        ? "Imagem"
+                        : ultima?.texto || "Sem mensagens"}
                     </span>
                     <span className="chat-list-meta">
                       {conversa.participante.papel} · {conversa.programa}
@@ -223,8 +339,15 @@ export default function ChatPage() {
                 </button>
               );
             })}
-            {filtradas.length === 0 && (
-              <p className="chat-empty-search">Nenhuma conversa encontrada.</p>
+            {!carregandoConversas && filtradas.length === 0 && (
+              <p className="chat-empty-search">
+                {conversas.length
+                  ? "Nenhuma conversa encontrada."
+                  : "Suas conversas aparecerão aqui após a confirmação do matching."}
+              </p>
+            )}
+            {carregandoConversas && (
+              <p className="chat-empty-search">Carregando conversas…</p>
             )}
           </div>
         </aside>
@@ -256,51 +379,80 @@ export default function ChatPage() {
               </span>
             </header>
 
-            <div className="chat-demo-notice">
-              <Icon name="info" size={15} />
-              As mensagens desta tela são de demonstração e ainda não são salvas
-              no servidor.
-            </div>
-
             <div className="chat-messages" ref={listaRef} aria-live="polite">
-              <div className="chat-day-divider">
-                <span>Hoje</span>
-              </div>
-              {conversaAtiva.mensagens.map((mensagem) => (
-                <article
-                  key={mensagem.id}
-                  className={`chat-bubble-row ${mensagem.remetente === "eu" ? "outgoing" : "incoming"}`}
-                >
-                  <div className="chat-bubble">
-                    <p>{mensagem.texto}</p>
-                    <span className="chat-bubble-meta">
-                      <time>{mensagem.hora}</time>
-                      {mensagem.remetente === "eu" && (
-                        <EstadoMensagem estado={mensagem.estado} />
+              {carregandoMensagens && mensagens.length === 0 && (
+                <p className="chat-empty-search">Carregando mensagens…</p>
+              )}
+              {!carregandoMensagens && mensagens.length === 0 && (
+                <p className="chat-empty-search">
+                  Ainda não há mensagens. Dê o primeiro oi!
+                </p>
+              )}
+              {mensagens.map((mensagem) => {
+                const minha =
+                  mensagem.remetenteParticipacaoId ===
+                  conversaAtiva.minhaParticipacaoId;
+                return (
+                  <article
+                    key={mensagem.id}
+                    className={`chat-bubble-row ${minha ? "outgoing" : "incoming"}`}
+                  >
+                    <div className="chat-bubble">
+                      {mensagem.imagemUrl && (
+                        <a
+                          href={mensagem.imagemUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label="Abrir imagem enviada"
+                        >
+                          <img
+                            className="chat-message-image"
+                            src={mensagem.imagemUrl}
+                            alt="Imagem enviada na conversa"
+                            loading="lazy"
+                          />
+                        </a>
                       )}
-                    </span>
-                  </div>
-                </article>
-              ))}
+                      {!mensagem.imagemUrl && <p>{mensagem.texto}</p>}
+                      <span className="chat-bubble-meta">
+                        <time>{hora(mensagem.criadaEm)}</time>
+                        {minha && <EstadoMensagem estado={mensagem.estado} />}
+                      </span>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
 
             <div className="chat-composer-wrap">
-              <button
-                type="button"
-                className={`chat-connection${offline ? " offline" : ""}`}
-                onClick={alternarConexao}
-                aria-pressed={offline}
-                title="Alternar conexão simulada"
-              >
-                <span className="chat-connection-dot" />
-                {offline ? "Sem internet (demo)" : "Conectado (demo)"}
-              </button>
               {erro && (
                 <p className="chat-compose-error" role="alert">
                   {erro}
                 </p>
               )}
               <form className="chat-composer" onSubmit={enviar}>
+                <label className="sr-only" htmlFor="chat-image">
+                  Enviar imagem
+                </label>
+                <input
+                  id="chat-image"
+                  ref={arquivoRef}
+                  className="chat-image-input"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={enviarImagem}
+                  disabled={enviando}
+                />
+                <button
+                  type="button"
+                  className="chat-image-button"
+                  onClick={() => arquivoRef.current?.click()}
+                  disabled={enviando}
+                  aria-label="Anexar imagem"
+                  title="Enviar imagem (até 5 MB)"
+                >
+                  <span aria-hidden="true">＋</span>
+                </button>
                 <label className="sr-only" htmlFor="chat-message">
                   Digite uma mensagem
                 </label>
@@ -321,17 +473,19 @@ export default function ChatPage() {
                   placeholder="Digite uma mensagem…"
                   rows={1}
                   maxLength={4000}
+                  disabled={enviando}
                 />
                 <button
                   type="submit"
-                  disabled={!texto.trim()}
-                  aria-label="Enviar mensagem"
+                  disabled={!texto.trim() || enviando}
+                  aria-label={enviando ? "Enviando" : "Enviar mensagem"}
                 >
                   <Icon name="send" size={18} />
                 </button>
               </form>
               <p className="chat-compose-hint">
-                Enter para enviar · Shift + Enter para nova linha
+                Enter para enviar · Shift + Enter para nova linha · Imagens PNG,
+                JPEG ou WebP até 5 MB
               </p>
             </div>
           </section>

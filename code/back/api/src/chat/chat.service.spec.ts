@@ -10,6 +10,7 @@ import { ParticipacaoEntity } from '../participacoes/entities/participacao.entit
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import {
   ChatEntity,
+  ChatOutboxEntity,
   ChatParticipanteEntity,
   MensagemChatEntity,
 } from './entities/chat.entity.js';
@@ -74,6 +75,15 @@ function managerEmMemoria() {
   };
 }
 
+function criarService(dados: DataSource) {
+  return new ChatService(
+    dados,
+    {} as never,
+    { invalidar: vi.fn(), obter: vi.fn(), salvar: vi.fn() } as never,
+    { observar: vi.fn() } as never,
+  );
+}
+
 describe('ChatService.criarParaVinculo', () => {
   it('cria um chat persistido com padrinho e apadrinhado como participantes', async () => {
     const memoria = managerEmMemoria();
@@ -98,7 +108,7 @@ describe('ChatService.criarParaVinculo', () => {
       status: 'em_andamento',
     });
 
-    const service = new ChatService({} as never);
+    const service = criarService({} as never);
     const chat = await service.criarParaVinculo(memoria.manager, 7);
 
     expect(chat).toMatchObject({
@@ -120,7 +130,7 @@ describe('ChatService.criarParaVinculo', () => {
 
   it('recusa vínculo inexistente ou inativo', async () => {
     const memoria = managerEmMemoria();
-    const service = new ChatService({} as never);
+    const service = criarService({} as never);
     await expect(
       service.criarParaVinculo(memoria.manager, 7),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -155,7 +165,7 @@ describe('ChatService.criarParaVinculo', () => {
       papel: 'apadrinhado',
       status: 'em_andamento',
     });
-    const service = new ChatService({} as never);
+    const service = criarService({} as never);
     await expect(
       service.criarParaVinculo(memoria.manager, 7),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -165,6 +175,77 @@ describe('ChatService.criarParaVinculo', () => {
 });
 
 describe('ChatService.enviarMensagem', () => {
+  it('persiste a mensagem e a outbox do evento na mesma transação', async () => {
+    const participacao = {
+      id: 11,
+      usuarioId: 'aluno@example.com',
+      respostas: { nome: 'Aluno' },
+    } as ParticipacaoEntity;
+    const membro = { chatId: 5, participacaoId: 11 };
+    const mensagem = {
+      id: 24,
+      chatId: 5,
+      remetenteParticipacaoId: 11,
+      texto: 'Olá!',
+      imagemChave: null,
+      estado: 'enviada',
+      entregueEm: null,
+      lidaEm: null,
+      criadaEm: new Date(),
+    };
+    const mensagemRepo = {
+      create: vi.fn((valor) => valor),
+      save: vi.fn().mockResolvedValue(mensagem),
+    };
+    const outboxRepo = {
+      create: vi.fn((valor) => valor),
+      save: vi.fn().mockImplementation((valor) => valor),
+    };
+    const chatRepo = {
+      findOne: vi.fn().mockResolvedValue({ id: 5, matchingVinculoId: null }),
+      update: vi.fn().mockResolvedValue(undefined),
+    };
+    const repositorios = new Map<Function, object>([
+      [ParticipacaoEntity, { find: vi.fn().mockResolvedValue([participacao]) }],
+      [ChatParticipanteEntity, { findOne: vi.fn().mockResolvedValue(membro) }],
+      [ChatEntity, chatRepo],
+      [MensagemChatEntity, mensagemRepo],
+      [ChatOutboxEntity, outboxRepo],
+    ]);
+    const manager = {
+      getRepository: (entity: Function) => repositorios.get(entity),
+    } as unknown as EntityManager;
+    const dados = {
+      transaction: (acao: (tx: EntityManager) => Promise<unknown>) =>
+        acao(manager),
+    } as unknown as DataSource;
+    const invalidar = vi.fn();
+    const service = new ChatService(
+      dados,
+      {} as never,
+      { invalidar, obter: vi.fn(), salvar: vi.fn() } as never,
+      {} as never,
+    );
+
+    await expect(
+      service.enviarMensagem(5, 'aluno@example.com', ' Olá! '),
+    ).resolves.toMatchObject({ id: 24, texto: 'Olá!', imagemUrl: null });
+    expect(mensagemRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ texto: 'Olá!', remetenteParticipacaoId: 11 }),
+    );
+    expect(outboxRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+        evento: expect.objectContaining({
+          tipo: 'chat.message',
+          chatId: 5,
+          mensagemId: 24,
+        }),
+      }),
+    );
+    expect(invalidar).toHaveBeenCalledWith(5);
+  });
+
   it('recusa enviar mensagens quando o vínculo do chat está encerrado', async () => {
     const membro = { chatId: 5, participacaoId: 11 };
     const participacao = {
@@ -176,14 +257,8 @@ describe('ChatService.enviarMensagem', () => {
     const salvarMensagem = vi.fn();
     const atualizarChat = vi.fn();
     const repositorios = new Map<Function, object>([
-      [
-        ParticipacaoEntity,
-        { find: vi.fn().mockResolvedValue([participacao]) },
-      ],
-      [
-        ChatParticipanteEntity,
-        { findOne: vi.fn().mockResolvedValue(membro) },
-      ],
+      [ParticipacaoEntity, { find: vi.fn().mockResolvedValue([participacao]) }],
+      [ChatParticipanteEntity, { findOne: vi.fn().mockResolvedValue(membro) }],
       [
         ChatEntity,
         { findOne: vi.fn().mockResolvedValue(chat), update: atualizarChat },
@@ -204,7 +279,7 @@ describe('ChatService.enviarMensagem', () => {
       transaction: (acao: (tx: EntityManager) => Promise<unknown>) =>
         acao(manager),
     } as unknown as DataSource;
-    const service = new ChatService(dataSource);
+    const service = criarService(dataSource);
 
     await expect(
       service.enviarMensagem(5, 'aluno@example.com', 'Mensagem de teste'),

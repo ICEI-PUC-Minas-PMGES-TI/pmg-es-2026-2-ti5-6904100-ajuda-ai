@@ -183,7 +183,63 @@ function query(params) {
   return texto ? `?${texto}` : '';
 }
 
+export async function streamChatMessages(chatId, email, onEvent, signal, onStatus = () => {}) {
+  const token = getAlunoToken(email);
+  if (!token) throw Object.assign(new Error('Sua sessão expirou. Entre novamente.'), { status: 401 });
+  const response = await fetch(`${API_BASE}/chats/${chatId}/events`, {
+    headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
+    signal,
+  });
+  if (!response.ok) {
+    let message = `Erro ${response.status}`;
+    try {
+      const data = await response.json();
+      message = data.message || data.error || message;
+      if (Array.isArray(message)) message = message.join(', ');
+    } catch {
+      /* Mantém a resposta HTTP como erro quando o corpo não for JSON. */
+    }
+    throw Object.assign(new Error(message), { status: response.status });
+  }
+  if (!response.body) throw new Error('O servidor não iniciou o fluxo de mensagens.');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    while (!signal?.aborted) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      let limite;
+      while ((limite = buffer.indexOf('\n\n')) >= 0) {
+        const bloco = buffer.slice(0, limite);
+        buffer = buffer.slice(limite + 2);
+        const tipo = bloco.match(/^event:\s*(.+)$/m)?.[1];
+        const dados = [...bloco.matchAll(/^data:\s?(.*)$/gm)].map((linha) => linha[1]).join('\n');
+        if (dados && tipo === 'chat.message') onEvent(JSON.parse(dados));
+        else if (dados && (tipo === 'chat.ready' || tipo === 'chat.heartbeat'))
+          onStatus(JSON.parse(dados).conectado === true);
+      }
+    }
+  } finally {
+    onStatus(false);
+    reader.releaseLock();
+  }
+}
+
 export const api = {
+  chats(email) { return request('/chats', { aluno: email }); },
+  mensagensChat(id, email, antesDe) {
+    return request(`/chats/${id}/mensagens${query({ antesDe })}`, { aluno: email });
+  },
+  enviarMensagemChat(id, texto, email) {
+    return request(`/chats/${id}/mensagens`, { method: 'POST', body: { texto }, aluno: email });
+  },
+  enviarImagemChat(id, arquivo, email) {
+    const body = new FormData();
+    body.append('arquivo', arquivo);
+    return requestMapa(`/chats/${id}/imagens`, { method: 'POST', body, aluno: email });
+  },
   feed(email) { return request('/publicacoes', { aluno: email }); },
   permissoesFeed(email) { return request('/publicacoes/permissoes', { aluno: email }); },
   criarPublicacao(dados, email) { return request('/publicacoes', { method: 'POST', body: dados, aluno: email }); },

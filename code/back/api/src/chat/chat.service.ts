@@ -3,15 +3,23 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { detectarTipoCardapio } from '../campus/cardapios/cardapio-arquivo.js';
 import { MatchingVinculoEntity } from '../matching/entities/matching.entity.js';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
+import { AzureBlobStorageService } from '../storage/azure-blob-storage.service.js';
+import { ChatCacheService } from './chat-cache.service.js';
+import { novoEventoChat } from './chat-evento.js';
+import { ChatStreamService } from './chat-stream.service.js';
 import {
   ChatEntity,
+  ChatOutboxEntity,
   ChatParticipanteEntity,
   EstadoMensagemChat,
   MensagemChatEntity,
@@ -21,23 +29,45 @@ export interface ParticipanteDoChat {
   id: number;
   participacaoId: number;
   nome: string;
+  curso: string;
   email: string;
   papel: string;
+}
+
+export interface MensagemChatResposta {
+  id: number;
+  chatId: number;
+  remetenteParticipacaoId: number;
+  texto: string;
+  imagemUrl: string | null;
+  estado: EstadoMensagemChat;
+  entregueEm: Date | null;
+  lidaEm: Date | null;
+  criadaEm: Date;
 }
 
 export interface ResumoChat {
   id: number;
   programaId: number;
+  programa: string;
+  minhaParticipacaoId: number;
   titulo: string | null;
   atualizadoEm: Date;
   participantes: ParticipanteDoChat[];
-  ultimaMensagem: MensagemChatEntity | null;
+  ultimaMensagem: MensagemChatResposta | null;
   naoLidas: number;
 }
 
 @Injectable()
 export class ChatService {
-  constructor(@InjectDataSource() private readonly dados: DataSource) {}
+  private readonly logger = new Logger(ChatService.name);
+
+  constructor(
+    @InjectDataSource() private readonly dados: DataSource,
+    private readonly storage: AzureBlobStorageService,
+    private readonly cache: ChatCacheService,
+    private readonly stream: ChatStreamService,
+  ) {}
 
   private nome(participacao: ParticipacaoEntity): string {
     return participacao.respostas?.nome?.trim() || participacao.usuarioId;
@@ -101,9 +131,31 @@ export class ChatService {
       id: membro.id,
       participacaoId: membro.participacaoId,
       nome: this.nome(membro.participacao),
+      curso: membro.participacao.respostas?.curso?.trim() || 'Aluno',
       email: membro.participacao.usuarioId,
       papel: membro.participacao.papel,
     }));
+  }
+
+  private async apresentarMensagem(
+    mensagem: MensagemChatEntity,
+  ): Promise<MensagemChatResposta> {
+    return {
+      id: mensagem.id,
+      chatId: mensagem.chatId,
+      remetenteParticipacaoId: mensagem.remetenteParticipacaoId,
+      texto: mensagem.texto,
+      imagemUrl: mensagem.imagemChave
+        ? this.storage.sasLeitura(
+            'chat',
+            mensagem.imagemChave.slice('chat/'.length),
+          ).url
+        : null,
+      estado: mensagem.estado,
+      entregueEm: mensagem.entregueEm,
+      lidaEm: mensagem.lidaEm,
+      criadaEm: mensagem.criadaEm,
+    };
   }
 
   private async registrarEntrega(
@@ -112,7 +164,7 @@ export class ChatService {
     meusIds: number[],
   ): Promise<void> {
     if (!meusIds.length) return;
-    await manager
+    const resultado = await manager
       .getRepository(MensagemChatEntity)
       .createQueryBuilder()
       .update()
@@ -123,6 +175,7 @@ export class ChatService {
       })
       .andWhere('"estado" = :estado', { estado: 'enviada' })
       .execute();
+    if (resultado.affected) this.cache.invalidar(chatId);
   }
 
   private async resumo(
@@ -130,7 +183,7 @@ export class ChatService {
     chat: ChatEntity,
     meusIds: number[],
   ): Promise<ResumoChat> {
-    const [ultimaMensagem, naoLidas] = await Promise.all([
+    const [ultima, naoLidas] = await Promise.all([
       manager.getRepository(MensagemChatEntity).findOne({
         where: { chatId: chat.id },
         order: { id: 'DESC' },
@@ -150,9 +203,14 @@ export class ChatService {
             .getCount()
         : Promise.resolve(0),
     ]);
+    const ultimaMensagem = ultima
+      ? await this.apresentarMensagem(ultima)
+      : null;
     return {
       id: chat.id,
       programaId: chat.programaId,
+      programa: chat.programa?.codigo ?? '',
+      minhaParticipacaoId: meusIds[0] ?? 0,
       titulo: chat.titulo,
       atualizadoEm: chat.atualizadoEm,
       participantes: this.participantes(chat.participantes),
@@ -173,6 +231,7 @@ export class ChatService {
       .innerJoin('membroAtual.participacao', 'minhaParticipacao')
       .leftJoinAndSelect('chat.participantes', 'membro')
       .leftJoinAndSelect('membro.participacao', 'participacao')
+      .leftJoinAndSelect('chat.programa', 'programa')
       .where('minhaParticipacao.id IN (:...meusIds)', { meusIds })
       .andWhere('chat.ativo = true')
       .orderBy('chat.atualizadoEm', 'DESC')
@@ -194,7 +253,7 @@ export class ChatService {
     chatId: number,
     email: string,
     antesDe?: number,
-  ): Promise<{ mensagens: MensagemChatEntity[]; temMais: boolean }> {
+  ): Promise<{ mensagens: MensagemChatResposta[]; temMais: boolean }> {
     if (antesDe !== undefined && (!Number.isInteger(antesDe) || antesDe < 1))
       throw new BadRequestException('Cursor de mensagem inválido.');
     const manager = this.dados.manager;
@@ -203,7 +262,7 @@ export class ChatService {
     const meusIds = participacoes
       .filter((participacao) => participacao.id === membro.participacaoId)
       .map((participacao) => participacao.id);
-    await manager
+    const leitura = await manager
       .getRepository(MensagemChatEntity)
       .createQueryBuilder()
       .update()
@@ -218,6 +277,21 @@ export class ChatService {
         estados: ['enviada', 'entregue'],
       })
       .execute();
+    if (leitura.affected) this.cache.invalidar(chatId);
+
+    if (antesDe === undefined) {
+      const emCache = this.cache.obter(chatId);
+      if (emCache) {
+        return {
+          mensagens: await Promise.all(
+            emCache.mensagens.map((mensagem) =>
+              this.apresentarMensagem(mensagem),
+            ),
+          ),
+          temMais: emCache.temMais,
+        };
+      }
+    }
 
     const consulta = manager
       .getRepository(MensagemChatEntity)
@@ -230,9 +304,14 @@ export class ChatService {
       .orderBy('mensagem.id', 'DESC')
       .take(50)
       .getMany();
+    const mensagens = resultados.reverse();
+    if (antesDe === undefined)
+      this.cache.salvar(chatId, mensagens, mensagens.length === 50);
     return {
-      mensagens: resultados.reverse(),
-      temMais: resultados.length === 50,
+      mensagens: await Promise.all(
+        mensagens.map((mensagem) => this.apresentarMensagem(mensagem)),
+      ),
+      temMais: mensagens.length === 50,
     };
   }
 
@@ -240,7 +319,7 @@ export class ChatService {
     chatId: number,
     email: string,
     texto: string,
-  ): Promise<MensagemChatEntity> {
+  ): Promise<MensagemChatResposta> {
     const conteudo = texto.trim();
     if (!conteudo)
       throw new BadRequestException('A mensagem não pode ser vazia.');
@@ -255,6 +334,7 @@ export class ChatService {
         chatId,
         remetenteParticipacaoId: membro.participacaoId,
         texto: conteudo,
+        imagemChave: null,
         estado: 'enviada' satisfies EstadoMensagemChat,
         entregueEm: null,
         lidaEm: null,
@@ -265,14 +345,89 @@ export class ChatService {
       await manager
         .getRepository(ChatEntity)
         .update({ id: chatId }, { atualizadoEm: new Date() });
-      return salva;
+      const outbox = manager.getRepository(ChatOutboxEntity);
+      const evento = novoEventoChat(chatId, salva.id);
+      await outbox.save(
+        outbox.create({
+          id: evento.id,
+          evento,
+          publicadoEm: null,
+        }),
+      );
+      this.cache.invalidar(chatId);
+      return this.apresentarMensagem(salva);
     });
   }
 
-  /**
-   * Chamado futuramente dentro da transação de aprovação do matching.
-   * O vínculo único torna a criação idempotente.
-   */
+  async enviarImagem(
+    chatId: number,
+    email: string,
+    arquivo: Buffer | undefined,
+  ): Promise<MensagemChatResposta> {
+    if (!arquivo?.length || arquivo.length > 5 * 1024 * 1024)
+      throw new BadRequestException('Envie uma imagem de até 5 MB.');
+    const tipo = detectarTipoCardapio(arquivo);
+    if (tipo !== 'image/png' && tipo !== 'image/jpeg' && tipo !== 'image/webp')
+      throw new BadRequestException('Envie uma imagem PNG, JPEG ou WebP.');
+    const extensao =
+      tipo === 'image/png' ? 'png' : tipo === 'image/jpeg' ? 'jpg' : 'webp';
+
+    await this.exigirMembro(this.dados.manager, chatId, email);
+    await this.exigirVinculoAtivo(this.dados.manager, chatId);
+    const nome = `chats/${chatId}/${randomUUID()}.${extensao}`;
+    const blob = await this.storage.enviar('chat', nome, arquivo, tipo, {
+      cacheControl: 'private, no-store',
+    });
+
+    try {
+      return await this.dados.transaction(async (manager) => {
+        const membro = await this.exigirMembro(manager, chatId, email);
+        await this.exigirVinculoAtivo(manager, chatId);
+        const repo = manager.getRepository(MensagemChatEntity);
+        const mensagem = await repo.save(
+          repo.create({
+            chatId,
+            remetenteParticipacaoId: membro.participacaoId,
+            texto: 'Imagem',
+            imagemChave: blob.chave,
+            estado: 'enviada',
+            entregueEm: null,
+            lidaEm: null,
+          }),
+        );
+        await manager
+          .getRepository(ChatEntity)
+          .update({ id: chatId }, { atualizadoEm: new Date() });
+        const outbox = manager.getRepository(ChatOutboxEntity);
+        const evento = novoEventoChat(chatId, mensagem.id);
+        await outbox.save(
+          outbox.create({
+            id: evento.id,
+            evento,
+            publicadoEm: null,
+          }),
+        );
+        this.cache.invalidar(chatId);
+        return this.apresentarMensagem(mensagem);
+      });
+    } catch (erro) {
+      try {
+        await this.storage.excluir('chat', nome);
+      } catch {
+        this.logger.warn(
+          `Não foi possível remover a imagem órfã do chat ${chatId}.`,
+        );
+      }
+      throw erro;
+    }
+  }
+
+  async observarMensagens(chatId: number, email: string, expiraEm: number) {
+    await this.exigirMembro(this.dados.manager, chatId, email);
+    return this.stream.observar(chatId, expiraEm);
+  }
+
+  /** Cria o chat e seus dois participantes na transação do matching. */
   async criarParaVinculo(
     manager: EntityManager,
     matchingVinculoId: number,

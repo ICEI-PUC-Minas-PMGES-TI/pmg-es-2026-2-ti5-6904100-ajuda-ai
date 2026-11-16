@@ -1,5 +1,10 @@
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  ChatEntity,
+  ChatParticipanteEntity,
+} from '../src/chat/entities/chat.entity.js';
+import { ChatService } from '../src/chat/chat.service.js';
 import { FormularioEntity } from '../src/formularios/entities/formulario.entity.js';
 import {
   MatchingChatOutboxEntity,
@@ -35,11 +40,23 @@ describe.skipIf(!URL_TESTE)('Matching com PostgreSQL real', () => {
         MatchingDecisaoEntity,
         MatchingVinculoEntity,
         MatchingChatOutboxEntity,
+        ChatEntity,
+        ChatParticipanteEntity,
       ],
       synchronize: false,
     });
     await dados.initialize();
-    matching = new MatchingService(dados);
+    const chat = new ChatService(
+      dados,
+      {} as never,
+      {
+        invalidar: () => undefined,
+        obter: () => undefined,
+        salvar: () => undefined,
+      } as never,
+      { observar: () => undefined } as never,
+    );
+    matching = new MatchingService(dados, chat);
   });
 
   afterAll(async () => {
@@ -54,6 +71,13 @@ describe.skipIf(!URL_TESTE)('Matching com PostgreSQL real', () => {
       const sugestoes = await dados
         .getRepository(MatchingSugestaoEntity)
         .find({ where: { programaId: programa.id } });
+      const vinculos = await dados
+        .getRepository(MatchingVinculoEntity)
+        .find({ where: { programaId: programa.id } });
+      if (vinculos.length)
+        await dados
+          .getRepository(ChatEntity)
+          .delete({ matchingVinculoId: In(vinculos.map((v) => v.id)) });
       if (sugestoes.length) {
         await dados
           .getRepository(MatchingDecisaoEntity)
@@ -198,6 +222,26 @@ describe.skipIf(!URL_TESTE)('Matching com PostgreSQL real', () => {
       .getRepository(MatchingSugestaoEntity)
       .findOneByOrFail({ vinculoId: vinculos[0].id });
     await matching.aprovar(aprovada.id, 'coord-a@teste');
+    let chats = await dados
+      .getRepository(ChatEntity)
+      .find({ where: { matchingVinculoId: vinculos[0].id } });
+    expect(chats).toHaveLength(1);
+    expect(
+      await dados
+        .getRepository(ChatParticipanteEntity)
+        .count({ where: { chatId: chats[0].id } }),
+    ).toBe(2);
+    await dados.getRepository(ChatEntity).delete({ id: chats[0].id });
+    await matching.aprovar(aprovada.id, 'coord-a@teste');
+    chats = await dados
+      .getRepository(ChatEntity)
+      .find({ where: { matchingVinculoId: vinculos[0].id } });
+    expect(chats).toHaveLength(1);
+    expect(
+      await dados
+        .getRepository(ChatParticipanteEntity)
+        .count({ where: { chatId: chats[0].id } }),
+    ).toBe(2);
     expect(
       await dados
         .getRepository(MatchingVinculoEntity)

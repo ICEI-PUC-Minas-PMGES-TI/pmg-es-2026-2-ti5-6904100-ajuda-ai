@@ -7,8 +7,12 @@ import {
   Post,
   Query,
   Req,
+  Sse,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { ChatService } from './chat.service.js';
@@ -42,6 +46,16 @@ export class ChatController {
     return this.chats.listarMensagens(id, req.user.email, cursor);
   }
 
+  @Sse(':id/events')
+  async eventos(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const exp = (req.user as typeof req.user & { exp?: number }).exp;
+    const expiraEm = exp ? exp * 1000 : Date.now() + 3600_000;
+    return this.chats.observarMensagens(id, req.user.email, expiraEm);
+  }
+
   @Post(':id/mensagens')
   enviar(
     @Param('id', ParseIntPipe) id: number,
@@ -49,5 +63,19 @@ export class ChatController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.chats.enviarMensagem(id, req.user.email, dto.texto);
+  }
+
+  @Post(':id/imagens')
+  @UseInterceptors(
+    FileInterceptor('arquivo', {
+      limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+    }),
+  )
+  enviarImagem(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: AuthenticatedRequest,
+    @UploadedFile() arquivo?: { buffer: Buffer },
+  ) {
+    return this.chats.enviarImagem(id, req.user.email, arquivo?.buffer);
   }
 }
