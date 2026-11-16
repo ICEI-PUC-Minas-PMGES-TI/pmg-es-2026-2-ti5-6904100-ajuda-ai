@@ -43,12 +43,27 @@ function FeedConteudo({ coordenacao }) {
   const [ocupado, setOcupado] = useState(false);
   const [confirmar, setConfirmar] = useState(null);
   const [categoria, setCategoria] = useState("");
+  // Seletor de semestre (só coordenação): "" = semestre atual.
+  const [semestre, setSemestre] = useState("");
+  const [ciclos, setCiclos] = useState(null);
   const sequencia = useRef(0);
+
+  useEffect(() => {
+    if (!coordenacao) return undefined;
+    let ativo = true;
+    api
+      .feedCiclos()
+      .then((c) => ativo && setCiclos(c))
+      .catch(() => {});
+    return () => {
+      ativo = false;
+    };
+  }, [coordenacao]);
 
   const carregar = useCallback(async () => {
     const consulta = ++sequencia.current;
     try {
-      const lista = await api.feed(email);
+      const lista = await api.feed(email, coordenacao ? semestre : undefined);
       if (consulta === sequencia.current) {
         setItens(lista);
         setErro("");
@@ -58,7 +73,7 @@ function FeedConteudo({ coordenacao }) {
     } finally {
       if (consulta === sequencia.current) setCarregando(false);
     }
-  }, [email]);
+  }, [email, coordenacao, semestre]);
 
   useEffect(() => {
     let ativo = true;
@@ -178,6 +193,9 @@ function FeedConteudo({ coordenacao }) {
         confirmar,
         categoria,
         setCategoria,
+        ciclos,
+        semestre,
+        setSemestre,
         setEditor,
         setConfirmar,
         executar,
@@ -201,6 +219,9 @@ export function FeedView({
   confirmar = null,
   categoria = "",
   setCategoria,
+  ciclos = null,
+  semestre = "",
+  setSemestre,
   setEditor,
   setConfirmar,
   executar,
@@ -216,6 +237,8 @@ export function FeedView({
       .then((lista) => setCurtidores({ titulo, itens: lista, erro: "" }))
       .catch((e) => setCurtidores({ titulo, itens: [], erro: e.message }));
   }
+  // Semestre anterior: só consulta (e remoção), sem publicar nem editar.
+  const consultandoAntigo = Boolean(semestre) && semestre !== ciclos?.atual;
   const visiveis = filtrarPublicacoes(itens, categoria);
   const categorias = [
     ...new Set([...categoriasFeed, ...itens.map((post) => post.categoria)]),
@@ -229,7 +252,7 @@ export function FeedView({
           <p>Comunicados da coordenação e publicações dos padrinhos.</p>
           <small role="status">{estado}</small>
         </div>
-        {podePublicar && (
+        {podePublicar && !consultandoAntigo && (
           <button
             className="primary-button inline"
             onClick={() =>
@@ -245,6 +268,31 @@ export function FeedView({
           </button>
         )}
       </header>
+      {ciclos && ciclos.semestres.length > 1 && (
+        <label className="feed-filter">
+          Semestre
+          <select
+            value={semestre || ciclos.atual}
+            onChange={(event) =>
+              setSemestre(
+                event.target.value === ciclos.atual ? "" : event.target.value,
+              )
+            }
+          >
+            {ciclos.semestres.map((valor) => (
+              <option key={valor} value={valor}>
+                {valor === ciclos.atual ? `${valor} (atual)` : valor}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {consultandoAntigo && (
+        <p className="empty-copy" role="status">
+          Consultando o semestre {semestre}: as publicações ficam somente para
+          leitura, e só é possível removê-las.
+        </p>
+      )}
       <label className="feed-filter">
         Filtrar por categoria
         <select
@@ -341,21 +389,23 @@ export function FeedView({
               )}
               {post.podeAdministrar && (
                 <>
-                  <button
-                    className="mini-btn"
-                    disabled={ocupado}
-                    onClick={() =>
-                      setEditor({
-                        id: post.id,
-                        texto: post.texto,
-                        categoria: post.categoria,
-                        imagens: [...post.midias],
-                        previews: [...post.imagens],
-                      })
-                    }
-                  >
-                    Editar
-                  </button>
+                  {post.cicloAtual !== false && (
+                    <button
+                      className="mini-btn"
+                      disabled={ocupado}
+                      onClick={() =>
+                        setEditor({
+                          id: post.id,
+                          texto: post.texto,
+                          categoria: post.categoria,
+                          imagens: [...post.midias],
+                          previews: [...post.imagens],
+                        })
+                      }
+                    >
+                      Editar
+                    </button>
+                  )}
                   <button
                     className="mini-btn"
                     disabled={ocupado}

@@ -61,6 +61,13 @@ class FeedPage extends StatefulWidget {
 
 class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   String _filtroSelecionado = 'Para você';
+
+  /// Seletor de semestre (só coordenação): '' = semestre atual.
+  String _semestre = '';
+  String _semestreAtual = '';
+  List<String> _semestres = const [];
+  bool get _consultandoAntigo =>
+      _semestre.isNotEmpty && _semestre != _semestreAtual;
   final List<_Publicacao> _publicacoes = [];
   bool _carregandoPublicacoes = true;
   bool _falhaAoCarregar = false;
@@ -113,6 +120,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     _eventos.iniciar();
     _carregarPermissoes();
     _carregarPublicacoes();
+    if (widget.coordenacao) unawaited(_carregarSemestres());
   }
 
   @override
@@ -160,6 +168,38 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     }
   }
 
+  /// `GET /publicacoes/ciclos`: semestres com publicações, para o seletor.
+  Future<void> _carregarSemestres() async {
+    try {
+      final r = await _client
+          .get(
+            Uri.parse('$_apiBaseUrl/publicacoes/ciclos'),
+            headers: _identidade(),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (r.statusCode != 200 || !mounted) return;
+      final dados = jsonDecode(r.body) as Map<String, dynamic>;
+      setState(() {
+        _semestreAtual = '${dados['atual'] ?? ''}';
+        _semestres = [
+          for (final s in dados['semestres'] as List? ?? const []) '$s',
+        ];
+      });
+    } catch (_) {
+      // Sem a lista, o feed segue no semestre atual.
+    }
+  }
+
+  void _trocarSemestre(String semestre) {
+    final novo = semestre == _semestreAtual ? '' : semestre;
+    if (novo == _semestre) return;
+    setState(() {
+      _semestre = novo;
+      _filtroSelecionado = 'Para você';
+    });
+    unawaited(_carregarPublicacoes());
+  }
+
   Future<void> _carregarPublicacoes({bool silencioso = false}) async {
     if (_consultaAtiva) {
       _consultaPendente = true;
@@ -174,7 +214,13 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     }
     try {
       final resposta = await _client
-          .get(Uri.parse('$_apiBaseUrl/publicacoes'), headers: _identidade())
+          .get(
+            Uri.parse(
+              '$_apiBaseUrl/publicacoes'
+              '${_semestre.isEmpty ? '' : '?programa=${Uri.encodeQueryComponent(_semestre)}'}',
+            ),
+            headers: _identidade(),
+          )
           .timeout(const Duration(seconds: 15));
       if (resposta.statusCode != 200) throw Exception('Falha ao carregar feed');
       final dados = jsonDecode(resposta.body) as List<dynamic>;
@@ -627,7 +673,33 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
                           onSelected: (indice) =>
                               setState(() => _filtroSelecionado = indice),
                         ),
-                        if (_podePublicar)
+                        if (widget.coordenacao && _semestres.length > 1)
+                          _SeletorSemestre(
+                            semestres: _semestres,
+                            atual: _semestreAtual,
+                            selecionado: _semestre.isEmpty
+                                ? _semestreAtual
+                                : _semestre,
+                            onSelected: _trocarSemestre,
+                          ),
+                        if (_consultandoAntigo)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              _feedGutter,
+                              0,
+                              _feedGutter,
+                              10,
+                            ),
+                            child: Text(
+                              'Semestre $_semestre: somente consulta. Só é possível remover publicações.',
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        if (_podePublicar && !_consultandoAntigo)
                           Padding(
                             padding: const EdgeInsets.fromLTRB(
                               _feedGutter,
@@ -806,6 +878,64 @@ const _categoriasFeed = <String>[
   'Campus',
   'Oportunidades',
 ];
+
+/// Semestres com publicações (só coordenação): o atual e os anteriores.
+class _SeletorSemestre extends StatelessWidget {
+  const _SeletorSemestre({
+    required this.semestres,
+    required this.atual,
+    required this.selecionado,
+    required this.onSelected,
+  });
+
+  final List<String> semestres;
+  final String atual;
+  final String selecionado;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 52,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(
+          horizontal: _feedGutter,
+          vertical: 6,
+        ),
+        scrollDirection: Axis.horizontal,
+        itemCount: semestres.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final s = semestres[i];
+          final ativo = s == selecionado;
+          return ChoiceChip(
+            key: ValueKey('semestre-$s'),
+            selected: ativo,
+            showCheckmark: false,
+            label: Text(s == atual ? '$s · atual' : s),
+            avatar: Icon(
+              Icons.event_note_outlined,
+              size: 16,
+              color: ativo ? Colors.white : AppColors.primary,
+            ),
+            labelStyle: TextStyle(
+              color: ativo ? Colors.white : AppColors.ink,
+              fontFamily: 'Inter',
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+            backgroundColor: Colors.white,
+            selectedColor: AppColors.primary,
+            side: BorderSide(
+              color: ativo ? AppColors.primary : const Color(0xFFEAE6F2),
+            ),
+            onSelected: (_) => onSelected(s),
+          );
+        },
+      ),
+    );
+  }
+}
 
 class _Filtros extends StatelessWidget {
   const _Filtros({
@@ -1088,7 +1218,7 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                           break;
                       }
                     },
-                    itemBuilder: (_) => post.podeAdministrar
+                    itemBuilder: (_) => post.podeAdministrar && post.cicloAtual
                         ? const [
                             PopupMenuItem(
                               value: 'editar',
@@ -2265,6 +2395,7 @@ class _Publicacao {
     this.verificado = false,
     this.podeAdministrar = false,
     this.podeExcluir = false,
+    this.cicloAtual = true,
     this.podeInteragir = false,
     this.midias = const [],
     this.comentariosTexto = const [],
@@ -2292,6 +2423,9 @@ class _Publicacao {
   final bool verificado;
   final bool podeAdministrar;
   final bool podeExcluir;
+
+  /// false = publicação de semestre anterior (só leitura; só remover).
+  final bool cicloAtual;
   final bool podeInteragir;
   final List<String> comentariosTexto;
   final List<FeedComment> comentariosDetalhes;
@@ -2321,6 +2455,7 @@ class _Publicacao {
       corAvatar: AppColors.primary,
       podeAdministrar: json['podeAdministrar'] as bool? ?? false,
       podeExcluir: json['podeExcluir'] as bool? ?? false,
+      cicloAtual: json['cicloAtual'] as bool? ?? true,
       podeInteragir: json['podeInteragir'] == true,
       curtidoPeloUsuario: json['curtidoPeloUsuario'] as bool? ?? false,
       curtidoresRecentes: [
@@ -2379,6 +2514,7 @@ class _Publicacao {
     verificado: verificado,
     podeAdministrar: podeAdministrar,
     podeExcluir: podeExcluir,
+    cicloAtual: cicloAtual,
     podeInteragir: podeInteragir,
     comentariosTexto: comentariosTexto ?? this.comentariosTexto,
     comentariosDetalhes: comentariosDetalhes,

@@ -1,4 +1,9 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+import { ParticipacoesService } from '../participacoes/participacoes.service.js';
 import {
   criarFeedTeste,
   coordenador,
@@ -174,6 +179,128 @@ describe('PublicacoesService', () => {
     });
   });
 
+  describe('feed por ciclo (DP-01)', () => {
+    function postDeOutroCiclo(tabelas: Record<string, any[]>) {
+      tabelas.PublicacaoEntity.push({
+        id: 900,
+        autor: 'Renata Martins',
+        iniciais: 'RM',
+        descricaoAutor: 'Coordenação do programa',
+        categoria: 'Comunicados',
+        texto: 'Aviso do semestre passado',
+        imagens: [],
+        ownerId: coordenador.email,
+        programaCodigo: '2020/1',
+        criadoEm: new Date('2020-03-01'),
+      });
+    }
+
+    it('a publicação nova nasce no ciclo atual', async () => {
+      const { service, tabelas } = criarFeedTeste();
+      await service.criar({ texto: 'Novo' }, coordenador);
+      expect(tabelas.PublicacaoEntity[0].programaCodigo).toBe(
+        ParticipacoesService.programaAtual(),
+      );
+    });
+
+    it('post de outro semestre não aparece nem abre para participantes', async () => {
+      const { service, tabelas } = criarFeedTeste();
+      await service.criar({ texto: 'Do semestre atual' }, coordenador);
+      postDeOutroCiclo(tabelas);
+      for (const usuario of [aluno, padrinho]) {
+        const textos = (await service.listar(usuario)).map((p) => p.texto);
+        expect(textos).toEqual(['Do semestre atual']);
+        await expect(service.obter(900, usuario)).rejects.toThrow(
+          NotFoundException,
+        );
+        await expect(service.curtir(900, 1, usuario)).rejects.toThrow(
+          NotFoundException,
+        );
+        await expect(service.comentar(900, 'oi', usuario)).rejects.toThrow(
+          NotFoundException,
+        );
+        await expect(service.curtidores(900, usuario)).rejects.toThrow(
+          NotFoundException,
+        );
+        await expect(
+          service.curtidoresComentario(900, 1, usuario),
+        ).rejects.toThrow(NotFoundException);
+      }
+      expect(tabelas.CurtidaEntity).toHaveLength(0);
+    });
+
+    it('a coordenação ainda alcança o post antigo para moderar', async () => {
+      const { service, tabelas } = criarFeedTeste();
+      postDeOutroCiclo(tabelas);
+      expect((await service.obter(900, coordenador)).texto).toBe(
+        'Aviso do semestre passado',
+      );
+      expect((await service.remover(900, coordenador)).removido).toBe(true);
+    });
+
+    it('a coordenação consulta um semestre anterior; os demais não', async () => {
+      const { service, tabelas } = criarFeedTeste();
+      await service.criar({ texto: 'Do semestre atual' }, coordenador);
+      postDeOutroCiclo(tabelas);
+      const antigos = await service.listar(coordenador, '2020/1');
+      expect(antigos.map((p) => p.texto)).toEqual([
+        'Aviso do semestre passado',
+      ]);
+      // Sem parâmetro (ou com o atual) vem o semestre atual.
+      expect((await service.listar(coordenador)).map((p) => p.texto)).toEqual([
+        'Do semestre atual',
+      ]);
+      expect(
+        (
+          await service.listar(
+            coordenador,
+            ParticipacoesService.programaAtual(),
+          )
+        ).map((p) => p.texto),
+      ).toEqual(['Do semestre atual']);
+      for (const usuario of [aluno, padrinho])
+        await expect(service.listar(usuario, '2020/1')).rejects.toThrow(
+          ForbiddenException,
+        );
+      await expect(service.listar(coordenador, '2020-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('lista os semestres com publicações, o atual sempre incluído', async () => {
+      const { service, tabelas } = criarFeedTeste();
+      postDeOutroCiclo(tabelas);
+      const { atual, semestres } = await service.ciclos();
+      expect(atual).toBe(ParticipacoesService.programaAtual());
+      expect(semestres).toEqual([atual, '2020/1']);
+    });
+
+    it('semestre anterior é só leitura: sem editar, curtir ou comentar, mas pode remover', async () => {
+      const { service, tabelas } = criarFeedTeste();
+      postDeOutroCiclo(tabelas);
+      const [post] = await service.listar(coordenador, '2020/1');
+      expect(post.cicloAtual).toBe(false);
+      expect(post.podeInteragir).toBe(false);
+      await expect(service.curtir(900, 1, coordenador)).rejects.toThrow(
+        ForbiddenException,
+      );
+      await expect(service.comentar(900, 'oi', coordenador)).rejects.toThrow(
+        ForbiddenException,
+      );
+      await expect(
+        service.atualizar(900, { texto: 'editado' }, coordenador),
+      ).rejects.toThrow(ForbiddenException);
+      expect((await service.remover(900, coordenador)).removido).toBe(true);
+    });
+
+    it('linha sem ciclo (banco local antigo) continua visível', async () => {
+      const { service, tabelas } = criarFeedTeste();
+      postDeOutroCiclo(tabelas);
+      tabelas.PublicacaoEntity[0].programaCodigo = null;
+      expect(await service.listar(aluno)).toHaveLength(1);
+    });
+  });
+
   describe('quem curtiu', () => {
     it('lista quem curtiu o post com nome e selo da coordenação', async () => {
       const { service } = criarFeedTeste();
@@ -181,7 +308,7 @@ describe('PublicacoesService', () => {
       await service.curtir(post.id, 1, aluno);
       await service.curtir(post.id, 1, padrinho);
       await service.curtir(post.id, 1, coordenador);
-      const lista = await service.curtidores(post.id);
+      const lista = await service.curtidores(post.id, aluno);
       expect(lista).toHaveLength(3);
       expect(lista.map((c) => c.autor.nome).sort()).toEqual([
         'Camila Duarte',
@@ -224,12 +351,14 @@ describe('PublicacoesService', () => {
       const post = await service.criar({ texto: 'Aviso' }, coordenador);
       await service.curtir(post.id, 1, aluno);
       await service.curtir(post.id, -1, aluno);
-      expect(await service.curtidores(post.id)).toEqual([]);
+      expect(await service.curtidores(post.id, aluno)).toEqual([]);
     });
 
     it('post inexistente é 404', async () => {
       const { service } = criarFeedTeste();
-      await expect(service.curtidores(999)).rejects.toThrow(NotFoundException);
+      await expect(service.curtidores(999, aluno)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('curtidas de comentário: lista e selo curtidoPelaCoordenacao', async () => {
@@ -248,15 +377,15 @@ describe('PublicacoesService', () => {
         .comentariosDetalhes[0];
       expect(detalhe.curtidoPelaCoordenacao).toBe(true);
       expect(detalhe.curtidas).toBe(2);
-      const lista = await service.curtidoresComentario(post.id, c.id);
+      const lista = await service.curtidoresComentario(post.id, c.id, aluno);
       expect(lista.map((x) => x.autor.nome).sort()).toEqual([
         'Pedro Santos',
         'Renata Martins',
       ]);
       expect(lista.filter((x) => x.coordenacao)).toHaveLength(1);
-      await expect(service.curtidoresComentario(post.id, 9999)).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.curtidoresComentario(post.id, 9999, aluno),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

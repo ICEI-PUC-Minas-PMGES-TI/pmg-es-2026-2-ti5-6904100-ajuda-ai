@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { createHash } from 'node:crypto';
 import type { AccessTokenPayload } from '../auth/authenticated-request.js';
 import { buscarCoordenadorPorEmail } from '../dados/dados.js';
@@ -23,6 +23,7 @@ import { PublicacaoEntity } from './entities/publicacao.entity.js';
 import { novoEventoFeed, type TipoEventoFeed } from './feed-evento.js';
 import { FeedMidiasService } from './feed-midias.service.js';
 import { FeedPolicy } from './feed-policy.js';
+import { ParticipacoesService } from '../participacoes/participacoes.service.js';
 
 interface DadosPublicacao {
   texto?: string;
@@ -41,8 +42,31 @@ export class PublicacoesService {
     private readonly midias: FeedMidiasService,
   ) {}
 
-  async listar(usuario: AccessTokenPayload) {
+  /**
+   * Feed do ciclo atual. A coordenação pode pedir um semestre anterior
+   * (`programa`, ex.: 2026/1) para consulta; para os demais o parâmetro é
+   * recusado, e o feed deles é sempre o do semestre atual.
+   */
+  async listar(usuario: AccessTokenPayload, programa?: string) {
+    const atual = ParticipacoesService.programaAtual();
+    const pedido = programa?.trim();
+    if (pedido && pedido !== atual) {
+      if (!this.policy.podeAdministrar(usuario))
+        throw new ForbiddenException(
+          'Só a coordenação consulta semestres anteriores.',
+        );
+      if (!/^\d{4}\/[12]$/.test(pedido))
+        throw new BadRequestException(
+          'Semestre inválido. Use AAAA/1 ou AAAA/2.',
+        );
+    }
     const itens = await this.publicacoes.find({
+      // Feed por ciclo: só o semestre pedido (padrão, o atual — DP-01). Linhas
+      // sem ciclo (banco local antigo, antes da migration) contam como atual.
+      where:
+        pedido && pedido !== atual
+          ? { programaCodigo: pedido }
+          : [{ programaCodigo: atual }, { programaCodigo: IsNull() }],
       relations: { curtidas: true, comentarios: true },
       order: { criadoEm: 'DESC', id: 'DESC' },
     });
@@ -59,6 +83,7 @@ export class PublicacoesService {
       relations: { curtidas: true, comentarios: true },
     });
     if (!item) throw new NotFoundException('Publicação não encontrada.');
+    this.exigirDoCicloAtual(item, usuario);
     return this.apresentar(
       item,
       usuario,
@@ -92,6 +117,7 @@ export class PublicacoesService {
             ? 'Coordenação do programa'
             : 'Padrinho do programa',
           ownerId: usuario.email,
+          programaCodigo: ParticipacoesService.programaAtual(),
         }),
       );
       await this.evento(manager, 'feed.post.created', item.id);
@@ -106,29 +132,41 @@ export class PublicacoesService {
     usuario: AccessTokenPayload,
   ) {
     this.policy.exigirAdministracao(usuario);
-    await this.alterar(id, 'feed.post.updated', async (manager, item) => {
-      const valores = this.validar({
-        texto: corpo.texto ?? item.texto,
-        categoria: corpo.categoria ?? item.categoria,
-        imagens: corpo.imagens ?? item.imagens,
-      });
-      const novas = valores.imagens.filter(
-        (chave) => !item.imagens.includes(chave),
-      );
-      await this.midias.validar(novas, usuario.email);
-      Object.assign(item, valores);
-      await manager.getRepository(PublicacaoEntity).save(item);
-    });
+    await this.alterar(
+      id,
+      'feed.post.updated',
+      usuario,
+      async (manager, item) => {
+        const valores = this.validar({
+          texto: corpo.texto ?? item.texto,
+          categoria: corpo.categoria ?? item.categoria,
+          imagens: corpo.imagens ?? item.imagens,
+        });
+        const novas = valores.imagens.filter(
+          (chave) => !item.imagens.includes(chave),
+        );
+        await this.midias.validar(novas, usuario.email);
+        Object.assign(item, valores);
+        await manager.getRepository(PublicacaoEntity).save(item);
+      },
+    );
     return this.obter(id, usuario);
   }
 
   /** Coordenação exclui qualquer post; o autor exclui o próprio (DP-21). */
   async remover(id: number, usuario: AccessTokenPayload) {
-    await this.alterar(id, 'feed.post.deleted', async (manager, item) => {
-      if (!this.policy.podeExcluirPublicacao(usuario, item.ownerId))
-        throw new ForbiddenException('Você não pode excluir esta publicação.');
-      await manager.getRepository(PublicacaoEntity).remove(item);
-    });
+    await this.alterar(
+      id,
+      'feed.post.deleted',
+      usuario,
+      async (manager, item) => {
+        if (!this.policy.podeExcluirPublicacao(usuario, item.ownerId))
+          throw new ForbiddenException(
+            'Você não pode excluir esta publicação.',
+          );
+        await manager.getRepository(PublicacaoEntity).remove(item);
+      },
+    );
     return { removido: true };
   }
 
@@ -144,7 +182,7 @@ export class PublicacoesService {
       throw new BadRequestException(
         'O comentário deve ter entre 1 e 2000 caracteres.',
       );
-    await this.alterar(id, 'feed.comment.created', async (manager) => {
+    await this.alterar(id, 'feed.comment.created', usuario, async (manager) => {
       const repo = manager.getRepository(ComentarioEntity);
       let raiz: number | null = null;
       if (paiId != null) {
@@ -177,7 +215,7 @@ export class PublicacoesService {
     comentarioId: number,
     usuario: AccessTokenPayload,
   ) {
-    await this.alterar(id, 'feed.comment.deleted', async (manager) => {
+    await this.alterar(id, 'feed.comment.deleted', usuario, async (manager) => {
       const repo = manager.getRepository(ComentarioEntity);
       const comentario = await repo.findOne({
         where: { id: comentarioId, publicacaoId: id },
@@ -204,7 +242,7 @@ export class PublicacoesService {
       throw new BadRequestException(
         'A ação precisa ser curtir (1) ou descurtir (-1).',
       );
-    await this.alterar(id, 'feed.like.updated', async (manager) => {
+    await this.alterar(id, 'feed.like.updated', usuario, async (manager) => {
       const repo = manager.getRepository(CurtidaEntity);
       const existente = await repo.findOne({
         where: { publicacaoId: id, usuarioId: usuario.email },
@@ -219,10 +257,28 @@ export class PublicacoesService {
     return this.obter(id, usuario);
   }
 
+  /**
+   * Semestres com publicações (mais novo primeiro), sempre incluindo o atual:
+   * alimenta o seletor de semestre da coordenação.
+   */
+  async ciclos(): Promise<{ atual: string; semestres: string[] }> {
+    const atual = ParticipacoesService.programaAtual();
+    const linhas = await this.publicacoes.find({
+      select: { programaCodigo: true },
+    });
+    const todos = new Set<string>([atual]);
+    for (const l of linhas) if (l.programaCodigo) todos.add(l.programaCodigo);
+    return { atual, semestres: [...todos].sort().reverse() };
+  }
+
   /** Quem curtiu o post (participantes do ciclo e coordenação). */
-  async curtidores(id: number): Promise<CurtidorDto[]> {
+  async curtidores(
+    id: number,
+    usuario: AccessTokenPayload,
+  ): Promise<CurtidorDto[]> {
     const existe = await this.publicacoes.findOne({ where: { id } });
     if (!existe) throw new NotFoundException('Publicação não encontrada.');
+    this.exigirDoCicloAtual(existe, usuario);
     const curtidas = await this.dados.getRepository(CurtidaEntity).find({
       where: { publicacaoId: id },
       order: { criadoEm: 'DESC', id: 'DESC' },
@@ -236,7 +292,11 @@ export class PublicacoesService {
   async curtidoresComentario(
     id: number,
     comentarioId: number,
+    usuario: AccessTokenPayload,
   ): Promise<CurtidorDto[]> {
+    const post = await this.publicacoes.findOne({ where: { id } });
+    if (!post) throw new NotFoundException('Publicação não encontrada.');
+    this.exigirDoCicloAtual(post, usuario);
     const comentario = await this.dados
       .getRepository(ComentarioEntity)
       .findOne({ where: { id: comentarioId, publicacaoId: id } });
@@ -272,29 +332,37 @@ export class PublicacoesService {
     await this.policy.exigirInteracao(usuario);
     if (delta !== 1 && delta !== -1)
       throw new BadRequestException('Ação de curtida inválida.');
-    await this.alterar(id, 'feed.comment.like.updated', async (manager) => {
-      const comentario = await manager.getRepository(ComentarioEntity).findOne({
-        where: { id: comentarioId, publicacaoId: id },
-      });
-      if (!comentario)
-        throw new NotFoundException('Comentário não encontrado.');
-      const repo = manager.getRepository(CurtidaComentarioEntity);
-      const existente = await repo.findOne({
-        where: { comentarioId, usuarioId: usuario.email },
-      });
-      if (delta === 1 && !existente)
-        await repo.save(
-          repo.create({ comentarioId, usuarioId: usuario.email }),
-        );
-      else if (delta === -1 && existente) await repo.remove(existente);
-      else return false;
-    });
+    await this.alterar(
+      id,
+      'feed.comment.like.updated',
+      usuario,
+      async (manager) => {
+        const comentario = await manager
+          .getRepository(ComentarioEntity)
+          .findOne({
+            where: { id: comentarioId, publicacaoId: id },
+          });
+        if (!comentario)
+          throw new NotFoundException('Comentário não encontrado.');
+        const repo = manager.getRepository(CurtidaComentarioEntity);
+        const existente = await repo.findOne({
+          where: { comentarioId, usuarioId: usuario.email },
+        });
+        if (delta === 1 && !existente)
+          await repo.save(
+            repo.create({ comentarioId, usuarioId: usuario.email }),
+          );
+        else if (delta === -1 && existente) await repo.remove(existente);
+        else return false;
+      },
+    );
     return this.obter(id, usuario);
   }
 
   private async alterar(
     id: number,
     tipo: TipoEventoFeed,
+    usuario: AccessTokenPayload,
     acao: (
       manager: EntityManager,
       item: PublicacaoEntity,
@@ -307,6 +375,17 @@ export class PublicacoesService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!item) throw new NotFoundException('Publicação não encontrada.');
+      this.exigirDoCicloAtual(item, usuario);
+      // Semestre encerrado: a coordenação só consulta e remove (moderação);
+      // editar, curtir e comentar ficam para o semestre atual.
+      if (
+        !this.ehDoCicloAtual(item) &&
+        tipo !== 'feed.post.deleted' &&
+        tipo !== 'feed.comment.deleted'
+      )
+        throw new ForbiddenException(
+          'Este semestre já encerrou: a publicação só pode ser consultada ou removida.',
+        );
       if ((await acao(manager, item)) !== false)
         await this.evento(manager, tipo, id);
     });
@@ -391,6 +470,30 @@ export class PublicacoesService {
       }),
     );
     return autores;
+  }
+
+  /**
+   * O feed é do ciclo atual: publicação de outro semestre some para quem não
+   * administra (404, como se não existisse). A coordenação ainda a alcança
+   * para moderar. Linhas sem ciclo (banco local antigo) passam.
+   */
+  private ehDoCicloAtual(item: PublicacaoEntity) {
+    return (
+      !item.programaCodigo ||
+      item.programaCodigo === ParticipacoesService.programaAtual()
+    );
+  }
+
+  private exigirDoCicloAtual(
+    item: PublicacaoEntity,
+    usuario: AccessTokenPayload,
+  ) {
+    if (
+      item.programaCodigo &&
+      item.programaCodigo !== ParticipacoesService.programaAtual() &&
+      !this.policy.podeAdministrar(usuario)
+    )
+      throw new NotFoundException('Publicação não encontrada.');
   }
 
   /** Uma consulta por requisição, reaproveitada em todos os posts da lista. */
@@ -478,7 +581,10 @@ export class PublicacoesService {
       isOwn: item.ownerId === usuario.email,
       podeExcluir: this.policy.podeExcluirPublicacao(usuario, item.ownerId),
       podeAdministrar: this.policy.podeAdministrar(usuario),
-      podeInteragir: permissoes.podeInteragir,
+      // Semestre anterior (visto pela coordenação): só leitura.
+      cicloAtual: this.ehDoCicloAtual(item),
+      programa: item.programaCodigo,
+      podeInteragir: permissoes.podeInteragir && this.ehDoCicloAtual(item),
     };
   }
 }

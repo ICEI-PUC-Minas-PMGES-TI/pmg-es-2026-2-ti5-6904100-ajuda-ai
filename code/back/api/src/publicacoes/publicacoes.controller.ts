@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   Req,
   Sse,
   UploadedFile,
@@ -39,8 +40,17 @@ export class PublicacoesController {
   ) {}
   @Get()
   @UseGuards(FeedLeituraGuard)
-  listar(@Req() req: AuthenticatedRequest) {
-    return this.publicacoes.listar(req.user);
+  listar(
+    @Req() req: AuthenticatedRequest,
+    @Query('programa') programa?: string,
+  ) {
+    return this.publicacoes.listar(req.user, programa);
+  }
+  /** Semestres com publicações, para o seletor da coordenação. */
+  @Get('ciclos')
+  @UseGuards(FeedAdminGuard)
+  ciclos() {
+    return this.publicacoes.ciclos();
   }
   @Get('permissoes')
   async permissoes(
@@ -114,16 +124,20 @@ export class PublicacoesController {
   }
   @Get(':id/curtidas')
   @UseGuards(FeedLeituraGuard)
-  curtidores(@Param('id', ParseIntPipe) id: number) {
-    return this.publicacoes.curtidores(id);
+  curtidores(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.publicacoes.curtidores(id, req.user);
   }
   @Get(':id/comentarios/:comentarioId/curtidas')
   @UseGuards(FeedLeituraGuard)
   curtidoresComentario(
     @Param('id', ParseIntPipe) id: number,
     @Param('comentarioId', ParseIntPipe) comentarioId: number,
+    @Req() req: AuthenticatedRequest,
   ) {
-    return this.publicacoes.curtidoresComentario(id, comentarioId);
+    return this.publicacoes.curtidoresComentario(id, comentarioId, req.user);
   }
   @Post(':id/curtidas')
   curtir(

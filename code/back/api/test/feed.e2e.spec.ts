@@ -321,6 +321,51 @@ describe('Feed HTTP e SSE autenticados', () => {
       .expect(404);
   });
 
+  it('seletor de semestre: só a coordenação consulta semestres anteriores', async () => {
+    feed.tabelas.PublicacaoEntity.push({
+      id: 900,
+      autor: 'Renata Martins',
+      iniciais: 'RM',
+      descricaoAutor: 'Coordenação do programa',
+      categoria: 'Comunicados',
+      texto: 'Semestre passado',
+      imagens: [],
+      ownerId: coordenador.email,
+      programaCodigo: '2020/1',
+      criadoEm: new Date('2020-03-01'),
+    });
+    const antigo = await request(app.getHttpServer())
+      .get('/publicacoes?programa=2020/1')
+      .set('Authorization', auth(coordenador))
+      .expect(200);
+    expect(antigo.body.map((p: { texto: string }) => p.texto)).toEqual([
+      'Semestre passado',
+    ]);
+    expect(antigo.body[0]).toMatchObject({
+      cicloAtual: false,
+      podeInteragir: false,
+    });
+    const ciclos = await request(app.getHttpServer())
+      .get('/publicacoes/ciclos')
+      .set('Authorization', auth(coordenador))
+      .expect(200);
+    expect(ciclos.body.semestres).toContain('2020/1');
+    for (const usuario of [aluno, padrinho]) {
+      await request(app.getHttpServer())
+        .get('/publicacoes?programa=2020/1')
+        .set('Authorization', auth(usuario))
+        .expect(403);
+      await request(app.getHttpServer())
+        .get('/publicacoes/ciclos')
+        .set('Authorization', auth(usuario))
+        .expect(403);
+    }
+    await request(app.getHttpServer())
+      .get('/publicacoes?programa=lixo')
+      .set('Authorization', auth(coordenador))
+      .expect(400);
+  });
+
   it('usuário só do mapa não lê o feed nem abre o stream (DP-01)', async () => {
     const post = await feed.service.criar({ texto: 'Interno' }, coordenador);
     for (const path of [
