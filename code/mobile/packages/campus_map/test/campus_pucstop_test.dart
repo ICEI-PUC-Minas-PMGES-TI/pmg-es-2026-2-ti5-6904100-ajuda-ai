@@ -483,12 +483,16 @@ void main() {
     });
     tearDown(() => controller.dispose());
 
-    Future<void> mount(WidgetTester tester) => tester.pumpWidget(
+    Future<void> mount(
+      WidgetTester tester, {
+      String? Function(CampusPucStop)? aviso,
+    }) => tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: CampusMapControls(
             controller: controller,
             onPucStopClaimed: claimed.add,
+            pucStopRewardNotice: aviso,
           ),
         ),
       ),
@@ -525,6 +529,66 @@ void main() {
         .single
         .data!;
 
+    testWidgets('BL-50: crédito parcial pelo teto e subida de nível', (
+      tester,
+    ) async {
+      service.resposta = const CampusPucStopClaim(
+        pucStopId: 'biblioteca',
+        xpGained: 20,
+        coinsGained: 20,
+        xpTotal: 400,
+        distanceMeters: 12,
+        capReached: true,
+        levelUp: true,
+        levelNumber: 4,
+        levelName: 'Descoberta',
+      );
+      await mount(tester);
+      await select(tester, _biblioteca);
+      await spin(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('+20 XP · +20 moedas'), findsOneWidget);
+      expect(
+        find.text('Você chegou ao limite de XP de totens deste semestre.'),
+        findsOneWidget,
+      );
+      expect(find.text('Subiu para o nível 4 · Descoberta!'), findsOneWidget);
+      expect(state(tester), 'XP coletado!');
+    });
+
+    testWidgets('BL-50: teto já cheio registra a visita sem XP', (
+      tester,
+    ) async {
+      service.resposta = const CampusPucStopClaim(
+        pucStopId: 'biblioteca',
+        xpGained: 0,
+        xpTotal: 400,
+        distanceMeters: 12,
+        capReached: true,
+      );
+      await mount(tester);
+      await select(tester, _biblioteca);
+      await spin(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('Sem XP desta vez'), findsOneWidget);
+      expect(state(tester), 'Visita registrada');
+      expect(find.textContaining('+0'), findsNothing);
+    });
+
+    testWidgets('BL-50: aviso do teto aparece antes do giro', (tester) async {
+      await mount(
+        tester,
+        aviso: (stop) => 'Restam 20 XP no seu limite: esta coleta vale 20 XP.',
+      );
+      await select(tester, _biblioteca);
+      expect(find.byKey(const Key('campus-pucstop-notice')), findsOneWidget);
+      expect(
+        hint(tester),
+        'Arraste para os lados e gire o topo para coletar o XP.',
+      );
+      expect(service.claims, isEmpty);
+    });
+
     testWidgets('no alcance: abrir não coleta; XP só depois de girar o topo', (
       tester,
     ) async {
@@ -550,7 +614,7 @@ void main() {
       await spin(tester);
       await tester.pumpAndSettle();
       expect(service.claims, hasLength(1));
-      expect(find.text('+50 XP · total 320 XP'), findsOneWidget);
+      expect(find.text('+50 XP · +50 moedas'), findsOneWidget);
       expect(state(tester), 'XP coletado!');
       expect(hint(tester), 'Gire o topo quando quiser: o XP já é seu.');
       expect(claimed.single.xpTotal, 320);
@@ -598,7 +662,10 @@ void main() {
       await mount(tester);
       await select(tester, _biblioteca);
       expect(state(tester), 'Já coletado');
-      expect(hint(tester), 'Já coletado. Você ainda pode girar o topo.');
+      expect(
+        hint(tester),
+        'Já coletado neste semestre. Você ainda pode girar o topo.',
+      );
       await spin(tester);
       await tester.pumpAndSettle();
       expect(service.claims, isEmpty);
@@ -778,6 +845,9 @@ class _PucStops implements CampusPucStopService {
   double? distance;
   Object? error;
   Completer<CampusPucStopClaim>? pending;
+
+  /// Resposta personalizada do servidor (teto, subida de nível).
+  CampusPucStopClaim? resposta;
   int listCalls = 0;
   final claims = <(String, CampusUserLocation)>[];
 
@@ -813,6 +883,7 @@ class _PucStops implements CampusPucStopService {
     if (failure case final f?) {
       throw CampusPucStopException(f, distanceMeters: distance);
     }
+    if (resposta case final r?) return r;
     return _claim(pucStopId == _biblioteca.id ? _biblioteca : _medicina);
   }
 }

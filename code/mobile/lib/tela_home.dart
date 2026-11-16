@@ -8,6 +8,7 @@ import 'main.dart' show estiloBarraClara;
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
 import 'widgets/navegacao_app.dart';
+import 'widgets/progresso_gamificacao.dart';
 
 const double _gutter = 20;
 
@@ -434,6 +435,8 @@ class _Cartao extends StatelessWidget {
   }
 }
 
+/// Progresso real (nível, barra e moedas). Lê `GET /me/xp` ao abrir; a
+/// coleta de um totem e os resgates atualizam o mesmo valor.
 class _CardPontos extends StatefulWidget {
   const _CardPontos();
 
@@ -445,84 +448,13 @@ class _CardPontosState extends State<_CardPontos> {
   @override
   void initState() {
     super.initState();
-    // Um GET ao abrir a home; coletas no mapa atualizam o mesmo valor.
     SessaoUsuario.atual.atualizarXp();
   }
 
   @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<int?>(
-      valueListenable: SessaoUsuario.atual.xp,
-      builder: (context, saldo, _) => _conteudo(context, saldo),
-    );
-  }
-
-  /// `saldo` é null enquanto a API não respondeu ou se ela falhou: mostra
-  /// "—" (nunca 0, que seria um valor inventado) e permite tentar de novo.
-  Widget _conteudo(BuildContext context, int? saldo) {
-    return _Cartao(
-      onTap: saldo == null ? () => SessaoUsuario.atual.atualizarXp() : null,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Seus pontos',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              color: AppColors.muted,
-              fontSize: 15,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              const Icon(Icons.star_rounded, size: 34, color: AppAccents.star),
-              const SizedBox(width: 10),
-              Text(
-                saldo == null ? '—' : formatarXp(saldo),
-                style: const TextStyle(
-                  color: AppColors.ink,
-                  fontSize: 32,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -1,
-                  height: 1.1,
-                ),
-              ),
-              const SizedBox(width: 6),
-              const Padding(
-                padding: EdgeInsets.only(bottom: 4),
-                child: Text(
-                  'XP',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    color: AppColors.muted,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (saldo == null) ...[
-            const SizedBox(height: 8),
-            const Text(
-              'Não foi possível carregar seus pontos. Toque para tentar de novo.',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                color: AppColors.muted,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const CartaoProgresso();
 }
 
-/// Vínculo real do participante: apadrinhado vê o padrinho; padrinho vê os
-/// apadrinhados. Sem vínculo ainda, um estado vazio honesto.
 class _CardVinculo extends StatelessWidget {
   const _CardVinculo();
 

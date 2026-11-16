@@ -52,6 +52,7 @@ class CampusMapView extends StatefulWidget {
     this.routeService,
     this.pucStopService,
     this.onPucStopClaimed,
+    this.pucStopRewardNotice,
     this.contentService,
     this.pointOfInterestCatalog,
     this.savedPlacesStore,
@@ -84,6 +85,10 @@ class CampusMapView extends StatefulWidget {
 
   /// Coleta confirmada pelo servidor (ex.: atualizar o XP do app, tocar som).
   final ValueChanged<CampusPucStopClaim>? onPucStopClaimed;
+
+  /// Aviso mostrado antes do giro (ex.: teto de XP do semestre atingido).
+  /// `null` = sem aviso.
+  final String? Function(CampusPucStop stop)? pucStopRewardNotice;
 
   /// Eventos, restaurantes e cardápios (ex.: API do app). Só vale com
   /// `features.events`/`features.canteens`. Ignorado quando [controller] é
@@ -1717,6 +1722,7 @@ class _CampusMapViewState extends State<CampusMapView>
               CampusMapControls(
                 controller: _controller,
                 onPucStopClaimed: widget.onPucStopClaimed,
+                pucStopRewardNotice: widget.pucStopRewardNotice,
                 showEvents: _features.events,
                 showRestaurants: _features.canteens,
                 openExternalUrl: widget.openExternalUrl,

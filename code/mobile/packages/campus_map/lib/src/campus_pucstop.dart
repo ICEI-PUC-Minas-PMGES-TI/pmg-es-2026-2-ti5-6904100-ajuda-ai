@@ -62,14 +62,32 @@ class CampusPucStopClaim {
     required this.xpGained,
     required this.xpTotal,
     required this.distanceMeters,
-  });
+    int? coinsGained,
+    this.capReached = false,
+    this.levelUp = false,
+    this.levelNumber,
+    this.levelName,
+  }) : coinsGained = coinsGained ?? xpGained;
 
   final String pucStopId;
+
+  /// XP efetivamente creditado (0 quando o teto do semestre já estava cheio).
   final int xpGained;
 
-  /// Saldo global de XP do usuário depois da coleta.
+  /// Saldo depois da coleta (moedas, no servidor atual).
   final int xpTotal;
   final double distanceMeters;
+
+  /// Moedas efetivamente creditadas.
+  final int coinsGained;
+
+  /// O teto de XP de totens do semestre cortou a recompensa.
+  final bool capReached;
+
+  /// A coleta fez o usuário subir de nível.
+  final bool levelUp;
+  final int? levelNumber;
+  final String? levelName;
 }
 
 /// Por que a coleta não aconteceu. A tela traduz em mensagem/estado.

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:campus_map/campus_map.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -96,9 +98,27 @@ class _MapaPageState extends State<MapaPage> {
     }
   }
 
-  /// XP do app = total devolvido pelo servidor (nunca somado no cliente).
+  /// Moedas = total devolvido pelo servidor (nunca somado no cliente); o
+  /// nível e a barra são relidos de `GET /me/xp` (uma requisição).
   void _coletou(CampusPucStopClaim coleta) {
     SessaoUsuario.atual.xp.value = coleta.xpTotal;
+    unawaited(SessaoUsuario.atual.atualizarXp());
+  }
+
+  /// Aviso antes do giro quando o teto de XP de totens do semestre não comporta
+  /// a recompensa (valores do servidor; nada calculado aqui além da exibição).
+  static String? _avisoRecompensa(CampusPucStop totem) {
+    final teto = SessaoUsuario.atual.gamificacao.value?.tetoTotens;
+    if (teto == null) return null;
+    if (teto.atingido) {
+      return 'Você já atingiu o limite de ${teto.limite} XP de totens neste semestre: '
+          'a visita fica registrada, sem XP nem moedas.';
+    }
+    if (teto.restante < totem.xp) {
+      return 'Restam ${teto.restante} XP no seu limite de totens deste semestre: '
+          'esta coleta vale ${teto.restante} XP e ${teto.restante} moedas.';
+    }
+    return null;
   }
 
   Future<void> _baixarImagem(Uri url) async {
@@ -158,6 +178,7 @@ class _MapaPageState extends State<MapaPage> {
           // Coleta manual no card; sem geofence em segundo plano.
           pucStopService: _pucStopService,
           onPucStopClaimed: _coletou,
+          pucStopRewardNotice: _avisoRecompensa,
           contentService: _contentService,
           pointOfInterestCatalog: _pontosPermanentes,
           savedPlacesStore: _savedPlaces,

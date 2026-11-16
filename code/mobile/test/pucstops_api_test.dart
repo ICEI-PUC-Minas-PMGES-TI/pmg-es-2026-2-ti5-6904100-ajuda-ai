@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:ajuda_ai/models/resumo_gamificacao.dart';
 import 'package:ajuda_ai/models/situacao_participacao.dart';
 import 'package:ajuda_ai/services/pucstops_api.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
@@ -77,7 +78,11 @@ void main() {
     final ids = await servico((r) async {
       pedido = r;
       return json([
-        {'pucstopId': '3f6c2a1e-8b4d-4c2a-9e1f-0a7b5c3d2e10', 'xp': 50, 'claimedAt': 'x'},
+        {
+          'pucstopId': '3f6c2a1e-8b4d-4c2a-9e1f-0a7b5c3d2e10',
+          'xp': 50,
+          'claimedAt': 'x',
+        },
       ]);
     }).collected();
     expect(pedido.url.path, '/me/pucstops');
@@ -232,19 +237,48 @@ void main() {
     expect(chamadas, 0);
   });
 
-  testWidgets('perfil: XP global visível para qualquer aluno com sessão', (
+  Map<String, dynamic> resumoJson({int xp = 580, int moedas = 300}) => {
+    'saldo': moedas,
+    'moedas': moedas,
+    'xpAcumulado': xp,
+    'nivel': {
+      'numero': 5,
+      'nome': 'Conexão',
+      'xpMinimo': 500,
+      'proximoXp': 750,
+      'proximoNome': 'Parceria',
+      'xpNoNivel': 80,
+      'xpDoNivel': 250,
+      'xpRestante': 170,
+      'progresso': 32,
+      'maximo': false,
+    },
+    'ciclo': '2026/2',
+    'limites': {
+      'totens': {'ganho': 120, 'limite': 400},
+      'ciclo': {'ganho': 120, 'limite': 1500},
+    },
+    'atualizadoEm': null,
+  };
+
+  testWidgets('perfil: nível, barra e moedas para qualquer aluno com sessão', (
     tester,
   ) async {
     await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
     await tester.pump();
-    expect(find.byKey(const Key('perfil-xp')), findsNothing);
-    SessaoUsuario.atual.xp.value = 1275;
+    expect(find.byKey(const Key('perfil-progresso')), findsNothing);
+    SessaoUsuario.atual.gamificacao.value = ResumoGamificacao.fromJson(
+      resumoJson(),
+    );
     await tester.pump();
-    expect(find.text('1.275 XP'), findsOneWidget);
+    expect(find.text('Nível 5 · Conexão · 580 XP'), findsOneWidget);
+    expect(find.text('300 moedas'), findsOneWidget);
   });
 
-  group('XP na home', () {
-    testWidgets('mostra o saldo real de GET /me/xp', (tester) async {
+  group('Progresso na home', () {
+    testWidgets('mostra nível, barra, XP e moedas reais de GET /me/xp', (
+      tester,
+    ) async {
       late http.Request pedido;
       SessaoUsuario.atual
         ..assumirSessao(
@@ -257,7 +291,7 @@ void main() {
             baseUrl: 'http://api.test',
             client: MockClient((r) async {
               pedido = r;
-              return json({'saldo': 1275, 'atualizadoEm': null});
+              return json(resumoJson());
             }),
           ),
         );
@@ -265,20 +299,35 @@ void main() {
       await tester.pumpAndSettle();
       expect(pedido.url.path, '/me/xp');
       expect(pedido.headers['authorization'], 'Bearer jwt-camila');
-      expect(find.text('1.275'), findsOneWidget);
-      expect(find.text('1430'), findsNothing);
-    });
-
-    testWidgets('coleta no mapa atualiza o mesmo saldo', (tester) async {
-      await tester.pumpWidget(const MaterialApp(home: HomePage()));
-      // Sem resposta da API o saldo é desconhecido: "—", nunca um 0 inventado.
-      expect(find.text('—'), findsOneWidget);
-      SessaoUsuario.atual.xp.value = 320;
+      expect(find.text('Nível 5 · Conexão'), findsOneWidget);
+      expect(find.text('580 XP acumulado'), findsOneWidget);
+      expect(find.text('Faltam 170 XP para Parceria'), findsOneWidget);
+      expect(find.text('300 moedas'), findsOneWidget);
+      final barra = tester.widget<LinearProgressIndicator>(
+        find.byKey(const Key('barra-nivel')),
+      );
+      expect(barra.value, closeTo(0.32, 0.001));
+      // Emblema com o número do nível (acessível, não só cor).
+      final semantica = tester.ensureSemantics();
       await tester.pump();
-      expect(find.text('320'), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp('Emblema do nível 5')), findsOneWidget);
+      semantica.dispose();
     });
 
-    testWidgets('API fora do ar: mantém o valor, sem erro na tela', (
+    testWidgets('antes da resposta: carregando, nunca um 0 inventado', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const MaterialApp(home: HomePage()));
+      expect(find.text('Carregando seu progresso…'), findsOneWidget);
+      expect(find.textContaining('0 XP'), findsNothing);
+      SessaoUsuario.atual.gamificacao.value = ResumoGamificacao.fromJson(
+        resumoJson(xp: 320, moedas: 320),
+      );
+      await tester.pump();
+      expect(find.text('320 XP acumulado'), findsOneWidget);
+    });
+
+    testWidgets('API fora do ar: mensagem com nova tentativa, sem zerar', (
       tester,
     ) async {
       SessaoUsuario.atual
@@ -295,9 +344,39 @@ void main() {
         );
       await tester.pumpWidget(const MaterialApp(home: HomePage()));
       await tester.pumpAndSettle();
-      expect(find.text('—'), findsOneWidget);
       expect(find.textContaining('Toque para tentar de novo'), findsOneWidget);
+      expect(find.textContaining('0 XP'), findsNothing);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('falha numa revalidação mantém o último valor válido', (
+      tester,
+    ) async {
+      var falhar = false;
+      SessaoUsuario.atual
+        ..assumirSessao(
+          accessToken: 'jwt',
+          nome: 'Camila Duarte',
+          email: 'camila@pucminas.edu.br',
+        )
+        ..configurarXpApi(
+          XpApi(
+            baseUrl: 'http://api.test',
+            client: MockClient((_) async {
+              if (falhar) throw http.ClientException('x');
+              return json(resumoJson());
+            }),
+          ),
+        );
+      await tester.pumpWidget(const MaterialApp(home: HomePage()));
+      await tester.pumpAndSettle();
+      expect(find.text('580 XP acumulado'), findsOneWidget);
+      falhar = true;
+      await SessaoUsuario.atual.atualizarXp();
+      await tester.pump();
+      expect(find.text('580 XP acumulado'), findsOneWidget);
+      expect(find.text('300 moedas'), findsOneWidget);
+      expect(find.text('Mostrando o último valor carregado.'), findsOneWidget);
     });
   });
 

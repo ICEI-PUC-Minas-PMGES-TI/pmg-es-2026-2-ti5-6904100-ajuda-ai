@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'dados_cadastro.dart';
 import 'models/ciclo_participacao.dart';
 import 'models/formulario.dart';
+import 'models/resumo_gamificacao.dart';
 import 'models/situacao_participacao.dart';
 import 'services/api_config.dart';
 import 'services/participacoes_api.dart';
@@ -121,25 +122,50 @@ class SessaoUsuario {
   /// Permite injetar API nos testes.
   void configurarApi(ParticipacoesApi api) => _api = api;
 
-  /// Saldo global de XP (`GET /me/xp`, ou o total devolvido por uma coleta).
+  /// Saldo de MOEDAS (lojinha): `GET /me/xp` → `saldo`, ou o total devolvido
+  /// por uma coleta/resgate. Nome histórico: antes do BL-50 era "o XP".
   /// `null` = ainda não lido nesta sessão (ou sem login).
   final ValueNotifier<int?> xp = ValueNotifier(null);
+
+  /// Progresso completo (nível, XP acumulado, moedas, tetos do ciclo).
+  /// `null` = ainda não carregado. Uma falha mantém o último valor válido.
+  final ValueNotifier<ResumoGamificacao?> gamificacao = ValueNotifier(null);
+
+  /// A última leitura do progresso falhou (o valor anterior, se houver, fica).
+  final ValueNotifier<bool> gamificacaoFalhou = ValueNotifier(false);
 
   XpApi _xpApi = XpApi();
 
   /// Permite injetar a API de XP nos testes.
   void configurarXpApi(XpApi api) => _xpApi = api;
 
-  /// Relê o saldo. Sem login ou sem rede, mantém o valor atual.
-  Future<void> atualizarXp() async {
+  Future<void>? _xpEmVoo;
+
+  /// Relê progresso e moedas (`GET /me/xp`). Sem login ou sem rede mantém o
+  /// último valor válido e marca [gamificacaoFalhou]; nunca zera.
+  /// Chamadas simultâneas compartilham a mesma requisição.
+  Future<void> atualizarXp() => _xpEmVoo ??= _lerXp().whenComplete(() {
+    _xpEmVoo = null;
+  });
+
+  Future<void> _lerXp() async {
     final token = accessToken;
     if (token == null) return;
     final versao = _versaoConta;
     try {
-      final saldo = await _xpApi.saldo(token);
-      if (versao == _versaoConta && accessToken == token) xp.value = saldo;
+      final resumo = await _xpApi.resumo(token);
+      if (versao != _versaoConta || accessToken != token) return;
+      gamificacao.value = resumo;
+      xp.value = resumo.moedas;
+      gamificacaoFalhou.value = false;
     } catch (_) {
-      // Indicador de XP é informativo: falha não interrompe a tela.
+      if (versao != _versaoConta || accessToken != token) return;
+      // Servidor antigo (sem nível) ainda informa o saldo de moedas.
+      try {
+        final saldo = await _xpApi.saldo(token);
+        if (versao == _versaoConta && accessToken == token) xp.value = saldo;
+      } catch (_) {}
+      gamificacaoFalhou.value = true;
     }
   }
 
@@ -257,6 +283,9 @@ class SessaoUsuario {
 
   void _limparConta() {
     _versaoConta++;
+    gamificacao.value = null;
+    gamificacaoFalhou.value = false;
+    _xpEmVoo = null;
     estadoSituacao = EstadoSituacao.desconhecido;
     _ultimaSincronizacao = null;
     _emVoo = null;

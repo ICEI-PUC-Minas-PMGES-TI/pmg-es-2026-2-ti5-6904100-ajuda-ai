@@ -28,6 +28,7 @@ class CampusMapControls extends StatefulWidget {
     super.key,
     required this.controller,
     this.onPucStopClaimed,
+    this.pucStopRewardNotice,
     this.showEvents = true,
     this.showRestaurants = true,
     this.openExternalUrl,
@@ -39,6 +40,7 @@ class CampusMapControls extends StatefulWidget {
 
   /// Coleta confirmada pelo servidor (gancho para XP do app e som).
   final ValueChanged<CampusPucStopClaim>? onPucStopClaimed;
+  final String? Function(CampusPucStop stop)? pucStopRewardNotice;
 
   /// Chips "Eventos" e "Onde comer" (só com serviço de conteúdo).
   final bool showEvents;
@@ -938,6 +940,7 @@ class _CampusMapControlsState extends State<CampusMapControls> {
                 pucStop.id,
               ),
               canClaim: widget.controller.pucStopService?.canClaim ?? false,
+              rewardNotice: widget.pucStopRewardNotice?.call(pucStop),
               onMeasure: _measurePucStop,
               onClose: _closePucStop,
             ),
@@ -2065,12 +2068,16 @@ class _PucStopCard extends StatelessWidget {
     required this.canClaim,
     required this.onMeasure,
     required this.onClose,
+    this.rewardNotice,
   });
 
   final CampusPucStop stop;
   final _PucStopView view;
   final bool collected;
   final bool canClaim;
+
+  /// Aviso antes do giro (teto do semestre); some depois da coleta.
+  final String? rewardNotice;
   final VoidCallback onMeasure;
   final VoidCallback onClose;
 
@@ -2093,7 +2100,11 @@ class _PucStopCard extends StatelessWidget {
     final (icon, label, color) = switch (state) {
       CampusPucStopState.collected => (
         Icons.check_circle,
-        claim != null ? 'XP coletado!' : 'Já coletado',
+        claim == null
+            ? 'Já coletado'
+            : claim.xpGained > 0
+            ? 'XP coletado!'
+            : 'Visita registrada',
         const Color(0xFF15803D),
       ),
       CampusPucStopState.unavailable => (
@@ -2200,9 +2211,9 @@ class _PucStopCard extends StatelessWidget {
               child: switch (state) {
                 CampusPucStopState.unavailable => const SizedBox.shrink(),
                 CampusPucStopState.collected => _SpinHint(
-                  claim != null
+                  claim != null && claim.xpGained > 0
                       ? 'Gire o topo quando quiser: o XP já é seu.'
-                      : 'Já coletado. Você ainda pode girar o topo.',
+                      : 'Já coletado neste semestre. Você ainda pode girar o topo.',
                 ),
                 _ when !canClaim => Text(
                   'Entre na sua conta para coletar XP.',
@@ -2226,8 +2237,26 @@ class _PucStopCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                CampusPucStopState.available => const _SpinHint(
-                  'Arraste para os lados e gire o topo para coletar o XP.',
+                CampusPucStopState.available => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (rewardNotice != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          rewardNotice!,
+                          key: const Key('campus-pucstop-notice'),
+                          style: text.bodySmall?.copyWith(
+                            color: const Color(0xFFB45309),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    const _SpinHint(
+                      'Arraste para os lados e gire o topo para coletar o XP.',
+                    ),
+                  ],
                 ),
               },
             ),
@@ -2291,12 +2320,37 @@ class _ClaimReward extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.only(top: 6),
-        child: Text(
-          '+${claim.xpGained} XP · total ${claim.xpTotal} XP',
-          style: text.titleMedium?.copyWith(
-            color: const Color(0xFF15803D),
-            fontWeight: FontWeight.w700,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              claim.xpGained > 0
+                  ? '+${claim.xpGained} XP · +${claim.coinsGained} moedas'
+                  : 'Sem XP desta vez',
+              style: text.titleMedium?.copyWith(
+                color: const Color(0xFF15803D),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (claim.capReached)
+              Text(
+                claim.xpGained > 0
+                    ? 'Você chegou ao limite de XP de totens deste semestre.'
+                    : 'Limite de XP de totens do semestre já atingido: a visita fica registrada.',
+                style: text.bodySmall,
+              ),
+            if (claim.levelUp && claim.levelNumber != null)
+              Text(
+                'Subiu para o nível ${claim.levelNumber}'
+                '${claim.levelName == null ? '' : ' · ${claim.levelName}'}!',
+                key: const Key('campus-pucstop-level-up'),
+                style: text.bodyMedium?.copyWith(
+                  color: const Color(0xFF6D28D9),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+          ],
         ),
       ),
     );

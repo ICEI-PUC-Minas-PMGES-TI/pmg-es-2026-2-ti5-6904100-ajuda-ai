@@ -8,7 +8,26 @@ import { dataCurta } from './comum';
 import SeletorPucStopMapa, { pontoDentroDoPoligono } from './SeletorPucStopMapa';
 
 /** Limites iguais aos do servidor (que continua sendo a autoridade). */
-export const LIMITES_PUCSTOP = { nomeMax: 120, xpMin: 1, xpMax: 1000, raioMin: 10, raioMax: 200 };
+export const LIMITES_PUCSTOP = { nomeMax: 120, raioMin: 10, raioMax: 200 };
+/** Recompensas aceitas pelo servidor (BL-50); as moedas acompanham 1:1. */
+export const RECOMPENSAS_PUCSTOP = [10, 20, 30, 40, 50];
+export const RECOMPENSA_PUCSTOP_PADRAO = 30;
+
+/**
+ * XP potencial dos totens ativos depois de salvar: tira o valor antigo do
+ * próprio totem (se ativo) e soma o novo (se continua ativo). Inativos não
+ * entram no orçamento.
+ */
+export function potencialAposSalvar({ potencialAtual, original = null, novoXp }) {
+  const ativo = !original || original.ativo === true;
+  const antigo = original && original.ativo === true ? Number(original.xp) : 0;
+  return potencialAtual - antigo + (ativo ? novoXp : 0);
+}
+
+/** Aviso informativo (nunca bloqueia) quando o mapa passa do teto individual. */
+export function avisoTetoTotens(potencial, limite) {
+  return `Os totens ativos oferecem ${potencial} XP. Cada participante poderá receber até ${limite} XP neste ciclo. Após atingir o limite, novas visitas serão registradas sem recompensas adicionais.`;
+}
 
 const FILTROS = [
   { valor: 'todos', rotulo: 'Todos' },
@@ -20,7 +39,7 @@ const FILTROS = [
 export function formDoPucStop(pucstop) {
   return {
     nome: pucstop?.nome ?? '',
-    xp: pucstop ? String(pucstop.xp) : '',
+    xp: pucstop ? String(pucstop.xp) : String(RECOMPENSA_PUCSTOP_PADRAO),
     raioMetros: pucstop ? String(pucstop.raioMetros) : '30',
     latitude: pucstop?.latitude ?? null,
     longitude: pucstop?.longitude ?? null,
@@ -30,13 +49,13 @@ export function formDoPucStop(pucstop) {
 
 /** Primeira inconsistência do formulário, ou '' se pode ser enviado. */
 export function validarPucStop(form, { criando = false } = {}) {
-  const { nomeMax, xpMin, xpMax, raioMin, raioMax } = LIMITES_PUCSTOP;
+  const { nomeMax, raioMin, raioMax } = LIMITES_PUCSTOP;
   const nome = String(form.nome ?? '').trim();
   if (!nome) return 'Informe o nome do PucStop.';
   if (nome.length > nomeMax) return `O nome deve ter no máximo ${nomeMax} caracteres.`;
   const xpTexto = String(form.xp ?? '').trim();
   const xp = Number(xpTexto);
-  if (!xpTexto || !Number.isInteger(xp) || xp < xpMin || xp > xpMax) return `O XP deve ser um número inteiro entre ${xpMin} e ${xpMax}.`;
+  if (!xpTexto || !RECOMPENSAS_PUCSTOP.includes(xp)) return 'Escolha a recompensa: 10, 20, 30, 40 ou 50 XP.';
   const raioTexto = String(form.raioMetros ?? '').trim();
   const raio = Number(raioTexto);
   if (!raioTexto || !Number.isFinite(raio) || raio < raioMin || raio > raioMax) return `O raio da geofence deve estar entre ${raioMin} e ${raioMax} metros.`;
@@ -93,7 +112,7 @@ export function ListaPucStops({ pucstops, ocupadoId = null, onEditar, onExcluir,
           <tr>
             <th scope="col">PucStop</th>
             <th scope="col">Status</th>
-            <th scope="col">XP</th>
+            <th scope="col">Recompensa</th>
             <th scope="col">Raio</th>
             <th scope="col">Coletas</th>
             <th scope="col">Atualizado em</th>
@@ -112,7 +131,7 @@ export function ListaPucStops({ pucstops, ocupadoId = null, onEditar, onExcluir,
                   </span>
                 </td>
                 <td data-label="Status"><span className={`flag ${p.ativo ? 'green' : 'muted'}`}>{p.ativo ? 'Ativo' : 'Inativo'}</span></td>
-                <td data-label="XP">{p.xp} XP</td>
+                <td data-label="Recompensa">{p.xp} XP + {p.xp} moedas</td>
                 <td data-label="Raio">{formatarNumero(p.raioMetros)} m</td>
                 <td data-label="Coletas">{p.coletas ?? 0}</td>
                 <td data-label="Atualizado em">{dataCurta(p.atualizadoEm) || '—'}</td>
@@ -218,7 +237,7 @@ export function SeletorPosicaoPucStop({ campus, erroCampus, inicial, raioMetros,
 }
 
 /** Formulário de criação/edição; o mapa 3D abre separado, em tela cheia. */
-export function FormularioPucStop({ original, campus, erroCampus, outros, onCancelar, onSalvo }) {
+export function FormularioPucStop({ original, campus, erroCampus, outros, orcamento = null, onCancelar, onSalvo }) {
   const criando = !original;
   const [form, setForm] = useState(() => formDoPucStop(original));
   const [salvando, setSalvando] = useState(false);
@@ -259,7 +278,7 @@ export function FormularioPucStop({ original, campus, erroCampus, outros, onCanc
   }
 
   const fechar = () => { if (!salvando) onCancelar(); };
-  const { nomeMax, xpMin, xpMax, raioMin, raioMax } = LIMITES_PUCSTOP;
+  const { nomeMax, raioMin, raioMax } = LIMITES_PUCSTOP;
 
   return (
     <Modal
@@ -284,17 +303,22 @@ export function FormularioPucStop({ original, campus, erroCampus, outros, onCanc
         </label>
         <div className="editor-grid pucstop-grid">
           <label className="editor-field" htmlFor={`${base}-xp`}>
-            <span>XP por coleta</span>
-            <input id={`${base}-xp`} type="number" inputMode="numeric" min={xpMin} max={xpMax} step="1" value={form.xp} required onChange={(e) => campo('xp', e.target.value)} />
+            <span>Recompensa pela coleta</span>
+            <select id={`${base}-xp`} value={form.xp} required onChange={(e) => campo('xp', e.target.value)}>
+              {RECOMPENSAS_PUCSTOP.map((v) => (
+                <option key={v} value={String(v)}>{v} XP + {v} moedas</option>
+              ))}
+            </select>
           </label>
           <label className="editor-field" htmlFor={`${base}-raio`}>
             <span>Raio da geofence (m)</span>
             <input id={`${base}-raio`} type="number" inputMode="decimal" min={raioMin} max={raioMax} step="1" value={form.raioMetros} required onChange={(e) => campo('raioMetros', e.target.value)} />
           </label>
         </div>
+        {orcamento && <ImpactoOrcamento orcamento={orcamento} original={original} novoXp={Number(form.xp)} />}
         <p className="field-hint">
-          XP de {xpMin} a {xpMax}; raio de {raioMin} a {raioMax} m (distância em que o aluno consegue coletar).
-          {!criando && ' Alterar o XP vale só para novas coletas: as anteriores mantêm o XP concedido.'}
+          Cada aluno recebe a recompensa uma vez por semestre; raio de {raioMin} a {raioMax} m (distância em que o aluno consegue coletar).
+          {!criando && ' Alterar a recompensa vale só para novas coletas: as anteriores mantêm o que foi concedido.'}
         </p>
 
         <fieldset className="pucstop-position">
@@ -345,6 +369,51 @@ export function FormularioPucStop({ original, campus, erroCampus, outros, onCanc
   );
 }
 
+/** Economia dos totens: o que o mapa oferece frente ao teto por participante. Só informa. */
+export function OrcamentoPucStops({ orcamento }) {
+  const faixas = (orcamento.distribuicao ?? []).filter((d) => d.totens > 0);
+  const porAluno = Math.min(orcamento.xpPotencial, orcamento.limitePorCiclo);
+  return (
+    <div className={`dash-card pucstop-orcamento${orcamento.excedeLimite ? ' alerta' : ''}`} role="status">
+      <strong>
+        {orcamento.ativos} totens ativos{orcamento.inativos > 0 ? ` · ${orcamento.inativos} inativos` : ''}
+      </strong>
+      <p className="small">
+        XP potencial: {orcamento.xpPotencial} XP ({orcamento.moedasPotenciais ?? orcamento.xpPotencial} moedas) · recompensa média: {orcamento.recompensaMedia ?? 0} XP por totem.
+      </p>
+      {faixas.length > 0 && (
+        <p className="detail-muted small">Por faixa: {faixas.map((d) => `${d.totens}× ${d.xp} XP`).join(' · ')}.</p>
+      )}
+      <p className="detail-muted small">
+        Limite individual: {orcamento.limitePorCiclo} XP de totens por participante e semestre.
+      </p>
+      {orcamento.participantesElegiveis != null && orcamento.emissaoMaximaEstimada != null && (
+        <p className="detail-muted small">
+          Estimativa teórica de emissão no ciclo: até {orcamento.emissaoMaximaEstimada} moedas ({orcamento.participantesElegiveis} participantes elegíveis × {porAluno} XP). Não é o saldo real dos participantes.
+        </p>
+      )}
+      {orcamento.excedeLimite && <p className="small">{avisoTetoTotens(orcamento.xpPotencial, orcamento.limitePorCiclo)}</p>}
+    </div>
+  );
+}
+
+/** No formulário: recompensa escolhida e o potencial do mapa antes e depois. */
+export function ImpactoOrcamento({ orcamento, original, novoXp }) {
+  if (!Number.isInteger(novoXp)) return null;
+  const atual = orcamento.xpPotencial;
+  const depois = potencialAposSalvar({ potencialAtual: atual, original, novoXp });
+  const inativo = original && original.ativo !== true;
+  return (
+    <div className={`pucstop-impacto${depois > orcamento.limitePorCiclo ? ' alerta' : ''}`} role="status">
+      <p className="small">Recompensa selecionada: {novoXp} XP + {novoXp} moedas.</p>
+      <p className="small">XP potencial atual do mapa: {atual} XP.</p>
+      <p className="small">XP potencial {original ? 'após a alteração' : 'após o cadastro'}: {depois} XP.</p>
+      {inativo && <p className="detail-muted small">Este totem está inativo: ele não entra no orçamento até ser reativado.</p>}
+      {depois > orcamento.limitePorCiclo && <p className="small">{avisoTetoTotens(depois, orcamento.limitePorCiclo)}</p>}
+    </div>
+  );
+}
+
 export default function PucStopsPage() {
   const mostrarToast = useToast();
   const [pucstops, setPucstops] = useState(null);
@@ -357,7 +426,20 @@ export default function PucStopsPage() {
   const [excluindo, setExcluindo] = useState(null);
   const [erroExclusao, setErroExclusao] = useState('');
   const [ocupadoId, setOcupadoId] = useState(null);
+  const [orcamento, setOrcamento] = useState(null);
   const trava = useRef(false);
+
+  // Orçamento é informativo: sem ele a página segue funcionando.
+  const carregarOrcamento = useCallback(async () => {
+    try {
+      setOrcamento(await api.orcamentoPucStops());
+    } catch {
+      setOrcamento(null);
+    }
+  }, []);
+  useEffect(() => {
+    carregarOrcamento();
+  }, [carregarOrcamento, pucstops]);
 
   const carregar = useCallback(async () => {
     setErro('');
@@ -437,7 +519,7 @@ export default function PucStopsPage() {
       <header className="dash-header">
         <div>
           <h1>Gerenciar totens</h1>
-          <p>Totens do mapa do campus em que os alunos coletam XP uma única vez. Valem para todos os programas.</p>
+          <p>Totens do mapa do campus. Cada aluno coleta cada totem uma vez por semestre e recebe XP + moedas.</p>
         </div>
         <button type="button" className="primary-button inline" onClick={() => setEditando('novo')}>
           <Icon name="plus" size={17} /> Novo totem
@@ -453,6 +535,8 @@ export default function PucStopsPage() {
           ))}
         </div>
       )}
+
+      {orcamento && <OrcamentoPucStops orcamento={orcamento} />}
 
       {erro && <div className="dash-inline-error" role="alert">{erro}<button type="button" onClick={carregar}>Tentar novamente</button></div>}
       {erroAcao && <div className="dash-inline-error" role="alert">{erroAcao}<button type="button" onClick={() => setErroAcao('')}>Fechar</button></div>}
@@ -482,10 +566,12 @@ export default function PucStopsPage() {
           campus={campus}
           erroCampus={erroCampus}
           outros={outros}
+          orcamento={orcamento}
           onCancelar={() => setEditando(null)}
           onSalvo={(salvo, criado) => {
             substituir(salvo);
             setEditando(null);
+            carregarOrcamento();
             mostrarToast(criado ? `PucStop "${salvo.nome}" criado.` : `PucStop "${salvo.nome}" atualizado.`, 'sucesso');
           }}
         />

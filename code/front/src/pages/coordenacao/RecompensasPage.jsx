@@ -77,7 +77,7 @@ export function validarRecompensa(form, { criando = false, agora = Date.now() } 
   if (imagem && !/^https:\/\/\S+$/i.test(imagem)) return 'A imagem deve ser um endereço https://.';
   if (imagem.length > L.imagemMax) return `O endereço da imagem deve ter no máximo ${L.imagemMax} caracteres.`;
   const custo = inteiro(form.custoXp);
-  if (!Number.isInteger(custo) || custo < L.custoMin || custo > L.custoMax) return `O custo deve ser um número inteiro de ${L.custoMin} a ${L.custoMax} XP.`;
+  if (!Number.isInteger(custo) || custo < L.custoMin || custo > L.custoMax) return `O custo deve ser um número inteiro de ${L.custoMin} a ${L.custoMax} moedas.`;
   const condicoes = String(form.condicoesRetirada ?? '').trim();
   if (!condicoes) return 'Informe as condições de retirada.';
   if (condicoes.length > L.condicoesMax) return `As condições devem ter no máximo ${L.condicoesMax} caracteres.`;
@@ -232,7 +232,7 @@ export function ListaRecompensas({ recompensas, ocupadoId = null, onEditar, onEs
                   <span className={`flag ${TOM_STATUS[r.status] || 'muted'}`}>{ROTULO_STATUS[r.status] || r.status}</span>
                   {r.status === 'publicada' && !r.disponivelAgora && <small className="recompensa-sub">fora da vigência</small>}
                 </td>
-                <td data-label="Custo">{Number(r.custoXp).toLocaleString('pt-BR')} XP</td>
+                <td data-label="Custo">{Number(r.custoXp).toLocaleString('pt-BR')} moedas</td>
                 <td data-label="Estoque">
                   {textoEstoque(r.estoque)}
                   {r.estoque?.comprometido > 0 && <small className="recompensa-sub">{r.estoque.comprometido} comprometida(s)</small>}
@@ -512,7 +512,7 @@ export function FormularioRecompensa({ original, programas = [], onCancelar, onS
   return (
     <Modal
       titulo={criando ? 'Nova recompensa' : `Editar "${original.nome}"`}
-      descricao={criando ? 'Defina o que o aluno recebe, quanto custa em XP e como retirar.' : `Versão atual: v${original.versao}.`}
+      descricao={criando ? 'Defina o que o aluno recebe, quanto custa em moedas e como retirar. Referência: brindes 100–200, itens úteis 300–450, premium 600–800, experiências 250–500 moedas.' : `Versão atual: v${original.versao}.`}
       onFechar={fechar}
       tamanho="lg"
       className="recompensa-modal"
@@ -536,7 +536,7 @@ export function FormularioRecompensa({ original, programas = [], onCancelar, onS
         </label>
         <div className="editor-grid pucstop-grid">
           <label className="editor-field" htmlFor={`${base}-custo`}>
-            <span>Custo em XP</span>
+            <span>Custo em moedas</span>
             <input id={`${base}-custo`} type="number" inputMode="numeric" min={L.custoMin} max={L.custoMax} step="1" value={form.custoXp} required onChange={(e) => campo('custoXp', e.target.value)} />
           </label>
           <label className="editor-field" htmlFor={`${base}-imagem`}>
@@ -714,7 +714,7 @@ export function AjusteEstoque({ recompensa, onFechar, onSalvo }) {
           <ul className="recompensa-historico">
             {detalhe.versoes.map((v) => (
               <li key={v.versao}>
-                <strong>v{v.versao}</strong> {v.nome} · {Number(v.custoXp).toLocaleString('pt-BR')} XP
+                <strong>v{v.versao}</strong> {v.nome} · {Number(v.custoXp).toLocaleString('pt-BR')} moedas
                 <span className="detail-muted"> · {dataCurta(v.criadoEm)}</span>
               </li>
             ))}
@@ -814,7 +814,7 @@ export default function RecompensasPage() {
       <header className="dash-header">
         <div>
           <h1>Lojinha</h1>
-          <p>Recompensas que os alunos trocam por XP. Valem para todos os programas, salvo quando restritas a um deles.</p>
+          <p>Recompensas que os alunos trocam por moedas (o XP e o nível deles não diminuem). Valem para todos os programas, salvo quando restritas a um deles.</p>
         </div>
         <button type="button" className="primary-button inline" onClick={() => setEditando('novo')}>
           <Icon name="plus" size={17} /> Nova recompensa
@@ -834,7 +834,7 @@ export default function RecompensasPage() {
       {erro && <div className="dash-inline-error" role="alert">{erro}<button type="button" onClick={carregar}>Tentar novamente</button></div>}
       {erroAcao && <div className="dash-inline-error" role="alert">{erroAcao}<button type="button" onClick={() => setErroAcao('')}>Fechar</button></div>}
       {!recompensas && !erro && <div className="coord-state" role="status"><div className="coord-spinner" aria-hidden="true" /><p>Carregando recompensas…</p></div>}
-      {recompensas?.length === 0 && <p className="empty-copy">Nenhuma recompensa cadastrada. Crie a primeira com custo em XP e condições de retirada.</p>}
+      {recompensas?.length === 0 && <p className="empty-copy">Nenhuma recompensa cadastrada. Crie a primeira com custo em moedas e condições de retirada.</p>}
       {recompensas && recompensas.length > 0 && lista.length === 0 && <p className="empty-copy">Nenhuma recompensa com este filtro.</p>}
 
       {lista.length > 0 && (

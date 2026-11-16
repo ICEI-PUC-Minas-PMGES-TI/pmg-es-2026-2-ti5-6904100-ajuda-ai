@@ -416,6 +416,14 @@ export const api = {
   pucstops() {
     return requestMapa('/coordenacao/pucstops');
   },
+  /** Economia dos totens: ativos, XP potencial e teto por aluno e semestre. */
+  orcamentoPucStops() {
+    return requestMapa('/coordenacao/pucstops/orcamento');
+  },
+  /** Progresso do aluno logado: nível, XP acumulado, moedas e tetos (BL-50). */
+  progressoAluno() {
+    return request('/me/xp', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
   /** Área do campus onde o servidor aceita PucStops (limite, bbox e centro). */
   campusPucStops() {
     return requestMapa('/coordenacao/pucstops/campus');

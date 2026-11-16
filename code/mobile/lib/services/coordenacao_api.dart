@@ -629,6 +629,15 @@ class CoordenacaoApi {
   );
 
   /// Limite da versão ativa do campus usado pelo seletor de posição.
+  /// Economia dos totens: ativos, XP potencial e o teto por aluno e ciclo.
+  Future<Map<String, dynamic>> orcamentoPucStops() async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/pucstops/orcamento',
+      erro: 'Falha ao carregar o orçamento dos totens',
+    ),
+  );
+
   Future<Map<String, dynamic>> campusPucStops() async => _mapa(
     await _enviar(
       'GET',

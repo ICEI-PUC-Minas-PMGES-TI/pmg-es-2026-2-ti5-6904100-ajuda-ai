@@ -12,12 +12,12 @@ import 'tela_feed.dart';
 import 'tela_historico.dart';
 import 'tela_login.dart';
 import 'tela_padrinho_definido.dart';
-import 'tela_resgatar.dart' show formatarXp;
 import 'tela_status_candidatura.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
 import 'widgets/aviso_mapa.dart';
 import 'widgets/navegacao_app.dart';
+import 'widgets/progresso_gamificacao.dart';
 import 'widgets/perfil_componentes.dart';
 
 const _borda = corBordaPerfil;
@@ -960,8 +960,8 @@ class _CampoTexto extends StatelessWidget {
   }
 }
 
-/// XP global do aluno (`GET /me/xp`), igual para qualquer ciclo. Some sem
-/// sessão ou sem resposta (ex.: coordenação, que não acumula XP).
+/// Progresso do aluno (`GET /me/xp`): nível, barra e moedas, iguais em
+/// qualquer ciclo. Some sem sessão ou sem resposta (ex.: coordenação).
 class _XpGlobal extends StatefulWidget {
   const _XpGlobal();
 
@@ -977,36 +977,5 @@ class _XpGlobalState extends State<_XpGlobal> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<int?>(
-      valueListenable: SessaoUsuario.atual.xp,
-      builder: (context, saldo, _) {
-        if (saldo == null) return const SizedBox.shrink();
-        return Padding(
-          key: const Key('perfil-xp'),
-          padding: const EdgeInsets.only(top: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.star_rounded,
-                size: 18,
-                color: Color(0xFFF59E0B),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '${formatarXp(saldo)} XP',
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  color: AppColors.ink,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => const ResumoProgressoCompacto();
 }

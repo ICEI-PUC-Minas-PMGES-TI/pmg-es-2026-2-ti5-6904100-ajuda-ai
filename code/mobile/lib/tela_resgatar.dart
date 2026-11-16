@@ -80,7 +80,7 @@ class ItemResgate {
   String status(int saldo) => switch (motivo(saldo)) {
     'esgotada' => 'Esgotado',
     'limite' => 'Limite atingido',
-    'saldo' => 'Faltam ${formatarXp(custoXp - saldo)} XP',
+    'saldo' => 'Faltam ${formatarXp(custoXp - saldo)} moedas',
     _ => estoque == null ? 'Estoque ilimitado' : '$estoque em estoque',
   };
 
@@ -553,7 +553,7 @@ class CartaoSaldo extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${formatarXp(saldoXp)} XP',
+                  '${formatarXp(saldoXp)} moedas',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 26,
@@ -647,7 +647,7 @@ class _ResgatarPageState extends State<ResgatarPage> {
   Widget build(BuildContext context) {
     return EstruturaLojinha(
       titulo: 'Lojinha',
-      subtitulo: 'Troque seus XP por itens exclusivos do Ajuda-aí.',
+      subtitulo: 'Troque suas moedas por itens exclusivos do Ajuda-aí. Seu XP e seu nível não diminuem.',
       corpo: RefreshIndicator(
         onRefresh: _carregar,
         child: ListView(
@@ -688,7 +688,7 @@ class _ResgatarPageState extends State<ResgatarPage> {
             const SizedBox(height: 12),
             LinhaMenuLojinha(
               icone: Icons.receipt_long_outlined,
-              texto: 'Extrato de XP',
+              texto: 'Extrato de moedas',
               onTap: () => _ir(TelaExtratoXp(api: _api)),
             ),
           ],
@@ -720,7 +720,7 @@ class _SemItens extends StatelessWidget {
           ),
           SizedBox(height: 6),
           Text(
-            'A coordenação vai cadastrar os itens em breve. Continue acumulando XP!',
+            'A coordenação vai cadastrar os itens em breve. Continue acumulando moedas!',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: 'Inter',
@@ -771,7 +771,7 @@ class _CardItem extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${formatarXp(item.custoXp)} XP',
+                  '${formatarXp(item.custoXp)} moedas',
                   style: const TextStyle(
                     color: AppColors.primary,
                     fontSize: 17,
@@ -882,7 +882,7 @@ class TelaDetalheRecompensa extends StatelessWidget {
       _Indicador(
         icone: Icons.toll_outlined,
         rotulo: 'Custo',
-        valor: '${formatarXp(item.custoXp)} XP',
+        valor: '${formatarXp(item.custoXp)} moedas',
         destaque: true,
       ),
       _Indicador(
@@ -1104,19 +1104,19 @@ class _TelaRevisaoResgateState extends State<TelaRevisaoResgate> {
                   _LinhaValor(
                     icone: Icons.toll_outlined,
                     rotulo: 'Custo do resgate',
-                    valor: '${formatarXp(item.custoXp)} XP',
+                    valor: '${formatarXp(item.custoXp)} moedas',
                   ),
                   const Divider(height: 1, color: CoresLojinha.divisor),
                   _LinhaValor(
                     icone: Icons.account_balance_wallet_outlined,
                     rotulo: 'Seu saldo atual',
-                    valor: '${formatarXp(widget.saldoXp)} XP',
+                    valor: '${formatarXp(widget.saldoXp)} moedas',
                   ),
                   const Divider(height: 1, color: CoresLojinha.divisor),
                   _LinhaValor(
                     icone: Icons.savings_outlined,
                     rotulo: 'Seu saldo após a troca',
-                    valor: '${formatarXp(depois)} XP',
+                    valor: '${formatarXp(depois)} moedas',
                   ),
                 ],
               ),
@@ -1125,7 +1125,7 @@ class _TelaRevisaoResgateState extends State<TelaRevisaoResgate> {
             BlocoCondicoes(texto: item.condicoesRetirada),
             const SizedBox(height: 12),
             const Text(
-              'O XP é debitado na confirmação e a troca não pode ser desfeita pelo app.',
+              'As moedas são debitadas na confirmação e a troca não pode ser desfeita pelo app. Seu XP e seu nível não mudam.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: 'Inter',
