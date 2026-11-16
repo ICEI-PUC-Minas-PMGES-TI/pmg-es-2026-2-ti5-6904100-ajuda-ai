@@ -199,19 +199,66 @@ void main() {
       expect(CampusPucStopLayer.pickable, [
         CampusPucStopLayer.dot,
         CampusPucStopLayer.halo,
+        CampusPucStopLayer.aura,
       ]);
       final manifest = CampusModelManifest.parse(
         File('assets/data/campus_models.json').readAsStringSync(),
       );
       final totem = CampusPucStopLayer.totemLayer(manifest.pucStopModel!);
       expect(totem['type'], 'model');
+      expect(totem['source'], CampusPucStopLayer.modelSource);
       expect(totem['minzoom'], 16.5);
-      expect(totem['filter'], [
+      // Sem filtro de estado: o totem fica no mapa depois da coleta.
+      expect(totem.containsKey('filter'), isFalse);
+      // Topo (anéis + joia) gira pelo feature-state, como no PUCMaps.
+      final rotation = jsonEncode(totem['paint']['model-rotation']);
+      expect(rotation, contains('Aneis_Bronze'));
+      expect(rotation, contains('Joia_Azul'));
+      expect(rotation, contains('"feature-state","topo"'));
+    });
+
+    test('totem continua depois da coleta e ganha aura verde', () {
+      final manifest = CampusModelManifest.parse(
+        File('assets/data/campus_models.json').readAsStringSync(),
+      );
+      final model = manifest.pucStopModel!;
+      final url = Uri.parse('https://cdn.test/models/pucstops/torre.glb');
+      final models = CampusPucStopLayer.models(
+        [_biblioteca, _medicina],
+        model,
+        url,
+      );
+      // Um modelo por PucStop, coletado ou não, com o topo endereçável.
+      expect(models.keys, [_biblioteca.id, _medicina.id]);
+      expect(models[_medicina.id]['position'], [
+        _medicina.longitude,
+        _medicina.latitude,
+      ]);
+      expect(models[_medicina.id]['nodeOverrideNames'], [
+        'Aneis_Bronze',
+        'Joia_Azul',
+      ]);
+      expect(models[_medicina.id]['orientation'], [0, 0, 180]);
+      final layers = {for (final l in CampusPucStopLayer.layers) l['id']: l};
+      for (final id in [CampusPucStopLayer.aura, CampusPucStopLayer.ring]) {
+        expect(layers[id]!['filter'], [
+          '==',
+          ['get', 'state'],
+          'collected',
+        ]);
+        expect(
+          jsonEncode(layers[id]!['paint']),
+          contains('#22c55e'.toUpperCase()),
+        );
+      }
+      expect(layers[CampusPucStopLayer.halo]!['filter'], [
         '==',
         ['get', 'state'],
         'available',
       ]);
-      expect(totem['paint']['model-rotation'], [0, 0, 180]);
+      expect(jsonDecode(CampusPucStopLayer.topRotation(90)), {
+        'topo': [0.0, 90.0, 0.0],
+      });
     });
   });
 
@@ -436,12 +483,16 @@ void main() {
     });
     tearDown(() => controller.dispose());
 
-    Future<void> mount(WidgetTester tester) => tester.pumpWidget(
+    Future<void> mount(
+      WidgetTester tester, {
+      String? Function(CampusPucStop)? aviso,
+    }) => tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: CampusMapControls(
             controller: controller,
             onPucStopClaimed: claimed.add,
+            pucStopRewardNotice: aviso,
           ),
         ),
       ),
@@ -451,6 +502,22 @@ void main() {
       controller.selectPucStop(stop.id);
       await tester.pumpAndSettle();
     }
+
+    /// Topo girado até parar: a view chama isto ao fim da animação do giro.
+    Future<void> spin(WidgetTester tester) async {
+      controller.completePucStopSpin(_biblioteca.id);
+      await tester.pump();
+    }
+
+    String hint(WidgetTester tester) => tester
+        .widgetList<Text>(
+          find.descendant(
+            of: find.byKey(const Key('campus-pucstop-hint')),
+            matching: find.byType(Text),
+          ),
+        )
+        .single
+        .data!;
 
     String state(WidgetTester tester) => tester
         .widgetList<Text>(
@@ -462,7 +529,67 @@ void main() {
         .single
         .data!;
 
-    testWidgets('no alcance: nome, XP, distância e coleta manual', (
+    testWidgets('BL-50: crédito parcial pelo teto e subida de nível', (
+      tester,
+    ) async {
+      service.resposta = const CampusPucStopClaim(
+        pucStopId: 'biblioteca',
+        xpGained: 20,
+        coinsGained: 20,
+        xpTotal: 400,
+        distanceMeters: 12,
+        capReached: true,
+        levelUp: true,
+        levelNumber: 4,
+        levelName: 'Descoberta',
+      );
+      await mount(tester);
+      await select(tester, _biblioteca);
+      await spin(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('+20 XP · +20 moedas'), findsOneWidget);
+      expect(
+        find.text('Você chegou ao limite de XP de totens deste semestre.'),
+        findsOneWidget,
+      );
+      expect(find.text('Subiu para o nível 4 · Descoberta!'), findsOneWidget);
+      expect(state(tester), 'XP coletado!');
+    });
+
+    testWidgets('BL-50: teto já cheio registra a visita sem XP', (
+      tester,
+    ) async {
+      service.resposta = const CampusPucStopClaim(
+        pucStopId: 'biblioteca',
+        xpGained: 0,
+        xpTotal: 400,
+        distanceMeters: 12,
+        capReached: true,
+      );
+      await mount(tester);
+      await select(tester, _biblioteca);
+      await spin(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('Sem XP desta vez'), findsOneWidget);
+      expect(state(tester), 'Visita registrada');
+      expect(find.textContaining('+0'), findsNothing);
+    });
+
+    testWidgets('BL-50: aviso do teto aparece antes do giro', (tester) async {
+      await mount(
+        tester,
+        aviso: (stop) => 'Restam 20 XP no seu limite: esta coleta vale 20 XP.',
+      );
+      await select(tester, _biblioteca);
+      expect(find.byKey(const Key('campus-pucstop-notice')), findsOneWidget);
+      expect(
+        hint(tester),
+        'Arraste para os lados e gire o topo para coletar o XP.',
+      );
+      expect(service.claims, isEmpty);
+    });
+
+    testWidgets('no alcance: abrir não coleta; XP só depois de girar o topo', (
       tester,
     ) async {
       await mount(tester);
@@ -472,15 +599,29 @@ void main() {
       expect(find.text('+50 XP'), findsOneWidget);
       expect(state(tester), 'Você está no alcance');
       expect(find.text('A 12 m · raio de 40 m'), findsOneWidget);
-      expect(service.claims, isEmpty, reason: 'sem coleta automática');
+      expect(
+        hint(tester),
+        'Arraste para os lados e gire o topo para coletar o XP.',
+      );
+      expect(service.claims, isEmpty, reason: 'abrir o totem não coleta');
+      // Sem botão de coleta: a ação é o giro.
+      expect(find.byKey(const Key('campus-pucstop-claim')), findsNothing);
+      // Giro de outro totem (fora de foco) é ignorado.
+      controller.completePucStopSpin(_medicina.id);
+      await tester.pump();
+      expect(service.claims, isEmpty);
 
-      await tester.tap(find.byKey(const Key('campus-pucstop-claim')));
+      await spin(tester);
       await tester.pumpAndSettle();
       expect(service.claims, hasLength(1));
-      expect(find.text('+50 XP · total 320 XP'), findsOneWidget);
+      expect(find.text('+50 XP · +50 moedas'), findsOneWidget);
       expect(state(tester), 'XP coletado!');
-      expect(find.byKey(const Key('campus-pucstop-claim')), findsNothing);
+      expect(hint(tester), 'Gire o topo quando quiser: o XP já é seu.');
       expect(claimed.single.xpTotal, 320);
+      // Girar de novo não coleta outra vez.
+      await spin(tester);
+      await tester.pumpAndSettle();
+      expect(service.claims, hasLength(1));
     });
 
     testWidgets('fora de alcance: estado em texto e atualizar distância', (
@@ -490,7 +631,7 @@ void main() {
       await mount(tester);
       await select(tester, _biblioteca);
       expect(state(tester), 'Fora de alcance: aproxime-se');
-      expect(find.byKey(const Key('campus-pucstop-claim')), findsNothing);
+      expect(hint(tester), 'Aproxime-se e gire o topo para coletar.');
       location.next = _perto;
       await tester.tap(find.byKey(const Key('campus-pucstop-measure')));
       await tester.pumpAndSettle();
@@ -504,7 +645,7 @@ void main() {
       service.distance = 52.3;
       await mount(tester);
       await select(tester, _biblioteca);
-      await tester.tap(find.byKey(const Key('campus-pucstop-claim')));
+      await spin(tester);
       await tester.pumpAndSettle();
       expect(
         find.text('Você está a 52 m. Chegue a 40 m para coletar.'),
@@ -514,12 +655,20 @@ void main() {
       expect(claimed, isEmpty);
     });
 
-    testWidgets('já coletado: sem botão de coleta', (tester) async {
+    testWidgets('já coletado: totem segue girável, sem nova coleta', (
+      tester,
+    ) async {
       controller.collectedPucStops.value = {_biblioteca.id};
       await mount(tester);
       await select(tester, _biblioteca);
       expect(state(tester), 'Já coletado');
-      expect(find.byKey(const Key('campus-pucstop-claim')), findsNothing);
+      expect(
+        hint(tester),
+        'Já coletado neste semestre. Você ainda pode girar o topo.',
+      );
+      await spin(tester);
+      await tester.pumpAndSettle();
+      expect(service.claims, isEmpty);
     });
 
     testWidgets('segunda coleta recusada pelo servidor vira "já coletado"', (
@@ -528,7 +677,7 @@ void main() {
       service.failure = CampusPucStopFailure.alreadyCollected;
       await mount(tester);
       await select(tester, _biblioteca);
-      await tester.tap(find.byKey(const Key('campus-pucstop-claim')));
+      await spin(tester);
       await tester.pumpAndSettle();
       expect(find.text('Você já coletou este PucStop.'), findsOneWidget);
       expect(state(tester), 'Já coletado');
@@ -539,14 +688,17 @@ void main() {
       await mount(tester);
       await select(tester, _biblioteca);
       expect(find.byKey(const Key('campus-pucstop-login')), findsOneWidget);
-      expect(find.byKey(const Key('campus-pucstop-claim')), findsNothing);
+      await spin(tester);
+      await tester.pumpAndSettle();
+      expect(service.claims, isEmpty);
+      expect(location.calls, 1, reason: 'só a leitura da distância');
     });
 
     testWidgets('backend fora do ar: mensagem e nada coletado', (tester) async {
       service.failure = CampusPucStopFailure.offline;
       await mount(tester);
       await select(tester, _biblioteca);
-      await tester.tap(find.byKey(const Key('campus-pucstop-claim')));
+      await spin(tester);
       await tester.pumpAndSettle();
       expect(
         find.text('Não foi possível coletar agora. Verifique a conexão.'),
@@ -561,7 +713,7 @@ void main() {
       service.pending = Completer();
       await mount(tester);
       await select(tester, _biblioteca);
-      await tester.tap(find.byKey(const Key('campus-pucstop-claim')));
+      await spin(tester);
       await tester.pump();
       // Detach ao ir para segundo plano invalida a operação, mas mantém o card.
       final camera = _Camera();
@@ -572,12 +724,11 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Coletando…'), findsNothing);
-      expect(
-        tester
-            .widget<FilledButton>(find.byKey(const Key('campus-pucstop-claim')))
-            .onPressed,
-        isNotNull,
-      );
+      // Um novo giro tenta de novo.
+      service.pending = null;
+      await spin(tester);
+      await tester.pumpAndSettle();
+      expect(service.claims, hasLength(2));
       expect(tester.takeException(), isNull);
     });
 
@@ -587,10 +738,13 @@ void main() {
       service.failure = CampusPucStopFailure.unavailable;
       await mount(tester);
       await select(tester, _biblioteca);
-      await tester.tap(find.byKey(const Key('campus-pucstop-claim')));
+      await spin(tester);
       await tester.pumpAndSettle();
       expect(state(tester), 'Indisponível no momento');
-      expect(find.byKey(const Key('campus-pucstop-claim')), findsNothing);
+      expect(find.byKey(const Key('campus-pucstop-hint')), findsNothing);
+      await spin(tester);
+      await tester.pumpAndSettle();
+      expect(service.claims, hasLength(1));
     });
 
     testWidgets('permissão de GPS negada: distância indisponível e aviso', (
@@ -601,7 +755,7 @@ void main() {
       await select(tester, _biblioteca);
       expect(find.text('Distância indisponível'), findsOneWidget);
       expect(find.textContaining('Permissão negada'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('campus-pucstop-claim')));
+      await spin(tester);
       await tester.pumpAndSettle();
       expect(service.claims, isEmpty);
     });
@@ -612,7 +766,7 @@ void main() {
       service.pending = Completer();
       await mount(tester);
       await select(tester, _biblioteca);
-      await tester.tap(find.byKey(const Key('campus-pucstop-claim')));
+      await spin(tester);
       await tester.pump();
       expect(find.text('Coletando…'), findsOneWidget);
       await tester.tap(find.byKey(const Key('campus-pucstop-close')));
@@ -628,7 +782,7 @@ void main() {
       service.pending = Completer();
       await mount(tester);
       await select(tester, _biblioteca);
-      await tester.tap(find.byKey(const Key('campus-pucstop-claim')));
+      await spin(tester);
       await tester.pump();
       await tester.pumpWidget(const SizedBox());
       service.pending!.complete(_claim(_biblioteca));
@@ -637,14 +791,20 @@ void main() {
       expect(claimed, isEmpty);
     });
 
-    testWidgets('PucStop e rota não abrem dois cards', (tester) async {
+    testWidgets('foco no totem esconde busca e controles; fechar devolve', (
+      tester,
+    ) async {
       await mount(tester);
       await select(tester, _biblioteca);
       expect(find.byKey(const Key('campus-pucstop-card')), findsOneWidget);
       expect(find.byKey(const Key('campus-route-card')), findsNothing);
-      await tester.enterText(find.byType(TextField), 'Biblioteca');
+      expect(find.byType(TextField), findsNothing);
+      expect(find.byTooltip('Minha localização'), findsNothing);
+      await tester.tap(find.byKey(const Key('campus-pucstop-close')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('campus-pucstop-card')), findsOneWidget);
+      expect(controller.selectedPucStop.value, isNull);
+      expect(find.byKey(const Key('campus-pucstop-card')), findsNothing);
+      expect(find.byType(TextField), findsOneWidget);
     });
   });
 }
@@ -685,6 +845,9 @@ class _PucStops implements CampusPucStopService {
   double? distance;
   Object? error;
   Completer<CampusPucStopClaim>? pending;
+
+  /// Resposta personalizada do servidor (teto, subida de nível).
+  CampusPucStopClaim? resposta;
   int listCalls = 0;
   final claims = <(String, CampusUserLocation)>[];
 
@@ -720,6 +883,7 @@ class _PucStops implements CampusPucStopService {
     if (failure case final f?) {
       throw CampusPucStopException(f, distanceMeters: distance);
     }
+    if (resposta case final r?) return r;
     return _claim(pucStopId == _biblioteca.id ? _biblioteca : _medicina);
   }
 }

@@ -1,21 +1,20 @@
 import 'dart:convert';
-import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
+import 'campus_map_icons.dart';
 import 'campus_place_category.dart';
-import 'campus_place_category_style.dart';
 import 'campus_place_filter.dart';
 
 /// Uma source e uma SymbolLayer para todos os prédios pedidos pelo usuário.
-/// Quatro sprites locais, renderizados uma vez por style, sem widgets por local.
+/// Pinos do PUCMaps ([CampusMapIcons]) renderizados uma vez por style, sem
+/// widgets por local.
 abstract final class CampusPlaceLayer {
   static const source = 'campus-map-category-places';
   static const symbols = 'campus-map-category-symbols';
 
   static String iconId(CampusPlaceCategory category) =>
-      'campus-category-${category.name}';
+      CampusMapIcons.category(category).id;
 
   static Map<String, dynamic> geoJson(CampusPlaceFilter filter) => {
     'type': 'FeatureCollection',
@@ -35,53 +34,15 @@ abstract final class CampusPlaceLayer {
     ],
   };
 
+  /// Mesmo layout da camada `campus-symbol` do PUCMaps.
   static Map<String, dynamic> get layer => {
     'id': symbols,
     'type': 'symbol',
     'source': source,
     'slot': 'top',
-    'layout': {
-      'icon-image': ['get', 'icon'],
-      'icon-allow-overlap': true,
-      'icon-ignore-placement': true,
-      'icon-pitch-alignment': 'viewport',
-    },
-    'paint': {'icon-emissive-strength': 1.0},
+    'layout': CampusMapIcons.layout(),
+    'paint': CampusMapIcons.paint,
   };
-
-  static Future<MbxImage> _icon(CampusPlaceCategory category) async {
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder)..scale(2);
-    const center = Offset(15, 15);
-    canvas.drawCircle(center, 14, Paint()..color = Colors.white);
-    canvas.drawCircle(center, 12, Paint()..color = category.markerColor);
-    final icon = category.icon;
-    final painter = TextPainter(
-      text: TextSpan(
-        text: String.fromCharCode(icon.codePoint),
-        style: TextStyle(
-          fontFamily: icon.fontFamily,
-          package: icon.fontPackage,
-          fontSize: 16.5,
-          color: Colors.white,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    painter.paint(
-      canvas,
-      center - Offset(painter.width / 2, painter.height / 2),
-    );
-    painter.dispose();
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(60, 60);
-    picture.dispose();
-    // O plugin Android decodifica os bytes como bitmap comprimido (PNG),
-    // antes de enviá-los como RGBA ao Mapbox nativo.
-    final data = await image.toByteData(format: ui.ImageByteFormat.png);
-    image.dispose();
-    return MbxImage(width: 60, height: 60, data: data!.buffer.asUint8List());
-  }
 
   /// Chamadas serializadas pela view; cada await revalida o style e a seleção.
   static Future<void> show(
@@ -90,23 +51,11 @@ abstract final class CampusPlaceLayer {
     required bool Function() isActive,
   }) async {
     if (!isActive()) return;
-    for (final category in CampusPlaceCategory.values) {
-      final exists = await style.hasStyleImage(iconId(category));
-      if (!isActive()) return;
-      if (!exists) {
-        final image = await _icon(category);
-        if (!isActive()) return;
-        await style.addStyleImage(
-          iconId(category),
-          2,
-          image,
-          false,
-          [],
-          [],
-          null,
-        );
-      }
-    }
+    await CampusMapIcons.install(style, [
+      for (final category in CampusPlaceCategory.values)
+        CampusMapIcons.category(category),
+    ], isActive: isActive);
+    if (!isActive()) return;
     final exists = await style.styleSourceExists(source);
     if (!isActive()) return;
     final data = geoJson(filter);

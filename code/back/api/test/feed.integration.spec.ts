@@ -9,6 +9,7 @@ import { FeedOutboxEntity } from '../src/publicacoes/entities/feed-outbox.entity
 import { FeedTempoReal1793300000000 } from '../src/migrations/1793300000000-FeedTempoReal.js';
 import { ThreadsComentariosFeed1793400000000 } from '../src/migrations/1793400000000-ThreadsComentariosFeed.js';
 import { PublicacoesService } from '../src/publicacoes/publicacoes.service.js';
+import { PermissoesAlunoService } from '../src/participacoes/permissoes-aluno.service.js';
 import { FeedPolicy } from '../src/publicacoes/feed-policy.js';
 import { ParticipacaoEntity } from '../src/participacoes/entities/participacao.entity.js';
 import { ParticipacoesService } from '../src/participacoes/participacoes.service.js';
@@ -52,6 +53,30 @@ describe.skipIf(!db || !amqp)(
       await dados.query(`CREATE SCHEMA "${schema}"`);
       await dados.synchronize();
       await dados.query(`DROP TABLE "${schema}".feed_outbox`);
+      // O aluno do teste precisa participar do ciclo atual (permissões pela
+      // participação, não pelo JWT): apadrinhado com padrinho no mesmo grupo.
+      const ciclo = ParticipacoesService.programaAtual();
+      await dados.getRepository(ProgramaEntity).save({
+        codigo: ciclo,
+        titulo: `Programa ${ciclo}`,
+        etapaAtual: 'andamento',
+      });
+      await dados.getRepository(ParticipacaoEntity).save([
+        {
+          usuarioId: 'pedro@pucminas.edu.br',
+          programa: ciclo,
+          papel: 'padrinho',
+          status: 'em_andamento',
+          grupo: 'Grupo 01',
+        },
+        {
+          usuarioId: aluno.email,
+          programa: ciclo,
+          papel: 'apadrinhado',
+          status: 'em_andamento',
+          grupo: 'Grupo 01',
+        },
+      ]);
       const runner = dados.createQueryRunner();
       try {
         await new FeedTempoReal1793300000000().up(runner);
@@ -109,11 +134,13 @@ describe.skipIf(!db || !amqp)(
         dados.getRepository(PublicacaoEntity),
         dados,
         new FeedPolicy(
-          new ParticipacoesService(
-            dados.getRepository(ParticipacaoEntity),
-            dados.getRepository(ProgramaEntity),
+          new PermissoesAlunoService(
+            new ParticipacoesService(
+              dados.getRepository(ParticipacaoEntity),
+              dados.getRepository(ProgramaEntity),
+            ),
+            new ProgramasService(dados.getRepository(ProgramaEntity)),
           ),
-          new ProgramasService(dados.getRepository(ProgramaEntity)),
         ),
         {
           buscarPorEmail: async () => null,

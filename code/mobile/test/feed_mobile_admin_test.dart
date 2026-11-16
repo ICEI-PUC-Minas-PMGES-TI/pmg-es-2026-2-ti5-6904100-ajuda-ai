@@ -219,17 +219,17 @@ void main() {
         find.text('Compartilhe algo com a comunidade...'),
         publica ? findsOneWidget : findsNothing,
       );
-      await tocar(tester, find.byTooltip('Mais opções').first);
-      expect(
-        find.text('Editar publicação'),
-        perfil == 'coord' ? findsOneWidget : findsNothing,
-      );
-      expect(
-        find.text('Apagar publicação'),
-        perfil == 'coord' ? findsOneWidget : findsNothing,
-      );
-      await tester.tapAt(const Offset(1, 1));
-      await tester.pumpAndSettle();
+      if (perfil == 'coord') {
+        await tocar(tester, find.byTooltip('Mais opções').first);
+        expect(find.text('Editar publicação'), findsOneWidget);
+        expect(find.text('Apagar publicação'), findsOneWidget);
+        await tester.tapAt(const Offset(1, 1));
+        await tester.pumpAndSettle();
+      } else {
+        // Sem editar nem apagar não há menu: nada de denunciar ou silenciar.
+        expect(find.byTooltip('Mais opções'), findsNothing);
+        expect(find.text('Denunciar'), findsNothing);
+      }
       expect(
         find.byTooltip('Curtir'),
         perfil == 'nenhuma' ? findsNothing : findsWidgets,
@@ -243,8 +243,10 @@ void main() {
           find.byType(TextField).first,
           'Publicação do $perfil',
         );
-        await tocar(tester, find.byType(DropdownButton<String>));
-        await tocar(tester, find.text('Comunicados').last);
+        await tocar(
+          tester,
+          find.widgetWithText(ChoiceChip, 'Comunicados').last,
+        );
         await tocar(tester, find.text('Adicionar foto (0/10)'));
         await tocar(tester, find.text('Publicar'));
         expect(backend.posts.first['categoria'], 'Comunicados');
@@ -485,14 +487,23 @@ void main() {
       await tocar(tester, find.text('Publicar'));
       expect(em(b, find.text('Notícia do celular A')), findsOneWidget);
       await tocar(tester, em(b, find.byTooltip('Curtir')));
-      expect(em(a, find.text('1 curtidas')), findsOneWidget);
+      expect(em(a, find.text('1 curtida')), findsOneWidget);
       await tocar(tester, em(b, find.byTooltip('Comentar')));
       await tester.enterText(
         find.byType(TextField).last,
         'Resposta do celular B',
       );
       await tocar(tester, find.byIcon(Icons.send_rounded));
-      expect(em(a, find.text('Ver todos os 1 comentários')), findsOneWidget);
+      expect(
+        em(
+          a,
+          find.descendant(
+            of: find.byTooltip('Comentar'),
+            matching: find.text('1'),
+          ),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Resposta do celular B'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();

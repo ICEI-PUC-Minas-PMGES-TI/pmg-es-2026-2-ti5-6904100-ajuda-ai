@@ -184,13 +184,17 @@ function query(params) {
 }
 
 export const api = {
-  feed(email) { return request('/publicacoes', { aluno: email }); },
+  feed(email, programa) { return request(`/publicacoes${programa ? `?programa=${encodeURIComponent(programa)}` : ''}`, { aluno: email }); },
+  feedCiclos() { return request('/publicacoes/ciclos'); },
   permissoesFeed(email) { return request('/publicacoes/permissoes', { aluno: email }); },
   criarPublicacao(dados, email) { return request('/publicacoes', { method: 'POST', body: dados, aluno: email }); },
   atualizarPublicacao(id, dados, email) { return request(`/publicacoes/${id}`, { method: 'PATCH', body: dados, aluno: email }); },
   excluirPublicacao(id, email) { return request(`/publicacoes/${id}`, { method: 'DELETE', aluno: email }); },
   comentarPublicacao(id, texto, email) { return request(`/publicacoes/${id}/comentarios`, { method: 'POST', body: { texto }, aluno: email }); },
   excluirComentario(id, comentarioId, email) { return request(`/publicacoes/${id}/comentarios/${comentarioId}`, { method: 'DELETE', aluno: email }); },
+  curtidoresPublicacao(id, email) { return request(`/publicacoes/${id}/curtidas`, { aluno: email }); },
+  curtidoresComentario(id, comentarioId, email) { return request(`/publicacoes/${id}/comentarios/${comentarioId}/curtidas`, { aluno: email }); },
+  curtirComentario(id, comentarioId, delta, email) { return request(`/publicacoes/${id}/comentarios/${comentarioId}/curtidas`, { method: 'POST', body: { delta }, aluno: email }); },
   curtirPublicacao(id, delta, email) { return request(`/publicacoes/${id}/curtidas`, { method: 'POST', body: { delta }, aluno: email }); },
   uploadFeed(arquivo, email) { const body = new FormData(); body.append('arquivo', arquivo); return requestMapa('/publicacoes/midias', { method: 'POST', body, aluno: email }); },
   loginMicrosoft(idToken) { return request('/auth/login', { method: 'POST', body: {idToken}, anonimo: true }); },
@@ -314,6 +318,9 @@ export const api = {
   salvarMatchingConfiguracao(dados) {
     return request('/coordenacao/matching/config', { method: 'PUT', body: dados });
   },
+  encerrarInscricoes(codigo) {
+    return request(`/coordenacao/programas/encerrar-inscricoes${query({ codigo })}`, { method: 'POST' });
+  },
   liberarMatching(codigo) {
     return request(`/coordenacao/programas/liberar-matching${query({ codigo })}`, { method: 'POST' });
   },
@@ -408,6 +415,14 @@ export const api = {
   /** Todos os PucStops, ativos e inativos, ordenados por nome. */
   pucstops() {
     return requestMapa('/coordenacao/pucstops');
+  },
+  /** Economia dos totens: ativos, XP potencial e teto por aluno e semestre. */
+  orcamentoPucStops() {
+    return requestMapa('/coordenacao/pucstops/orcamento');
+  },
+  /** Progresso do aluno logado: nível, XP acumulado, moedas e tetos (BL-50). */
+  progressoAluno() {
+    return request('/me/xp', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
   },
   /** Área do campus onde o servidor aceita PucStops (limite, bbox e centro). */
   campusPucStops() {

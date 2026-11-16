@@ -177,7 +177,8 @@ class TelaComprovante extends StatelessWidget {
             rotulo: 'Recompensa',
             valor: '${resgate['nome']}',
             rotuloDireita: 'Custo',
-            valorDireita: '${formatarXp(resgate['custoXp'] as int? ?? 0)} XP',
+            valorDireita:
+                '${formatarXp(resgate['custoXp'] as int? ?? 0)} moedas',
           ),
           const Divider(height: 1, color: CoresLojinha.divisor),
           _ParInfo(
@@ -187,7 +188,7 @@ class TelaComprovante extends StatelessWidget {
             rotuloDireita: resgate['saldoAtual'] is int
                 ? 'Saldo atual'
                 : 'Saldo após a troca',
-            valorDireita: saldo is int ? '${formatarXp(saldo)} XP' : '-',
+            valorDireita: saldo is int ? '${formatarXp(saldo)} moedas' : '-',
           ),
           const SizedBox(height: 8),
           BlocoCondicoes(
@@ -354,7 +355,7 @@ class _CartaoResgate extends StatelessWidget {
             ),
           ),
           Text(
-            '${formatarXp(resgate['custoXp'] as int? ?? 0)} XP',
+            '${formatarXp(resgate['custoXp'] as int? ?? 0)} moedas',
             style: const TextStyle(
               color: AppColors.primary,
               fontSize: 16,
@@ -429,7 +430,7 @@ class _TelaExtratoXpState extends State<TelaExtratoXp> {
         ? _itens.first['saldoApos'] as int? ?? 0
         : SessaoUsuario.atual.xp.value ?? 0;
     return EstruturaLojinha(
-      titulo: 'Extrato de XP',
+      titulo: 'Extrato de moedas',
       corpo: ListView(
         padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
         children: [
@@ -448,7 +449,7 @@ class _TelaExtratoXpState extends State<TelaExtratoXp> {
             const Padding(
               padding: EdgeInsets.all(24),
               child: Text(
-                'Nenhuma movimentação de XP ainda.',
+                'Nenhuma movimentação de moedas ainda.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontFamily: 'Inter', color: AppColors.muted),
               ),
@@ -533,7 +534,7 @@ class _LinhaExtrato extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${credito ? '+' : ''}${formatarXp(quantidade)} XP',
+                '${credito ? '+' : ''}${formatarXp(quantidade)} moedas',
                 style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w800,
@@ -541,7 +542,7 @@ class _LinhaExtrato extends StatelessWidget {
                 ),
               ),
               Text(
-                'Saldo: ${formatarXp(movimentacao['saldoApos'] as int? ?? 0)} XP',
+                'Saldo: ${formatarXp(movimentacao['saldoApos'] as int? ?? 0)} moedas',
                 style: const TextStyle(
                   fontFamily: 'Inter',
                   color: AppColors.ink,

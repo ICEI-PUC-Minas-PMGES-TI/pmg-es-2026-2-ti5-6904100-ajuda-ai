@@ -16,10 +16,11 @@ export function resolverAluno(perfil, situacao, ciclo) {
   const estado = situacao?.situacao;
   const conhecido = Object.hasOwn(ESTADOS_ALUNO, estado || '');
   const ativo = estado === 'padrinho_ativo' || estado === 'apadrinhado_ativo';
+  const participante = ativo || estado === 'candidatura_aprovada_aguardando_matching' || estado === 'apadrinhado_aguardando';
   const candidatura = conhecido && estado.startsWith('candidatura_');
   const semInscricao = conhecido && estado === 'nenhuma';
   return {
-    completo, estado, conhecido, ativo, candidatura,
+    completo, estado, conhecido, ativo, participante, candidatura,
     titulo: ESTADOS_ALUNO[estado]?.[0] || 'Situação indisponível',
     descricao: ESTADOS_ALUNO[estado]?.[1] || 'Atualize a consulta para continuar.',
     justificativa: situacao?.registro?.decisao?.justificativa || situacao?.cadastro?.motivoRejeicao || '',

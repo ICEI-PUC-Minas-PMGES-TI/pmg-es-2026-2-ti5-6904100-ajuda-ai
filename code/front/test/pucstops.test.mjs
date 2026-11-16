@@ -66,8 +66,9 @@ test('validarPucStop: nome, XP, raio e ponto na criação', () => {
   assert.match(validarPucStop({ ...ok, nome: '   ' }), /Informe o nome/);
   assert.match(validarPucStop({ ...ok, nome: 'x'.repeat(121) }), /120 caracteres/);
   assert.equal(validarPucStop({ ...ok, nome: `  ${'x'.repeat(120)}  ` }), '');
-  for (const xp of ['', '0', '1001', '2.5', 'abc', '-3']) assert.match(validarPucStop({ ...ok, xp }), /XP deve ser um número inteiro entre 1 e 1000/, `xp=${xp}`);
-  for (const xp of ['1', '1000']) assert.equal(validarPucStop({ ...ok, xp }), '');
+  // BL-50: só 10, 20, 30, 40 ou 50 XP (o servidor também recusa o resto).
+  for (const xp of ['', '0', '1', '15', '25', '60', '1000', '2.5', 'abc', '-3']) assert.match(validarPucStop({ ...ok, xp }), /10, 20, 30, 40 ou 50 XP/, `xp=${xp}`);
+  for (const xp of ['10', '20', '30', '40', '50']) assert.equal(validarPucStop({ ...ok, xp }), '');
   for (const raioMetros of ['', '9.9', '201', 'x']) assert.match(validarPucStop({ ...ok, raioMetros }), /entre 10 e 200 metros/, `raio=${raioMetros}`);
   for (const raioMetros of ['10', '200', '12.5']) assert.equal(validarPucStop({ ...ok, raioMetros }), '');
   assert.match(validarPucStop({ ...ok, latitude: null, longitude: null }, { criando: true }), /Escolha a posição/);

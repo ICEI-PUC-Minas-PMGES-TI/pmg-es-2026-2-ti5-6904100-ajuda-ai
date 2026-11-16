@@ -1,6 +1,7 @@
 import {
   IsBoolean,
   IsDefined,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -10,7 +11,8 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { NOME_PUCSTOP_MAX, RAIO_PUCSTOP, XP_PUCSTOP } from '../gamificacao.js';
+import { RECOMPENSAS_TOTEM } from '../economia.js';
+import { NOME_PUCSTOP_MAX, RAIO_PUCSTOP } from '../gamificacao.js';
 import type { RegiaoCampusDto } from '../../mapa/campus-limite.js';
 
 const NUMERO = { allowNaN: false, allowInfinity: false } as const;
@@ -41,10 +43,12 @@ export class CriarPucStopDto {
   @Max(180)
   longitude!: number;
 
+  /** Recompensa: 10, 20, 30, 40 ou 50 XP (as moedas acompanham 1:1). */
   @IsDefined()
   @IsInt()
-  @Min(XP_PUCSTOP.min)
-  @Max(XP_PUCSTOP.max)
+  @IsIn(RECOMPENSAS_TOTEM, {
+    message: `xp deve ser uma das opções: ${RECOMPENSAS_TOTEM.join(', ')}`,
+  })
   xp!: number;
 
   @IsDefined()
@@ -84,8 +88,9 @@ export class AtualizarPucStopDto {
 
   @IsOptional()
   @IsInt()
-  @Min(XP_PUCSTOP.min)
-  @Max(XP_PUCSTOP.max)
+  @IsIn(RECOMPENSAS_TOTEM, {
+    message: `xp deve ser uma das opções: ${RECOMPENSAS_TOTEM.join(', ')}`,
+  })
   xp?: number;
 
   @IsOptional()
@@ -114,3 +119,35 @@ export interface PucStopAdminDto {
 
 /** `GET /coordenacao/pucstops/campus`: onde o servidor aceita um PucStop. */
 export type CampusPucStopsDto = RegiaoCampusDto;
+
+/** `GET /coordenacao/pucstops/orcamento`: economia dos totens. */
+export interface OrcamentoTotensDto {
+  /** Totens ativos no mapa (só eles entram no orçamento). */
+  ativos: number;
+  /** Totens desativados (fora do mapa e do orçamento). */
+  inativos: number;
+  /** Soma das recompensas dos ativos (o que um aluno ganharia coletando todos). */
+  xpPotencial: number;
+  /** Moedas equivalentes (1:1 com o XP). */
+  moedasPotenciais: number;
+  /** Recompensa média por totem ativo (1 casa decimal); 0 sem totens. */
+  recompensaMedia: number;
+  /** Quantos totens ativos há em cada opção de recompensa. */
+  distribuicao: Array<{ xp: number; totens: number }>;
+  /** Teto de XP de totens por aluno e ciclo. */
+  limitePorCiclo: number;
+  /** A soma passa do teto: parte das coletas sairá sem XP. */
+  excedeLimite: boolean;
+  /** Ciclo da estimativa abaixo. */
+  ciclo: string;
+  /** Participantes que podem ganhar XP no ciclo (contados uma vez). */
+  participantesElegiveis: number;
+  /**
+   * Estimativa TEÓRICA de moedas que os totens podem emitir no ciclo:
+   * participantes × menor valor entre o potencial e o teto. Não é o saldo real.
+   */
+  emissaoMaximaEstimada: number;
+  /** Opções de recompensa aceitas e a sugerida para um novo totem. */
+  opcoes: number[];
+  padrao: number;
+}

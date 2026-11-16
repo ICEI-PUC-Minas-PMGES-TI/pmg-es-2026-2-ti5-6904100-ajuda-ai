@@ -103,28 +103,87 @@ class CampusMapRenderer {
         'clip-layer-scope': ['basemap'],
       },
     },
+    // Destaque do prédio aberto no card: contorno grosso na pegada real,
+    // vazio até a view definir o filtro com o id selecionado.
+    {
+      'id': CampusMapLayerIds.selected,
+      'type': 'line',
+      'source': CampusMapLayerIds.footprintsSource,
+      'slot': 'middle',
+      'filter': selectionFilter(null),
+      'layout': {'line-join': 'round', 'line-cap': 'round'},
+      'paint': {
+        'line-color': '#0F5983',
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          15,
+          2.0,
+          19,
+          5.0,
+        ],
+        'line-emissive-strength': 1.0,
+        // Atrás do modelo 3D o contorno continua legível, mais fraco.
+        'line-occlusion-opacity': 0.5,
+      },
+    },
+    // Rótulos do PUCMaps (`campus-name`): entram na vista do campus, crescem
+    // com o zoom e ficam sobre o telhado (`symbol-z-elevate`), não sob o 3D.
     {
       'id': CampusMapLayerIds.labels,
       'type': 'symbol',
       'source': CampusMapLayerIds.labelsSource,
       'slot': 'top',
-      'minzoom': 15.2,
+      'minzoom': 16.5,
       'layout': {
         'text-field': ['get', 'label'],
         'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
-        'text-size': 11.0,
-        'text-max-width': 9,
-        'text-padding': 5,
+        'text-size': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          16.5,
+          10,
+          18.5,
+          12,
+          21,
+          14,
+        ],
+        'text-anchor': 'center',
+        'text-max-width': 8,
+        'text-padding': 6,
+        'text-optional': true,
         'text-allow-overlap': false,
         'text-ignore-placement': false,
+        'symbol-z-elevate': true,
       },
       'paint': {
-        'text-color': '#393244',
+        'text-color': '#1f1640',
         'text-halo-color': '#ffffff',
-        'text-halo-width': 1.3,
+        'text-halo-width': 1.4,
+        'text-occlusion-opacity': 0.85,
+        'text-emissive-strength': 1.0,
       },
     },
   ];
+
+  /// Filtro do contorno de destaque: só a pegada com o [id] (nenhuma se nulo).
+  static List<Object> selectionFilter(String? id) => [
+    '==',
+    ['get', 'id'],
+    id ?? '',
+  ];
+
+  /// Destaca o prédio [id] (ou limpa com `null`) sem recriar a camada.
+  Future<void> highlight(String? id) async {
+    if (!await style.styleLayerExists(CampusMapLayerIds.selected)) return;
+    await style.setStyleLayerProperty(
+      CampusMapLayerIds.selected,
+      'filter',
+      selectionFilter(id),
+    );
+  }
 
   static Map<String, dynamic> labelCollection(CampusSnapshot snapshot) => {
     'type': 'FeatureCollection',

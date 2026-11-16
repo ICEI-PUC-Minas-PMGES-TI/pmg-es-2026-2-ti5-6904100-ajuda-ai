@@ -4,10 +4,32 @@ import 'package:flutter/material.dart';
 import '../services/coordenacao_api.dart';
 import '../theme/colors.dart';
 
-const xpTotemMin = 1;
-const xpTotemMax = 1000;
+/// Recompensas aceitas pelo servidor (BL-50); as moedas acompanham 1:1.
+const recompensasTotem = [10, 20, 30, 40, 50];
+const recompensaTotemPadrao = 30;
 const raioTotemMin = 10.0;
 const raioTotemMax = 200.0;
+
+/// XP potencial dos totens ativos depois de salvar: tira o valor antigo do
+/// próprio totem (se ele estava ativo) e soma o novo (se continua ativo), sem
+/// contar o mesmo totem duas vezes. Inativos não entram no orçamento.
+int potencialAposSalvar({
+  required int potencialAtual,
+  Map<String, dynamic>? original,
+  required int novoXp,
+}) {
+  final ativo = original == null || original['ativo'] == true;
+  final antigo = original != null && original['ativo'] == true
+      ? (original['xp'] as num).toInt()
+      : 0;
+  return potencialAtual - antigo + (ativo ? novoXp : 0);
+}
+
+/// Aviso informativo (nunca bloqueia) quando o mapa passa do teto individual.
+String avisoTetoTotens(int potencial, int limite) =>
+    'Os totens ativos oferecem $potencial XP. Cada participante poderá receber '
+    'até $limite XP neste ciclo. Após atingir o limite, novas visitas serão '
+    'registradas sem recompensas adicionais.';
 
 typedef ConstrutorSeletorTotem = Widget Function(
   BuildContext context, {
@@ -28,8 +50,8 @@ String? validarFormularioTotem({
     return 'O nome deve ter no máximo 120 caracteres.';
   }
   final xpNumero = int.tryParse(xp.trim());
-  if (xpNumero == null || xpNumero < xpTotemMin || xpNumero > xpTotemMax) {
-    return 'O XP deve ser um número inteiro entre 1 e 1000.';
+  if (xpNumero == null || !recompensasTotem.contains(xpNumero)) {
+    return 'Escolha a recompensa: 10, 20, 30, 40 ou 50 XP.';
   }
   final raioNumero = double.tryParse(raio.trim().replaceAll(',', '.'));
   if (raioNumero == null ||
@@ -100,6 +122,7 @@ class TelaTotensCoord extends StatefulWidget {
 class _TelaTotensCoordState extends State<TelaTotensCoord> {
   List<Map<String, dynamic>>? _totens;
   Map<String, dynamic>? _campus;
+  Map<String, dynamic>? _orcamento;
   String? _erro;
   String? _erroCampus;
   String? _ocupado;
@@ -121,6 +144,12 @@ class _TelaTotensCoordState extends State<TelaTotensCoord> {
       });
     } catch (erro) {
       if (mounted) setState(() => _erro = '$erro');
+    }
+    try {
+      final orcamento = await widget.api.orcamentoPucStops();
+      if (mounted) setState(() => _orcamento = orcamento);
+    } catch (_) {
+      // O orçamento é informativo: sem ele a lista segue funcionando.
     }
     try {
       final campus = await widget.api.campusPucStops();
@@ -166,6 +195,7 @@ class _TelaTotensCoordState extends State<TelaTotensCoord> {
           erroCampus: _erroCampus,
           outros: _outros(original?['id'] as String?),
           seletorBuilder: widget.seletorBuilder,
+          orcamento: _orcamento,
         ),
       ),
     );
@@ -261,8 +291,9 @@ class _TelaTotensCoordState extends State<TelaTotensCoord> {
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
                 children: [
                   const Text(
-                    'Defina onde o totem aparece no mapa e quanto XP cada aluno recebe no primeiro resgate.',
+                    'Defina onde o totem aparece no mapa e a recompensa (XP + moedas) que cada aluno recebe uma vez por semestre.',
                   ),
+                  if (_orcamento != null) _OrcamentoTotens(dados: _orcamento!),
                   if (_erroCampus != null)
                     _AvisoTotem(
                       texto:
@@ -311,7 +342,7 @@ class _TelaTotensCoordState extends State<TelaTotensCoord> {
                               ],
                             ),
                             Text(
-                              '${totem['xp']} XP · ${totem['raioMetros']} m · ${totem['coletas'] ?? 0} resgates',
+                              '${totem['xp']} XP + ${totem['xp']} moedas · ${totem['raioMetros']} m · ${totem['coletas'] ?? 0} coletas',
                             ),
                             Wrap(
                               spacing: 4,
@@ -361,9 +392,14 @@ class FormularioTotemCoord extends StatefulWidget {
     this.original,
     this.erroCampus,
     this.seletorBuilder,
+    this.orcamento,
   });
 
   final CoordenacaoApi api;
+
+  /// Orçamento atual (`GET /coordenacao/pucstops/orcamento`); sem ele o
+  /// formulário só não mostra o impacto.
+  final Map<String, dynamic>? orcamento;
   final Map<String, dynamic>? original;
   final Map<String, dynamic>? campus;
   final String? erroCampus;
@@ -390,7 +426,7 @@ class _FormularioTotemCoordState extends State<FormularioTotemCoord> {
     final original = widget.original;
     _nome = TextEditingController(text: '${original?['nome'] ?? ''}');
     _xp = TextEditingController(
-      text: original == null ? '' : '${original['xp']}',
+      text: original == null ? '$recompensaTotemPadrao' : '${original['xp']}',
     );
     _raio = TextEditingController(
       text: original == null ? '30' : '${original['raioMetros']}',
@@ -524,20 +560,6 @@ class _FormularioTotemCoordState extends State<FormularioTotemCoord> {
               children: [
                 Expanded(
                   child: TextField(
-                    key: const ValueKey('xp-totem'),
-                    controller: _xp,
-                    keyboardType: TextInputType.number,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'XP da recompensa',
-                      helperText: 'Inteiro de 1 a 1000',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
                     controller: _raio,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
@@ -551,6 +573,45 @@ class _FormularioTotemCoordState extends State<FormularioTotemCoord> {
                 ),
               ],
             ),
+            const SizedBox(height: 16),
+            const Text(
+              'Recompensa pela coleta',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              key: const ValueKey('xp-totem'),
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final opcao in recompensasTotem)
+                  ChoiceChip(
+                    key: ValueKey('xp-totem-$opcao'),
+                    label: Text('$opcao XP'),
+                    selected: _xp.text == '$opcao',
+                    onSelected: _salvando
+                        ? null
+                        : (_) => setState(() {
+                            _xp.text = '$opcao';
+                            _erroServidor = null;
+                          }),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              int.tryParse(_xp.text) == null
+                  ? 'Escolha uma opção.'
+                  : '${_xp.text} XP + ${_xp.text} moedas para cada aluno, uma vez por semestre.',
+              key: const ValueKey('xp-totem-resumo'),
+              style: const TextStyle(color: AppColors.muted),
+            ),
+            if (widget.orcamento != null && int.tryParse(_xp.text) != null)
+              _ImpactoOrcamento(
+                orcamento: widget.orcamento!,
+                original: widget.original,
+                novoXp: int.parse(_xp.text),
+              ),
             const SizedBox(height: 16),
             const Text(
               'Posição no campus',
@@ -795,4 +856,132 @@ class _AvisoTotem extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// Economia dos totens para a coordenação: o que o mapa oferece frente ao
+/// teto de cada aluno no semestre. Só informa; nunca bloqueia o cadastro.
+class _OrcamentoTotens extends StatelessWidget {
+  const _OrcamentoTotens({required this.dados});
+
+  final Map<String, dynamic> dados;
+
+  @override
+  Widget build(BuildContext context) {
+    int inteiro(String k) => (dados[k] as num?)?.toInt() ?? 0;
+    final ativos = inteiro('ativos');
+    final inativos = inteiro('inativos');
+    final potencial = inteiro('xpPotencial');
+    final moedas = inteiro('moedasPotenciais');
+    final limite = inteiro('limitePorCiclo');
+    final media = (dados['recompensaMedia'] as num?) ?? 0;
+    final excede = dados['excedeLimite'] == true;
+    final elegiveis = dados['participantesElegiveis'] as int?;
+    final emissao = dados['emissaoMaximaEstimada'] as int?;
+    final faixas = [
+      for (final d in dados['distribuicao'] as List? ?? const [])
+        if (d is Map && (d['totens'] as num? ?? 0) > 0)
+          '${d['totens']}× ${d['xp']} XP',
+    ];
+    const destaque = TextStyle(fontWeight: FontWeight.w700);
+    return Card(
+      key: const ValueKey('orcamento-totens'),
+      margin: const EdgeInsets.only(top: 12),
+      color: excede ? const Color(0xFFFFF7ED) : AppColors.lavender,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$ativos totens ativos${inativos > 0 ? ' · $inativos inativos' : ''}',
+              style: destaque,
+            ),
+            const SizedBox(height: 4),
+            Text('XP potencial: $potencial XP ($moedas moedas).'),
+            Text(
+              'Recompensa média: ${media % 1 == 0 ? media.toInt() : media} XP por totem.',
+            ),
+            if (faixas.isNotEmpty) Text('Por faixa: ${faixas.join(' · ')}.'),
+            Text(
+              'Limite individual: $limite XP de totens por participante e semestre.',
+            ),
+            if (elegiveis != null && emissao != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Estimativa teórica de emissão no ciclo: até $emissao moedas '
+                '($elegiveis participantes elegíveis × ${potencial < limite ? potencial : limite} XP). '
+                'Não é o saldo real dos participantes.',
+                key: const ValueKey('orcamento-emissao'),
+                style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+              ),
+            ],
+            if (excede)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  avisoTetoTotens(potencial, limite),
+                  style: const TextStyle(color: Color(0xFFB45309)),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// No formulário: recompensa escolhida e o potencial do mapa antes e depois.
+class _ImpactoOrcamento extends StatelessWidget {
+  const _ImpactoOrcamento({
+    required this.orcamento,
+    required this.original,
+    required this.novoXp,
+  });
+
+  final Map<String, dynamic> orcamento;
+  final Map<String, dynamic>? original;
+  final int novoXp;
+
+  @override
+  Widget build(BuildContext context) {
+    final atual = (orcamento['xpPotencial'] as num?)?.toInt() ?? 0;
+    final limite = (orcamento['limitePorCiclo'] as num?)?.toInt() ?? 0;
+    final depois = potencialAposSalvar(
+      potencialAtual: atual,
+      original: original,
+      novoXp: novoXp,
+    );
+    final inativo = original != null && original!['ativo'] != true;
+    final rotulo = original == null ? 'após o cadastro' : 'após a alteração';
+    return Container(
+      key: const ValueKey('impacto-orcamento'),
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: depois > limite ? const Color(0xFFFFF7ED) : AppColors.lavender,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Recompensa selecionada: $novoXp XP + $novoXp moedas.'),
+          Text('XP potencial atual do mapa: $atual XP.'),
+          Text('XP potencial $rotulo: $depois XP.'),
+          if (inativo)
+            const Text(
+              'Este totem está inativo: ele não entra no orçamento até ser reativado.',
+              style: TextStyle(color: AppColors.muted),
+            ),
+          if (depois > limite && limite > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                avisoTetoTotens(depois, limite),
+                style: const TextStyle(color: Color(0xFFB45309)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }

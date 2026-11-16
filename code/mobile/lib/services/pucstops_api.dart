@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:campus_map/campus_map.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/resumo_gamificacao.dart';
+
 import 'api_config.dart';
 
 /// PucStops pela API do Ajuda-aí: lista pública (`GET /mapa/pucstops`),
@@ -129,6 +131,8 @@ class MapaApiPucStopService implements CampusPucStopService {
     final ganho = corpo['xpGanho'];
     final total = corpo['xpTotal'];
     final distancia = corpo['distanciaMetros'];
+    final moedas = corpo['moedasGanhas'];
+    final nivel = corpo['nivel'];
     if (corpo['pucstopId'] != pucStopId ||
         ganho is! int ||
         total is! int ||
@@ -140,6 +144,13 @@ class MapaApiPucStopService implements CampusPucStopService {
       xpGained: ganho,
       xpTotal: total,
       distanceMeters: distancia.toDouble(),
+      coinsGained: moedas is int ? moedas : null,
+      capReached: corpo['limiteAtingido'] == true,
+      levelUp: corpo['subiuDeNivel'] == true,
+      levelNumber: nivel is Map && nivel['numero'] is int
+          ? nivel['numero'] as int
+          : null,
+      levelName: nivel is Map ? nivel['nome'] as String? : null,
     );
   }
 
@@ -183,7 +194,26 @@ class XpApi {
   final http.Client _client;
   final String baseUrl;
 
+  /// Saldo de moedas (compatível com o servidor antigo).
   Future<int> saldo(String accessToken) async {
+    final corpo = await _resumoBruto(accessToken);
+    final saldo = corpo is Map ? corpo['saldo'] : null;
+    if (saldo is! int || saldo < 0) {
+      throw const FormatException('Resposta inválida.');
+    }
+    return saldo;
+  }
+
+  /// Progresso completo (nível, XP acumulado, moedas, tetos). Lança se a
+  /// resposta não trouxer o contrato do BL-50: nunca vira "zero XP".
+  Future<ResumoGamificacao> resumo(String accessToken) async {
+    final corpo = await _resumoBruto(accessToken);
+    final resumo = ResumoGamificacao.fromJson(corpo);
+    if (resumo == null) throw const FormatException('Resposta inválida.');
+    return resumo;
+  }
+
+  Future<Object?> _resumoBruto(String accessToken) async {
     final resposta = await executarRequisicao(
       () => _client.get(
         Uri.parse('$baseUrl/me/xp'),
@@ -195,11 +225,6 @@ class XpApi {
       erroPadrao: 'Não foi possível carregar seu XP',
       timeout: const Duration(seconds: 5),
     );
-    final corpo = decodificarJson(resposta);
-    final saldo = corpo is Map ? corpo['saldo'] : null;
-    if (saldo is! int || saldo < 0) {
-      throw const FormatException('Resposta inválida.');
-    }
-    return saldo;
+    return decodificarJson(resposta);
   }
 }

@@ -32,6 +32,19 @@ export class PublicacaoEntity {
   @Column({ type: 'text', array: true, default: () => 'ARRAY[]::text[]' })
   imagens: string[];
 
+  /**
+   * Ciclo (semestre) em que a publicação nasceu. A migration deixa NOT NULL;
+   * aqui fica nullable só para o `synchronize` de bancos locais antigos
+   * (linhas sem ciclo continuam visíveis até alguém rodar a migration).
+   */
+  @Column({
+    name: 'programa_codigo',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+  })
+  programaCodigo: string | null;
+
   @Column({ name: 'owner_id', length: 100 })
   ownerId: string;
 

@@ -970,3 +970,9 @@
   .recompensas-table .user-actions { width: 100%; }
   .recompensas-table .user-actions > div { display: flex; flex-wrap: wrap; justify-content: flex-start; }
 }
+
+/* BL-50: orçamento e impacto dos totens (só informativo). */
+.pucstop-orcamento { display: grid; gap: 4px; padding: 14px 16px; margin: 12px 0; background: #f5f2fb; }
+.pucstop-orcamento.alerta, .pucstop-impacto.alerta { background: #fff7ed; }
+.pucstop-impacto { display: grid; gap: 2px; padding: 10px 12px; margin: 8px 0; border-radius: 12px; background: #f5f2fb; }
+.pucstop-impacto p, .pucstop-orcamento p { margin: 0; }

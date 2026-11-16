@@ -46,6 +46,11 @@ export class PucStopsAdminController {
     return this.pucstops.campus();
   }
 
+  @Get('orcamento')
+  orcamento() {
+    return this.pucstops.orcamento();
+  }
+
   @Get(':id')
   detalhe(@Param('id', UUID) id: string) {
     return this.pucstops.detalhe(id);

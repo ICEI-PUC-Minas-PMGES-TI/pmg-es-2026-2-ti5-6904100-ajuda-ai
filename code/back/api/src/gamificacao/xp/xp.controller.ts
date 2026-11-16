@@ -6,6 +6,17 @@ import { usuarioDoToken } from '../gamificacao.js';
 import { MovimentacoesXpQuery } from './xp.dto.js';
 import { XpService } from './xp.service.js';
 
+/** Tabela dos 10 níveis (pública: só nomes e limiares). */
+@Controller('gamificacao/niveis')
+export class NiveisController {
+  constructor(private readonly xp: XpService) {}
+
+  @Get()
+  listar() {
+    return this.xp.niveis();
+  }
+}
+
 /** XP global do próprio usuário (do JWT; nunca de parâmetro). */
 @Controller('me/xp')
 @UseGuards(JwtAuthGuard)

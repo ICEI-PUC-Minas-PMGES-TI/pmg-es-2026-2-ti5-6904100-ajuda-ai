@@ -4,6 +4,34 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 import 'three_d/campus_window_lighting.dart';
 
+/// Opções do botão "Luz" do PUCMaps (`_lightTestOptions`): `null` segue o
+/// horário; as demais fixam um preset do Mapbox Standard.
+enum CampusLightMode {
+  auto(null, 'Auto'),
+  dawn('dawn', 'Amanhecer'),
+  day('day', 'Dia'),
+  dusk('dusk', 'Entardecer'),
+  night('night', 'Noite');
+
+  const CampusLightMode(this.preset, this.label);
+
+  /// Preset fixo; `null` = pelo horário local.
+  final String? preset;
+  final String label;
+
+  /// Mesma sequência do PUCMaps: Auto → Amanhecer → Dia → Entardecer → Noite.
+  CampusLightMode get next => values[(index + 1) % values.length];
+
+  /// Rótulo do botão: no automático, mostra o período em vigor.
+  String labelAt(DateTime localTime) => switch (this) {
+    auto => 'Auto (${forPreset(CampusLightSchedule.preset(localTime)).label})',
+    _ => label,
+  };
+
+  static CampusLightMode forPreset(String preset) =>
+      values.firstWhere((mode) => mode.preset == preset, orElse: () => auto);
+}
+
 /// Mesmas faixas locais do PUCMaps; são presets, não um cálculo solar.
 abstract final class CampusLightSchedule {
   static const boundaries = [330, 540, 900, 1120];
@@ -43,14 +71,30 @@ class CampusMapLighting {
     required this.isActive,
     DateTime Function()? now,
     this.onWindowGlow,
-  }) : _now = now ?? DateTime.now;
+    CampusLightMode mode = CampusLightMode.auto,
+  }) : _now = now ?? DateTime.now,
+       // Parâmetro nomeado não pode ser privado (`this._mode`).
+       // ignore: prefer_initializing_formals
+       _mode = mode;
 
   final StyleManager style;
   final bool Function() isActive;
   final DateTime Function() _now;
   final Future<void> Function(double glow)? onWindowGlow;
-  double get windowGlow =>
-      CampusWindowLighting.glowFor(CampusLightSchedule.preset(_now()));
+  CampusLightMode _mode;
+
+  /// Preset em vigor: o fixado pelo usuário ou o do horário.
+  String get preset => _mode.preset ?? CampusLightSchedule.preset(_now());
+  double get windowGlow => CampusWindowLighting.glowFor(preset);
+  CampusLightMode get mode => _mode;
+
+  /// Troca o modo (botão "Luz") e aplica na hora; só o preset muda, sem
+  /// recarregar o style.
+  Future<void> setMode(CampusLightMode mode) {
+    _mode = mode;
+    return refresh();
+  }
+
   Timer? _timer;
   Future<void> _queue = Future.value();
   String? _applied;
@@ -70,17 +114,23 @@ class CampusMapLighting {
           if (!_alive) return;
           _supported = imports.any((item) => item?.id == 'basemap');
           if (_supported) {
-            // Mantém o contexto 2D, concentrando o volume no campus próprio.
-            await style.setStyleImportConfigProperty(
-              'basemap',
-              'show3dObjects',
-              false,
-            );
+            // Contexto 2D: o volume fica só no campus próprio (o PUCMaps liga
+            // o 3D do Standard, que duplicaria os prédios sob os GLBs). Como
+            // no PUCMaps, POIs e transporte genéricos ficam desligados para
+            // não competir com os marcadores do campus.
+            for (final (key, value) in [
+              ('show3dObjects', false),
+              ('showPointOfInterestLabels', false),
+              ('showTransitLabels', false),
+            ]) {
+              await style.setStyleImportConfigProperty('basemap', key, value);
+              if (!_alive) return;
+            }
           }
           _configured = true;
         }
         if (!_alive) return;
-        final preset = CampusLightSchedule.preset(_now());
+        final preset = this.preset;
         if (_supported && preset != _applied) {
           await style.setStyleImportConfigProperty(
             'basemap',

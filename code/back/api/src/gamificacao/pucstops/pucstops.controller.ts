@@ -10,6 +10,7 @@ import {
 import { DataSource } from 'typeorm';
 import type { AuthenticatedRequest } from '../../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
+import { PermissoesAlunoService } from '../../participacoes/permissoes-aluno.service.js';
 import { usuarioDoToken } from '../gamificacao.js';
 import { ColetarPucStopDto } from './pucstops.dto.js';
 import { PucStopsService } from './pucstops.service.js';
@@ -23,6 +24,7 @@ export class PucStopsController {
   constructor(
     private readonly pucstops: PucStopsService,
     private readonly dataSource: DataSource,
+    private readonly permissoes: PermissoesAlunoService,
   ) {}
 
   @Get()
@@ -43,6 +45,12 @@ export class PucStopsController {
     @Param('id') id: string,
     @Body() leitura: ColetarPucStopDto,
   ) {
+    // Só participantes do ciclo ganham XP (DP-07), inclusive aprovados sem par (DP-22).
+    await this.permissoes.exigir(
+      requisicao.user,
+      'podeColetarTotens',
+      'Os totens dão XP só para participantes do apadrinhamento deste semestre.',
+    );
     return this.pucstops.coletar(
       await usuarioDoToken(this.dataSource, requisicao.user),
       id,

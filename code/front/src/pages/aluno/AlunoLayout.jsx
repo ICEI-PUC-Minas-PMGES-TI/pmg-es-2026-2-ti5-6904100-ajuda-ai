@@ -70,7 +70,7 @@ export default function AlunoLayout() {
   if (!carregando && !erro && !resolucao.completo) return <Navigate to="/" replace />;
   const papel = resolucao.candidatura || resolucao.estado === 'padrinho_ativo' ? 'padrinho' : resolucao.estado?.startsWith('apadrinhado') ? 'apadrinhado' : null;
   const nav = [
-    {to: '/aluno/feed', label: 'Feed', icon: 'megaphone'},
+    ...(resolucao.participante ? [{to: '/aluno/feed', label: 'Feed', icon: 'megaphone'}] : []),
     {to: '/aluno/perfil', label: 'Meu perfil', icon: 'home'},
     {to: '/aluno/mapa', label: 'Mapa do campus', icon: 'map'},
     ...(resolucao.candidatura ? [{to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard'}] : []),

@@ -22,6 +22,7 @@
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "db:verificar": "nest build && node scripts/verificar-banco.mjs",
     "seed:demo": "nest build && node dist/scripts/seed-demo.js",
+    "seed:demo-gamificacao": "nest build && node dist/scripts/seed-demo-gamificacao.js",
     "migration:show": "nest build && typeorm migration:show -d dist/database/data-source.js",
     "migration:run": "nest build && typeorm migration:run -d dist/database/data-source.js",
     "migration:revert": "nest build && typeorm migration:revert -d dist/database/data-source.js",
