@@ -10,6 +10,30 @@ import 'services/pucstops_api.dart';
 import 'status_participacao.dart';
 import 'tela_participacao.dart';
 import 'widgets/app_bottom_navigation.dart';
+import 'widgets/navegacao_app.dart' show diagNav;
+
+/// Estado da consulta de participação, separado do valor dela. Um valor nulo,
+/// uma consulta em andamento ou uma falha nunca significam "sem participação".
+enum EstadoSituacao {
+  /// Nunca consultou nesta conta.
+  desconhecido,
+
+  /// Primeira consulta, ainda sem valor para mostrar.
+  carregando,
+
+  /// Revalidando em segundo plano; o último valor confirmado continua valendo.
+  atualizando,
+
+  /// Resposta do servidor aplicada.
+  confirmada,
+
+  /// A última consulta falhou; o último valor confirmado (se houver) fica.
+  erro,
+}
+
+class _Mudancas extends ChangeNotifier {
+  void avisar() => notifyListeners();
+}
 
 /// Conta institucional já autenticada. O cadastro não inventa esse par.
 class IdentidadeAutenticada {
@@ -64,6 +88,25 @@ class SessaoUsuario {
 
   /// Última resposta de `GET /participacoes/situacao` (null = nunca sincronizou).
   SituacaoParticipacao? situacao;
+
+  /// Onde está a consulta de participação (ver [EstadoSituacao]).
+  EstadoSituacao estadoSituacao = EstadoSituacao.desconhecido;
+  DateTime? _ultimaSincronizacao;
+  Future<bool>? _emVoo;
+  int _emVooVersao = -1;
+  String? _emVooCiclo;
+  int _seqSituacao = 0;
+  final _mudancas = _Mudancas();
+
+  /// Avisa quando situação, abas ou programa mudam (a casca de navegação ouve).
+  Listenable get mudancas => _mudancas;
+
+  /// Dados de participação sincronizados há pouco: telas não precisam consultar
+  /// de novo só porque o usuário trocou de aba.
+  bool get contextoFresco =>
+      _ultimaSincronizacao != null &&
+      DateTime.now().difference(_ultimaSincronizacao!) <
+          const Duration(seconds: 30);
 
   /// Preferências de notificação e privacidade (apenas em memória).
   final Map<String, bool> preferencias = Map.of(preferenciasPadrao);
@@ -214,6 +257,9 @@ class SessaoUsuario {
 
   void _limparConta() {
     _versaoConta++;
+    estadoSituacao = EstadoSituacao.desconhecido;
+    _ultimaSincronizacao = null;
+    _emVoo = null;
     xp.value = null;
     dados = null;
     participacao = null;
@@ -228,6 +274,7 @@ class SessaoUsuario {
     preferencias
       ..clear()
       ..addAll(preferenciasPadrao);
+    _mudancas.avisar();
   }
 
   void _aplicarPerfil(Map<String, dynamic> perfil) {
@@ -278,12 +325,10 @@ class SessaoUsuario {
     onboardingToken = null;
   }
 
+  /// Carrega perfil, ciclos e situação. NÃO zera a situação anterior: o que já
+  /// foi confirmado continua valendo enquanto a revalidação roda. Quem zera é
+  /// a troca de conta ou de programa.
   Future<void> carregarContexto() async {
-    status = StatusParticipacao.nenhuma;
-    situacao = null;
-    participacao = null;
-    candidaturaEnviadaEm = null;
-    inscricoesDisponiveis = false;
     final versao = _versaoConta;
     await carregarPerfil();
     if (versao != _versaoConta) throw const ApiException('A conta mudou.');
@@ -307,15 +352,20 @@ class SessaoUsuario {
     inscricoesDisponiveis = programas.any(
       (p) => p['codigo'] == _api.programa && p['inscricoesDisponiveis'] == true,
     );
+    _mudancas.avisar();
   }
 
   Future<void> selecionarPrograma(String codigo) async {
+    // Outro programa é outra participação: aqui sim o valor anterior sai.
     status = StatusParticipacao.nenhuma;
     situacao = null;
     participacao = null;
     candidaturaEnviadaEm = null;
     inscricoesDisponiveis = false;
+    estadoSituacao = EstadoSituacao.carregando;
+    _emVoo = null;
     _api.programa = codigo;
+    _mudancas.avisar();
     if (!await sincronizarSituacao()) {
       throw const ApiException('Falha ao consultar o ciclo.');
     }
@@ -470,14 +520,48 @@ class SessaoUsuario {
     return resultado.participacao;
   }
 
-  /// Falha de consulta remove permissões de atividade até nova confirmação.
-  Future<bool> sincronizarSituacao() async {
-    if (_api.accessToken == null) return false;
+  /// Consulta `GET /participacoes/situacao` e aplica a resposta.
+  ///
+  /// - Consultas simultâneas compartilham a mesma requisição (a menos de
+  ///   [forcar], usado após uma ação que muda a situação).
+  /// - Só a consulta mais recente é aplicada: resposta antiga não sobrescreve
+  ///   uma mais nova, nem a de outra conta ou programa.
+  /// - Falha de rede ou do servidor mantém o último valor confirmado e marca
+  ///   [estadoSituacao] como erro; só uma resposta confirmada muda a
+  ///   participação. O backend continua decidindo as operações protegidas.
+  Future<bool> sincronizarSituacao({bool forcar = false}) {
+    if (_api.accessToken == null) return Future.value(false);
+    final existente = _emVoo;
+    if (!forcar &&
+        existente != null &&
+        _emVooVersao == _versaoConta &&
+        _emVooCiclo == _api.programa) {
+      return existente;
+    }
+    final consulta = _consultarSituacao();
+    _emVoo = consulta;
+    _emVooVersao = _versaoConta;
+    _emVooCiclo = _api.programa;
+    consulta.whenComplete(() {
+      if (identical(_emVoo, consulta)) _emVoo = null;
+    });
+    return consulta;
+  }
+
+  Future<bool> _consultarSituacao() async {
     final versao = _versaoConta;
     final ciclo = _api.programa;
+    final seq = ++_seqSituacao;
+    diagNav('situacao: consulta #$seq (valor atual: ${status.name})');
+    estadoSituacao = situacao != null
+        ? EstadoSituacao.atualizando
+        : EstadoSituacao.carregando;
+    _mudancas.avisar();
     try {
       final resposta = await _api.situacao(usuarioIdHistorico);
+      // Conta ou programa mudou: descarta. Consulta mais nova: ela aplica.
       if (versao != _versaoConta || ciclo != _api.programa) return false;
+      if (seq != _seqSituacao) return true;
       situacao = resposta;
       status = statusDaSituacao(resposta.situacao);
       participacao =
@@ -500,14 +584,19 @@ class SessaoUsuario {
         dados = dados?.comRespostas(resposta.respostas!, padrinho: true);
       }
       candidaturaEnviadaEm = resposta.criadoEm;
+      estadoSituacao = EstadoSituacao.confirmada;
+      _ultimaSincronizacao = DateTime.now();
+      _mudancas.avisar();
       return true;
     } catch (_) {
-      if (versao != _versaoConta || ciclo != _api.programa) return false;
-      status = StatusParticipacao.nenhuma;
-      situacao = null;
-      participacao = null;
-      candidaturaEnviadaEm = null;
-      inscricoesDisponiveis = false;
+      if (versao != _versaoConta ||
+          ciclo != _api.programa ||
+          seq != _seqSituacao) {
+        return false;
+      }
+      // Mantém o último valor confirmado; sem nenhum, segue sem situação.
+      estadoSituacao = EstadoSituacao.erro;
+      _mudancas.avisar();
       return false;
     }
   }
@@ -553,7 +642,7 @@ class SessaoUsuario {
     String? grupo,
     int? apadrinhados,
   }) async {
-    if (!await sincronizarSituacao() || !status.ativo) {
+    if (!await sincronizarSituacao(forcar: true) || !status.ativo) {
       throw const ApiException(
         'A participação ativa depende de vínculo confirmado pela coordenação.',
       );
@@ -570,6 +659,7 @@ class SessaoUsuario {
     candidaturaEnviadaEm = null;
     historicoParticipacoes = const [];
     situacao = null;
+    estadoSituacao = EstadoSituacao.desconhecido;
     preferencias
       ..clear()
       ..addAll(preferenciasPadrao);

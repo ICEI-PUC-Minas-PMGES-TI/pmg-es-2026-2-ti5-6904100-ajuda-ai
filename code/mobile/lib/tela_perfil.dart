@@ -107,6 +107,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
+    diagNav('perfil: initState');
     _dados = _dadosDaSessao();
     _nomeController = TextEditingController(text: _dados.nome);
     _cursoController = TextEditingController(text: _dados.curso);
@@ -121,16 +122,23 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _sincronizar() async {
-    try {
-      await _sessao.carregarContexto();
-      if (mounted) {
-        setState(() {
-          _dados = _dadosDaSessao();
-          _erro = null;
-        });
+    // Voltar a esta aba não refaz as consultas: a sessão já tem os dados
+    // (carregados no login) e eles só são relidos quando ficam velhos.
+    if (!_sessao.contextoFresco) {
+      try {
+        await _sessao.carregarContexto();
+        if (mounted) {
+          setState(() {
+            _dados = _dadosDaSessao();
+            _erro = null;
+          });
+        }
+      } catch (erro) {
+        // Com dados já confirmados, uma falha de rede não vira tela de erro.
+        if (mounted && _sessao.situacao == null) {
+          setState(() => _erro = '$erro');
+        }
       }
-    } catch (erro) {
-      if (mounted) setState(() => _erro = '$erro');
     }
     try {
       final email = _sessao.identidade?.email;
