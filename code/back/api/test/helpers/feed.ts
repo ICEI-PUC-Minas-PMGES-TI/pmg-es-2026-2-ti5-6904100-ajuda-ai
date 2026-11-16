@@ -69,10 +69,17 @@ export function criarFeedTeste() {
     FeedOutboxEntity: [],
   };
   const repos: Record<string, any> = {};
-  const corresponde = (v: any, where: any) =>
-    Object.entries(where ?? {}).every(([k, val]: [string, any]) =>
-      val?._type === 'in' ? val._value.includes(v[k]) : v[k] === val,
-    );
+  // `where` pode ser um objeto ou uma lista de objetos (OR), com In e IsNull.
+  const corresponde = (v: any, where: any): boolean =>
+    Array.isArray(where)
+      ? where.some((w) => corresponde(v, w))
+      : Object.entries(where ?? {}).every(([k, val]: [string, any]) =>
+          val?._type === 'in'
+            ? val._value.includes(v[k])
+            : val?._type === 'isNull'
+              ? v[k] == null
+              : v[k] === val,
+        );
   const completar = (v: any, relacoes: unknown) => {
     if (v && relacoes)
       return {

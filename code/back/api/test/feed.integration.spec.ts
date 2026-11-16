@@ -53,6 +53,30 @@ describe.skipIf(!db || !amqp)(
       await dados.query(`CREATE SCHEMA "${schema}"`);
       await dados.synchronize();
       await dados.query(`DROP TABLE "${schema}".feed_outbox`);
+      // O aluno do teste precisa participar do ciclo atual (permissões pela
+      // participação, não pelo JWT): apadrinhado com padrinho no mesmo grupo.
+      const ciclo = ParticipacoesService.programaAtual();
+      await dados.getRepository(ProgramaEntity).save({
+        codigo: ciclo,
+        titulo: `Programa ${ciclo}`,
+        etapaAtual: 'andamento',
+      });
+      await dados.getRepository(ParticipacaoEntity).save([
+        {
+          usuarioId: 'pedro@pucminas.edu.br',
+          programa: ciclo,
+          papel: 'padrinho',
+          status: 'em_andamento',
+          grupo: 'Grupo 01',
+        },
+        {
+          usuarioId: aluno.email,
+          programa: ciclo,
+          papel: 'apadrinhado',
+          status: 'em_andamento',
+          grupo: 'Grupo 01',
+        },
+      ]);
       const runner = dados.createQueryRunner();
       try {
         await new FeedTempoReal1793300000000().up(runner);
