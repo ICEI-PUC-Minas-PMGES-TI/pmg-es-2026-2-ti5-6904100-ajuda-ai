@@ -98,13 +98,8 @@ void main() {
     await tester.tap(find.byTooltip('Curtir'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.descendant(
-        of: find.byTooltip('Descurtir'),
-        matching: find.text('1'),
-      ),
-      findsOneWidget,
-    );
+    // Sem nomes no payload, a linha cai para a contagem (nunca inventa nome).
+    expect(find.text('1 curtida'), findsOneWidget);
     expect(backend.curtidas, 1);
 
     await tester.tap(find.byTooltip('Comentar'));

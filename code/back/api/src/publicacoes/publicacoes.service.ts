@@ -16,6 +16,7 @@ import { CurtidaComentarioEntity } from './entities/curtida-comentario.entity.js
 import type {
   AutorComentarioDto,
   ComentarioRespostaDto,
+  CurtidorDto,
 } from './publicacoes.dto.js';
 import { FeedOutboxEntity } from './entities/feed-outbox.entity.js';
 import { PublicacaoEntity } from './entities/publicacao.entity.js';
@@ -218,6 +219,50 @@ export class PublicacoesService {
     return this.obter(id, usuario);
   }
 
+  /** Quem curtiu o post (participantes do ciclo e coordenação). */
+  async curtidores(id: number): Promise<CurtidorDto[]> {
+    const existe = await this.publicacoes.findOne({ where: { id } });
+    if (!existe) throw new NotFoundException('Publicação não encontrada.');
+    const curtidas = await this.dados.getRepository(CurtidaEntity).find({
+      where: { publicacaoId: id },
+      order: { criadoEm: 'DESC', id: 'DESC' },
+    });
+    return this.curtidoresDe(
+      curtidas.map((c) => ({ email: c.usuarioId, quando: c.criadoEm })),
+    );
+  }
+
+  /** Quem curtiu o comentário. */
+  async curtidoresComentario(
+    id: number,
+    comentarioId: number,
+  ): Promise<CurtidorDto[]> {
+    const comentario = await this.dados
+      .getRepository(ComentarioEntity)
+      .findOne({ where: { id: comentarioId, publicacaoId: id } });
+    if (!comentario) throw new NotFoundException('Comentário não encontrado.');
+    const curtidas = await this.dados
+      .getRepository(CurtidaComentarioEntity)
+      .find({
+        where: { comentarioId },
+        order: { criadoEm: 'DESC', id: 'DESC' },
+      });
+    return this.curtidoresDe(
+      curtidas.map((c) => ({ email: c.usuarioId, quando: c.criadoEm })),
+    );
+  }
+
+  private async curtidoresDe(
+    itens: Array<{ email: string; quando: Date }>,
+  ): Promise<CurtidorDto[]> {
+    const autores = await this.autoresPorEmails(itens.map((i) => i.email));
+    return itens.map(({ email, quando }) => ({
+      autor: autores.get(email)!,
+      curtidoEm: quando,
+      coordenacao: Boolean(buscarCoordenadorPorEmail(email)),
+    }));
+  }
+
   async curtirComentario(
     id: number,
     comentarioId: number,
@@ -296,12 +341,27 @@ export class PublicacoesService {
     return { texto, categoria, imagens: [...new Set(imagens)] };
   }
 
+  /** Autores de comentários e das curtidas mais recentes, numa só consulta. */
   private async autores(itens: PublicacaoEntity[]) {
-    const emails = [
-      ...new Set(
-        itens.flatMap((p) => (p.comentarios ?? []).map((c) => c.autorId)),
-      ),
-    ];
+    return this.autoresPorEmails(
+      itens.flatMap((p) => [
+        ...(p.comentarios ?? []).map((c) => c.autorId),
+        ...this.ultimasCurtidas(p).map((c) => c.usuarioId),
+      ]),
+    );
+  }
+
+  /** As curtidas mais recentes (até 3): alimentam "Curtido por ..." no card. */
+  private ultimasCurtidas(item: PublicacaoEntity) {
+    return [...(item.curtidas ?? [])]
+      .sort(
+        (a, b) => b.criadoEm.getTime() - a.criadoEm.getTime() || b.id - a.id,
+      )
+      .slice(0, 3);
+  }
+
+  private async autoresPorEmails(todos: string[]) {
+    const emails = [...new Set(todos)];
     const usuarios = await this.usuarios.buscarAutoresPorEmails(emails);
     const autores = new Map<string, AutorComentarioDto>();
     await Promise.all(
@@ -376,6 +436,11 @@ export class PublicacoesService {
       curtidoPorMim: likes.some(
         (v) => v.comentarioId === c.id && v.usuarioId === usuario.email,
       ),
+      curtidoPelaCoordenacao: likes.some(
+        (v) =>
+          v.comentarioId === c.id &&
+          Boolean(buscarCoordenadorPorEmail(v.usuarioId)),
+      ),
     }));
     return {
       id: item.id,
@@ -396,6 +461,16 @@ export class PublicacoesService {
       imagens: this.midias.urls(item.imagens),
       midias: item.imagens,
       curtidas: curtidas.length,
+      // Poucos nomes junto do feed: o card mostra "Curtido por X e outras N
+      // pessoas" sem uma requisição por post. A lista completa é sob demanda.
+      curtidoresRecentes: this.ultimasCurtidas(item).map((c) => {
+        const autor = autores.get(c.usuarioId);
+        return {
+          nome: autor?.nome ?? 'Usuário indisponível',
+          fotoUrl: autor?.fotoUrl ?? null,
+          coordenacao: Boolean(buscarCoordenadorPorEmail(c.usuarioId)),
+        };
+      }),
       curtidoPeloUsuario: curtidas.some((c) => c.usuarioId === usuario.email),
       comentarios: comentarios.length,
       comentariosTexto: comentarios.map((c) => c.texto),

@@ -214,3 +214,34 @@
     flex-wrap: wrap;
   }
 }
+
+.feed-comment-likes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.feed-comment-likes .mini-btn[aria-pressed="true"] {
+  color: #e94072;
+}
+.feed-selo-coordenacao {
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: #f3e9fe;
+  color: #420594;
+}
+.feed-curtidores {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.feed-curtidores li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

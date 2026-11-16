@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import {
   criarFeedTeste,
   coordenador,
@@ -171,6 +171,92 @@ describe('PublicacoesService', () => {
       await expect(
         service.removerComentario(post.id, doPadrinho.id, aluno),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('quem curtiu', () => {
+    it('lista quem curtiu o post com nome e selo da coordenação', async () => {
+      const { service } = criarFeedTeste();
+      const post = await service.criar({ texto: 'Aviso' }, coordenador);
+      await service.curtir(post.id, 1, aluno);
+      await service.curtir(post.id, 1, padrinho);
+      await service.curtir(post.id, 1, coordenador);
+      const lista = await service.curtidores(post.id);
+      expect(lista).toHaveLength(3);
+      expect(lista.map((c) => c.autor.nome).sort()).toEqual([
+        'Camila Duarte',
+        'Pedro Santos',
+        'Renata Martins',
+      ]);
+      expect(lista.filter((c) => c.coordenacao)).toHaveLength(1);
+      expect(lista.find((c) => c.coordenacao)?.autor.nome).toBe(
+        'Renata Martins',
+      );
+    });
+
+    it('o feed traz até 3 curtidores recentes (sem requisição por post)', async () => {
+      const { service } = criarFeedTeste();
+      const sem = await service.criar({ texto: 'Sem curtidas' }, coordenador);
+      expect(sem.curtidoresRecentes).toEqual([]);
+      const post = await service.criar({ texto: 'Aviso' }, coordenador);
+      await service.curtir(post.id, 1, aluno);
+      await service.curtir(post.id, 1, padrinho);
+      const dois = (await service.obter(post.id, aluno)).curtidoresRecentes;
+      expect(dois.map((c) => c.nome).sort()).toEqual([
+        'Camila Duarte',
+        'Pedro Santos',
+      ]);
+      await service.curtir(post.id, 1, coordenador);
+      const lista = await service.listar(aluno);
+      const doPost = lista.find((p) => p.id === post.id)!;
+      expect(doPost.curtidas).toBe(3);
+      expect(doPost.curtidoresRecentes).toHaveLength(3);
+      expect(doPost.curtidoresRecentes.some((c) => c.coordenacao)).toBe(true);
+      // Descurtir sai dos recentes.
+      await service.curtir(post.id, -1, aluno);
+      const depois = (await service.obter(post.id, padrinho))
+        .curtidoresRecentes;
+      expect(depois.map((c) => c.nome)).not.toContain('Camila Duarte');
+    });
+
+    it('descurtir tira a pessoa da lista', async () => {
+      const { service } = criarFeedTeste();
+      const post = await service.criar({ texto: 'Aviso' }, coordenador);
+      await service.curtir(post.id, 1, aluno);
+      await service.curtir(post.id, -1, aluno);
+      expect(await service.curtidores(post.id)).toEqual([]);
+    });
+
+    it('post inexistente é 404', async () => {
+      const { service } = criarFeedTeste();
+      await expect(service.curtidores(999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('curtidas de comentário: lista e selo curtidoPelaCoordenacao', async () => {
+      const { service } = criarFeedTeste();
+      const post = await service.criar({ texto: 'Aviso' }, coordenador);
+      const c = (await service.comentar(post.id, 'Oi', aluno))
+        .comentariosDetalhes[0];
+      expect(c.curtidoPelaCoordenacao).toBe(false);
+      await service.curtirComentario(post.id, c.id, 1, padrinho);
+      expect(
+        (await service.obter(post.id, aluno)).comentariosDetalhes[0]
+          .curtidoPelaCoordenacao,
+      ).toBe(false);
+      await service.curtirComentario(post.id, c.id, 1, coordenador);
+      const detalhe = (await service.obter(post.id, aluno))
+        .comentariosDetalhes[0];
+      expect(detalhe.curtidoPelaCoordenacao).toBe(true);
+      expect(detalhe.curtidas).toBe(2);
+      const lista = await service.curtidoresComentario(post.id, c.id);
+      expect(lista.map((x) => x.autor.nome).sort()).toEqual([
+        'Pedro Santos',
+        'Renata Martins',
+      ]);
+      expect(lista.filter((x) => x.coordenacao)).toHaveLength(1);
+      await expect(service.curtidoresComentario(post.id, 9999)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 

@@ -272,6 +272,55 @@ describe('Feed HTTP e SSE autenticados', () => {
         .expect(podeAdministrar ? 200 : 403);
     },
   );
+  it('quem curtiu: participantes veem, quem só usa o mapa não', async () => {
+    const post = await request(app.getHttpServer())
+      .post('/publicacoes')
+      .set('Authorization', auth(coordenador))
+      .send({ texto: 'Aviso' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/publicacoes/${post.body.id}/curtidas`)
+      .set('Authorization', auth(aluno))
+      .send({ delta: 1 })
+      .expect(201);
+    const comentario = await request(app.getHttpServer())
+      .post(`/publicacoes/${post.body.id}/comentarios`)
+      .set('Authorization', auth(aluno))
+      .send({ texto: 'Oi' })
+      .expect(201);
+    const cid = comentario.body.comentariosDetalhes[0].id;
+    await request(app.getHttpServer())
+      .post(`/publicacoes/${post.body.id}/comentarios/${cid}/curtidas`)
+      .set('Authorization', auth(coordenador))
+      .send({ delta: 1 })
+      .expect(201);
+    for (const usuario of [aluno, padrinho, coordenador]) {
+      const lista = await request(app.getHttpServer())
+        .get(`/publicacoes/${post.body.id}/curtidas`)
+        .set('Authorization', auth(usuario))
+        .expect(200);
+      expect(lista.body).toHaveLength(1);
+      expect(lista.body[0].autor.nome).toBe('Camila Duarte');
+      const doComentario = await request(app.getHttpServer())
+        .get(`/publicacoes/${post.body.id}/comentarios/${cid}/curtidas`)
+        .set('Authorization', auth(usuario))
+        .expect(200);
+      expect(doComentario.body[0]).toMatchObject({ coordenacao: true });
+    }
+    for (const caminho of [
+      `/publicacoes/${post.body.id}/curtidas`,
+      `/publicacoes/${post.body.id}/comentarios/${cid}/curtidas`,
+    ])
+      await request(app.getHttpServer())
+        .get(caminho)
+        .set('Authorization', auth(somenteMapa))
+        .expect(403);
+    await request(app.getHttpServer())
+      .get('/publicacoes/9999/curtidas')
+      .set('Authorization', auth(aluno))
+      .expect(404);
+  });
+
   it('usuário só do mapa não lê o feed nem abre o stream (DP-01)', async () => {
     const post = await feed.service.criar({ texto: 'Interno' }, coordenador);
     for (const path of [

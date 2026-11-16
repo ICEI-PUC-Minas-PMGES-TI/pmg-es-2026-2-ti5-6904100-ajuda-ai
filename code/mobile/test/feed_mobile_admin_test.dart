@@ -487,16 +487,7 @@ void main() {
       await tocar(tester, find.text('Publicar'));
       expect(em(b, find.text('Notícia do celular A')), findsOneWidget);
       await tocar(tester, em(b, find.byTooltip('Curtir')));
-      expect(
-        em(
-          a,
-          find.descendant(
-            of: find.byTooltip('Curtir'),
-            matching: find.text('1'),
-          ),
-        ),
-        findsOneWidget,
-      );
+      expect(em(a, find.text('1 curtida')), findsOneWidget);
       await tocar(tester, em(b, find.byTooltip('Comentar')));
       await tester.enterText(
         find.byType(TextField).last,

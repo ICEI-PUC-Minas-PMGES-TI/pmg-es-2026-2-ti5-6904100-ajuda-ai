@@ -208,6 +208,14 @@ export function FeedView({
   anexar,
   email,
 }) {
+  // Lista de quem curtiu (post ou comentário), carregada ao abrir.
+  const [curtidores, setCurtidores] = useState(null);
+  function abrirCurtidores(titulo, buscar) {
+    setCurtidores({ titulo, itens: null, erro: "" });
+    buscar()
+      .then((lista) => setCurtidores({ titulo, itens: lista, erro: "" }))
+      .catch((e) => setCurtidores({ titulo, itens: [], erro: e.message }));
+  }
   const visiveis = filtrarPublicacoes(itens, categoria);
   const categorias = [
     ...new Set([...categoriasFeed, ...itens.map((post) => post.categoria)]),
@@ -309,6 +317,18 @@ export function FeedView({
                   {post.curtidas}
                 </button>
               )}
+              {post.curtidas > 0 && (
+                <button
+                  className="mini-btn"
+                  onClick={() =>
+                    abrirCurtidores("Quem curtiu a publicação", () =>
+                      api.curtidoresPublicacao(post.id, email),
+                    )
+                  }
+                >
+                  Ver quem curtiu
+                </button>
+              )}
               <span>{post.comentarios} comentário(s)</span>
               {!post.podeAdministrar && post.podeExcluir && (
                 <button
@@ -355,6 +375,44 @@ export function FeedView({
                   <div className="feed-comment-body">
                     {c.autor?.nome && <strong>{c.autor.nome}</strong>}
                     <span>{c.texto}</span>
+                    <span className="feed-comment-likes">
+                      {post.podeInteragir && (
+                        <button
+                          className="mini-btn"
+                          disabled={ocupado}
+                          aria-pressed={c.curtidoPorMim}
+                          onClick={() =>
+                            executar(() =>
+                              api.curtirComentario(
+                                post.id,
+                                c.id,
+                                c.curtidoPorMim ? -1 : 1,
+                                email,
+                              ),
+                            )
+                          }
+                        >
+                          {c.curtidoPorMim ? "Descurtir" : "Curtir"}
+                        </button>
+                      )}
+                      {c.curtidas > 0 && (
+                        <button
+                          className="mini-btn"
+                          onClick={() =>
+                            abrirCurtidores("Quem curtiu o comentário", () =>
+                              api.curtidoresComentario(post.id, c.id, email),
+                            )
+                          }
+                        >
+                          ♥ {c.curtidas}
+                        </button>
+                      )}
+                      {c.curtidoPelaCoordenacao && (
+                        <span className="feed-selo-coordenacao">
+                          Curtido pela coordenação
+                        </span>
+                      )}
+                    </span>
                   </div>
                   {c.podeExcluir && (
                     <button
@@ -404,6 +462,32 @@ export function FeedView({
           </article>
         ))}
       </div>
+      {curtidores && (
+        <Modal titulo={curtidores.titulo} onFechar={() => setCurtidores(null)}>
+          {curtidores.itens === null && <p role="status">Carregando…</p>}
+          {curtidores.erro && (
+            <p className="dash-inline-error" role="alert">
+              {curtidores.erro}
+            </p>
+          )}
+          {curtidores.itens?.length === 0 && !curtidores.erro && (
+            <p className="empty-copy">Ninguém curtiu ainda.</p>
+          )}
+          <ul className="feed-curtidores">
+            {(curtidores.itens ?? []).map((c, i) => (
+              <li key={`${c.autor.id}-${i}`}>
+                <span className="feed-avatar small" aria-hidden="true">
+                  {c.autor.nome.trim().charAt(0).toUpperCase()}
+                </span>
+                <strong>{c.autor.nome}</strong>
+                {c.coordenacao && (
+                  <span className="feed-selo-coordenacao">Coordenação</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      )}
       {editor && (
         <Modal
           titulo={editor.id ? "Editar publicação" : "Nova publicação"}

@@ -12,6 +12,7 @@ import 'services/feed_image_save.dart';
 import 'services/feed_media.dart';
 import 'widgets/app_feedback.dart';
 import 'widgets/feed_comments_sheet.dart';
+import 'widgets/feed_curtidores_sheet.dart';
 import 'models/feed_comment.dart';
 import 'sessao_usuario.dart';
 import 'main.dart' show estiloBarraClara;
@@ -383,6 +384,46 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     }
   }
 
+  /// `GET /publicacoes/:id/curtidas` (ou do comentário).
+  Future<List<Curtidor>> _buscarCurtidores(
+    int postId, [
+    int? comentarioId,
+  ]) async {
+    final uri = Uri.parse(
+      '$_apiBaseUrl/publicacoes/$postId'
+      '${comentarioId == null ? '' : '/comentarios/$comentarioId'}/curtidas',
+    );
+    final r = await _client.get(uri, headers: _identidade());
+    if (r.statusCode < 200 || r.statusCode >= 300) {
+      throw Exception('Falha ao carregar curtidas (${r.statusCode}).');
+    }
+    return [
+      for (final item in jsonDecode(r.body) as List)
+        if (item is Map<String, dynamic>) Curtidor.fromJson(item),
+    ];
+  }
+
+  /// Última lista completa por post. Só é mostrada de imediato se ainda bate
+  /// com o contador; a folha sempre revalida por baixo.
+  final _curtidoresEmCache = <int, List<Curtidor>>{};
+
+  void _verCurtidas(_Publicacao p) {
+    final id = p.id;
+    if (id == null) return;
+    final cache = _curtidoresEmCache[id];
+    mostrarCurtidores(
+      context,
+      titulo: 'Quem curtiu',
+      total: p.curtidas,
+      emCache: cache != null && cache.length == p.curtidas ? cache : null,
+      buscar: () async {
+        final lista = await _buscarCurtidores(id);
+        _curtidoresEmCache[id] = lista;
+        return lista;
+      },
+    );
+  }
+
   Future<void> _abrirCriacao() => _abrirEditor();
 
   Future<void> _abrirEditor([_Publicacao? original]) async {
@@ -500,6 +541,12 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
         onLike: (comentario, delta) =>
             _acaoComentario(publicacao, comentario.id, delta: delta),
         onDelete: (comentario) => _acaoComentario(publicacao, comentario.id),
+        onVerCurtidas: (comentario) => mostrarCurtidores(
+          context,
+          titulo: 'Quem curtiu o comentário',
+          total: comentario.curtidas,
+          buscar: () => _buscarCurtidores(publicacao.id!, comentario.id),
+        ),
       ),
     );
   }
@@ -646,6 +693,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
                             : post.imagens[i]]!,
                     ],
                     onComment: () => _abrirComentarios(post),
+                    onVerCurtidas: () => _verCurtidas(post),
                     onLike: (delta) async {
                       final indiceReal = _publicacoes.indexWhere(
                         (p) => p.id == post.id,
@@ -893,6 +941,7 @@ class _PublicacaoCard extends StatefulWidget {
   const _PublicacaoCard({
     required this.publicacao,
     required this.onComment,
+    required this.onVerCurtidas,
     required this.onLike,
     required this.onDelete,
     required this.onEdit,
@@ -902,6 +951,7 @@ class _PublicacaoCard extends StatefulWidget {
 
   final _Publicacao publicacao;
   final VoidCallback onComment;
+  final VoidCallback onVerCurtidas;
   final Future<bool> Function(int) onLike;
   final VoidCallback onDelete;
   final VoidCallback onEdit;
@@ -1167,7 +1217,7 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
               ],
             ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 4, 12, 8),
+            padding: const EdgeInsets.fromLTRB(4, 0, 12, 0),
             child: Row(
               children: [
                 if (post.podeInteragir)
@@ -1177,7 +1227,6 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                         ? Icons.favorite_rounded
                         : Icons.favorite_border_rounded,
                     cor: _curtido ? const Color(0xFFE94072) : AppColors.ink,
-                    contagem: _curtidas,
                     onTap: () async {
                       if (_alterandoCurtida) return;
                       final delta = _curtido ? -1 : 1;
@@ -1196,11 +1245,6 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                         }
                       });
                     },
-                  )
-                else
-                  _ContagemFixa(
-                    icone: Icons.favorite_border_rounded,
-                    contagem: _curtidas,
                   ),
                 _AcaoPost(
                   tooltip: post.podeInteragir ? 'Comentar' : 'Ver comentários',
@@ -1217,10 +1261,25 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
               ],
             ),
           ),
+          // "Curtido por Camila e outras 2 pessoas": sem requisição por post,
+          // só com o que veio no feed. Some quando ninguém curtiu.
+          CurtidoPorLinha(
+            recentes: _recentesCoerentes(post),
+            total: _curtidas,
+            onTap: widget.onVerCurtidas,
+          ),
+          const SizedBox(height: 8),
         ],
       ),
     );
   }
+
+  /// Nomes só valem se batem com o estado atual (curtida otimista em curso
+  /// ou lista mais antiga que o contador): senão a linha cai para "N curtidas".
+  List<Curtidor> _recentesCoerentes(_Publicacao post) =>
+      _curtido == post.curtidoPeloUsuario && _curtidas == post.curtidas
+      ? post.curtidoresRecentes
+      : const [];
 }
 
 class _EstiloCategoria {
@@ -1569,59 +1628,33 @@ class _AcaoPost extends StatelessWidget {
       message: tooltip,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icone, size: 22, color: cor),
-              if (contagem != null) ...[
-                const SizedBox(width: 5),
-                Text(
-                  '$contagem',
-                  style: TextStyle(
-                    color: cor,
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
+        borderRadius: BorderRadius.circular(24),
+        child: ConstrainedBox(
+          // Alvo de toque de 48 dp, sem espaçar demais os ícones.
+          constraints: const BoxConstraints(minHeight: 48, minWidth: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icone, size: 24, color: cor),
+                if (contagem != null) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    '$contagem',
+                    style: TextStyle(
+                      color: cor,
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
+                ],
               ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Contagem sem ação (quem não pode curtir ainda vê o total).
-class _ContagemFixa extends StatelessWidget {
-  const _ContagemFixa({required this.icone, required this.contagem});
-
-  final IconData icone;
-  final int contagem;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icone, size: 22, color: AppColors.muted),
-          const SizedBox(width: 5),
-          Text(
-            '$contagem',
-            style: const TextStyle(
-              color: AppColors.muted,
-              fontFamily: 'Inter',
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -2237,6 +2270,7 @@ class _Publicacao {
     this.comentariosTexto = const [],
     this.comentariosDetalhes = const [],
     this.curtidoPeloUsuario = false,
+    this.curtidoresRecentes = const [],
   });
 
   final int? id;
@@ -2250,6 +2284,9 @@ class _Publicacao {
   final List<String> midias;
   final int curtidas;
   final bool curtidoPeloUsuario;
+
+  /// Até 3 curtidores mais recentes que já vêm no feed (sem requisição extra).
+  final List<Curtidor> curtidoresRecentes;
   final int comentarios;
   final Color corAvatar;
   final bool verificado;
@@ -2286,6 +2323,10 @@ class _Publicacao {
       podeExcluir: json['podeExcluir'] as bool? ?? false,
       podeInteragir: json['podeInteragir'] == true,
       curtidoPeloUsuario: json['curtidoPeloUsuario'] as bool? ?? false,
+      curtidoresRecentes: [
+        for (final c in json['curtidoresRecentes'] as List? ?? const [])
+          if (c is Map<String, dynamic>) Curtidor.fromJson(c),
+      ],
       comentariosTexto: comentariosTexto,
       comentariosDetalhes: json['comentariosDetalhes'] is List
           ? (json['comentariosDetalhes'] as List)
@@ -2332,6 +2373,7 @@ class _Publicacao {
     midias: midias,
     curtidas: curtidas ?? this.curtidas,
     curtidoPeloUsuario: curtidoPeloUsuario ?? this.curtidoPeloUsuario,
+    curtidoresRecentes: curtidoresRecentes,
     comentarios: comentarios ?? this.comentarios,
     corAvatar: corAvatar,
     verificado: verificado,

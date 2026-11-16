@@ -112,6 +112,19 @@ export class PublicacoesController {
   ) {
     return this.publicacoes.removerComentario(id, comentarioId, req.user);
   }
+  @Get(':id/curtidas')
+  @UseGuards(FeedLeituraGuard)
+  curtidores(@Param('id', ParseIntPipe) id: number) {
+    return this.publicacoes.curtidores(id);
+  }
+  @Get(':id/comentarios/:comentarioId/curtidas')
+  @UseGuards(FeedLeituraGuard)
+  curtidoresComentario(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('comentarioId', ParseIntPipe) comentarioId: number,
+  ) {
+    return this.publicacoes.curtidoresComentario(id, comentarioId);
+  }
   @Post(':id/curtidas')
   curtir(
     @Param('id', ParseIntPipe) id: number,
