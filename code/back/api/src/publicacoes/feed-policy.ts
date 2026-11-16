@@ -45,9 +45,30 @@ export class FeedPolicy {
     return (await this.permissoes.doUsuario(usuario)).podeInteragir;
   }
 
-  podeExcluirComentario(usuario: AccessTokenPayload, autorId: string): boolean {
-    // Moderação de apadrinhados por padrinho depende do vínculo/contexto definitivo.
-    return usuario.email === autorId || this.podeAdministrar(usuario);
+  /** Coordenação ou o próprio autor; editar continua só da coordenação. */
+  podeExcluirPublicacao(usuario: AccessTokenPayload, ownerId: string): boolean {
+    return this.podeAdministrar(usuario) || usuario.email === ownerId;
+  }
+
+  /** Apadrinhados do padrinho, carregados uma vez por requisição. */
+  apadrinhadosDe(usuario: AccessTokenPayload): Promise<Set<string>> {
+    return this.permissoes.apadrinhadosDe(usuario);
+  }
+
+  /**
+   * Coordenação, o próprio autor ou o padrinho do autor (vínculo ativo no
+   * ciclo atual). `apadrinhados` vem de `apadrinhadosDe`.
+   */
+  podeExcluirComentario(
+    usuario: AccessTokenPayload,
+    autorId: string,
+    apadrinhados: ReadonlySet<string> = new Set(),
+  ): boolean {
+    return (
+      usuario.email === autorId ||
+      this.podeAdministrar(usuario) ||
+      apadrinhados.has(autorId)
+    );
   }
 
   exigirAdministracao(usuario: AccessTokenPayload): void {

@@ -271,7 +271,9 @@ export function FeedView({
                   {post.descricaoAutor} · {post.tempo}
                 </small>
               </div>
-              <span className="matching-tag">{post.categoria}</span>
+              <span className="feed-category" data-categoria={post.categoria}>
+                {post.categoria}
+              </span>
             </header>
             <p className="feed-text">{post.texto}</p>
             {post.imagens.length > 0 && (
@@ -308,6 +310,15 @@ export function FeedView({
                 </button>
               )}
               <span>{post.comentarios} comentário(s)</span>
+              {!post.podeAdministrar && post.podeExcluir && (
+                <button
+                  className="mini-btn"
+                  disabled={ocupado}
+                  onClick={() => setConfirmar(post.id)}
+                >
+                  Excluir
+                </button>
+              )}
               {post.podeAdministrar && (
                 <>
                   <button
@@ -338,7 +349,13 @@ export function FeedView({
             <ul className="feed-comments">
               {post.comentariosDetalhes.map((c) => (
                 <li key={c.id}>
-                  <span>{c.texto}</span>
+                  <span className="feed-avatar small" aria-hidden="true">
+                    {(c.autor?.nome || "?").trim().charAt(0).toUpperCase()}
+                  </span>
+                  <div className="feed-comment-body">
+                    {c.autor?.nome && <strong>{c.autor.nome}</strong>}
+                    <span>{c.texto}</span>
+                  </div>
                   {c.podeExcluir && (
                     <button
                       className="mini-btn"

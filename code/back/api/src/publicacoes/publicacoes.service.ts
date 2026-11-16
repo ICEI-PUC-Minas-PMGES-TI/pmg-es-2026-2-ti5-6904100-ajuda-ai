@@ -46,11 +46,9 @@ export class PublicacoesService {
       order: { criadoEm: 'DESC', id: 'DESC' },
     });
     const autores = await this.autores(itens);
-    const podeInteragir = await this.policy.podeInteragir(usuario);
+    const permissoes = await this.permissoesDe(usuario);
     return Promise.all(
-      itens.map((item) =>
-        this.apresentar(item, usuario, autores, podeInteragir),
-      ),
+      itens.map((item) => this.apresentar(item, usuario, autores, permissoes)),
     );
   }
 
@@ -64,7 +62,7 @@ export class PublicacoesService {
       item,
       usuario,
       await this.autores([item]),
-      await this.policy.podeInteragir(usuario),
+      await this.permissoesDe(usuario),
     );
   }
 
@@ -123,9 +121,11 @@ export class PublicacoesService {
     return this.obter(id, usuario);
   }
 
+  /** Coordenação exclui qualquer post; o autor exclui o próprio (DP-21). */
   async remover(id: number, usuario: AccessTokenPayload) {
-    this.policy.exigirAdministracao(usuario);
     await this.alterar(id, 'feed.post.deleted', async (manager, item) => {
+      if (!this.policy.podeExcluirPublicacao(usuario, item.ownerId))
+        throw new ForbiddenException('Você não pode excluir esta publicação.');
       await manager.getRepository(PublicacaoEntity).remove(item);
     });
     return { removido: true };
@@ -183,7 +183,14 @@ export class PublicacoesService {
       });
       if (!comentario)
         throw new NotFoundException('Comentário não encontrado.');
-      if (!this.policy.podeExcluirComentario(usuario, comentario.autorId))
+      const apadrinhados = await this.policy.apadrinhadosDe(usuario);
+      if (
+        !this.policy.podeExcluirComentario(
+          usuario,
+          comentario.autorId,
+          apadrinhados,
+        )
+      )
         throw new ForbiddenException('Você não pode excluir este comentário.');
       await repo.remove(comentario);
     });
@@ -326,11 +333,20 @@ export class PublicacoesService {
     return autores;
   }
 
+  /** Uma consulta por requisição, reaproveitada em todos os posts da lista. */
+  private async permissoesDe(usuario: AccessTokenPayload) {
+    const [podeInteragir, apadrinhados] = await Promise.all([
+      this.policy.podeInteragir(usuario),
+      this.policy.apadrinhadosDe(usuario),
+    ]);
+    return { podeInteragir, apadrinhados };
+  }
+
   private async apresentar(
     item: PublicacaoEntity,
     usuario: AccessTokenPayload,
     autores: Map<string, AutorComentarioDto>,
-    podeInteragir: boolean,
+    permissoes: { podeInteragir: boolean; apadrinhados: Set<string> },
   ) {
     const curtidas = item.curtidas ?? [];
     const comentarios = [...(item.comentarios ?? [])].sort(
@@ -351,7 +367,11 @@ export class PublicacoesService {
       paiId: c.paiId ?? null,
       criadoEm: c.criadoEm,
       autor: autores.get(c.autorId)!,
-      podeExcluir: this.policy.podeExcluirComentario(usuario, c.autorId),
+      podeExcluir: this.policy.podeExcluirComentario(
+        usuario,
+        c.autorId,
+        permissoes.apadrinhados,
+      ),
       curtidas: likes.filter((v) => v.comentarioId === c.id).length,
       curtidoPorMim: likes.some(
         (v) => v.comentarioId === c.id && v.usuarioId === usuario.email,
@@ -381,8 +401,9 @@ export class PublicacoesService {
       comentariosTexto: comentarios.map((c) => c.texto),
       comentariosDetalhes: detalhes,
       isOwn: item.ownerId === usuario.email,
+      podeExcluir: this.policy.podeExcluirPublicacao(usuario, item.ownerId),
       podeAdministrar: this.policy.podeAdministrar(usuario),
-      podeInteragir,
+      podeInteragir: permissoes.podeInteragir,
     };
   }
 }

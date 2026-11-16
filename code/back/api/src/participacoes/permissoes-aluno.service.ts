@@ -75,6 +75,20 @@ export class PermissoesAlunoService {
     return permissoes;
   }
 
+  /**
+   * Apadrinhados do padrinho no ciclo atual (moderação de comentários,
+   * DP-01/RN-002). Vazio para quem não é padrinho com vínculo.
+   */
+  async apadrinhadosDe(usuario: AccessTokenPayload): Promise<Set<string>> {
+    const permissoes = await this.doUsuario(usuario);
+    if (permissoes.papel !== 'padrinho') return new Set();
+    const registro = await this.participacoes.registroPrincipal(
+      String(usuario.email ?? ''),
+      permissoes.programa,
+    );
+    return this.participacoes.emailsApadrinhadosDe(registro);
+  }
+
   private async calcular(
     usuario: AccessTokenPayload,
   ): Promise<PermissoesAluno> {

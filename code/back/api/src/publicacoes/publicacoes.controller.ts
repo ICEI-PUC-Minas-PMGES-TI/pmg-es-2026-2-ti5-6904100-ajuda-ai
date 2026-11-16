@@ -90,7 +90,6 @@ export class PublicacoesController {
     return this.publicacoes.atualizar(id, corpo, req.user);
   }
   @Delete(':id')
-  @UseGuards(FeedAdminGuard)
   remover(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: AuthenticatedRequest,

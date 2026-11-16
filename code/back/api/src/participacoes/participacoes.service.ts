@@ -981,6 +981,37 @@ export class ParticipacoesService {
     });
   }
 
+  /**
+   * E-mails dos apadrinhados com vínculo ativo deste padrinho: vínculos do
+   * matching e, enquanto existir, o grupo legado. Vazio se não for padrinho
+   * em andamento.
+   */
+  async emailsApadrinhadosDe(
+    registro: ParticipacaoEntity | null,
+  ): Promise<Set<string>> {
+    const emails = new Set<string>();
+    if (
+      !registro ||
+      registro.papel !== 'padrinho' ||
+      registro.status !== 'em_andamento' ||
+      registro.terminoEm
+    )
+      return emails;
+    for (const { participacao } of await this.listarVinculados(registro))
+      if (participacao.status === 'em_andamento')
+        emails.add(participacao.usuarioId);
+    if (registro.grupo?.trim()) {
+      const grupo = await this.participacoes.find({
+        where: { programa: registro.programa, grupo: registro.grupo },
+      });
+      if (ParticipacoesService.vinculoValido(registro, grupo))
+        for (const r of grupo)
+          if (r.papel === 'apadrinhado' && r.status === 'em_andamento')
+            emails.add(r.usuarioId);
+    }
+    return emails;
+  }
+
   static vinculoValido(
     registro: ParticipacaoEntity,
     grupo: ParticipacaoEntity[],
