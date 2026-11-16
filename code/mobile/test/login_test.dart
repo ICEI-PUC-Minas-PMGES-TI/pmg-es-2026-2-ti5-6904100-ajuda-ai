@@ -306,12 +306,10 @@ void main() {
     );
     await tester.tap(find.text('Entrar como usuário de teste'));
     await tester.pumpAndSettle();
-    expect(find.text('APADRINHADOS'), findsOneWidget);
-    expect(find.text('PADRINHOS'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('COORDENAÇÃO'), 120);
-    expect(find.text('CANDIDATOS'), findsOneWidget);
-    expect(find.text('COORDENAÇÃO'), findsOneWidget);
-    await tester.drag(find.byType(ListView), const Offset(0, 500));
+    expect(find.text('NÍVEIS 1 A 10'), findsOneWidget);
+    // Cada conta mostra o cenário que permite testar.
+    expect(find.text('Nível 1 · 0 XP · 0 moedas'), findsOneWidget);
+    await tester.ensureVisible(find.text('Camila Duarte'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Camila Duarte'));
     await tester.pumpAndSettle();
@@ -352,6 +350,7 @@ void main() {
     );
     await tester.tap(find.text('Entrar como usuário de teste'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Thiago Moreira'), 120);
     await tester.tap(find.text('Thiago Moreira'));
     await tester.pumpAndSettle();
 
@@ -394,6 +393,9 @@ void main() {
     );
     await tester.tap(find.text('Entrar como usuário de teste'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('CENÁRIOS'), 120);
+    await tester.scrollUntilVisible(find.text('Renata Martins'), 120);
+    expect(find.text('COORDENAÇÃO'), findsOneWidget);
     await tester.tap(find.text('Renata Martins'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));

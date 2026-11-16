@@ -5,6 +5,7 @@ import {
   buscarUsuarioPorEmail,
   Usuario,
 } from '../dados/dados.js';
+import { buscarContaDemo } from '../dados/demo-gamificacao.js';
 import type { UsuarioEntity } from '../usuarios/entities/usuario.entity.js';
 import {
   serializarUsuario,
@@ -125,7 +126,11 @@ export class AuthService {
     if (process.env.NODE_ENV === 'production') {
       throw new UnauthorizedException('Login demo indisponível em produção.');
     }
-    const demo = buscarUsuarioPorEmail(emailInformado);
+    // Contas demo antigas (dados.ts) e as da gamificação (demo-gamificacao.ts).
+    // Mesmas proteções: só com AUTH_DEMO_ENABLED, nunca em produção, e só
+    // para e-mails da lista fixa.
+    const demo =
+      buscarUsuarioPorEmail(emailInformado) ?? buscarContaDemo(emailInformado);
     if (!demo) {
       throw new UnauthorizedException('Usuário demo não autorizado.');
     }

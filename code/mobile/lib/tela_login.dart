@@ -232,6 +232,16 @@ class _LoginPageState extends State<LoginPage> {
                                           fontSize: 13,
                                         ),
                                       ),
+                                      if (usuario.cenario != null)
+                                        Text(
+                                          usuario.cenario!,
+                                          style: const TextStyle(
+                                            fontFamily: 'Inter',
+                                            color: AppColors.primary,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                     ],
                                   ),
                                 ),
