@@ -11,8 +11,16 @@ import {
   regiaoCampus,
 } from '../../mapa/campus-limite.js';
 import { SCHEMA_MAPA, SRID, schemaPostgis } from '../../mapa/postgis.js';
-import { SCHEMA_GAMIFICACAO } from '../gamificacao.js';
+import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
+import {
+  LIMITES,
+  moedasPorXp,
+  RECOMPENSA_TOTEM_PADRAO,
+  RECOMPENSAS_TOTEM,
+} from '../economia.js';
+import { SCHEMA_GAMIFICACAO, schemaUsuarios } from '../gamificacao.js';
 import type {
+  OrcamentoTotensDto,
   AtualizarPucStopDto,
   CampusPucStopsDto,
   CriarPucStopDto,
@@ -98,6 +106,60 @@ export class PucStopsAdminService {
 
   listar(): Promise<PucStopAdminDto[]> {
     return this.selecionar('true', []);
+  }
+
+  /** Quanto XP os totens ativos oferecem, frente ao teto por aluno e ciclo. */
+  /**
+   * Economia dos totens para a coordenação. Informativo: o cadastro nunca é
+   * bloqueado (o teto individual já limita o que cada aluno recebe).
+   */
+  async orcamento(): Promise<OrcamentoTotensDto> {
+    const ciclo = ParticipacoesService.programaAtual();
+    const u = schemaUsuarios(this.dataSource);
+    const [[linha], porXp, [eleg]] = await Promise.all([
+      this.dataSource.query(
+        `SELECT count(*) FILTER (WHERE "ativo")::int AS ativos, count(*) FILTER (WHERE NOT "ativo")::int AS inativos, ` +
+          `COALESCE(sum("xp") FILTER (WHERE "ativo"), 0)::int AS potencial FROM ${m}."pucstops"`,
+      ) as Promise<
+        Array<{ ativos: number; inativos: number; potencial: number }>
+      >,
+      this.dataSource.query(
+        `SELECT "xp", count(*)::int AS totens FROM ${m}."pucstops" WHERE "ativo" GROUP BY 1`,
+      ) as Promise<Array<{ xp: number; totens: number }>>,
+      // Mesma regra de quem pode coletar (PermissoesAlunoService): aprovado
+      // ou em andamento no ciclo atual, sem término, ciclo não encerrado.
+      this.dataSource.query(
+        `SELECT count(DISTINCT p."usuario_id")::int AS n FROM ${u}."participacoes" p ` +
+          `JOIN ${u}."programas" g ON g."codigo" = p."programa" ` +
+          `WHERE p."programa" = $1 AND p."status" IN ('aprovado', 'em_andamento') AND p."termino_em" IS NULL ` +
+          `AND p."papel" IN ('padrinho', 'apadrinhado', 'candidato') AND g."etapa_atual" <> 'encerramento'`,
+        [ciclo],
+      ) as Promise<Array<{ n: number }>>,
+    ]);
+    const contagem = new Map(porXp.map((l) => [l.xp, l.totens]));
+    const media = linha.ativos
+      ? Math.round((linha.potencial / linha.ativos) * 10) / 10
+      : 0;
+    return {
+      ativos: linha.ativos,
+      inativos: linha.inativos,
+      xpPotencial: linha.potencial,
+      moedasPotenciais: moedasPorXp(linha.potencial),
+      recompensaMedia: media,
+      distribuicao: RECOMPENSAS_TOTEM.map((xp) => ({
+        xp,
+        totens: contagem.get(xp) ?? 0,
+      })),
+      limitePorCiclo: LIMITES.totensPorCiclo,
+      excedeLimite: linha.potencial > LIMITES.totensPorCiclo,
+      ciclo,
+      participantesElegiveis: eleg.n,
+      emissaoMaximaEstimada: moedasPorXp(
+        eleg.n * Math.min(linha.potencial, LIMITES.totensPorCiclo),
+      ),
+      opcoes: [...RECOMPENSAS_TOTEM],
+      padrao: RECOMPENSA_TOTEM_PADRAO,
+    };
   }
 
   async detalhe(id: string): Promise<PucStopAdminDto> {

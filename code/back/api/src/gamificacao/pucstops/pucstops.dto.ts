@@ -1,4 +1,5 @@
 import { IsDefined, IsNumber, IsOptional, Max, Min } from 'class-validator';
+import type { NivelDto } from '../economia.js';
 
 /**
  * Corpo de `POST /mapa/pucstops/:id/claim`: só a leitura de GPS. XP, raio,
@@ -40,16 +41,33 @@ export interface PucStopDto {
 /** 201 de `POST /mapa/pucstops/:id/claim`. */
 export interface ColetaPucStopDto {
   pucstopId: string;
+  /** XP efetivamente creditado (0 quando o teto do ciclo já estava cheio). */
   xpGanho: number;
+  /** Moedas efetivamente creditadas (1:1 com o XP). */
+  moedasGanhas: number;
+  /** Recompensa configurada no totem na hora da coleta. */
+  xpConfigurado: number;
+  /** O teto do ciclo cortou (total ou parcialmente) a recompensa. */
+  limiteAtingido: boolean;
+  /** Compatibilidade: saldo de moedas depois da coleta (era o "XP total"). */
   xpTotal: number;
+  /** Saldo de moedas depois da coleta. */
+  moedas: number;
+  xpAcumulado: number;
+  nivel: NivelDto;
+  subiuDeNivel: boolean;
+  /** Ciclo (semestre) em que a coleta vale. */
+  ciclo: string;
   claimedAt: string;
   distanciaMetros: number;
 }
 
-/** Item de `GET /me/pucstops`: o que o usuário já coletou. */
+/** Item de `GET /me/pucstops`: o que o usuário coletou NESTE ciclo. */
 export interface MinhaColetaDto {
   pucstopId: string;
+  /** XP efetivamente creditado (0 se o teto já estava cheio). */
   xp: number;
+  ciclo: string;
   claimedAt: string;
 }
 

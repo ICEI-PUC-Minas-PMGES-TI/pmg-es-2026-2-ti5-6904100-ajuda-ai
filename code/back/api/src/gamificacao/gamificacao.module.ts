@@ -12,7 +12,7 @@ import {
 import { PucStopsService } from './pucstops/pucstops.service.js';
 import { RecompensasAdminController } from './recompensas/recompensas-admin.controller.js';
 import { RecompensasAdminService } from './recompensas/recompensas-admin.service.js';
-import { XpController } from './xp/xp.controller.js';
+import { NiveisController, XpController } from './xp/xp.controller.js';
 import { XpService } from './xp/xp.service.js';
 
 /**
@@ -29,6 +29,7 @@ import { XpService } from './xp/xp.service.js';
     PucStopsController,
     MinhasColetasController,
     XpController,
+    NiveisController,
     PucStopsAdminController,
     RecompensasAdminController,
     LojinhaController,

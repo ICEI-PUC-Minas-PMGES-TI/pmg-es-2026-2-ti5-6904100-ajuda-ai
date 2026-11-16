@@ -8,12 +8,14 @@ import {
 } from '@nestjs/common';
 import { DataSource, QueryFailedError } from 'typeorm';
 import { SCHEMA_MAPA, SRID, schemaPostgis } from '../../mapa/postgis.js';
+import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
+import { nivelDe } from '../economia.js';
 import {
   ehViolacaoUnica,
-  registrarMovimentacao,
   SCHEMA_GAMIFICACAO,
   travarCarteira,
 } from '../gamificacao.js';
+import { creditarGanho } from '../ganhos.js';
 import type {
   ColetaPucStopDto,
   ColetarPucStopDto,
@@ -103,15 +105,26 @@ export class PucStopsService {
     return pucstop;
   }
 
+  /**
+   * Coletas do ciclo atual (o totem volta a ficar disponível a cada ciclo).
+   * As de ciclos anteriores continuam no banco como histórico.
+   */
   async minhasColetas(usuarioId: number): Promise<MinhaColetaDto[]> {
+    const ciclo = ParticipacoesService.programaAtual();
     const linhas = (await this.dataSource.query(
-      `SELECT "pucstop_id", "xp", "coletado_em" FROM ${g}."pucstop_coletas" ` +
-        `WHERE "usuario_id" = $1 ORDER BY "coletado_em", "id"`,
-      [usuarioId],
-    )) as Array<{ pucstop_id: string; xp: number; coletado_em: Date }>;
+      `SELECT "pucstop_id", "xp", "ciclo", "coletado_em" FROM ${g}."pucstop_coletas" ` +
+        `WHERE "usuario_id" = $1 AND "ciclo" = $2 ORDER BY "coletado_em", "id"`,
+      [usuarioId, ciclo],
+    )) as Array<{
+      pucstop_id: string;
+      xp: number;
+      ciclo: string;
+      coletado_em: Date;
+    }>;
     return linhas.map((l) => ({
       pucstopId: l.pucstop_id,
       xp: l.xp,
+      ciclo: l.ciclo,
       claimedAt: l.coletado_em.toISOString(),
     }));
   }
@@ -187,36 +200,69 @@ export class PucStopsService {
         );
       }
 
-      await travarCarteira(qr, usuarioId);
+      // A trava da carteira serializa as coletas do usuário: o teto do ciclo
+      // é lido e consumido sem corrida.
+      const saldoAntes = await travarCarteira(qr, usuarioId);
+      const ciclo = ParticipacoesService.programaAtual();
       const [anterior] = (await qr.query(
-        `SELECT 1 FROM ${g}."pucstop_coletas" WHERE "usuario_id" = $1 AND "pucstop_id" = $2`,
-        [usuarioId, id],
+        `SELECT 1 FROM ${g}."pucstop_coletas" WHERE "usuario_id" = $1 AND "pucstop_id" = $2 AND "ciclo" = $3`,
+        [usuarioId, id, ciclo],
       )) as unknown[];
       if (anterior) {
-        throw recusa('ja-coletado', 'Você já coletou este PucStop.');
+        throw recusa(
+          'ja-coletado',
+          'Você já coletou este PucStop neste semestre.',
+        );
       }
+      const [{ xp_acumulado: xpAntes }] = (await qr.query(
+        `SELECT "xp_acumulado" FROM ${g}."xp_carteiras" WHERE "usuario_id" = $1`,
+        [usuarioId],
+      )) as Array<{ xp_acumulado: number }>;
 
-      const mov = await registrarMovimentacao(qr, {
+      const ganho = await creditarGanho(qr, {
         usuarioId,
-        quantidade: p.xp,
-        tipo: 'PUCSTOP_CLAIM',
+        fonte: 'TOTEM',
+        xp: p.xp,
+        ciclo,
         referenciaTipo: 'pucstop',
         referenciaId: p.id,
         descricao: `PucStop: ${p.nome}`,
-        chaveIdempotencia: `pucstop:${p.id}:usuario:${usuarioId}`,
+        chaveIdempotencia: `pucstop:${p.id}:usuario:${usuarioId}:ciclo:${ciclo}`,
       });
-      await qr.query(
-        `INSERT INTO ${g}."pucstop_coletas" ("usuario_id", "pucstop_id", "movimentacao_id", "xp", "coletado_em") ` +
-          `VALUES ($1, $2, $3, $4, $5)`,
-        [usuarioId, p.id, mov.movimentacaoId, p.xp, mov.criadoEm],
-      );
+      const [coleta] = (await qr.query(
+        `INSERT INTO ${g}."pucstop_coletas" ("usuario_id", "pucstop_id", "movimentacao_id", "xp", "xp_configurado", "ciclo") ` +
+          `VALUES ($1, $2, $3, $4, $5, $6) RETURNING "coletado_em"`,
+        [
+          usuarioId,
+          p.id,
+          ganho.movimentacao?.movimentacaoId ?? null,
+          ganho.xp,
+          p.xp,
+          ciclo,
+        ],
+      )) as Array<{ coletado_em: Date }>;
       await qr.commitTransaction();
-      this.logger.log(`coleta pucstop=${p.id} usuario=${usuarioId} xp=${p.xp}`);
+      this.logger.log(
+        `coleta pucstop=${p.id} usuario=${usuarioId} ciclo=${ciclo} xp=${ganho.xp}/${p.xp}`,
+      );
+      const xpAcumulado = ganho.movimentacao?.xpAcumulado ?? xpAntes;
+      const moedas = ganho.movimentacao?.saldo ?? saldoAntes;
+      const nivel = nivelDe(xpAcumulado);
       return {
         pucstopId: p.id,
-        xpGanho: p.xp,
-        xpTotal: mov.saldo,
-        claimedAt: mov.criadoEm.toISOString(),
+        xpGanho: ganho.xp,
+        moedasGanhas: ganho.moedas,
+        xpConfigurado: p.xp,
+        limiteAtingido: ganho.limitado,
+        xpTotal: moedas,
+        moedas,
+        xpAcumulado,
+        nivel,
+        subiuDeNivel: nivel.numero > nivelDe(xpAntes).numero,
+        ciclo,
+        claimedAt: (
+          ganho.movimentacao?.criadoEm ?? coleta.coletado_em
+        ).toISOString(),
         distanciaMetros,
       };
     } catch (erro) {
@@ -224,7 +270,7 @@ export class PucStopsService {
       // Corrida que escapou da trava (ex.: outra instância sem a carteira
       // ainda criada): o UNIQUE decide, sem 500.
       if (
-        ehViolacaoUnica(erro, 'uq_pucstop_coletas_usuario_pucstop') ||
+        ehViolacaoUnica(erro, 'uq_pucstop_coletas_usuario_pucstop_ciclo') ||
         ehViolacaoUnica(erro, 'uq_xp_movimentacoes_chave')
       ) {
         throw recusa('ja-coletado', 'Você já coletou este PucStop.');
