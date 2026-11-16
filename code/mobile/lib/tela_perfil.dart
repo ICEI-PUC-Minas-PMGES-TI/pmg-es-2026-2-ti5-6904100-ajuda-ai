@@ -395,6 +395,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 onEditar: _editando ? null : _iniciarEdicao,
                 interesses: _sessao.dados?.interesses ?? const [],
               ),
+              if (!_editando) const _XpGlobal(),
               if (_editando) ...[
                 const SizedBox(height: 20),
                 const _Titulo('Informações acadêmicas'),
@@ -736,7 +737,6 @@ class _Identidade extends StatelessWidget {
                         fontSize: 13,
                       ),
                     ),
-                    const _XpGlobal(),
                     if (onEditar != null) ...[
                       const SizedBox(height: 8),
                       TextButton(

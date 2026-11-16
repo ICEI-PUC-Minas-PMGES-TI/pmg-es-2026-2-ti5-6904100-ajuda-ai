@@ -14,65 +14,81 @@ String _milhar(int valor) {
   return buffer.toString();
 }
 
-/// Emblema do nível, desenhado em código (roxo institucional + estrela). O
-/// BL-55 troca pelos assets finais; aqui nada depende de imagem externa.
+/// PNG do nível (1–10) em `assets/gamificacao`. Fora da faixa não há asset.
+String? assetEmblemaNivel(int numero) {
+  if (numero < 1 || numero > 10) return null;
+  final id = numero.toString().padLeft(2, '0');
+  return 'assets/gamificacao/nivel_$id.png';
+}
+
+/// Emblema definitivo em pixel art. A arte já traz moldura e número;
+/// o widget só escolhe o arquivo do nível e o desenha inteiro.
 class EmblemaNivel extends StatelessWidget {
-  const EmblemaNivel({super.key, required this.numero, this.tamanho = 56});
+  const EmblemaNivel({
+    super.key,
+    required this.numero,
+    this.nome,
+    this.tamanho = 104,
+  });
+
+  final int numero;
+
+  /// Nome da conquista, só na semântica. O texto visível fica fora da imagem.
+  final String? nome;
+  final double tamanho;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = assetEmblemaNivel(numero);
+    final conquista = nome?.trim();
+    final rotulo = conquista == null || conquista.isEmpty
+        ? 'Emblema do nível $numero'
+        : 'Emblema do nível $numero, $conquista';
+    return Semantics(
+      label: rotulo,
+      image: asset != null,
+      child: SizedBox.square(
+        key: ValueKey('emblema-nivel-$numero'),
+        dimension: tamanho,
+        child: asset == null
+            ? _EmblemaFallback(numero: numero, tamanho: tamanho)
+            : Image.asset(
+                asset,
+                width: tamanho,
+                height: tamanho,
+                fit: BoxFit.contain,
+                alignment: Alignment.center,
+                // Vizinho mais próximo: preserva o traço da pixel art
+                // ao reduzir os PNGs de 448 px.
+                filterQuality: FilterQuality.none,
+                gaplessPlayback: true,
+                excludeFromSemantics: true,
+                errorBuilder: (_, _, _) =>
+                    _EmblemaFallback(numero: numero, tamanho: tamanho),
+              ),
+      ),
+    );
+  }
+}
+
+class _EmblemaFallback extends StatelessWidget {
+  const _EmblemaFallback({required this.numero, required this.tamanho});
 
   final int numero;
   final double tamanho;
 
   @override
   Widget build(BuildContext context) {
-    // Tons sobem com o nível, sem depender só de cor (o número aparece).
-    final t = ((numero - 1) / 9).clamp(0.0, 1.0);
-    final topo = Color.lerp(
-      const Color(0xFF8B5CF6),
-      const Color(0xFFF59E0B),
-      t,
-    )!;
-    return Semantics(
-      label: 'Emblema do nível $numero',
-      child: SizedBox.square(
-        dimension: tamanho,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [topo, AppColors.primary],
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x33420594),
-                    blurRadius: 8,
-                    offset: Offset(0, 3),
-                  ),
-                ],
-                border: Border.all(color: Colors.white, width: 2),
-              ),
-            ),
-            Icon(
-              Icons.star_rounded,
-              size: tamanho * 0.78,
-              color: Colors.white.withValues(alpha: 0.18),
-            ),
-            ExcludeSemantics(
-              child: Text(
-                '$numero',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: tamanho * 0.38,
-                  fontWeight: FontWeight.w800,
-                  height: 1,
-                ),
-              ),
-            ),
-          ],
+    return ExcludeSemantics(
+      child: Center(
+        child: Text(
+          '$numero',
+          style: TextStyle(
+            color: AppColors.primary,
+            fontSize: tamanho * 0.28,
+            fontWeight: FontWeight.w800,
+            height: 1,
+          ),
         ),
       ),
     );
@@ -218,8 +234,9 @@ class CartaoProgresso extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  EmblemaNivel(numero: nivel.numero),
+                  EmblemaNivel(numero: nivel.numero, nome: nivel.nome),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(
@@ -230,6 +247,7 @@ class CartaoProgresso extends StatelessWidget {
                           style: const TextStyle(
                             color: AppColors.ink,
                             fontSize: 17,
+                            height: 1.2,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
@@ -300,33 +318,46 @@ class ResumoProgressoCompacto extends StatelessWidget {
         final nivel = resumo.nivel;
         return Padding(
           key: const Key('perfil-progresso'),
-          padding: const EdgeInsets.only(top: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+          padding: const EdgeInsets.only(top: 16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  EmblemaNivel(numero: nivel.numero, tamanho: 28),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      'Nível ${nivel.numero} · ${nivel.nome} · ${_milhar(resumo.xpAcumulado)} XP',
+              EmblemaNivel(
+                numero: nivel.numero,
+                nome: nivel.nome,
+                tamanho: 88,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Nível ${nivel.numero} · ${nivel.nome}',
                       style: const TextStyle(
                         fontFamily: 'Inter',
                         color: AppColors.ink,
-                        fontSize: 13,
+                        fontSize: 15,
+                        height: 1.2,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 2),
+                    Text(
+                      '${_milhar(resumo.xpAcumulado)} XP acumulado',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        color: AppColors.muted,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    BarraNivel(nivel: nivel),
+                    const SizedBox(height: 4),
+                    SaldoMoedas(moedas: resumo.moedas, tamanhoFonte: 12.5),
+                  ],
+                ),
               ),
-              const SizedBox(height: 6),
-              SizedBox(width: 220, child: BarraNivel(nivel: nivel)),
-              const SizedBox(height: 4),
-              SaldoMoedas(moedas: resumo.moedas, tamanhoFonte: 12.5),
             ],
           ),
         );

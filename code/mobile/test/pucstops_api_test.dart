@@ -271,7 +271,8 @@ void main() {
       resumoJson(),
     );
     await tester.pump();
-    expect(find.text('Nível 5 · Conexão · 580 XP'), findsOneWidget);
+    expect(find.text('Nível 5 · Conexão'), findsOneWidget);
+    expect(find.text('580 XP acumulado'), findsOneWidget);
     expect(find.text('300 moedas'), findsOneWidget);
   });
 
@@ -307,10 +308,23 @@ void main() {
         find.byKey(const Key('barra-nivel')),
       );
       expect(barra.value, closeTo(0.32, 0.001));
-      // Emblema com o número do nível (acessível, não só cor).
+      // Emblema do nível 5 (asset definitivo, acessível por texto também).
+      final emblema = find.byKey(const ValueKey('emblema-nivel-5'));
+      final imagem = tester.widget<Image>(
+        find.descendant(of: emblema, matching: find.byType(Image)),
+      );
+      expect(
+        (imagem.image as AssetImage).assetName,
+        'assets/gamificacao/nivel_05.png',
+      );
+      expect(imagem.fit, BoxFit.contain);
+      expect(imagem.filterQuality, FilterQuality.none);
       final semantica = tester.ensureSemantics();
       await tester.pump();
-      expect(find.bySemanticsLabel(RegExp('Emblema do nível 5')), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(RegExp('Emblema do nível 5, Conexão')),
+        findsOneWidget,
+      );
       semantica.dispose();
     });
 

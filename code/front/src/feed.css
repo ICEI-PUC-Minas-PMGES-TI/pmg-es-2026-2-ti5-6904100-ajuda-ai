@@ -198,8 +198,9 @@
   font-size: 0.85rem;
   color: #420594;
 }
-.feed-comments li .mini-btn {
+.feed-comments li > .mini-btn {
   margin-left: auto;
+  align-self: center;
 }
 .feed-comment-form input {
   border-radius: 999px;
@@ -219,8 +220,12 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   margin-top: 6px;
+}
+.feed-comment-likes .mini-btn {
+  margin-left: 0;
 }
 .feed-comment-likes .mini-btn[aria-pressed="true"] {
   color: #e94072;

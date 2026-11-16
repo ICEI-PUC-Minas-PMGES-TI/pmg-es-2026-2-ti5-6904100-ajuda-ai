@@ -1,5 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
@@ -9,7 +11,8 @@ const storage = new Map();
 globalThis.localStorage = { getItem: (k) => storage.get(k) || null, setItem: (k, v) => storage.set(k, v), removeItem: (k) => storage.delete(k) };
 const server = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
 after(() => server.close());
-const { ProgressoGamificacao } = await server.ssrLoadModule('/src/pages/aluno/PerfilAlunoPage.jsx');
+const { ProgressoGamificacao, ProgressoCarregado } = await server.ssrLoadModule('/src/pages/aluno/PerfilAlunoPage.jsx');
+const { EmblemaNivel, srcEmblemaNivel } = await server.ssrLoadModule('/src/components/EmblemaNivel.jsx');
 // O SSR do React separa trechos de texto com <!-- -->.
 const texto = (html) => html.replaceAll('<!-- -->', '');
 const { OrcamentoPucStops, ImpactoOrcamento, potencialAposSalvar, formDoPucStop } = await server.ssrLoadModule('/src/pages/coordenacao/PucStopsPage.jsx');
@@ -18,6 +21,49 @@ test('progresso: primeiro render mostra carregando, nunca 0 XP', () => {
   const html = renderToString(React.createElement(ProgressoGamificacao, { carregar: () => new Promise(() => {}) }));
   assert.match(html, /Carregando seu progresso/);
   assert.doesNotMatch(html, /0 XP/);
+});
+
+test('os dez emblemas locais correspondem ao nível', () => {
+  for (let nivel = 1; nivel <= 10; nivel += 1) {
+    const id = String(nivel).padStart(2, '0');
+    const src = `/gamificacao/nivel_${id}.png`;
+    assert.equal(srcEmblemaNivel(nivel), src);
+    const arquivo = fileURLToPath(new URL(`../../mobile/assets/gamificacao/nivel_${id}.png`, import.meta.url));
+    assert.equal(existsSync(arquivo), true, arquivo);
+  }
+  assert.equal(srcEmblemaNivel(0), null);
+  assert.equal(srcEmblemaNivel(11), null);
+  assert.equal(srcEmblemaNivel(1.5), null);
+
+  const html = renderToString(React.createElement(EmblemaNivel, { numero: 10, nome: 'Lenda da PUC' }));
+  assert.match(html, /src="\/gamificacao\/nivel_10.png"/);
+  assert.match(html, /alt="Emblema do nível 10, Lenda da PUC"/);
+  assert.match(html, /class="emblema-nivel"/);
+});
+
+test('cartão do nível máximo mostra o emblema inteiro e os textos', () => {
+  const html = texto(renderToString(React.createElement(ProgressoCarregado, {
+    dados: {
+      xpAcumulado: 3200,
+      moedas: 800,
+      nivel: {
+        numero: 10,
+        nome: 'Lenda da PUC',
+        progresso: 100,
+        maximo: true,
+        xpRestante: 0,
+        proximoNome: null,
+      },
+    },
+  })));
+  assert.match(html, /\/gamificacao\/nivel_10.png/);
+  assert.match(html, /Emblema do nível 10, Lenda da PUC/);
+  assert.match(html, /Nível 10 · Lenda da PUC/);
+  assert.match(html, /XP acumulado/);
+  assert.match(html, /Nível máximo alcançado/);
+  assert.match(html, /800 moedas/);
+  assert.match(html, /progressbar/);
+  assert.doesNotMatch(html, /emblema-nivel-fallback/);
 });
 
 test('orçamento dos totens avisa quando passa do teto', () => {
