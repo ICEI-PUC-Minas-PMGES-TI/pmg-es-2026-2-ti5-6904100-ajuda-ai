@@ -91,13 +91,20 @@ void main() {
 
     await tester.ensureVisible(find.byTooltip('Curtir'));
     expect(find.byTooltip('Comentar'), findsOneWidget);
-    expect(find.byTooltip('Compartilhar'), findsOneWidget);
+    // O botão de compartilhar não fazia nada e foi removido.
+    expect(find.byTooltip('Compartilhar'), findsNothing);
     expect(find.byTooltip('Salvar'), findsNothing);
     expect(find.byIcon(Icons.bookmark_border_rounded), findsNothing);
     await tester.tap(find.byTooltip('Curtir'));
     await tester.pumpAndSettle();
 
-    expect(find.text('1 curtidas'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byTooltip('Descurtir'),
+        matching: find.text('1'),
+      ),
+      findsOneWidget,
+    );
     expect(backend.curtidas, 1);
 
     await tester.tap(find.byTooltip('Comentar'));

@@ -84,6 +84,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    diagNav('feed: initState (abre o SSE)');
     _deveFecharClient = widget.client == null;
     _client = widget.client ?? http.Client();
     WidgetsBinding.instance.addObserver(this);
@@ -596,11 +597,13 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
                           ),
                           child: Text(
                             _estadoTempoReal,
-                            style: const TextStyle(fontSize: 12),
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                            ),
                           ),
                         ),
-                        if (_filtroSelecionado == 'Para você')
-                          const _DicaDaSemana(),
                       ],
                     ),
                   ),
@@ -719,43 +722,9 @@ class _CabecalhoFeed extends StatelessWidget {
                       color: Colors.white,
                       semanticLabel: 'PUC Minas',
                     ),
-                    const Spacer(),
-                    _IconeCabecalho(
-                      icone: Icons.search_rounded,
-                      tooltip: 'Buscar no feed',
-                      onTap: () => _mensagem(context, 'Busca no feed'),
-                    ),
-                    const SizedBox(width: 8),
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        _IconeCabecalho(
-                          icone: Icons.notifications_none_rounded,
-                          tooltip: 'Notificações',
-                          onTap: () => _mensagem(context, 'Notificações'),
-                        ),
-                        const Positioned(
-                          right: -1,
-                          top: -2,
-                          child: CircleAvatar(
-                            radius: 8,
-                            backgroundColor: Color(0xFF8B5CF6),
-                            child: Text(
-                              '3',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontFamily: 'Inter',
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 18),
                 const Text(
                   'Feed',
                   style: TextStyle(
@@ -776,37 +745,6 @@ class _CabecalhoFeed extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _IconeCabecalho extends StatelessWidget {
-  const _IconeCabecalho({
-    required this.icone,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  final IconData icone;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: SizedBox(
-            width: 40,
-            height: 40,
-            child: Icon(icone, size: 30, color: Colors.white),
           ),
         ),
       ),
@@ -851,13 +789,11 @@ class _Filtros extends StatelessWidget {
             onSelected: (_) => onSelected(opcoes[indice]),
             showCheckmark: false,
             label: Text(opcoes[indice]),
-            avatar: opcoes[indice] == 'Dicas acadêmicas'
-                ? Icon(
-                    Icons.school_outlined,
-                    size: 17,
-                    color: ativo ? Colors.white : AppColors.primary,
-                  )
-                : null,
+            avatar: Icon(
+              _estiloCategoria(opcoes[indice]).icone,
+              size: 17,
+              color: ativo ? Colors.white : AppColors.primary,
+            ),
             labelStyle: TextStyle(
               color: ativo ? Colors.white : AppColors.ink,
               fontFamily: 'Inter',
@@ -901,7 +837,10 @@ class _CriarPublicacaoCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const _Avatar(iniciais: 'C', cor: AppColors.primary),
+              _Avatar(
+                iniciais: _iniciaisDoNome(_nomeAutorAtual()),
+                cor: AppColors.primary,
+              ),
               const SizedBox(width: 11),
               const Expanded(
                 child: Text(
@@ -944,93 +883,6 @@ class _CriarPublicacaoCard extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DicaDaSemana extends StatelessWidget {
-  const _DicaDaSemana();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(_feedGutter, 0, _feedGutter, 14),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.lavender,
-          border: Border.all(color: const Color(0xFFE9DFF7)),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x0F420594),
-              blurRadius: 12,
-              offset: Offset(0, 5),
-            ),
-          ],
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              right: -8,
-              top: -20,
-              child: Icon(
-                Icons.auto_awesome,
-                color: AppColors.primary.withValues(alpha: 0.08),
-                size: 88,
-              ),
-            ),
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.lightbulb_outline_rounded,
-                    color: AppColors.primary,
-                    size: 27,
-                  ),
-                ),
-                const SizedBox(width: 13),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Dica acadêmica da semana',
-                        style: TextStyle(
-                          color: AppColors.primary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      SizedBox(height: 3),
-                      Text(
-                        'Organize sua entrega de TI, na próxima semana não hávera aula por conta do feriado .',
-                        style: TextStyle(
-                          color: AppColors.muted,
-                          fontFamily: 'Inter',
-                          fontSize: 12,
-                          height: 1.3,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  color: AppColors.primary,
-                  size: 16,
-                ),
-              ],
-            ),
-          ],
         ),
       ),
     );
@@ -1166,47 +1018,44 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                     ],
                   ),
                 ),
-                PopupMenuButton<String>(
-                  tooltip: 'Mais opções',
-                  color: Colors.white,
-                  icon: const Icon(
-                    Icons.more_horiz_rounded,
-                    color: AppColors.muted,
+                // Sem ações reais (editar/apagar) não há menu: nada de
+                // "Denunciar" ou "Silenciar", que não faziam nada.
+                if (post.podeAdministrar || post.podeExcluir)
+                  PopupMenuButton<String>(
+                    tooltip: 'Mais opções',
+                    color: Colors.white,
+                    icon: const Icon(
+                      Icons.more_horiz_rounded,
+                      color: AppColors.muted,
+                    ),
+                    onSelected: (opcao) {
+                      switch (opcao) {
+                        case 'editar':
+                          widget.onEdit();
+                          break;
+                        case 'apagar':
+                          widget.onDelete();
+                          break;
+                      }
+                    },
+                    itemBuilder: (_) => post.podeAdministrar
+                        ? const [
+                            PopupMenuItem(
+                              value: 'editar',
+                              child: Text('Editar publicação'),
+                            ),
+                            PopupMenuItem(
+                              value: 'apagar',
+                              child: Text('Apagar publicação'),
+                            ),
+                          ]
+                        : const [
+                            PopupMenuItem(
+                              value: 'apagar',
+                              child: Text('Apagar publicação'),
+                            ),
+                          ],
                   ),
-                  onSelected: (opcao) {
-                    switch (opcao) {
-                      case 'editar':
-                        widget.onEdit();
-                        break;
-                      case 'apagar':
-                        widget.onDelete();
-                        break;
-                      default:
-                        _mensagem(context, opcao);
-                    }
-                  },
-                  itemBuilder: (_) => post.podeAdministrar
-                      ? const [
-                          PopupMenuItem(
-                            value: 'editar',
-                            child: Text('Editar publicação'),
-                          ),
-                          PopupMenuItem(
-                            value: 'apagar',
-                            child: Text('Apagar publicação'),
-                          ),
-                        ]
-                      : const [
-                          PopupMenuItem(
-                            value: 'Publicação denunciada',
-                            child: Text('Denunciar'),
-                          ),
-                          PopupMenuItem(
-                            value: 'Autor silenciado',
-                            child: Text('Silenciar autor'),
-                          ),
-                        ],
-                ),
               ],
             ),
           ),
@@ -1318,7 +1167,7 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
               ],
             ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 7, 8, 4),
+            padding: const EdgeInsets.fromLTRB(8, 4, 12, 8),
             child: Row(
               children: [
                 if (post.podeInteragir)
@@ -1328,6 +1177,7 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                         ? Icons.favorite_rounded
                         : Icons.favorite_border_rounded,
                     cor: _curtido ? const Color(0xFFE94072) : AppColors.ink,
+                    contagem: _curtidas,
                     onTap: () async {
                       if (_alterandoCurtida) return;
                       final delta = _curtido ? -1 : 1;
@@ -1346,55 +1196,24 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                         }
                       });
                     },
+                  )
+                else
+                  _ContagemFixa(
+                    icone: Icons.favorite_border_rounded,
+                    contagem: _curtidas,
                   ),
                 _AcaoPost(
                   tooltip: post.podeInteragir ? 'Comentar' : 'Ver comentários',
                   icone: Icons.chat_bubble_outline_rounded,
+                  contagem: post.comentarios,
                   onTap: widget.onComment,
                 ),
-                _AcaoPost(
-                  tooltip: 'Compartilhar',
-                  icone: Icons.send_outlined,
-                  onTap: () =>
-                      _mensagem(context, 'Link da publicação copiado!'),
-                ),
-                if (post.imagens.length > 1) ...[
-                  const Spacer(),
+                const Spacer(),
+                if (post.imagens.length > 1)
                   _Indicadores(
                     total: post.imagens.length,
                     selecionado: _pagina,
                   ),
-                  const SizedBox(width: 10),
-                ],
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$_curtidas curtidas',
-                  style: const TextStyle(
-                    color: AppColors.ink,
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                InkWell(
-                  onTap: widget.onComment,
-                  child: Text(
-                    'Ver todos os ${post.comentarios} comentários',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontFamily: 'Inter',
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
@@ -1404,6 +1223,47 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
   }
 }
 
+class _EstiloCategoria {
+  const _EstiloCategoria(this.icone, this.cor, this.fundo);
+  final IconData icone;
+  final Color cor;
+  final Color fundo;
+}
+
+/// Uma cor por categoria, para o feed ser escaneável de relance.
+_EstiloCategoria _estiloCategoria(String categoria) => switch (categoria) {
+  'Para você' => const _EstiloCategoria(
+    Icons.auto_awesome_outlined,
+    AppColors.primary,
+    AppColors.lavender,
+  ),
+  'Comunicados' => const _EstiloCategoria(
+    Icons.campaign_outlined,
+    Color(0xFFC2410C),
+    AppAccents.tileLaranja,
+  ),
+  'Dicas acadêmicas' => const _EstiloCategoria(
+    Icons.school_outlined,
+    AppColors.primary,
+    AppColors.lavender,
+  ),
+  'Campus' => const _EstiloCategoria(
+    Icons.location_city_outlined,
+    AppAccents.success,
+    AppAccents.successBg,
+  ),
+  'Oportunidades' => const _EstiloCategoria(
+    Icons.work_outline_rounded,
+    Color(0xFF1D4ED8),
+    AppAccents.tileAzul,
+  ),
+  _ => const _EstiloCategoria(
+    Icons.tag_rounded,
+    AppColors.muted,
+    AppColors.lavender,
+  ),
+};
+
 class _Categoria extends StatelessWidget {
   const _Categoria({required this.categoria});
 
@@ -1411,26 +1271,22 @@ class _Categoria extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final academica = categoria == 'Dicas acadêmicas';
+    final estilo = _estiloCategoria(categoria);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: academica ? AppColors.lavender : const Color(0xFFEAF8F0),
+        color: estilo.fundo,
         borderRadius: BorderRadius.circular(9),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            academica ? Icons.school_outlined : Icons.location_city_outlined,
-            size: 14,
-            color: academica ? AppColors.primary : AppAccents.success,
-          ),
+          Icon(estilo.icone, size: 14, color: estilo.cor),
           const SizedBox(width: 5),
           Text(
             categoria,
             style: TextStyle(
-              color: academica ? AppColors.primary : AppAccents.success,
+              color: estilo.cor,
               fontFamily: 'Inter',
               fontSize: 11,
               fontWeight: FontWeight.w700,
@@ -1698,24 +1554,74 @@ class _AcaoPost extends StatelessWidget {
     required this.icone,
     required this.onTap,
     this.cor = AppColors.ink,
+    this.contagem,
   });
 
   final String tooltip;
   final IconData icone;
   final VoidCallback? onTap;
   final Color cor;
+  final int? contagem;
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
-      child: InkResponse(
+      child: InkWell(
         onTap: onTap,
-        radius: 23,
+        borderRadius: BorderRadius.circular(20),
         child: Padding(
-          padding: const EdgeInsets.all(7),
-          child: Icon(icone, size: 23, color: cor),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icone, size: 22, color: cor),
+              if (contagem != null) ...[
+                const SizedBox(width: 5),
+                Text(
+                  '$contagem',
+                  style: TextStyle(
+                    color: cor,
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+/// Contagem sem ação (quem não pode curtir ainda vê o total).
+class _ContagemFixa extends StatelessWidget {
+  const _ContagemFixa({required this.icone, required this.contagem});
+
+  final IconData icone;
+  final int contagem;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icone, size: 22, color: AppColors.muted),
+          const SizedBox(width: 5),
+          Text(
+            '$contagem',
+            style: const TextStyle(
+              color: AppColors.muted,
+              fontFamily: 'Inter',
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1979,33 +1885,14 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
                               fontWeight: FontWeight.w800,
                             ),
                           ),
-                          const SizedBox(height: 3),
-                          DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                              value: _categoria,
-                              isDense: true,
-                              borderRadius: BorderRadius.circular(14),
-                              style: const TextStyle(
-                                color: AppColors.primary,
-                                fontFamily: 'Inter',
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                              items: {_categoria, ...widget.categorias}
-                                  .map(
-                                    (c) => DropdownMenuItem(
-                                      value: c,
-                                      child: Text(c),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: _salvando
-                                  ? null
-                                  : (valor) {
-                                      if (valor != null) {
-                                        setState(() => _categoria = valor);
-                                      }
-                                    },
+                          const SizedBox(height: 2),
+                          Text(
+                            _categoria,
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ],
@@ -2013,12 +1900,49 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
+                // Chips no lugar do menu suspenso: o menu tirava o foco do
+                // texto, fechava o teclado e ficava solto no topo da tela.
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    for (final c in {_categoria, ...widget.categorias})
+                      ChoiceChip(
+                        selected: c == _categoria,
+                        showCheckmark: false,
+                        label: Text(c),
+                        avatar: Icon(
+                          _estiloCategoria(c).icone,
+                          size: 16,
+                          color: c == _categoria
+                              ? Colors.white
+                              : AppColors.primary,
+                        ),
+                        labelStyle: TextStyle(
+                          color: c == _categoria ? Colors.white : AppColors.ink,
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        backgroundColor: Colors.white,
+                        selectedColor: AppColors.primary,
+                        side: BorderSide(
+                          color: c == _categoria
+                              ? AppColors.primary
+                              : const Color(0xFFEAE6F2),
+                        ),
+                        onSelected: _salvando
+                            ? null
+                            : (_) => setState(() => _categoria = c),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 14),
                 TextField(
                   controller: _controller,
                   enabled: !_salvando,
                   maxLength: 10000,
-                  autofocus: true,
                   minLines: 4,
                   maxLines: 7,
                   onChanged: (_) => setState(() {}),
@@ -2307,6 +2231,7 @@ class _Publicacao {
     required this.corAvatar,
     this.verificado = false,
     this.podeAdministrar = false,
+    this.podeExcluir = false,
     this.podeInteragir = false,
     this.midias = const [],
     this.comentariosTexto = const [],
@@ -2329,6 +2254,7 @@ class _Publicacao {
   final Color corAvatar;
   final bool verificado;
   final bool podeAdministrar;
+  final bool podeExcluir;
   final bool podeInteragir;
   final List<String> comentariosTexto;
   final List<FeedComment> comentariosDetalhes;
@@ -2357,6 +2283,7 @@ class _Publicacao {
           (json['comentarios'] as num?)?.toInt() ?? comentariosTexto.length,
       corAvatar: AppColors.primary,
       podeAdministrar: json['podeAdministrar'] as bool? ?? false,
+      podeExcluir: json['podeExcluir'] as bool? ?? false,
       podeInteragir: json['podeInteragir'] == true,
       curtidoPeloUsuario: json['curtidoPeloUsuario'] as bool? ?? false,
       comentariosTexto: comentariosTexto,
@@ -2409,6 +2336,7 @@ class _Publicacao {
     corAvatar: corAvatar,
     verificado: verificado,
     podeAdministrar: podeAdministrar,
+    podeExcluir: podeExcluir,
     podeInteragir: podeInteragir,
     comentariosTexto: comentariosTexto ?? this.comentariosTexto,
     comentariosDetalhes: comentariosDetalhes,
