@@ -100,8 +100,15 @@ O app implementa `CampusPucStopService` com a sessão do Ajuda-aí e injeta o
 serviço em `campus_map`. O total retornado pelo servidor substitui o saldo
 exibido; o cliente não soma XP.
 
-Pontos 2D mostram disponível/coletado; toque abre o card.
-Totem 3D usa o modelo da seção `pucstops` do manifesto, somente nos disponíveis.
+Pontos 2D mostram disponível (halo âmbar) ou coletado (aura e anel verdes).
+Tocar no totem (modelo, ponto, halo ou aura) não coleta: a câmera vai até ele
+(experiência do PUCMaps), o mapa trava os gestos e o usuário arrasta para os
+lados para girar o topo (`Aneis_Bronze` + `Joia_Azul`, feature-state `topo`).
+Só quando o giro termina o app chama `POST /mapa/pucstops/:id/claim`; o
+servidor continua decidindo alcance e duplicidade. Coleta confirmada dispara a
+recompensa visual. Totem já coletado pode ser girado sem nova coleta.
+Totem 3D usa o modelo da seção `pucstops` do manifesto numa source de modelos
+(um por PucStop), e continua no mapa depois da coleta.
 Sem modelo/rede, pontos e coleta continuam independentes do GLB.
 O renderer recria a camada do totem ao mudar dados para evitar resíduos
 translúcidos do SDK. [Renderização](renderizacao-3d.md).

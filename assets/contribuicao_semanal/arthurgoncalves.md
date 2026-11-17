@@ -39,3 +39,15 @@
 - Finalização da tela do Feed;
 - Implementação parcial das telas da jornada do apadrinhamento, em conjunto com Matheus Guilherme Viana Pereira;
 - Elaboração da ata da reunião semanal.
+
+### Sprint 5
+### Semana 8 (20/10 - 27/10)
+
+- Implementação da verificação acadêmica e aprovação das candidaturas na coordenação (F09 – #31);
+- Criação da migration de conferência acadêmica em `participacoes`;
+- Bloqueio da revogação de padrinho com vínculos ativos do matching;
+- Filtros de candidaturas por papel e por conferência acadêmica;
+- Testes do backend para a verificação acadêmica e o fluxo de aprovação;
+- Correção do "Sobre mim" no perfil do app mobile;
+- Ajuste visual da tela de login web (Microsoft e usuário de teste);
+- Atualização da branch com a Sprint-5 e o construtor de formulários.

@@ -1,6 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 import type { DataSource, QueryRunner } from 'typeorm';
 import type { AccessTokenPayload } from '../auth/authenticated-request.js';
+import { LIMITES } from './economia.js';
 
 /**
  * Domínio de gamificação do Ajuda-aí (ADR-0002): XP global por usuário,
@@ -10,13 +11,28 @@ import type { AccessTokenPayload } from '../auth/authenticated-request.js';
  */
 export const SCHEMA_GAMIFICACAO = 'gamificacao';
 
-/** Origens de XP aceitas pelo ledger (CHECK na migration). */
+/**
+ * Tipos da migration original (1792279161187). Fica congelado: a migration
+ * histórica lê esta lista; tipos novos entram em [TIPOS_MOVIMENTACAO].
+ */
 export const TIPOS_MOVIMENTACAO_XP = [
   'PUCSTOP_CLAIM',
   'RECOMPENSA',
   'AJUSTE_ADMIN',
 ] as const;
-export type TipoMovimentacaoXp = (typeof TIPOS_MOVIMENTACAO_XP)[number];
+
+/** Tipos aceitos hoje pelo ledger (CHECK da migration 1794000000000). */
+export const TIPOS_MOVIMENTACAO = [...TIPOS_MOVIMENTACAO_XP, 'MISSAO'] as const;
+export type TipoMovimentacaoXp = (typeof TIPOS_MOVIMENTACAO)[number];
+
+/**
+ * Efeito de uma movimentação no XP quando não informado: resgates e estornos
+ * (RECOMPENSA) só mexem em moedas; ganhos e ajustes mexem nos dois, na mesma
+ * quantidade. O gatilho `acumular_xp` aplica a mesma regra no banco.
+ */
+export function efeitoXpPadrao(tipo: TipoMovimentacaoXp, quantidade: number) {
+  return tipo === 'RECOMPENSA' ? 0 : quantidade;
+}
 
 /**
  * Limites de um PucStop, iguais na API e nas CHECKs da migration. Raio: abaixo
@@ -76,8 +92,15 @@ export async function usuarioDoToken(
 
 export interface NovaMovimentacaoXp {
   usuarioId: number;
-  /** Positivo credita, negativo debita (troca futura). Nunca zero. */
+  /** Moedas: positivo credita, negativo debita (resgate). Nunca zero. */
   quantidade: number;
+  /**
+   * Efeito no XP acumulado; padrão pela regra do tipo ([efeitoXpPadrao]).
+   * Resgate e estorno: 0 (só moedas).
+   */
+  xp?: number;
+  /** Ciclo (semestre) do ganho; entra nos tetos por ciclo. */
+  ciclo?: string | null;
   tipo: TipoMovimentacaoXp;
   referenciaTipo: string | null;
   referenciaId: string | null;
@@ -88,9 +111,15 @@ export interface NovaMovimentacaoXp {
 
 export interface MovimentacaoRegistrada {
   movimentacaoId: string;
+  /** Saldo de moedas depois da movimentação. */
   saldo: number;
+  /** XP acumulado depois da movimentação. */
+  xpAcumulado: number;
   criadoEm: Date;
 }
+
+/** Ajuste administrativo fora do limite individual (±200). */
+export class AjusteForaDoLimiteError extends Error {}
 
 export class SaldoInsuficienteError extends Error {}
 
@@ -133,15 +162,31 @@ export async function registrarMovimentacao(
   if (!Number.isSafeInteger(m.quantidade) || m.quantidade === 0) {
     throw new Error('Quantidade de XP inválida.');
   }
+  const xp = m.xp ?? efeitoXpPadrao(m.tipo, m.quantidade);
+  if (!Number.isSafeInteger(xp)) throw new Error('XP inválido.');
+  if (m.tipo === 'RECOMPENSA' && xp !== 0) {
+    throw new Error('Resgate e estorno não mexem no XP.');
+  }
+  if (
+    m.tipo === 'AJUSTE_ADMIN' &&
+    (Math.abs(m.quantidade) > LIMITES.ajusteAdmin ||
+      Math.abs(xp) > LIMITES.ajusteAdmin)
+  ) {
+    throw new AjusteForaDoLimiteError(
+      `Ajuste administrativo limitado a ${LIMITES.ajusteAdmin} pontos.`,
+    );
+  }
   const saldo = (await travarCarteira(qr, m.usuarioId)) + m.quantidade;
-  if (saldo < 0) throw new SaldoInsuficienteError('Saldo de XP insuficiente.');
+  if (saldo < 0) throw new SaldoInsuficienteError('Moedas insuficientes.');
   const [mov] = (await qr.query(
     `INSERT INTO ${g}."xp_movimentacoes" ` +
-      `("usuario_id", "quantidade", "tipo", "referencia_tipo", "referencia_id", "descricao", "chave_idempotencia", "saldo_apos") ` +
-      `VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING "id", "criado_em"`,
+      `("usuario_id", "quantidade", "xp_quantidade", "ciclo", "tipo", "referencia_tipo", "referencia_id", "descricao", "chave_idempotencia", "saldo_apos") ` +
+      `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING "id", "criado_em"`,
     [
       m.usuarioId,
       m.quantidade,
+      xp,
+      m.ciclo ?? null,
       m.tipo,
       m.referenciaTipo,
       m.referenciaId,
@@ -150,11 +195,20 @@ export async function registrarMovimentacao(
       saldo,
     ],
   )) as Array<{ id: string; criado_em: Date }>;
-  await qr.query(
-    `UPDATE ${g}."xp_carteiras" SET "saldo" = $2, "atualizado_em" = now() WHERE "usuario_id" = $1`,
+  // O XP acumulado é mantido pelo gatilho `acumular_xp` (vale também para
+  // versões antigas do backend); o CHECK impede que fique negativo.
+  const [carteira] = (await qr.query(
+    `UPDATE ${g}."xp_carteiras" SET "saldo" = $2, "atualizado_em" = now() WHERE "usuario_id" = $1 RETURNING "xp_acumulado"`,
     [m.usuarioId, saldo],
-  );
-  return { movimentacaoId: String(mov.id), saldo, criadoEm: mov.criado_em };
+  )) as
+    [Array<{ xp_acumulado: number }>, number] | Array<{ xp_acumulado: number }>;
+  const linha = Array.isArray(carteira) ? carteira[0] : carteira;
+  return {
+    movimentacaoId: String(mov.id),
+    saldo,
+    xpAcumulado: (linha as { xp_acumulado: number }).xp_acumulado,
+    criadoEm: mov.criado_em,
+  };
 }
 
 /** Violação de UNIQUE do PostgreSQL (corrida entre duas transações). */

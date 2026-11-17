@@ -218,7 +218,7 @@ export class LojinhaService {
       ) {
         throw new ConflictException({
           statusCode: 409,
-          message: `Esta recompensa mudou e agora custa ${item.custoXp} XP. Volte e revise antes de confirmar.`,
+          message: `Esta recompensa mudou e agora custa ${item.custoXp} moedas. Volte e revise antes de confirmar.`,
           motivo: 'recompensa-alterada',
           versao: item.versao,
           custoXp: item.custoXp,
@@ -250,7 +250,9 @@ export class LojinhaService {
         });
       } catch (erro) {
         if (erro instanceof SaldoInsuficienteError) {
-          throw new UnprocessableEntityException('Saldo de XP insuficiente.');
+          throw new UnprocessableEntityException(
+            'Moedas insuficientes para este resgate.',
+          );
         }
         throw erro;
       }

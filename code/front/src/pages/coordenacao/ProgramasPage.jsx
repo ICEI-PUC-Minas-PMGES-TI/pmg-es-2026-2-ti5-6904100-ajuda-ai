@@ -3,7 +3,6 @@ import { Link, useSearchParams, useNavigate, useOutletContext } from 'react-rout
 import { api } from '../../api/client';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
-import Toggle from '../../components/Toggle';
 import { useToast } from '../../components/Toast';
 
 const ETAPAS = [
@@ -13,6 +12,14 @@ const ETAPAS = [
   { valor: 'andamento', rotulo: 'Programa em andamento' },
   { valor: 'encerramento', rotulo: 'Encerramento' },
 ];
+
+const TRANSICOES_ETAPA = {
+  inscricoes: ['inscricoes', 'encerramento'],
+  analise: ['inscricoes', 'analise', 'encerramento'],
+  formacao: ['formacao', 'andamento', 'encerramento'],
+  andamento: ['andamento', 'encerramento'],
+  encerramento: ['encerramento'],
+};
 
 const DATAS = [
   { chave: 'inscricoesInicio', rotulo: 'Início das inscrições' },
@@ -106,6 +113,8 @@ export default function ProgramasPage() {
   const [confirmacaoExclusao, setConfirmacaoExclusao] = useState('');
   const [erroExclusao, setErroExclusao] = useState('');
   const [ocupadoExclusao, setOcupadoExclusao] = useState(false);
+  const [acaoPrograma, setAcaoPrograma] = useState(null);
+  const [processandoAcao, setProcessandoAcao] = useState(false);
   const travaExclusao = useRef(false);
   const programaFoco = params.get('programa') || '';
   const pendencia = PENDENCIAS[params.get('pendencia')];
@@ -177,7 +186,6 @@ export default function ProgramasPage() {
       gruposPrevistos: 25,
       etapaAtual: 'inscricoes',
       inscricoesAbertas: true,
-      matchingPendente: false,
     });
     setConfirmarCiclo(false);
   }
@@ -195,9 +203,49 @@ export default function ProgramasPage() {
     finally {travaExclusao.current = false; setOcupadoExclusao(false);}
   }
 
+  async function executarAcaoPrograma() {
+    if (!acaoPrograma || processandoAcao) return;
+    setProcessandoAcao(true);
+    try {
+      if (acaoPrograma.tipo === 'encerrar') {
+        await api.encerrarInscricoes(acaoPrograma.programa.codigo);
+        mostrarToast(`Inscrições do programa ${acaoPrograma.programa.codigo} encerradas. Nenhuma candidatura foi decidida.`, 'sucesso');
+      } else {
+        await api.liberarMatching(acaoPrograma.programa.codigo);
+        mostrarToast(`Matching liberado para o programa ${acaoPrograma.programa.codigo}. Os vínculos continuam manuais.`, 'sucesso');
+      }
+      setAcaoPrograma(null);
+      await carregar();
+      await contexto.carregarProgramas?.();
+    } catch (error) {
+      mostrarToast(error.message || 'Não foi possível atualizar o programa.', 'erro');
+    } finally {
+      setProcessandoAcao(false);
+    }
+  }
+
   return (
     <section className="programs-page">
       {excluindo && <ConfirmarExclusaoPrograma programa={excluindo} confirmacao={confirmacaoExclusao} ocupado={ocupadoExclusao} erro={erroExclusao} onAlterar={setConfirmacaoExclusao} onConfirmar={excluirPrograma} onFechar={() => setExcluindo(null)} />}
+      {acaoPrograma && (
+        <Modal
+          titulo={acaoPrograma.tipo === 'encerrar' ? 'Encerrar inscrições?' : 'Liberar matching?'}
+          descricao={acaoPrograma.tipo === 'encerrar'
+            ? `As inscrições do programa ${acaoPrograma.programa.codigo} serão encerradas. Nenhuma candidatura será aprovada nem vinculada por esta ação.`
+            : `O matching do programa ${acaoPrograma.programa.codigo} será liberado para vínculos manuais. É necessário encerrar as inscrições, decidir todas as candidaturas e preparar ao menos um padrinho aprovado.`}
+          onFechar={() => { if (!processandoAcao) setAcaoPrograma(null); }}
+          acoes={(
+            <>
+              <button type="button" className="ghost-button" disabled={processandoAcao} onClick={() => setAcaoPrograma(null)}>Cancelar</button>
+              <button type="button" className="primary-button inline" disabled={processandoAcao} onClick={executarAcaoPrograma}>
+                {processandoAcao ? 'Processando…' : acaoPrograma.tipo === 'encerrar' ? 'Encerrar inscrições' : 'Liberar matching'}
+              </button>
+            </>
+          )}
+        >
+          {acaoPrograma.tipo === 'liberar' && <p className="detail-muted">A liberação não cria grupos nem define padrinhos automaticamente.</p>}
+        </Modal>
+      )}
       <header className="dash-header">
         <div>
           <h1>Programas</h1>
@@ -251,8 +299,9 @@ export default function ProgramasPage() {
                   <span className={`flag ${p.encerrado ? 'muted' : 'purple'}`}>{p.statusRotulo}</span>
                   {p.vigente && <span className="flag green">Vigente</span>}
                   {p.inscricoesAbertas && <span className="flag purple">Inscrições abertas</span>}
+                  {!p.inscricoesAbertas && <span className="flag muted">Inscrições encerradas</span>}
                   {p.formularioPublicado && <span className="flag purple">Formulário publicado</span>}
-                  {p.matchingPendente && <span className="flag amber">Matching pendente</span>}
+                  {p.matchingLiberado && <span className="flag green">Matching liberado</span>}
                 </div>
               </div>
               <button type="button" className="ghost-button" onClick={async () => {
@@ -262,6 +311,21 @@ export default function ProgramasPage() {
               <button type="button" className="ghost-button" aria-expanded={editando === p.codigo} onClick={() => setEditando(editando === p.codigo ? null : p.codigo)}>
                 <Icon name="edit" size={16} /> {editando === p.codigo ? 'Fechar configuração' : 'Configurar programa'}
               </button>
+              {p.podeEncerrarInscricoes && (
+                <button type="button" className="mini-btn danger" onClick={() => setAcaoPrograma({ tipo: 'encerrar', programa: p })}>
+                  Encerrar inscrições
+                </button>
+              )}
+              {p.podeLiberarMatching && (
+                <button type="button" className="mini-btn primary" onClick={() => setAcaoPrograma({ tipo: 'liberar', programa: p })}>
+                  Liberar matching
+                </button>
+              )}
+              {p.matchingLiberado && (
+                <Link className="mini-btn primary" to={`/coordenacao/matching?${new URLSearchParams({ programa: p.codigo })}`}>
+                  Abrir matching
+                </Link>
+              )}
               <details className="program-overflow">
                 <summary aria-label={`Mais ações do programa ${p.codigo}`}>Mais ações</summary>
                 <button type="button" className="ghost-button" onClick={() => {setExcluindo(p); setConfirmacaoExclusao(''); setErroExclusao('');}}>Excluir programa</button>
@@ -371,8 +435,6 @@ export function ConfirmarExclusaoPrograma({ programa, confirmacao, ocupado, erro
 function EditorPrograma({ programa, onCancelar, onSalvo, novo = false }) {
   const [form, setForm] = useState(() => ({
     etapaAtual: programa.etapaAtual,
-    inscricoesAbertas: programa.inscricoesAbertas,
-    matchingPendente: programa.matchingPendente,
     vagasApadrinhados: String(programa.vagasApadrinhados ?? ''),
     gruposPrevistos: String(programa.gruposPrevistos ?? ''),
     ...Object.fromEntries(DATAS.map((d) => [d.chave, programa.datas?.[d.chave] || ''])),
@@ -416,8 +478,6 @@ function EditorPrograma({ programa, onCancelar, onSalvo, novo = false }) {
       ? { ...datas, requisitosPadrinho: form.requisitosPadrinho }
       : {
         etapaAtual: form.etapaAtual,
-        inscricoesAbertas: form.inscricoesAbertas,
-        matchingPendente: form.matchingPendente,
         vagasApadrinhados: Number(form.vagasApadrinhados),
         gruposPrevistos: Number(form.gruposPrevistos),
       };
@@ -447,8 +507,16 @@ function EditorPrograma({ programa, onCancelar, onSalvo, novo = false }) {
         <div className="editor-grid">
           <label className="editor-field">
             <span>Etapa atual</span>
-            <select value={form.etapaAtual} onChange={(e) => campo('etapaAtual', e.target.value)}>
-              {ETAPAS.map((e) => <option key={e.valor} value={e.valor}>{e.rotulo}</option>)}
+            <select value={form.etapaAtual} disabled={encerrado} onChange={(e) => campo('etapaAtual', e.target.value)}>
+              {ETAPAS.map((e) => (
+                <option
+                  key={e.valor}
+                  value={e.valor}
+                  disabled={!TRANSICOES_ETAPA[programa.etapaAtual]?.includes(e.valor)}
+                >
+                  {e.rotulo}
+                </option>
+              ))}
             </select>
           </label>
           <label className="editor-field">
@@ -460,10 +528,7 @@ function EditorPrograma({ programa, onCancelar, onSalvo, novo = false }) {
             <input type="number" min="0" max="10000" value={form.gruposPrevistos} onChange={(e) => campo('gruposPrevistos', e.target.value)} required />
           </label>
         </div>
-        <div className="editor-toggles">
-          <Toggle label="Inscrições abertas" checked={form.inscricoesAbertas} onChange={(v) => campo('inscricoesAbertas', v)} />
-          <Toggle label="Matching pendente" descricao="Sinaliza no dashboard que a formação de grupos está em andamento." checked={form.matchingPendente} onChange={(v) => campo('matchingPendente', v)} />
-        </div>
+        <p className="field-hint">A abertura e o encerramento das inscrições e a liberação do matching são feitas pelas ações do programa para preservar a ordem das etapas.</p>
       </>}
       <fieldset className="editor-dates">
         <legend>Calendário</legend>

@@ -81,6 +81,10 @@ function banco({
       if (sql.includes('INSERT INTO "gamificacao"."xp_movimentacoes"')) {
         return [{ id: '42', criado_em: new Date() }];
       }
+      if (sql.includes('UPDATE "gamificacao"."xp_carteiras"')) {
+        // Resgate não mexe no XP acumulado (só nas moedas).
+        return [{ xp_acumulado: 120 }];
+      }
       if (sql.includes('INSERT INTO "gamificacao"."resgates"')) {
         return [
           {
@@ -191,7 +195,7 @@ describe('LojinhaService.resgatar', () => {
   it('não debita quando o saldo é insuficiente', async () => {
     const { service, comandos } = banco({ estoque: 1, saldo: 10 });
     await expect(service.resgatar(aluno, 'item', chave, vista)).rejects.toThrow(
-      'Saldo de XP insuficiente.',
+      'Moedas insuficientes para este resgate.',
     );
     expect(comandos).toContain('ROLLBACK');
     expect(comprometeu(comandos)).toBe(false);

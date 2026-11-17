@@ -252,6 +252,16 @@ class CoordenacaoApi {
     ),
   );
 
+  Future<Map<String, dynamic>> matchingConfiguracao(String programa) async =>
+      _mapa(
+        await _enviar(
+          'GET',
+          '/coordenacao/matching/config',
+          query: {'programa': programa},
+          erro: 'Falha ao carregar a configuração de matching',
+        ),
+      );
+
   Future<List<Map<String, dynamic>>> criteriosMatching({String? busca}) async =>
       _lista(
         await _enviar(
@@ -277,10 +287,7 @@ class CoordenacaoApi {
     await _enviar(
       'GET',
       '/coordenacao/matching/criterios/semelhantes',
-      query: {
-        'nome': nome,
-        if (excetoId != null) 'excetoId': '$excetoId',
-      },
+      query: {'nome': nome, if (excetoId != null) 'excetoId': '$excetoId'},
       erro: 'Falha ao buscar critérios semelhantes',
     ),
   );
@@ -354,18 +361,6 @@ class CoordenacaoApi {
         'criterios': criterios,
       },
       erro: 'Falha ao salvar a configuração de matching',
-    ),
-  );
-
-  Future<Map<String, dynamic>> liberarMatching(
-    String programa,
-    bool liberado,
-  ) async => _mapa(
-    await _enviar(
-      'POST',
-      '/coordenacao/matching/liberar',
-      corpo: {'programa': programa, 'liberado': liberado},
-      erro: 'Falha ao atualizar a liberação do matching',
     ),
   );
 
@@ -470,6 +465,34 @@ class CoordenacaoApi {
       erro: 'Falha ao atualizar o programa',
     ),
   );
+
+  Future<Map<String, dynamic>> encerrarInscricoes(String codigo) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/programas/encerrar-inscricoes',
+      query: {'codigo': codigo},
+      erro: 'Falha ao encerrar as inscrições',
+    ),
+  );
+
+  Future<Map<String, dynamic>> liberarMatching(String codigo) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/programas/liberar-matching',
+      query: {'codigo': codigo},
+      erro: 'Falha ao liberar o matching',
+    ),
+  );
+
+  Future<Map<String, dynamic>> matching({required String programa}) async =>
+      _mapa(
+        await _enviar(
+          'GET',
+          '/coordenacao/matching/pool',
+          query: {'programa': programa},
+          erro: 'Falha ao carregar o matching',
+        ),
+      );
 
   /// Formulário para edição (`padrinho` | `apadrinhado`), mesmo não publicado.
   Future<Formulario> formulario(String tipo, {String? programa}) async =>
@@ -593,6 +616,71 @@ class CoordenacaoApi {
       '/coordenacao/comunicados',
       corpo: {'titulo': titulo, 'descricao': descricao, 'publico': publico},
       erro: 'Falha ao publicar o comunicado',
+    ),
+  );
+
+  /// Totens do mapa (ativos e inativos). Rotas globais, sem programa/ciclo.
+  Future<List<Map<String, dynamic>>> pucstops() async => _lista(
+    await _enviar(
+      'GET',
+      '/coordenacao/pucstops',
+      erro: 'Falha ao carregar os totens',
+    ),
+  );
+
+  /// Limite da versão ativa do campus usado pelo seletor de posição.
+  /// Economia dos totens: ativos, XP potencial e o teto por aluno e ciclo.
+  Future<Map<String, dynamic>> orcamentoPucStops() async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/pucstops/orcamento',
+      erro: 'Falha ao carregar o orçamento dos totens',
+    ),
+  );
+
+  Future<Map<String, dynamic>> campusPucStops() async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/pucstops/campus',
+      erro: 'Falha ao carregar a área do campus',
+    ),
+  );
+
+  Future<Map<String, dynamic>> criarPucStop(Map<String, dynamic> dados) async =>
+      _mapa(
+        await _enviar(
+          'POST',
+          '/coordenacao/pucstops',
+          corpo: dados,
+          erro: 'Falha ao criar o totem',
+        ),
+      );
+
+  Future<Map<String, dynamic>> atualizarPucStop(
+    String id,
+    Map<String, dynamic> campos,
+  ) async => _mapa(
+    await _enviar(
+      'PATCH',
+      '/coordenacao/pucstops/$id',
+      corpo: campos,
+      erro: 'Falha ao atualizar o totem',
+    ),
+  );
+
+  Future<Map<String, dynamic>> desativarPucStop(String id) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/pucstops/$id/desativar',
+      erro: 'Falha ao desativar o totem',
+    ),
+  );
+
+  Future<Map<String, dynamic>> ativarPucStop(String id) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/pucstops/$id/ativar',
+      erro: 'Falha ao reativar o totem',
     ),
   );
 }

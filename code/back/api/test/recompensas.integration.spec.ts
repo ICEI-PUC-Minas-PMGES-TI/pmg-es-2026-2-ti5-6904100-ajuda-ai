@@ -9,6 +9,7 @@ import { Test } from '@nestjs/testing';
 import pg from 'pg';
 import request from 'supertest';
 import { DataSource, type MigrationInterface } from 'typeorm';
+import { permissoesPeloToken } from './helpers/permissoes.js';
 import { JwtAuthGuard } from '../src/auth/jwt-auth.guard.js';
 import { RolesGuard } from '../src/auth/roles.guard.js';
 import { registrarMovimentacao } from '../src/gamificacao/gamificacao.js';
@@ -18,12 +19,13 @@ import { BaselineFeed1791900000000 } from '../src/migrations/1791900000000-Basel
 import { UsuariosERequisitosPadrinho1791944105933 } from '../src/migrations/1791944105933-UsuariosERequisitosPadrinho.js';
 import { HabilitaPostgisESchemaMapa1792263378656 } from '../src/migrations/1792263378656-HabilitaPostgisESchemaMapa.js';
 import { CriaTabelasMapa1792263378657 } from '../src/migrations/1792263378657-CriaTabelasMapa.js';
+import { GamificacaoNiveisMoedasCiclos1794000000000 } from '../src/migrations/1794000000000-GamificacaoNiveisMoedasCiclos.js';
 import { PucStopsEXpGlobal1792279161187 } from '../src/migrations/1792279161187-PucStopsEXpGlobal.js';
 import { LojinhaResgates1792800000000 } from '../src/migrations/1792800000000-LojinhaResgates.js';
 import { LojinhaRecompensas1792900000000 } from '../src/migrations/1792900000000-LojinhaRecompensas.js';
 import { CodigoResgates1793500000000 } from '../src/migrations/1793500000000-CodigoResgates.js';
-import { EntregaResgatesEAjustesXp1793600000000 } from '../src/migrations/1793600000000-EntregaResgatesEAjustesXp.js';
-import { ProgramaRecompensasFk1793700000000 } from '../src/migrations/1793700000000-ProgramaRecompensasFk.js';
+import { EntregaResgatesEAjustesXp1794200000000 } from '../src/migrations/1794200000000-EntregaResgatesEAjustesXp.js';
+import { ProgramaRecompensasFk1794100000000 } from '../src/migrations/1794100000000-ProgramaRecompensasFk.js';
 import { LojinhaController } from '../src/gamificacao/lojinha/lojinha.controller.js';
 import { LojinhaService } from '../src/gamificacao/lojinha/lojinha.service.js';
 import { randomUUID } from 'node:crypto';
@@ -40,8 +42,9 @@ const MIGRATIONS: Array<new () => MigrationInterface> = [
   LojinhaResgates1792800000000,
   LojinhaRecompensas1792900000000,
   CodigoResgates1793500000000,
-  EntregaResgatesEAjustesXp1793600000000,
-  ProgramaRecompensasFk1793700000000,
+  GamificacaoNiveisMoedasCiclos1794000000000,
+  ProgramaRecompensasFk1794100000000,
+  EntregaResgatesEAjustesXp1794200000000,
 ];
 
 async function admin(sql: string): Promise<void> {
@@ -187,13 +190,14 @@ describe.skipIf(!URL_TESTE)(
           .expect(200)
       ).body as Recompensa;
 
-    /** Credita XP de teste ao aluno (fora da lojinha). */
+    /** Credita moedas (e XP) de teste ao aluno (fora da lojinha). */
     async function creditar(usuarioId: number, quantidade: number) {
       await ds.transaction(async (m) => {
         await registrarMovimentacao(m.queryRunner!, {
           usuarioId,
           quantidade,
-          tipo: 'AJUSTE_ADMIN',
+          // MISSAO: ganho de atividade sem o teto de ajuste administrativo (±200).
+          tipo: 'MISSAO',
           referenciaTipo: null,
           referenciaId: null,
           descricao: 'crédito de teste',
@@ -280,6 +284,7 @@ describe.skipIf(!URL_TESTE)(
           LojinhaService,
           JwtAuthGuard,
           RolesGuard,
+          permissoesPeloToken(),
           { provide: DataSource, useValue: ds },
         ],
       }).compile();
@@ -1178,29 +1183,27 @@ describe.skipIf(!URL_TESTE)(
       await ds.query(
         `INSERT INTO gamificacao.recompensas (nome, descricao, custo_xp, estoque, condicoes_retirada) VALUES ('Adesivo', 'X', 5, NULL, 'Secretaria')`,
       );
+      // Esquema anterior ao BL-50: grava o ledger direto (o código atual já
+      // conhece colunas que este banco ainda não tem).
       await ds.transaction(async (m) => {
-        await registrarMovimentacao(m.queryRunner!, {
-          usuarioId: uid,
-          quantidade: 100,
-          tipo: 'AJUSTE_ADMIN',
-          referenciaTipo: null,
-          referenciaId: null,
-          descricao: 'crédito',
-          chaveIdempotencia: 'c1',
-        });
-        const mov = await registrarMovimentacao(m.queryRunner!, {
-          usuarioId: uid,
-          quantidade: -30,
-          tipo: 'RECOMPENSA',
-          referenciaTipo: 'RESGATE',
-          referenciaId: 'r1',
-          descricao: 'Resgate: Caneca',
-          chaveIdempotencia: 'c2',
-        });
+        await m.query(
+          `INSERT INTO gamificacao.xp_carteiras (usuario_id, saldo) VALUES ($1, 70)`,
+          [uid],
+        );
+        await m.query(
+          `INSERT INTO gamificacao.xp_movimentacoes (usuario_id, quantidade, tipo, descricao, chave_idempotencia, saldo_apos) ` +
+            `VALUES ($1, 100, 'AJUSTE_ADMIN', 'crédito', 'c1', 100)`,
+          [uid],
+        );
+        const [mov] = (await m.query(
+          `INSERT INTO gamificacao.xp_movimentacoes (usuario_id, quantidade, tipo, referencia_tipo, referencia_id, descricao, chave_idempotencia, saldo_apos) ` +
+            `VALUES ($1, -30, 'RECOMPENSA', 'RESGATE', 'r1', 'Resgate: Caneca', 'c2', 70) RETURNING id`,
+          [uid],
+        )) as Array<{ id: string }>;
         await m.query(
           `INSERT INTO gamificacao.resgates (id, usuario_id, recompensa_id, movimentacao_id, chave_idempotencia, nome, descricao, custo_xp, condicoes_retirada) ` +
             `VALUES ($1, $2, $3, $4, $5, 'Caneca', 'Azul', 30, 'Secretaria')`,
-          [randomUUID(), uid, caneca, mov.movimentacaoId, randomUUID()],
+          [randomUUID(), uid, caneca, mov.id, randomUUID()],
         );
       });
 

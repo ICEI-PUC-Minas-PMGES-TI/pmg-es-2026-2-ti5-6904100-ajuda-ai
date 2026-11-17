@@ -71,7 +71,7 @@ void main() {
     },
   );
 
-  test('foco usa o resultado já buscado, mesmo com a remota caindo', () async {
+  test('foco tenta hidratar na remota e preserva o resultado buscado se cair', () async {
     final remote = _Fake(results: [lugar('area-1', 'Jardim')]);
     final local = _Fake();
     final repo = FallbackCampusPlaceRepository(
@@ -81,7 +81,7 @@ void main() {
     await repo.search('jardim');
     remote.fail = true;
     expect((await repo.findById('area-1'))!.name, 'Jardim');
-    expect(remote.finds, 0);
+    expect(remote.finds, 1);
     expect(local.finds, 0);
   });
 

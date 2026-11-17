@@ -11,7 +11,7 @@ Migrations no schema `gamificacao`:
   (`resgates.versao`; os antigos ficam na v1).
 - `1793500000000-CodigoResgates` (F28): `resgates.codigo`, código curto e
   único do comprovante (10 caracteres hexadecimais em maiúsculas).
-- `1793600000000-EntregaResgatesEAjustesXp` (F29/F26): `resgate_desfechos`
+- `1794200000000-EntregaResgatesEAjustesXp` (F29/F26): `resgate_desfechos`
   (entrega ou cancelamento, no máximo um por resgate) e `xp_ajustes`.
 
 Execute as migrations da API antes de usar os endpoints.
@@ -100,7 +100,7 @@ Rotas em `/coordenacao/resgates` (perfil `coordenador`). Código em
 - `POST /:id/entregar`: grava a entrega com o responsável do token e a data.
   A unidade continua comprometida (saiu do estoque).
 - `POST /:id/cancelar`: `{ motivo }` (3 a 300 caracteres). Na mesma
-  transação: devolve o XP (movimentação `RECOMPENSA` positiva, chave
+  transação: devolve as moedas (movimentação `RECOMPENSA` positiva, chave
   `estorno:<id>`, referência `RESGATE`), devolve a unidade
   (`estoque_comprometido - 1`) e grava o desfecho com motivo e responsável.
 

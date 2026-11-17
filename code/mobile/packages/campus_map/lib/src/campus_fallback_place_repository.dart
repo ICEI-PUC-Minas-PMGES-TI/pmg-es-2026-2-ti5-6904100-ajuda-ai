@@ -10,8 +10,8 @@ import 'campus_place_repository.dart';
 /// - `search`: usa a fonte preferida; se ela falhar (rede, servidor, resposta
 ///   inválida), responde pela reserva sem expor o erro. Lista vazia da fonte
 ///   preferida é resposta válida, não falha.
-/// - `findById`: primeiro os lugares já devolvidos por uma busca (o foco não
-///   depende de uma segunda ida à rede), depois a preferida e a reserva.
+/// - `findById`: tenta a fonte preferida para hidratar os detalhes mais atuais;
+///   se ela falhar, preserva o lugar já buscado e só então consulta a reserva.
 class FallbackCampusPlaceRepository implements CampusPlaceRepository {
   FallbackCampusPlaceRepository({
     required this.primary,
@@ -56,13 +56,13 @@ class FallbackCampusPlaceRepository implements CampusPlaceRepository {
 
   @override
   Future<CampusPlace?> findById(String id) async {
-    if (_recent[id] case final place?) return place;
     try {
       final place = await primary.findById(id);
       if (place != null) return place;
     } catch (_) {
-      // Fonte preferida indisponível: tenta a reserva.
+      // Fonte preferida indisponível: usa o resumo recente ou a reserva.
     }
+    if (_recent[id] case final place?) return place;
     return fallback.findById(id);
   }
 }

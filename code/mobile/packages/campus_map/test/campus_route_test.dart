@@ -12,6 +12,9 @@ final _biblioteca = CampusPlace(
   id: 'P26',
   name: 'Biblioteca',
   code: '26',
+  type: 'LIBRARY',
+  kind: CampusPlaceKind.building,
+  heightMeters: 6,
   center: [-43.9931464, -19.92077335],
 );
 final _icei = CampusPlace(
@@ -81,8 +84,8 @@ void main() {
   Future<void> select(WidgetTester tester, String query) async {
     await tester.enterText(find.byType(TextField), query);
     await tester.pumpAndSettle();
-    // Resultado da busca (o card também tem um ListTile: o seletor acessível).
-    await tester.tap(find.widgetWithIcon(ListTile, Icons.place_outlined));
+    // Primeiro resultado da busca (o card do local não tem ListTile).
+    await tester.tap(find.byType(ListTile).first);
     await tester.pumpAndSettle();
   }
 
@@ -90,7 +93,9 @@ void main() {
   final card = find.byKey(const Key('campus-route-card'));
   final summary = find.byKey(const Key('campus-route-summary'));
 
-  testWidgets('sem serviço de rota não há card', (tester) async {
+  testWidgets('sem serviço de rota mantém detalhes, sem ação de rota', (
+    tester,
+  ) async {
     final semRota = CampusMapController(
       placeRepository: _Repository(),
       locationService: location,
@@ -98,7 +103,12 @@ void main() {
     addTearDown(semRota.dispose);
     await mount(tester, other: semRota);
     await select(tester, 'biblioteca');
-    expect(card, findsNothing);
+    expect(card, findsOneWidget);
+    expect(
+      find.descendant(of: card, matching: find.text('Biblioteca')),
+      findsOneWidget,
+    );
+    expect(find.text('Ir até aqui'), findsNothing);
     expect(camera.focused, ['P26']);
   });
 
@@ -109,8 +119,8 @@ void main() {
     expect(card, findsNothing);
     await select(tester, 'biblioteca');
     expect(card, findsOneWidget);
-    expect(find.text('Traçar rota'), findsOneWidget);
-    expect(find.text('Rota acessível'), findsOneWidget);
+    expect(find.text('Ir até aqui'), findsOneWidget);
+    expect(find.byKey(const Key('campus-accessible-routes')), findsOneWidget);
     expect(routes.calls, isEmpty);
     expect(location.calls, 0); // GPS só ao pedir a rota.
     await tester.tap(trace);
@@ -121,18 +131,36 @@ void main() {
     expect(find.text('2 min a pé · 150 m'), findsOneWidget);
   });
 
+  testWidgets('prédio tocado no mapa abre detalhes e opções de rota', (
+    tester,
+  ) async {
+    await mount(tester);
+    controller.selectPlace(_biblioteca);
+    await tester.pumpAndSettle();
+
+    expect(card, findsOneWidget);
+    expect(
+      find.descendant(of: card, matching: find.text('Biblioteca')),
+      findsOneWidget,
+    );
+    expect(find.text('Código 26 · Altura aproximada: 6 m'), findsOneWidget);
+    expect(find.byKey(const Key('campus-accessible-routes')), findsOneWidget);
+    expect(find.text('Ir até aqui'), findsOneWidget);
+    expect(camera.focused, ['P26']);
+  });
+
   testWidgets('rota acessível: pedido acessível e troca refaz a rota', (
     tester,
   ) async {
     await mount(tester);
     await select(tester, 'biblioteca');
-    await tester.tap(find.text('Rota acessível'));
+    await tester.tap(find.byKey(const Key('campus-accessible-routes')));
     await tester.pumpAndSettle();
     expect(routes.calls, isEmpty); // Sem rota na tela, só marca.
     await tester.tap(trace);
     await tester.pumpAndSettle();
     expect(routes.calls.last.$2, isTrue);
-    await tester.tap(find.text('Rota acessível'));
+    await tester.tap(find.byKey(const Key('campus-accessible-routes')));
     await tester.pumpAndSettle();
     expect(routes.calls.map((c) => c.$2), [true, false]);
     expect(camera.routes.map((r) => r.accessible), [true, false]);
@@ -152,7 +180,7 @@ void main() {
       routes.pending = null;
       pending.complete(_rota('P26'));
       await tester.pumpAndSettle();
-      expect(tester.widget<FilledButton>(trace).onPressed, isNotNull);
+      expect(tester.widget<CampusPlaceActionButton>(trace).onTap, isNotNull);
       await tester.tap(trace);
       await tester.pumpAndSettle();
       expect(summary, findsOneWidget);
@@ -165,7 +193,7 @@ void main() {
     await select(tester, 'biblioteca');
     await tester.tap(trace);
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Limpar rota'));
+    await tester.tap(find.byTooltip('Fechar'));
     await tester.pumpAndSettle();
     expect(card, findsNothing);
     expect(camera.cleared, greaterThanOrEqualTo(1));
@@ -252,7 +280,7 @@ void main() {
       expect(camera.routes, isEmpty);
       expect(card, findsOneWidget);
       // Pode tentar de novo.
-      expect(tester.widget<FilledButton>(trace).onPressed, isNotNull);
+      expect(tester.widget<CampusPlaceActionButton>(trace).onTap, isNotNull);
       expect(tester.takeException(), isNull);
     });
   }
@@ -261,7 +289,7 @@ void main() {
     routes.failure = CampusRouteFailure.noPath;
     await mount(tester);
     await select(tester, 'biblioteca');
-    await tester.tap(find.text('Rota acessível'));
+    await tester.tap(find.byKey(const Key('campus-accessible-routes')));
     await tester.tap(trace);
     await tester.pumpAndSettle();
     expect(find.text('Não há rota acessível até este local.'), findsOneWidget);
@@ -288,7 +316,7 @@ void main() {
     expect(summary, findsOneWidget);
     routes.failure = CampusRouteFailure.unavailable;
     final antes = camera.cleared;
-    await tester.tap(find.text('Rota acessível'));
+    await tester.tap(find.byKey(const Key('campus-accessible-routes')));
     await tester.pumpAndSettle();
     expect(summary, findsNothing);
     expect(camera.cleared, antes + 1);
@@ -316,7 +344,7 @@ void main() {
     await tester.tap(trace);
     await tester.pump();
     expect(find.text('Calculando rota'), findsOneWidget);
-    await tester.tap(find.byTooltip('Limpar rota'));
+    await tester.tap(find.byTooltip('Fechar'));
     await tester.pumpAndSettle();
     pending.complete(_rota('P26'));
     await tester.pumpAndSettle();

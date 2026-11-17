@@ -6,9 +6,11 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
+import { ChatService } from '../chat/chat.service.js';
 import { FormularioEntity } from '../formularios/entities/formulario.entity.js';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
+import { matchingLiberado } from '../programas/etapas.js';
 import {
   CriterioMatchingDto,
   SalvarConfiguracaoMatchingDto,
@@ -40,7 +42,10 @@ interface MetadadoCriterio {
 
 @Injectable()
 export class MatchingService {
-  constructor(@InjectDataSource() private readonly dados: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly dados: DataSource,
+    private readonly chat: ChatService,
+  ) {}
 
   private async programa(
     manager: EntityManager,
@@ -66,6 +71,10 @@ export class MatchingService {
       throw new BadRequestException(
         'Feche as inscrições antes de executar ou decidir o matching.',
       );
+    if (!matchingLiberado(programa))
+      throw new BadRequestException(
+        'O matching só pode ser executado ou decidido após a liberação do ciclo.',
+      );
   }
 
   private async configuracaoAtual(
@@ -85,7 +94,13 @@ export class MatchingService {
 
   async obterConfiguracao(codigo: string) {
     const programa = await this.programa(this.dados.manager, codigo);
-    return this.configuracaoAtual(this.dados.manager, programa.id);
+    const configuracao = await this.configuracaoAtual(
+      this.dados.manager,
+      programa.id,
+    );
+    return configuracao
+      ? { ...configuracao, liberado: matchingLiberado(programa) }
+      : configuracao;
   }
 
   async salvarConfiguracao(
@@ -108,7 +123,7 @@ export class MatchingService {
         manager.getRepository(MatchingConfiguracaoEntity).create({
           programaId: programa.id,
           versao: (anterior?.versao ?? 0) + 1,
-          liberado: dto.liberado,
+          liberado: matchingLiberado(programa),
           capacidadePorPadrinho: dto.capacidadePorPadrinho,
           capacidadePorApadrinhado: dto.capacidadePorApadrinhado,
           criterios: dto.criterios.map((c) => ({ ...c })),
@@ -118,22 +133,14 @@ export class MatchingService {
     });
   }
 
-  async liberar(codigo: string, liberado: boolean, responsavel: string) {
-    const atual = await this.obterConfiguracao(codigo);
+  async liberar(codigo: string, _liberado: boolean, _responsavel: string) {
+    const programa = await this.programa(this.dados.manager, codigo);
+    const atual = await this.configuracaoAtual(this.dados.manager, programa.id);
     if (!atual)
       throw new BadRequestException(
-        'Salve uma configuração válida antes de liberar o matching.',
+        'Salve uma configuração válida antes de liberar o matching pelo ciclo.',
       );
-    return this.salvarConfiguracao(
-      {
-        programa: codigo,
-        liberado,
-        capacidadePorPadrinho: atual.capacidadePorPadrinho,
-        capacidadePorApadrinhado: atual.capacidadePorApadrinhado,
-        criterios: atual.criterios,
-      },
-      responsavel,
-    );
+    return { ...atual, liberado: matchingLiberado(programa) };
   }
 
   private async metadadosDosFormularios(
@@ -451,10 +458,8 @@ export class MatchingService {
       const programa = await this.programa(manager, codigo, true);
       this.validarEtapa(programa);
       const config = await this.configuracaoAtual(manager, programa.id, true);
-      if (!config?.liberado)
-        throw new BadRequestException(
-          'Matching não liberado na configuração atual.',
-        );
+      if (!config)
+        throw new BadRequestException('Configure o matching antes de executar.');
       const emAndamento = await manager
         .getRepository(MatchingExecucaoEntity)
         .findOne({
@@ -524,8 +529,6 @@ export class MatchingService {
           .setLock('pessimistic_read')
           .where('config.id = :id', { id: atual.configuracaoId })
           .getOneOrFail();
-        if (!config.liberado)
-          throw new BadRequestException('Matching não está liberado.');
         const metadata = await this.metadadosDosFormularios(
           manager,
           programa.codigo,
@@ -698,7 +701,7 @@ export class MatchingService {
       bloqueios.push('As inscrições ainda estão abertas.');
     if (!configuracao)
       bloqueios.push('Configure os critérios e as capacidades.');
-    else if (!configuracao.liberado)
+    if (!matchingLiberado(programa))
       bloqueios.push('O matching ainda não foi liberado pela coordenação.');
     if (!padrinhos.length)
       bloqueios.push('Não há padrinhos com candidatura aprovada.');
@@ -739,7 +742,9 @@ export class MatchingService {
       );
     return {
       programa,
-      configuracao,
+      configuracao: configuracao
+        ? { ...configuracao, liberado: matchingLiberado(programa) }
+        : null,
       podeExecutar: bloqueios.length === 0,
       bloqueios,
       criteriosDisponiveis,
@@ -768,11 +773,7 @@ export class MatchingService {
           (a) => (usadosA.get(a.id) ?? 0) === 0,
         ).length,
       },
-      chat: {
-        disponivel: false,
-        pendencias: outboxPendentes,
-        mensagem: 'Eventos aguardam integração com um módulo de chat.',
-      },
+      chat: { disponivel: true, pendencias: outboxPendentes },
     };
   }
 
@@ -942,8 +943,12 @@ export class MatchingService {
         .getOneOrFail();
       this.validarEtapa(programa);
       const config = await this.configuracaoAtual(manager, programa.id, true);
-      if (!config?.liberado)
-        throw new ConflictException('Matching não está mais liberado.');
+      if (!matchingLiberado(programa))
+        throw new ConflictException('O ciclo não está mais na etapa de matching.');
+      if (!config)
+        throw new ConflictException(
+          'A configuração de matching não está disponível.',
+        );
       const ultima = await manager
         .getRepository(MatchingExecucaoEntity)
         .findOne({
@@ -1035,23 +1040,6 @@ export class MatchingService {
           motivo: null,
         }),
       );
-      const outbox = manager.getRepository(MatchingChatOutboxEntity);
-      await outbox.upsert(
-        {
-          chaveIdempotencia: `privado:${vinculo.id}`,
-          programaId: programa.id,
-          tipoEvento: 'conversa_privada',
-          payload: {
-            vinculoId: vinculo.id,
-            padrinhoParticipacaoId: padrinho.id,
-            apadrinhadoParticipacaoId: apadrinhado.id,
-          },
-          status: 'pendente',
-          tentativas: 0,
-          erro: null,
-        },
-        ['chaveIdempotencia'],
-      );
       const atuais = await repoVinculos.find({
         where: {
           programaId: programa.id,
@@ -1063,28 +1051,29 @@ export class MatchingService {
       padrinho.papel = 'padrinho';
       padrinho.status = 'em_andamento';
       padrinho.inicioEm ??= agora;
+      padrinho.grupo = padrinho.grupo?.trim() || `Grupo-${padrinho.id}`;
       padrinho.apadrinhados = atuais.length;
-      await manager.getRepository(ParticipacaoEntity).save(padrinho);
-      if (atuais.length >= 2)
-        await outbox.upsert(
-          {
-            chaveIdempotencia: `coletivo:${programa.id}:${padrinho.id}`,
-            programaId: programa.id,
-            tipoEvento: 'grupo_coletivo',
-            payload: {
-              programaId: programa.id,
-              padrinhoParticipacaoId: padrinho.id,
-              membrosParticipacaoIds: [
-                padrinho.id,
-                ...atuais.map((v) => v.apadrinhadoParticipacaoId),
-              ],
-            },
-            status: 'pendente',
-            tentativas: 0,
-            erro: null,
-          },
-          ['chaveIdempotencia'],
+      const repoParticipacoes = manager.getRepository(ParticipacaoEntity);
+      if (
+        apadrinhado.grupo?.trim() &&
+        apadrinhado.grupo !== padrinho.grupo
+      ) {
+        throw new ConflictException(
+          'Apadrinhado já possui vínculo com outro padrinho.',
         );
+      }
+      const outroPadrinho = await repoParticipacoes.findOne({
+        where: {
+          programa: programa.codigo,
+          grupo: padrinho.grupo,
+          papel: 'padrinho',
+        },
+      });
+      if (outroPadrinho && outroPadrinho.id !== padrinho.id)
+        throw new ConflictException('Grupo já pertence a outro padrinho.');
+      apadrinhado.grupo = padrinho.grupo;
+      await repoParticipacoes.save([padrinho, apadrinhado]);
+      await this.chat.criarParaVinculo(manager, vinculo.id);
       programa.matchingPendente =
         (await manager.getRepository(MatchingSugestaoEntity).count({
           where: { programaId: programa.id, status: 'pendente' },
@@ -1093,10 +1082,7 @@ export class MatchingService {
       return {
         sugestao,
         vinculo,
-        chat: {
-          criado: false,
-          eventosPendentes: atuais.length >= 2 ? 2 : 1,
-        },
+        chat: { criado: true, eventosPendentes: 0 },
       };
     });
   }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -17,14 +18,18 @@ import 'campus_location_service.dart';
 import 'campus_place.dart';
 import 'campus_place_layer.dart';
 import 'campus_place_repository.dart';
+import 'campus_poi.dart';
 import 'campus_pucstop.dart';
 import 'campus_pucstop_layer.dart';
 import 'campus_map_defaults.dart';
 import 'campus_map_features.dart';
 import 'campus_map_lighting.dart';
+import 'campus_map_layer_ids.dart';
 import 'campus_map_renderer.dart';
 import 'campus_route.dart';
 import 'campus_route_layer.dart';
+import 'campus_saved_layer.dart';
+import 'campus_saved_places.dart';
 import 'campus_snapshot.dart';
 import 'three_d/campus_3d_controller.dart';
 import 'three_d/campus_3d_diagnostics.dart';
@@ -32,6 +37,8 @@ import 'three_d/campus_3d_layers.dart';
 import 'three_d/campus_asset_resolver.dart';
 import 'three_d/campus_environment_controller.dart';
 import 'three_d/campus_model_manifest.dart';
+import 'three_d/campus_pucstop_model.dart';
+import 'three_d/campus_totem_spin.dart';
 
 /// Mapa anônimo do campus. O token deve ser público e fornecido externamente.
 class CampusMapView extends StatefulWidget {
@@ -45,9 +52,15 @@ class CampusMapView extends StatefulWidget {
     this.routeService,
     this.pucStopService,
     this.onPucStopClaimed,
+    this.pucStopRewardNotice,
     this.contentService,
+    this.pointOfInterestCatalog,
+    this.savedPlacesStore,
     this.openExternalUrl,
     this.localTime,
+    this.canEditPlaces = false,
+    this.onEditPlace,
+    this.onDownloadPlaceImage,
   });
 
   final CampusMapConfig config;
@@ -73,10 +86,22 @@ class CampusMapView extends StatefulWidget {
   /// Coleta confirmada pelo servidor (ex.: atualizar o XP do app, tocar som).
   final ValueChanged<CampusPucStopClaim>? onPucStopClaimed;
 
+  /// Aviso mostrado antes do giro (ex.: teto de XP do semestre atingido).
+  /// `null` = sem aviso.
+  final String? Function(CampusPucStop stop)? pucStopRewardNotice;
+
   /// Eventos, restaurantes e cardápios (ex.: API do app). Só vale com
   /// `features.events`/`features.canteens`. Ignorado quando [controller] é
   /// fornecido.
   final CampusContentService? contentService;
+
+  /// Portarias e alimentação sempre visíveis (pinos do PUCMaps). Ignorado
+  /// quando [controller] é fornecido.
+  final CampusPointOfInterestCatalog? pointOfInterestCatalog;
+
+  /// Locais salvos no aparelho; sem ele o card não oferece "Salvar local".
+  /// Ignorado quando [controller] é fornecido.
+  final CampusSavedPlacesStore? savedPlacesStore;
 
   /// Abre uma URL fora do app (cardápio em PDF). Devolve `false` se não
   /// conseguiu; sem ele o card mostra o endereço para copiar.
@@ -85,13 +110,17 @@ class CampusMapView extends StatefulWidget {
   /// Relógio local injetável para validação; padrão: relógio do aparelho.
   final DateTime Function()? localTime;
 
+  final bool canEditPlaces;
+  final Future<bool> Function(CampusPlace place)? onEditPlace;
+  final Future<void> Function(Uri originalUrl)? onDownloadPlaceImage;
+
   @override
   State<CampusMapView> createState() => _CampusMapViewState();
 }
 
 class _CampusMapViewState extends State<CampusMapView>
-    with WidgetsBindingObserver
-    implements CampusMapCamera {
+    with WidgetsBindingObserver, TickerProviderStateMixin
+    implements CampusMapCamera, CampusMapZoom {
   late CampusMapController _controller;
   bool _foreground = true;
   String? _configurationError;
@@ -132,6 +161,30 @@ class _CampusMapViewState extends State<CampusMapView>
   /// URL do totem instalado neste style (para reconhecer a falha do GLB).
   String? _totemUrl;
 
+  /// Totem instalado neste style: modelo, URL e último `models` enviado
+  /// (reenviar recria os modelos nativos e zera o giro do topo).
+  CampusPucStopModel? _totemModel;
+  Uri? _totemUri;
+  String? _pushedTotems;
+
+  // ── Experiência do totem (PUCMaps `_focusTotem`/`_startTopSpin`) ─────────
+  String? _focusedStop;
+  CameraState? _cameraBeforeFocus;
+  final Map<String, double> _topYaw = {};
+  late final AnimationController _spin;
+  late final AnimationController _reward;
+  double _spinFrom = 0;
+  double _spinDegrees = 0;
+  double _spinEnergy = 0.5;
+  bool _spinArmed = false;
+  bool _showReward = false;
+  bool _focusedCollected = false;
+  List<CampusTotemSparkle> _sparkles = const [];
+  double? _dragX;
+  final List<(Duration, double)> _dragSamples = [];
+  bool _yawInFlight = false;
+  bool _yawDirty = false;
+
   bool get _enable3d => widget.config.features.enable3d;
   CampusMapFeatures get _features => widget.config.features;
   bool get _pucStopsEnabled => _features.pucStops && _controller.hasPucStops;
@@ -142,6 +195,13 @@ class _CampusMapViewState extends State<CampusMapView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _spin = AnimationController(vsync: this)
+      ..addListener(_onSpinTick)
+      ..addStatusListener(_onSpinStatus);
+    _reward = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    )..addStatusListener(_onRewardStatus);
     _createController();
     _configure();
   }
@@ -159,18 +219,29 @@ class _CampusMapViewState extends State<CampusMapView>
           routeService: widget.routeService,
           pucStopService: widget.pucStopService,
           contentService: widget.contentService,
+          pointOfInterestCatalog: widget.pointOfInterestCatalog,
+          savedPlacesStore: widget.savedPlacesStore,
         );
     _controller.pucStops.addListener(_refreshPucStops);
     _controller.collectedPucStops.addListener(_refreshPucStops);
     _controller.events.addListener(_refreshContent);
     _controller.categoryFilter.addListener(_refreshCategories);
-    _controller.restaurants.addListener(_refreshContent);
+    _controller.restaurants.addListener(_refreshFilters);
     _controller.contentCardHeight.addListener(_refitRoute);
     _controller.controlsHeight.addListener(_controlsResized);
+    _controller.pointsOfInterest.addListener(_refreshPois);
+    _controller.contentFilter.addListener(_refreshFilters);
+    _controller.selectedPlace.addListener(_refreshSelection);
+    _controller.lightMode.addListener(_refreshLight);
+    _controller.savedPlaces.addListener(_refreshSaved);
+    _controller.savedFilter.addListener(_refreshFilters);
+    _controller.selectedPucStop.addListener(_onPucStopFocus);
+    _controller.collectedPucStops.addListener(_onCollectedForReward);
   }
 
   void _releaseController(CampusMapController controller, bool owned) {
     controller.detach(this);
+    if (_focusedStop != null) unawaited(_exitTotemFocus());
     if (owned) {
       controller.dispose();
     } else {
@@ -178,24 +249,160 @@ class _CampusMapViewState extends State<CampusMapView>
       controller.collectedPucStops.removeListener(_refreshPucStops);
       controller.events.removeListener(_refreshContent);
       controller.categoryFilter.removeListener(_refreshCategories);
-      controller.restaurants.removeListener(_refreshContent);
+      controller.restaurants.removeListener(_refreshFilters);
       controller.contentCardHeight.removeListener(_refitRoute);
       controller.controlsHeight.removeListener(_controlsResized);
+      controller.pointsOfInterest.removeListener(_refreshPois);
+      controller.contentFilter.removeListener(_refreshFilters);
+      controller.selectedPlace.removeListener(_refreshSelection);
+      controller.lightMode.removeListener(_refreshLight);
+      controller.savedPlaces.removeListener(_refreshSaved);
+      controller.savedFilter.removeListener(_refreshFilters);
+      controller.selectedPucStop.removeListener(_onPucStopFocus);
+      controller.collectedPucStops.removeListener(_onCollectedForReward);
     }
   }
 
-  /// Filtro estrutural mudou: só troca os pontos, sem mover a câmera.
+  bool Function() _activeNow() {
+    final generation = _generation;
+    final revision = _styleRevision;
+    return () =>
+        mounted && generation == _generation && revision == _styleRevision;
+  }
+
+  /// Filtro estrutural mudou: só troca os pontos, sem mover a câmera. Um
+  /// filtro por vez (PUCMaps): portarias, alimentação e conteúdo saem.
   void _refreshCategories() {
     final map = _map;
     if (map == null || !_styleReady) return;
-    final generation = _generation;
-    final revision = _styleRevision;
-    unawaited(
-      _showCategories(
-        map,
-        () =>
-            mounted && generation == _generation && revision == _styleRevision,
-      ),
+    final isActive = _activeNow();
+    unawaited(_showCategories(map, isActive));
+    _refreshFilters();
+  }
+
+  /// Chip de Eventos/Onde comer mudou: troca os pontos permanentes e os de
+  /// conteúdo, sem mover a câmera.
+  void _refreshFilters() {
+    _refreshPois();
+    _refreshContent();
+    _refreshSaved();
+  }
+
+  void _refreshSaved() {
+    final map = _map;
+    if (map == null || !_styleReady) return;
+    unawaited(_showSaved(map, _activeNow()));
+  }
+
+  /// Salvos aparecem sem filtro e com o chip "Salvos"; somem com outra
+  /// categoria/Eventos/Onde comer (um filtro por vez).
+  Iterable<CampusPlace> get _visibleSaved =>
+      _controller.categoryFilter.value.category != null ||
+          _controller.contentFilter.value != null
+      ? const []
+      : _controller.savedPlaces.value;
+
+  Future<void> _showSaved(MapboxMap map, bool Function() isActive) async {
+    try {
+      await CampusSavedLayer.show(map.style, _visibleSaved, isActive: isActive);
+    } catch (_) {
+      // Pinos dos salvos são opcionais: a lista continua no chip.
+    }
+  }
+
+  void _addSavedInteractions(MapboxMap map) {
+    map.addInteraction(
+      TapInteraction(FeaturesetDescriptor(layerId: CampusSavedLayer.symbols), (
+        feature,
+        _,
+      ) {
+        if (!mounted || !identical(map, _map) || _focusedStop != null) return;
+        final id = feature.properties['id'];
+        if (id is String) _controller.selectSavedPlace(id);
+      }, radius: 12),
+      interactionID: CampusSavedLayer.symbols,
+    );
+  }
+
+  void _refreshPois() {
+    final map = _map;
+    if (map == null || !_styleReady) return;
+    unawaited(_showPois(map, _activeNow()));
+  }
+
+  /// Portarias e alimentação. Sem filtro: os dois (como o PUCMaps). "Onde
+  /// comer": só alimentação. Categoria ou "Eventos": nenhum. Lanchonete que
+  /// já tem cadastro de restaurante (com cardápio) aparece uma vez só, pelo
+  /// ponto do restaurante.
+  Iterable<CampusPlace> get _visiblePois {
+    if (_controller.categoryFilter.value.category != null ||
+        _controller.savedFilter.value) {
+      return const [];
+    }
+    final content = _contentEnabled && _features.canteens;
+    final restaurantIds = {
+      if (content)
+        for (final restaurant in _controller.restaurants.value)
+          ?restaurant.location?.id,
+    };
+    return _controller.pointsOfInterest.value.where((place) {
+      final kind = CampusPoiKind.fromType(place.type);
+      return switch (_controller.contentFilter.value) {
+        CampusContentKind.event => false,
+        CampusContentKind.restaurant =>
+          kind == CampusPoiKind.food && !restaurantIds.contains(place.id),
+        null => kind == CampusPoiKind.gate || !restaurantIds.contains(place.id),
+      };
+    });
+  }
+
+  Future<void> _showPois(MapboxMap map, bool Function() isActive) async {
+    try {
+      await CampusPoiLayer.show(map.style, _visiblePois, isActive: isActive);
+    } catch (_) {
+      // Pontos permanentes são opcionais: falha não vira aviso de mapa.
+    }
+  }
+
+  void _addPoiInteractions(MapboxMap map) {
+    map.addInteraction(
+      TapInteraction(FeaturesetDescriptor(layerId: CampusPoiLayer.symbols), (
+        feature,
+        _,
+      ) {
+        if (!mounted || !identical(map, _map) || _focusedStop != null) return;
+        final id = feature.properties['id'];
+        if (id is String) _controller.selectPointOfInterest(id);
+      }, radius: 12),
+      interactionID: CampusPoiLayer.symbols,
+    );
+  }
+
+  /// Contorno do prédio aberto no card (só prédios têm pegada).
+  void _refreshSelection() {
+    final renderer = _renderer;
+    if (renderer == null || !_styleReady) return;
+    final place = _controller.selectedPlace.value;
+    unawaited(renderer.highlight(place?.id).catchError((_) {}));
+  }
+
+  /// Botão "Luz": troca só o preset do Standard e o brilho das janelas.
+  void _refreshLight() {
+    unawaited(_lighting?.setMode(_controller.lightMode.value));
+  }
+
+  /// Botões + e − do PUCMaps: ±1 nível em 300 ms, dentro dos limites do campus.
+  @override
+  Future<void> zoomBy(double delta) async {
+    final map = _map;
+    if (map == null || !_styleReady || !_foreground) return;
+    final state = await map.getCameraState();
+    final zoom = (state.zoom + delta)
+        .clamp(_minimumZoom, CampusCameraPolicy.maxZoom)
+        .toDouble();
+    await map.easeTo(
+      CameraOptions(zoom: zoom),
+      MapAnimationOptions(duration: 300),
     );
   }
 
@@ -212,13 +419,46 @@ class _CampusMapViewState extends State<CampusMapView>
     return _categoryPaint;
   }
 
+  /// Tocar na própria footprint (inclusive sob o 3D) abre o mesmo card usado
+  /// pela busca/categorias. Áreas do campus não são tratadas como prédios.
+  void _addBuildingInteractions(MapboxMap map) {
+    map.addInteraction(
+      TapInteraction(FeaturesetDescriptor(layerId: CampusMapLayerIds.fill), (
+        feature,
+        _,
+      ) {
+        if (!mounted || !identical(map, _map) || _focusedStop != null) return;
+        final id = feature.properties['id'];
+        if (id is String) unawaited(_selectBuilding(map, id));
+      }, radius: 2),
+      interactionID: '${CampusMapLayerIds.fill}-tap',
+    );
+  }
+
+  Future<void> _selectBuilding(MapboxMap map, String id) async {
+    try {
+      final snapshot = await _loadSnapshot();
+      if (!mounted || !identical(map, _map) || _focusedStop != null) return;
+      for (final feature in snapshot.features) {
+        if (feature.id != id) continue;
+        final place = feature.toPlace();
+        if (place != null && place.kind == CampusPlaceKind.building) {
+          _controller.selectPlace(place);
+        }
+        return;
+      }
+    } catch (_) {
+      // O renderer já apresenta a falha do snapshot; o toque não a duplica.
+    }
+  }
+
   void _addCategoryInteractions(MapboxMap map) {
     map.addInteraction(
       TapInteraction(FeaturesetDescriptor(layerId: CampusPlaceLayer.symbols), (
         feature,
         _,
       ) {
-        if (!mounted || !identical(map, _map)) return;
+        if (!mounted || !identical(map, _map) || _focusedStop != null) return;
         final id = feature.properties['id'];
         if (id is String) _controller.selectCategoryPlace(id);
       }, radius: 12),
@@ -241,12 +481,22 @@ class _CampusMapViewState extends State<CampusMapView>
     );
   }
 
+  /// Sem filtro, eventos e restaurantes; com "Eventos"/"Onde comer", só o
+  /// tipo escolhido; com uma categoria de prédio, nenhum (filtro único).
   Future<void> _showContent(MapboxMap map, bool Function() isActive) async {
+    final category =
+        _controller.categoryFilter.value.category != null ||
+        _controller.savedFilter.value;
+    final filter = _controller.contentFilter.value;
+    final events =
+        _features.events && !category && filter != CampusContentKind.restaurant;
+    final restaurants =
+        _features.canteens && !category && filter != CampusContentKind.event;
     try {
       await CampusContentLayer.show(
         map.style,
-        _features.events ? _controller.events.value : const [],
-        _features.canteens ? _controller.restaurants.value : const [],
+        events ? _controller.events.value : const [],
+        restaurants ? _controller.restaurants.value : const [],
         isActive: isActive,
       );
     } catch (_) {
@@ -259,7 +509,7 @@ class _CampusMapViewState extends State<CampusMapView>
     for (final layerId in CampusContentLayer.pickable) {
       map.addInteraction(
         TapInteraction(FeaturesetDescriptor(layerId: layerId), (feature, _) {
-          if (!mounted || !identical(map, _map)) return;
+          if (!mounted || !identical(map, _map) || _focusedStop != null) return;
           final id = feature.properties['id'];
           final kind = switch (feature.properties['kind']) {
             CampusContentLayer.event => CampusContentKind.event,
@@ -299,25 +549,290 @@ class _CampusMapViewState extends State<CampusMapView>
         _controller.collectedPucStops.value,
         isActive: isActive,
       );
+      if (isActive()) await _syncTotems(map);
     } catch (_) {
       // PucStops são opcionais: falha aqui não vira aviso de mapa.
     }
   }
 
-  /// Toque num ponto/halo de PucStop (interação do SDK restrita a essas
-  /// camadas): abre o card. Toque em outra parte do mapa não passa por aqui.
+  /// Um totem por PucStop, coletado ou não. Só reenvia quando a lista muda.
+  Future<void> _syncTotems(MapboxMap map) async {
+    final model = _totemModel;
+    final url = _totemUri;
+    if (model == null || url == null) return;
+    final json = jsonEncode(
+      CampusPucStopLayer.models(_controller.pucStops.value, model, url),
+    );
+    if (json == _pushedTotems) return;
+    _pushedTotems = json;
+    try {
+      await CampusPucStopLayer.updateTotems(map.style, json);
+    } catch (_) {
+      _pushedTotems = null;
+      return;
+    }
+    if (_focusedStop != null) unawaited(_pushTopYaw());
+  }
+
+  /// Toque no totem (modelo 3D, ponto, halo ou aura): leva a câmera até ele
+  /// e começa a experiência de girar o topo. Nada é coletado no toque.
   void _addPucStopInteractions(MapboxMap map) {
-    for (final layerId in CampusPucStopLayer.pickable) {
+    for (final layerId in [
+      ...CampusPucStopLayer.pickable,
+      CampusPucStopLayer.totem,
+    ]) {
       map.addInteraction(
         TapInteraction(FeaturesetDescriptor(layerId: layerId), (feature, _) {
-          if (!mounted || !identical(map, _map)) return;
-          final id = feature.properties['id'];
+          if (!mounted || !identical(map, _map) || _focusedStop != null) return;
+          // Pontos trazem o id nas propriedades; o modelo, no id da feature.
+          final id = feature.properties['id'] ?? feature.id?.id;
           if (id is String && _controller.pucStop(id) != null) {
             _controller.selectPucStop(id);
           }
         }, radius: 12),
         interactionID: layerId,
       );
+    }
+  }
+
+  // ─── Experiência do totem ────────────────────────────────────────────────
+
+  /// Camadas que somem durante o foco, como no PUCMaps: nada compete com o
+  /// totem nem recebe o toque do giro.
+  static const _focusHiddenLayers = [
+    CampusMapLayerIds.labels,
+    CampusPoiLayer.symbols,
+    CampusSavedLayer.symbols,
+    CampusPlaceLayer.symbols,
+    CampusContentLayer.dot,
+    CampusContentLayer.label,
+    CampusPucStopLayer.label,
+  ];
+
+  void _onPucStopFocus() {
+    final id = _controller.selectedPucStop.value;
+    if (id == _focusedStop) return;
+    if (id == null) {
+      unawaited(_exitTotemFocus());
+      return;
+    }
+    final stop = _controller.pucStop(id);
+    if (stop != null) unawaited(_enterTotemFocus(stop));
+  }
+
+  Future<void> _enterTotemFocus(CampusPucStop stop) async {
+    _stopSpinEffects();
+    setState(() {
+      _focusedStop = stop.id;
+      _showReward = false;
+      _focusedCollected = _controller.collectedPucStops.value.contains(stop.id);
+    });
+    _topYaw.putIfAbsent(stop.id, () => 0);
+    final map = _map;
+    if (map == null || !_styleReady || !_foreground) return;
+    try {
+      _cameraBeforeFocus ??= await map.getCameraState();
+      await map.gestures.updateSettings(
+        GesturesSettings(
+          scrollEnabled: false,
+          rotateEnabled: false,
+          pitchEnabled: false,
+          pinchToZoomEnabled: false,
+          doubleTapToZoomInEnabled: false,
+          quickZoomEnabled: false,
+        ),
+      );
+      await _setFocusChrome(map, visible: false);
+      if (_focusedStop != stop.id) return;
+      await map.easeTo(
+        CameraOptions(
+          center: Point(coordinates: Position(stop.longitude, stop.latitude)),
+          zoom: CampusTotemSpin.focusZoom,
+          pitch: CampusTotemSpin.focusPitch,
+          bearing: CampusTotemSpin.focusBearing,
+          padding: MbxEdgeInsets(
+            top: _viewport.height * CampusTotemSpin.focusTopFraction,
+            left: 16,
+            bottom: 90,
+            right: 16,
+          ),
+        ),
+        MapAnimationOptions(duration: 700),
+      );
+      await _pushTopYaw();
+    } catch (_) {
+      // Mapa recriado durante a animação: o painel continua funcional.
+    }
+  }
+
+  Future<void> _exitTotemFocus() async {
+    final previous = _cameraBeforeFocus;
+    _cameraBeforeFocus = null;
+    _stopSpinEffects();
+    if (mounted) {
+      setState(() {
+        _focusedStop = null;
+        _showReward = false;
+      });
+    }
+    final map = _map;
+    if (map == null) return;
+    try {
+      await _setFocusChrome(map, visible: true);
+      await map.gestures.updateSettings(
+        GesturesSettings(
+          scrollEnabled: true,
+          rotateEnabled: true,
+          pitchEnabled: true,
+          pinchToZoomEnabled: true,
+          doubleTapToZoomInEnabled: true,
+          quickZoomEnabled: true,
+        ),
+      );
+      if (previous != null && _foreground && _styleReady) {
+        await map.easeTo(
+          CameraOptions(
+            center: previous.center,
+            zoom: previous.zoom,
+            pitch: previous.pitch,
+            bearing: previous.bearing,
+            padding: previous.padding,
+          ),
+          MapAnimationOptions(duration: 600),
+        );
+      }
+    } catch (_) {
+      // Mapa descartado ao sair da tela.
+    }
+  }
+
+  Future<void> _setFocusChrome(MapboxMap map, {required bool visible}) async {
+    for (final id in _focusHiddenLayers) {
+      if (!await map.style.styleLayerExists(id)) continue;
+      await map.style.setStyleLayerProperty(
+        id,
+        'visibility',
+        visible ? 'visible' : 'none',
+      );
+    }
+  }
+
+  void _stopSpinEffects() {
+    _spinArmed = false;
+    _spin.stop();
+    _reward.stop();
+    _dragX = null;
+    _dragSamples.clear();
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    if (_focusedStop == null || _spin.isAnimating) return;
+    _dragX = event.localPosition.dx;
+    _dragSamples
+      ..clear()
+      ..add((event.timeStamp, event.localPosition.dx));
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (_focusedStop == null || _dragX == null) return;
+    _dragSamples.add((event.timeStamp, event.localPosition.dx));
+    final cutoff = event.timeStamp - CampusTotemSpin.sampleWindow;
+    _dragSamples.removeWhere((sample) => sample.$1 < cutoff);
+  }
+
+  void _onPointerUp(PointerUpEvent _) {
+    if (_focusedStop == null || _dragX == null) return;
+    final velocity = CampusTotemSpin.releaseVelocity(_dragSamples);
+    _dragX = null;
+    _dragSamples.clear();
+    _startTopSpin(velocity);
+  }
+
+  void _onPointerCancel(PointerCancelEvent _) {
+    _dragX = null;
+    _dragSamples.clear();
+  }
+
+  /// Arraste lateral solto com velocidade: o topo gira e freia. Ao parar,
+  /// o giro conta como interação (ver [_onSpinStatus]).
+  void _startTopSpin(double velocityPxPerMs) {
+    final id = _focusedStop;
+    if (id == null || _spin.isAnimating) return;
+    final spin = CampusTotemSpin.fromVelocity(velocityPxPerMs);
+    if (spin == null) return;
+    _spinFrom = _topYaw[id] ?? 0;
+    _spinDegrees = spin.degrees;
+    _spinEnergy = spin.energy;
+    _spin.duration = spin.duration;
+    _spinArmed = true;
+    _reward.stop();
+    setState(() => _showReward = false);
+    _spin.forward(from: 0);
+  }
+
+  void _onSpinTick() {
+    final id = _focusedStop;
+    if (id == null) return;
+    _topYaw[id] = CampusTotemSpin.at(_spinFrom, _spinDegrees, _spin.value);
+    unawaited(_pushTopYaw());
+  }
+
+  /// Giro terminou: pede a coleta (o servidor decide pelo alcance).
+  void _onSpinStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed || !_spinArmed) return;
+    _spinArmed = false;
+    final id = _focusedStop;
+    if (id != null) _controller.completePucStopSpin(id);
+  }
+
+  /// Coleta confirmada com o totem em foco: explosão de faíscas.
+  void _onCollectedForReward() {
+    final id = _focusedStop;
+    if (id == null) return;
+    final collected = _controller.collectedPucStops.value.contains(id);
+    if (collected && !_focusedCollected) _playReward();
+    _focusedCollected = collected;
+  }
+
+  void _playReward() {
+    if (!mounted || _focusedStop == null) return;
+    _sparkles = CampusTotemSpin.sparkles(_spinEnergy, math.Random());
+    setState(() => _showReward = true);
+    _reward.forward(from: 0);
+  }
+
+  void _onRewardStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed || !mounted || !_showReward) {
+      return;
+    }
+    setState(() => _showReward = false);
+  }
+
+  /// Uma chamada nativa por vez; giros durante ela juntam no mais recente.
+  Future<void> _pushTopYaw() async {
+    final id = _focusedStop;
+    final map = _map;
+    if (id == null || map == null || _totemModel == null) return;
+    if (_yawInFlight) {
+      _yawDirty = true;
+      return;
+    }
+    _yawInFlight = true;
+    try {
+      await map.setFeatureState(
+        CampusPucStopLayer.modelSource,
+        null,
+        id,
+        CampusPucStopLayer.topRotation(_topYaw[id] ?? 0),
+      );
+    } catch (_) {
+      // Sem modelo (GLB indisponível): o brilho do giro continua na tela.
+    } finally {
+      _yawInFlight = false;
+      if (_yawDirty && _focusedStop != null) {
+        _yawDirty = false;
+        unawaited(_pushTopYaw());
+      }
     }
   }
 
@@ -371,10 +886,26 @@ class _CampusMapViewState extends State<CampusMapView>
 
   MbxEdgeInsets get _routePadding => CampusCameraPolicy.routePadding(
     _viewport,
-    bottom: _rodapeReservado(semCard: CampusMapDefaults.routePaddingBottom),
+    bottom: _rodapeReservado(
+      semCard: math.max(
+        CampusMapDefaults.routePaddingBottom,
+        _placeSheetReserve(CampusMapDefaults.placeSheetCollapsed),
+      ),
+    ),
     sideCard: true,
     controlsHeight: _controlsHeight,
   );
+
+  /// Rodapé coberto pelo bottom sheet do local (só em tela retrato: em
+  /// paisagem o card fica numa coluna lateral). [fraction] é a altura do
+  /// sheet na posição esperada: padrão ao focar, recolhido com rota.
+  double _placeSheetReserve(double fraction) {
+    if (_controller.selectedPlace.value == null ||
+        CampusCameraPolicy.sideCardWidth(_viewport) != null) {
+      return 0;
+    }
+    return _viewport.height * fraction + CampusMapDefaults.contentCardMargin;
+  }
 
   Future<void> _applyCameraBounds() {
     final map = _map;
@@ -504,7 +1035,10 @@ class _CampusMapViewState extends State<CampusMapView>
         : MbxEdgeInsets(
             top: 0,
             left: 0,
-            bottom: _rodapeReservado(semCard: 0),
+            // Prédio centrado na área livre acima do bottom sheet.
+            bottom: _rodapeReservado(
+              semCard: _placeSheetReserve(CampusMapDefaults.placeSheetDefault),
+            ),
             right: 0,
           ),
   );
@@ -721,7 +1255,9 @@ class _CampusMapViewState extends State<CampusMapView>
         oldWidget.remotePlaceRepository != widget.remotePlaceRepository ||
         oldWidget.routeService != widget.routeService ||
         oldWidget.pucStopService != widget.pucStopService ||
-        oldWidget.contentService != widget.contentService) {
+        oldWidget.contentService != widget.contentService ||
+        oldWidget.pointOfInterestCatalog != widget.pointOfInterestCatalog ||
+        oldWidget.savedPlacesStore != widget.savedPlacesStore) {
       _releaseController(_controller, oldWidget.controller == null);
       _createController();
       if (_map != null && _styleReady && _foreground) _controller.attach(this);
@@ -747,7 +1283,10 @@ class _CampusMapViewState extends State<CampusMapView>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _lighting?.dispose();
+    _focusedStop = null;
     _releaseController(_controller, widget.controller == null);
+    _spin.dispose();
+    _reward.dispose();
     unawaited(_disablePuck(_map));
     _cameraSettle?.cancel();
     _dispose3d();
@@ -789,6 +1328,9 @@ class _CampusMapViewState extends State<CampusMapView>
     _modelManifest = null;
     _route = null;
     _totemUrl = null;
+    _totemModel = null;
+    _totemUri = null;
+    _pushedTotems = null;
     final token = widget.config.mapboxAccessToken.trim();
     if (token.isEmpty) {
       _configurationError =
@@ -835,6 +1377,7 @@ class _CampusMapViewState extends State<CampusMapView>
           await _campus3d?.setWindowGlow(glow);
         },
         isActive: () => isActive() && _foreground,
+        mode: _controller.lightMode.value,
       );
       await lighting.refresh();
       if (!isActive()) return;
@@ -861,6 +1404,17 @@ class _CampusMapViewState extends State<CampusMapView>
       }
       // Pontos 2D (source criada mesmo vazia; os dados chegam depois).
       if (isActive()) await _showCategories(map, isActive);
+      // Portarias e alimentação (source criada vazia; dados chegam depois).
+      if (isActive()) {
+        await _showPois(map, isActive);
+        await _showSaved(map, isActive);
+        unawaited(_controller.loadPointsOfInterest());
+        unawaited(_controller.loadSavedPlaces());
+      }
+      // Style novo: o prédio aberto no card volta a ser destacado.
+      if (_controller.selectedPlace.value case final place? when isActive()) {
+        await renderer.highlight(place.id).catchError((_) {});
+      }
       if (_pucStopsEnabled && isActive()) {
         await _showPucStops(map, isActive);
         unawaited(_controller.loadPucStops());
@@ -926,14 +1480,24 @@ class _CampusMapViewState extends State<CampusMapView>
     try {
       final url = resolver.resolve(model.path);
       _totemUrl = url.toString();
+      _totemModel = model;
+      _totemUri = url;
+      final stops = _controller.pucStops.value;
+      _pushedTotems = jsonEncode(CampusPucStopLayer.models(stops, model, url));
       await CampusPucStopLayer.installTotem(
         map.style,
         model,
         url,
+        stops,
         isActive: isActive,
       );
+      // A lista pode ter chegado durante a instalação.
+      if (isActive()) await _syncTotems(map);
     } catch (_) {
       _totemUrl = null;
+      _totemModel = null;
+      _totemUri = null;
+      _pushedTotems = null;
     }
   }
 
@@ -1000,104 +1564,140 @@ class _CampusMapViewState extends State<CampusMapView>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              MapWidget(
-                key: ValueKey(generation),
-                styleUri: widget.config.effectiveStyleUri,
-                onMapCreated: (map) {
-                  if (!mounted || generation != _generation) return;
-                  _map = map;
-                  _diagnostics?.attach(map);
-                  _addCategoryInteractions(map);
-                  if (_features.pucStops) _addPucStopInteractions(map);
-                  if (_features.events || _features.canteens) {
-                    _addContentInteractions(map);
-                  }
-                  if (_styleReady) _renderCampus(generation, _styleRevision);
-                },
-                onStyleLoadedListener: (_) {
-                  if (!mounted || generation != _generation) return;
-                  _styleReady = true;
-                  _lighting?.dispose();
-                  _lighting = null;
-                  _controller.detach(this);
-                  _route = _controller.activeRoute.value;
-                  unawaited(_disablePuck(_map));
-                  _styleRevision++;
-                  _renderer = null;
-                  _totemUrl = null;
-                  _diagnostics?.mark('style carregado');
-                  // Um novo style descarta sources/layers; o 3D recomeça nele.
-                  _dispose3d();
-                  _renderCampus(generation, _styleRevision);
-                },
-                // Não usa `idle`: com um GLB indisponível o Mapbox não volta a
-                // ficar ocioso. A câmera parada por um instante basta.
-                onCameraChangeListener: (event) {
-                  if (!mounted || generation != _generation) return;
-                  _constrainCenter(event.cameraState);
-                  if (_campus3d == null) return;
-                  _campus3d?.onCameraChanged();
-                  _cameraSettle?.cancel();
-                  _cameraSettle = Timer(Campus3dLod.cameraSettle, () {
+              // Arraste lateral durante o foco no totem gira o topo (o mapa
+              // está com os gestos desligados); fora do foco, nada muda.
+              Listener(
+                onPointerDown: _onPointerDown,
+                onPointerMove: _onPointerMove,
+                onPointerUp: _onPointerUp,
+                onPointerCancel: _onPointerCancel,
+                child: MapWidget(
+                  key: ValueKey(generation),
+                  styleUri: widget.config.effectiveStyleUri,
+                  onMapCreated: (map) {
                     if (!mounted || generation != _generation) return;
-                    _campus3d?.onCameraIdle();
-                  });
-                },
-                viewport: _opening.initialViewport(enable3d: _enable3d),
-                onMapLoadErrorListener: (event) {
-                  if (!mounted || generation != _generation) return;
-                  // Totem indisponível: some só ele; os pontos 2D ficam.
-                  if (_totemUrl case final url?
-                      when event.message.contains(url)) {
-                    _totemUrl = null;
-                    final map = _map;
-                    if (map != null) {
-                      unawaited(
-                        CampusPucStopLayer.removeTotem(map.style)
-                            .catchError((_) {}),
-                      );
+                    _map = map;
+                    _diagnostics?.attach(map);
+                    _addBuildingInteractions(map);
+                    _addCategoryInteractions(map);
+                    _addPoiInteractions(map);
+                    _addSavedInteractions(map);
+                    if (_features.pucStops) _addPucStopInteractions(map);
+                    if (_features.events || _features.canteens) {
+                      _addContentInteractions(map);
                     }
-                    return;
-                  }
-                  // Ambiente é decorativo: falha nele não vira aviso de mapa.
-                  final environment = _environment.where(
-                    (e) => e.owns(event.sourceId, event.message),
-                  );
-                  if (environment.isNotEmpty) {
-                    environment.first.onLoadError();
-                    return;
-                  }
-                  // Falha de um GLB: só aquela região volta à extrusão.
-                  if (Campus3dLayerIds.owns(event.sourceId)) {
-                    _campus3d?.onSourceError(event.sourceId!);
-                    return;
-                  }
-                  if (_loadError) return;
-                  // Não exibir/logar mensagens do SDK: podem conter URLs e tokens.
-                  setState(() => _loadError = true);
-                },
-                onMapLoadedListener: (_) {
-                  if (!mounted || generation != _generation) return;
-                  _diagnostics?.mark('mapa: loaded');
-                  if (!_loadError) return;
-                  setState(() => _loadError = false);
-                },
-                // Só no modo diagnóstico: sem custo por frame para o usuário comum.
-                onRenderFrameFinishedListener: _diagnostics == null
-                    ? null
-                    : (event) => _diagnostics?.onFrame(event),
-                onResourceRequestListener: !_enable3d && _diagnostics == null
-                    ? null
-                    : (event) {
-                        if (!mounted || generation != _generation) return;
-                        _diagnostics?.onResource(event);
-                        if (!event.cancelled &&
-                            event.response != null &&
-                            event.response!.error == null) {
-                          _campus3d?.onModelDownloaded(event.request.url);
-                        }
-                      },
+                    if (_styleReady) _renderCampus(generation, _styleRevision);
+                  },
+                  onStyleLoadedListener: (_) {
+                    if (!mounted || generation != _generation) return;
+                    _styleReady = true;
+                    _lighting?.dispose();
+                    _lighting = null;
+                    _controller.detach(this);
+                    _route = _controller.activeRoute.value;
+                    unawaited(_disablePuck(_map));
+                    _styleRevision++;
+                    _renderer = null;
+                    _totemUrl = null;
+                    _totemModel = null;
+                    _totemUri = null;
+                    _pushedTotems = null;
+                    // Style novo perde camadas e gestos do foco: sai do totem.
+                    if (_focusedStop != null) _controller.selectPucStop(null);
+                    _diagnostics?.mark('style carregado');
+                    // Um novo style descarta sources/layers; o 3D recomeça nele.
+                    _dispose3d();
+                    _renderCampus(generation, _styleRevision);
+                  },
+                  // Não usa `idle`: com um GLB indisponível o Mapbox não volta a
+                  // ficar ocioso. A câmera parada por um instante basta.
+                  onCameraChangeListener: (event) {
+                    if (!mounted || generation != _generation) return;
+                    _constrainCenter(event.cameraState);
+                    if (_campus3d == null) return;
+                    _campus3d?.onCameraChanged();
+                    _cameraSettle?.cancel();
+                    _cameraSettle = Timer(Campus3dLod.cameraSettle, () {
+                      if (!mounted || generation != _generation) return;
+                      _campus3d?.onCameraIdle();
+                    });
+                  },
+                  viewport: _opening.initialViewport(enable3d: _enable3d),
+                  onMapLoadErrorListener: (event) {
+                    if (!mounted || generation != _generation) return;
+                    // Totem indisponível: some só ele; os pontos 2D ficam.
+                    if (_totemUrl case final url?
+                        when event.message.contains(url)) {
+                      _totemUrl = null;
+                      _totemModel = null;
+                      _totemUri = null;
+                      _pushedTotems = null;
+                      final map = _map;
+                      if (map != null) {
+                        unawaited(
+                          CampusPucStopLayer.removeTotem(map.style)
+                              .catchError((_) {}),
+                        );
+                      }
+                      return;
+                    }
+                    // Ambiente é decorativo: falha nele não vira aviso de mapa.
+                    final environment = _environment.where(
+                      (e) => e.owns(event.sourceId, event.message),
+                    );
+                    if (environment.isNotEmpty) {
+                      environment.first.onLoadError();
+                      return;
+                    }
+                    // Falha de um GLB: só aquela região volta à extrusão.
+                    if (Campus3dLayerIds.owns(event.sourceId)) {
+                      _campus3d?.onSourceError(event.sourceId!);
+                      return;
+                    }
+                    if (_loadError) return;
+                    // Não exibir/logar mensagens do SDK: podem conter URLs e tokens.
+                    setState(() => _loadError = true);
+                  },
+                  onMapLoadedListener: (_) {
+                    if (!mounted || generation != _generation) return;
+                    _diagnostics?.mark('mapa: loaded');
+                    if (!_loadError) return;
+                    setState(() => _loadError = false);
+                  },
+                  // Só no modo diagnóstico: sem custo por frame para o usuário comum.
+                  onRenderFrameFinishedListener: _diagnostics == null
+                      ? null
+                      : (event) => _diagnostics?.onFrame(event),
+                  onResourceRequestListener: !_enable3d && _diagnostics == null
+                      ? null
+                      : (event) {
+                          if (!mounted || generation != _generation) return;
+                          _diagnostics?.onResource(event);
+                          if (!event.cancelled &&
+                              event.response != null &&
+                              event.response!.error == null) {
+                            _campus3d?.onModelDownloaded(event.request.url);
+                          }
+                        },
+                ),
               ),
+              if (_focusedStop != null)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedBuilder(
+                      animation: Listenable.merge([_spin, _reward]),
+                      builder: (context, _) => CustomPaint(
+                        key: const Key('campus-totem-effects'),
+                        painter: CampusTotemRewardPainter(
+                          spinProgress: _spin.isAnimating ? _spin.value : -1,
+                          rewardProgress: _showReward ? _reward.value : -1,
+                          energy: _spinEnergy,
+                          sparkles: _sparkles,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               if (_diagnostics case final diagnostics?)
                 // No topo: logo e atribuição do Mapbox (rodapé) continuam visíveis.
                 Positioned(
@@ -1122,9 +1722,13 @@ class _CampusMapViewState extends State<CampusMapView>
               CampusMapControls(
                 controller: _controller,
                 onPucStopClaimed: widget.onPucStopClaimed,
+                pucStopRewardNotice: widget.pucStopRewardNotice,
                 showEvents: _features.events,
                 showRestaurants: _features.canteens,
                 openExternalUrl: widget.openExternalUrl,
+                canEditPlaces: widget.canEditPlaces,
+                onEditPlace: widget.onEditPlace,
+                onDownloadPlaceImage: widget.onDownloadPlaceImage,
               ),
             ],
           ),

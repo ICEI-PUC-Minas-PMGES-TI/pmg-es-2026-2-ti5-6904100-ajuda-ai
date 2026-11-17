@@ -102,6 +102,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byType(ListTile));
     await tester.pumpAndSettle();
+    // Com o card aberto, os controles compactos ficam acima do sheet.
+    expect(find.byKey(const Key('campus-route-card')), findsOneWidget);
     await tester.tap(find.byTooltip('Minha localização'));
     await tester.pumpAndSettle();
     expect(camera.focused, [_place.id]);

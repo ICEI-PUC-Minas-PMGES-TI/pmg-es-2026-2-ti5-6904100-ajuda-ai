@@ -3,11 +3,12 @@ import 'dart:convert';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 import 'campus_content.dart';
+import 'campus_map_icons.dart';
 
 /// Eventos e restaurantes no mapa: uma source GeoJSON compartilhada (com a
-/// propriedade `kind`), círculos pequenos acima do 3D (também alvo do toque) e o
-/// nome só de perto. Sem ícones de sprite (o style pode não tê-los) e sem
-/// GLB: cor e contorno diferenciam os tipos, o nome confirma em texto.
+/// propriedade `kind`), pinos do PUCMaps acima do 3D (também alvo do toque) e
+/// o nome só de perto. Os pinos são gerados pelo app ([CampusMapIcons]), não
+/// dependem do sprite do style; ícone e cor diferenciam os tipos.
 abstract final class CampusContentLayer {
   static const source = 'campus-map-content';
   static const dot = 'campus-map-content-dot';
@@ -76,21 +77,24 @@ abstract final class CampusContentLayer {
   static List<Map<String, dynamic>> get layers => [
     {
       'id': dot,
-      'type': 'circle',
+      'type': 'symbol',
       'source': source,
-      // `top`, voltado para a tela: o ponto de evento/restaurante costuma ser
+      // `top`, elevado sobre o 3D: o ponto de evento/restaurante costuma ser
       // o centro de um prédio, e no `middle` o modelo 3D o cobria de perto.
       'slot': 'top',
       'minzoom': dotMinZoom,
+      'layout': CampusMapIcons.layout(
+        image: [
+          'case',
+          _isKind(event),
+          CampusMapIcons.event.id,
+          CampusMapIcons.food.id,
+        ],
+      ),
       'paint': {
-        'circle-radius': ['case', _isActive, 6.5, 5.0],
-        'circle-color': ['case', _isKind(event), eventColor, restaurantColor],
+        ...CampusMapIcons.paint,
         // Inativo (em breve / fechado) mais claro; o card explica em texto.
-        'circle-opacity': ['case', _isActive, 1.0, 0.7],
-        'circle-stroke-color': '#FFFFFF',
-        'circle-stroke-width': 2.0,
-        'circle-pitch-alignment': 'viewport',
-        'circle-emissive-strength': 1.0,
+        'icon-opacity': ['case', _isActive, 1.0, 0.7],
       },
     },
     {
@@ -102,15 +106,18 @@ abstract final class CampusContentLayer {
       'layout': {
         'text-field': ['get', 'name'],
         'text-size': 11,
-        'text-offset': [0, 1.1],
+        // Abaixo do pino (raio ~14 px no zoom do rótulo).
+        'text-offset': [0, 1.6],
         'text-anchor': 'top',
         'text-max-width': 9,
         'text-optional': true,
+        'symbol-z-elevate': true,
       },
       'paint': {
         'text-color': ['case', _isKind(event), '#5B21B6', '#9A3412'],
         'text-halo-color': '#FFFFFF',
         'text-halo-width': 1.5,
+        'text-emissive-strength': 1.0,
       },
     },
   ];
@@ -122,6 +129,11 @@ abstract final class CampusContentLayer {
     List<CampusRestaurant> restaurants, {
     required bool Function() isActive,
   }) async {
+    await CampusMapIcons.install(style, const [
+      CampusMapIcons.event,
+      CampusMapIcons.food,
+    ], isActive: isActive);
+    if (!isActive()) return;
     final data = geoJson(events, restaurants);
     if (await style.styleSourceExists(source)) {
       if (!isActive()) return;

@@ -184,13 +184,17 @@ function query(params) {
 }
 
 export const api = {
-  feed(email) { return request('/publicacoes', { aluno: email }); },
+  feed(email, programa) { return request(`/publicacoes${programa ? `?programa=${encodeURIComponent(programa)}` : ''}`, { aluno: email }); },
+  feedCiclos() { return request('/publicacoes/ciclos'); },
   permissoesFeed(email) { return request('/publicacoes/permissoes', { aluno: email }); },
   criarPublicacao(dados, email) { return request('/publicacoes', { method: 'POST', body: dados, aluno: email }); },
   atualizarPublicacao(id, dados, email) { return request(`/publicacoes/${id}`, { method: 'PATCH', body: dados, aluno: email }); },
   excluirPublicacao(id, email) { return request(`/publicacoes/${id}`, { method: 'DELETE', aluno: email }); },
   comentarPublicacao(id, texto, email) { return request(`/publicacoes/${id}/comentarios`, { method: 'POST', body: { texto }, aluno: email }); },
   excluirComentario(id, comentarioId, email) { return request(`/publicacoes/${id}/comentarios/${comentarioId}`, { method: 'DELETE', aluno: email }); },
+  curtidoresPublicacao(id, email) { return request(`/publicacoes/${id}/curtidas`, { aluno: email }); },
+  curtidoresComentario(id, comentarioId, email) { return request(`/publicacoes/${id}/comentarios/${comentarioId}/curtidas`, { aluno: email }); },
+  curtirComentario(id, comentarioId, delta, email) { return request(`/publicacoes/${id}/comentarios/${comentarioId}/curtidas`, { method: 'POST', body: { delta }, aluno: email }); },
   curtirPublicacao(id, delta, email) { return request(`/publicacoes/${id}/curtidas`, { method: 'POST', body: { delta }, aluno: email }); },
   uploadFeed(arquivo, email) { const body = new FormData(); body.append('arquivo', arquivo); return requestMapa('/publicacoes/midias', { method: 'POST', body, aluno: email }); },
   loginMicrosoft(idToken) { return request('/auth/login', { method: 'POST', body: {idToken}, anonimo: true }); },
@@ -305,14 +309,20 @@ export const api = {
   matchingVisao(programa) {
     return request(`/coordenacao/matching${query({ programa })}`);
   },
+  matchingPool(programa) {
+    return request(`/coordenacao/matching/pool${query({ programa })}`);
+  },
   matchingConfiguracao(programa) {
     return request(`/coordenacao/matching/config${query({ programa })}`);
   },
   salvarMatchingConfiguracao(dados) {
     return request('/coordenacao/matching/config', { method: 'PUT', body: dados });
   },
-  liberarMatching(programa, liberado) {
-    return request('/coordenacao/matching/liberar', { method: 'POST', body: { programa, liberado } });
+  encerrarInscricoes(codigo) {
+    return request(`/coordenacao/programas/encerrar-inscricoes${query({ codigo })}`, { method: 'POST' });
+  },
+  liberarMatching(codigo) {
+    return request(`/coordenacao/programas/liberar-matching${query({ codigo })}`, { method: 'POST' });
   },
   executarMatching(programa) {
     return request('/coordenacao/matching/executar', { method: 'POST', body: { programa } });
@@ -406,6 +416,14 @@ export const api = {
   pucstops() {
     return requestMapa('/coordenacao/pucstops');
   },
+  /** Economia dos totens: ativos, XP potencial e teto por aluno e semestre. */
+  orcamentoPucStops() {
+    return requestMapa('/coordenacao/pucstops/orcamento');
+  },
+  /** Progresso do aluno logado: nível, XP acumulado, moedas e tetos (BL-50). */
+  progressoAluno() {
+    return request('/me/xp', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
   /** Área do campus onde o servidor aceita PucStops (limite, bbox e centro). */
   campusPucStops() {
     return requestMapa('/coordenacao/pucstops/campus');
@@ -463,6 +481,36 @@ export const api = {
     return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
+  /* ===== Lojinha: resgates (coordenação; F29) ===== */
+  /** `situacao`: aguardando_entrega | entregue | cancelado; `busca`: nome, e-mail ou código. */
+  resgatesCoordenacao({ situacao, programa, recompensaId, busca } = {}) {
+    return request(`/coordenacao/resgates${query({ situacao, programa, recompensaId, busca })}`);
+  },
+  resgateCoordenacao(id) {
+    return request(`/coordenacao/resgates/${encodeURIComponent(id)}`);
+  },
+  /** Registra a entrega (responsável e data vêm do token). 409 se já concluído. */
+  entregarResgate(id) {
+    return request(`/coordenacao/resgates/${encodeURIComponent(id)}/entregar`, { method: 'POST' });
+  },
+  /** Cancela antes da entrega, devolvendo as moedas e a unidade. */
+  cancelarResgate(id, motivo) {
+    return request(`/coordenacao/resgates/${encodeURIComponent(id)}/cancelar`, { method: 'POST', body: { motivo } });
+  },
+
+  /* ===== XP e moedas dos participantes (coordenação; F26) ===== */
+  xpParticipantes(busca) {
+    return request(`/coordenacao/xp${query({ busca })}`);
+  },
+  /** Resumo como em `/me/xp`, extrato (`limite`, `antes`) e ajustes. */
+  xpParticipante(usuarioId, { limite, antes } = {}) {
+    return request(`/coordenacao/xp/${encodeURIComponent(usuarioId)}${query({ limite, antes })}`);
+  },
+  /** `{ quantidade, motivo, chaveIdempotencia }`; até ±200, mexe em XP e moedas. */
+  ajustarXp(usuarioId, dados) {
+    return request(`/coordenacao/xp/${encodeURIComponent(usuarioId)}/ajustes`, { method: 'POST', body: dados });
+  },
+
   /* ===== Mapa do campus (seletores de local da coordenação) ===== */
   /** Área do campus (limite, margem, bbox e centro) para eventos e restaurantes. */
   campus() {
@@ -471,6 +519,27 @@ export const api = {
   /** Prédios da versão ativa do mapa (público). */
   predios() {
     return requestMapa('/mapa/predios');
+  },
+  predio(id) {
+    return requestMapa(`/mapa/predios/${encodeURIComponent(id)}`, { anonimo: true });
+  },
+  rotaMapa(dados) {
+    return requestMapa('/mapa/rotas', { method: 'POST', body: dados, anonimo: true });
+  },
+  atualizarInformacoesLocal(id, descricao) {
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}`, { method: 'PATCH', body: { descricao } });
+  },
+  adicionarImagensLocal(id, arquivos) {
+    const body = new FormData();
+    arquivos.forEach((arquivo) => body.append('arquivos', arquivo));
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens`, { method: 'POST', body });
+  },
+  substituirImagemLocal(id, imagemId, arquivo) {
+    const body = new FormData(); body.append('arquivo', arquivo);
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens/${encodeURIComponent(imagemId)}`, { method: 'PATCH', body });
+  },
+  removerImagemLocal(id, imagemId) {
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens/${encodeURIComponent(imagemId)}`, { method: 'DELETE' });
   },
   /** Áreas da versão ativa do mapa, com a geometria (público). */
   areas() {

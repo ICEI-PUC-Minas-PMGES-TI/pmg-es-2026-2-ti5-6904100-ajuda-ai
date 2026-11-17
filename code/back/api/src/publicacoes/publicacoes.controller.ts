@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   Req,
   Sse,
   UploadedFile,
@@ -16,7 +17,12 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
-import { FeedAdminGuard, FeedPolicy, FeedPublishGuard } from './feed-policy.js';
+import {
+  FeedAdminGuard,
+  FeedLeituraGuard,
+  FeedPolicy,
+  FeedPublishGuard,
+} from './feed-policy.js';
 import { FeedMidiasService } from './feed-midias.service.js';
 import { FeedStreamService } from './feed-stream.service.js';
 import { ComentarioDto, CurtidaDto, PublicacaoDto } from './publicacoes.dto.js';
@@ -33,20 +39,27 @@ export class PublicacoesController {
     private readonly policy: FeedPolicy,
   ) {}
   @Get()
-  listar(@Req() req: AuthenticatedRequest) {
-    return this.publicacoes.listar(req.user);
+  @UseGuards(FeedLeituraGuard)
+  listar(
+    @Req() req: AuthenticatedRequest,
+    @Query('programa') programa?: string,
+  ) {
+    return this.publicacoes.listar(req.user, programa);
+  }
+  /** Semestres com publicações, para o seletor da coordenação. */
+  @Get('ciclos')
+  @UseGuards(FeedAdminGuard)
+  ciclos() {
+    return this.publicacoes.ciclos();
   }
   @Get('permissoes')
   async permissoes(
     @Req() req: AuthenticatedRequest,
   ): Promise<FeedPermissoesDto> {
-    return {
-      podePublicar: await this.policy.podePublicar(req.user),
-      podeAdministrar: this.policy.podeAdministrar(req.user),
-      podeInteragir: this.policy.podeInteragir(req.user),
-    };
+    return this.policy.resumo(req.user);
   }
   @Sse('events')
+  @UseGuards(FeedLeituraGuard)
   eventos(@Req() req: AuthenticatedRequest) {
     const exp = (req.user as typeof req.user & { exp?: number }).exp;
     return this.stream.observar(exp ? exp * 1000 : Date.now() + 3600_000);
@@ -65,6 +78,7 @@ export class PublicacoesController {
     return this.midias.enviar(arquivo?.buffer, req.user.email);
   }
   @Get(':id')
+  @UseGuards(FeedLeituraGuard)
   obter(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: AuthenticatedRequest,
@@ -86,7 +100,6 @@ export class PublicacoesController {
     return this.publicacoes.atualizar(id, corpo, req.user);
   }
   @Delete(':id')
-  @UseGuards(FeedAdminGuard)
   remover(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: AuthenticatedRequest,
@@ -108,6 +121,23 @@ export class PublicacoesController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.publicacoes.removerComentario(id, comentarioId, req.user);
+  }
+  @Get(':id/curtidas')
+  @UseGuards(FeedLeituraGuard)
+  curtidores(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.publicacoes.curtidores(id, req.user);
+  }
+  @Get(':id/comentarios/:comentarioId/curtidas')
+  @UseGuards(FeedLeituraGuard)
+  curtidoresComentario(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('comentarioId', ParseIntPipe) comentarioId: number,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.publicacoes.curtidoresComentario(id, comentarioId, req.user);
   }
   @Post(':id/curtidas')
   curtir(

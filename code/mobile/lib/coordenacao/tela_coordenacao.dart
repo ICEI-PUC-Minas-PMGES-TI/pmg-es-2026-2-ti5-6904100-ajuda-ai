@@ -5,15 +5,18 @@ import '../services/auth_api.dart';
 import '../services/api_config.dart';
 import '../services/coordenacao_api.dart';
 import '../tela_login.dart';
+import '../tela_mapa.dart';
 import '../tela_feed.dart';
 import '../theme/colors.dart';
 import 'tela_candidaturas_coord.dart';
 import 'tela_configuracoes_coord.dart';
 import 'tela_dashboard_coord.dart';
 import 'tela_formularios_coord.dart';
-import 'tela_mais_coord.dart';
 import 'tela_matching_coord.dart';
+import 'tela_matching_manual_coord.dart';
+import 'tela_mais_coord.dart';
 import 'tela_programas_coord.dart';
+import 'tela_totens_coord.dart';
 import 'tela_usuarios_coord.dart';
 
 /// Shell nativo da área da coordenação (app mobile).
@@ -217,6 +220,20 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
     });
   }
 
+  void _abrirMatching(String codigo) {
+    final api = _api;
+    if (api == null) return;
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => TelaMatchingCoord(api: api, programa: codigo),
+          ),
+        )
+        .then((_) {
+          if (mounted) _carregarProgramas();
+        });
+  }
+
   /// Destinos do dashboard (pontos de atenção / ações rápidas) e da aba Mais.
   void _abrirDestino(String destino, Map<String, String> query) {
     if (destino == 'comunicado') destino = 'feed';
@@ -225,7 +242,9 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
     if (_programa == null &&
         destino != 'programas' &&
         destino != 'configuracoes' &&
-        destino != 'feed') {
+        destino != 'feed' &&
+        destino != 'totens' &&
+        destino != 'mapa') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -272,8 +291,14 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         eventsClientFactory: widget.feedEventsClientFactory,
       ),
       'usuarios' => TelaUsuariosCoord(api: api, programa: _programa),
-      'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
       'matching' => TelaMatchingCoord(api: api, programa: _programa!),
+      'matching_manual' => TelaMatchingManualCoord(api: api, programa: _programa!),
+      'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
+      'totens' => TelaTotensCoord(api: api),
+      'mapa' => MapaPage(
+        coordenadorAccessToken: _sessao!.accessToken,
+        coordenadorBaseUrl: api.baseUrl,
+      ),
       _ => TelaProgramasCoord(
         api: api,
         pendencia: query['pendencia'],
@@ -283,6 +308,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
           _aba = 0;
           _carregarProgramas(preferido: codigo);
         },
+        onAbrirMatching: _abrirMatching,
         onProgramaExcluido: (codigo) {
           if (_programaSolicitado == codigo) _programaSolicitado = null;
           if (_programa == codigo) {

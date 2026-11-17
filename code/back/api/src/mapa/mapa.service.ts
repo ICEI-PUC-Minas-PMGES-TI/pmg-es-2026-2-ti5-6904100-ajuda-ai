@@ -135,7 +135,8 @@ export class MapaService {
   async predios(): Promise<PredioResumoDto[]> {
     const { geo: g } = await this.carregarEsquemas();
     const linhas = (await this.dataSource.query(
-      `SELECT p."id", p."nome", p."codigo", p."tipo" AS categoria, p."altura", ${this.centroPredio(g)} ` +
+      `SELECT p."id", p."nome", p."codigo", p."tipo" AS categoria, p."altura", ${this.centroPredio(g)}, ` +
+        `${g}.ST_AsGeoJSON(p."poligono")::json AS geometria ` +
         `FROM ${m}."predios" p WHERE p."versao_id" = ${VERSAO_ATIVA} ORDER BY p."id"`,
     )) as PredioResumoDto[];
     return (await this.lista(linhas)).map(resumo);
@@ -246,5 +247,6 @@ function resumo(l: PredioResumoDto): PredioResumoDto {
     altura: l.altura,
     latitude: l.latitude,
     longitude: l.longitude,
+    geometria: l.geometria,
   };
 }

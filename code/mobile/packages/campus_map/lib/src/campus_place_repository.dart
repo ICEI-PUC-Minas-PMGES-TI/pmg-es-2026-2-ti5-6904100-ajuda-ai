@@ -51,22 +51,7 @@ class LocalCampusPlaceRepository
       final snapshot = await _loadSnapshot();
       return [
         for (final feature in snapshot.features)
-          if (feature.center != null &&
-              (feature.name?.trim().isNotEmpty == true ||
-                  feature.code?.trim().isNotEmpty == true))
-            _IndexedPlace(
-              CampusPlace(
-                id: feature.id,
-                name: feature.name,
-                code: feature.code,
-                type: feature.type,
-                apiId: feature.properties['apiId'] as String?,
-                kind: feature.isArea
-                    ? CampusPlaceKind.area
-                    : CampusPlaceKind.building,
-                center: feature.center!,
-              ),
-            ),
+          if (feature.toPlace() case final place?) _IndexedPlace(place),
       ];
     } catch (_) {
       _index = null; // Permite tentar novamente após falha da fonte.

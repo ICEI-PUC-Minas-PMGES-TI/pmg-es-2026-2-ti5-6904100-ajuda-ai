@@ -168,6 +168,45 @@ describe('Cadastro (e2e)', () => {
     expect(meu.body.usuario.statusCadastro).toBe('aprovado');
   });
 
+  it('valida e registra a versão do formulário publicado do apadrinhado', async () => {
+    const formularios = app.get(getRepositoryToken(FormularioEntity));
+    const programa = ParticipacoesService.programaAtual();
+    await formularios.save(
+      formularios.create({
+        programa,
+        tipo: 'apadrinhado',
+        publicado: true,
+        versao: 2,
+        encerradoEm: null,
+        perguntas: [
+          {
+            id: 'expectativa',
+            enunciado: 'O que espera do programa?',
+            tipo: 'texto_curto',
+            opcoes: [],
+            obrigatoria: true,
+          },
+        ],
+      }),
+    );
+
+    const resposta = await postCadastro({
+      ...baseApadrinhado,
+      respostas: {
+        ...baseApadrinhado.respostas,
+        extras: { expectativa: 'Apoio nos estudos.' },
+      },
+    }).expect(201);
+
+    expect(
+      resposta.body.participacao.respostas._servidor.formulario,
+    ).toMatchObject({
+      programa,
+      tipo: 'apadrinhado',
+      versao: 2,
+    });
+  });
+
   it('rejeita PADRINHO no 1º período (regra do backend)', async () => {
     const resposta = await postCadastro({ ...base, periodo: 1 }).expect(400);
 

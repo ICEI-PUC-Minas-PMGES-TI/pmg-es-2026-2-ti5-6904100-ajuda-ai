@@ -5,13 +5,16 @@ import 'package:flutter/foundation.dart';
 
 import 'campus_content.dart';
 import 'campus_location_service.dart';
+import 'campus_map_lighting.dart';
 import 'campus_place.dart';
 import 'campus_place_category.dart';
 import 'campus_place_filter.dart';
 import 'campus_place_repository.dart';
+import 'campus_poi.dart';
 import 'campus_pucstop.dart';
 import 'campus_route.dart';
 import 'campus_route_deviation.dart';
+import 'campus_saved_places.dart';
 
 Duration Function() _monotonicClock() {
   final clock = Stopwatch()..start();
@@ -26,6 +29,12 @@ abstract interface class CampusMapCamera {
   /// Desenha a linha (substituindo a anterior) e enquadra a rota.
   Future<void> showRoute(CampusRoute route);
   Future<void> clearRoute();
+}
+
+/// Câmera com zoom relativo (botões + e − do PUCMaps). Separada de
+/// [CampusMapCamera] para câmeras de teste não precisarem implementá-la.
+abstract interface class CampusMapZoom {
+  Future<void> zoomBy(double delta);
 }
 
 /// Resultado de [CampusMapController.routeTo]: exatamente um caso vale.
@@ -121,6 +130,8 @@ class CampusMapController {
     this.routeService,
     this.pucStopService,
     this.contentService,
+    this.pointOfInterestCatalog,
+    this.savedPlacesStore,
     Duration Function()? elapsed,
   }) : placeRepository = placeRepository ?? LocalCampusPlaceRepository(),
        locationService = locationService ?? GeolocatorCampusLocationService(),
@@ -151,12 +162,16 @@ class CampusMapController {
   int _categoryRequest = 0;
 
   /// Troca somente a descoberta espacial. Uma resposta antiga não repõe pontos.
+  /// Um filtro por vez, como no PUCMaps: escolher uma categoria desmarca
+  /// Eventos/Onde comer.
   Future<void> toggleCategory(CampusPlaceCategory category) async {
     if (_disposed) return;
     if (categoryFilter.value.category == category) {
       clearCategory();
       return;
     }
+    contentFilter.value = null;
+    savedFilter.value = false;
     final request = ++_categoryRequest;
     categoryFilter.value = CampusPlaceFilter(category: category, loading: true);
     try {
@@ -181,16 +196,187 @@ class CampusMapController {
     categoryFilter.value = const CampusPlaceFilter();
   }
 
+  /// Chip "Eventos" ou "Onde comer" selecionado (`null` = nenhum). No mapa,
+  /// mostra só os pontos desse tipo; escolher um desmarca a categoria.
+  final ValueNotifier<CampusContentKind?> contentFilter = ValueNotifier(null);
+
+  /// Alterna o chip de conteúdo; devolve se ficou selecionado.
+  bool toggleContentFilter(CampusContentKind kind) {
+    if (_disposed) return false;
+    if (contentFilter.value == kind) {
+      contentFilter.value = null;
+      return false;
+    }
+    clearCategory();
+    savedFilter.value = false;
+    contentFilter.value = kind;
+    return true;
+  }
+
+  /// Chip "Salvos": no mapa, só os pinos dos locais salvos. Mesmo filtro
+  /// único dos demais chips. Devolve se ficou selecionado.
+  final ValueNotifier<bool> savedFilter = ValueNotifier(false);
+
+  bool toggleSavedFilter() {
+    if (_disposed) return false;
+    if (savedFilter.value) {
+      savedFilter.value = false;
+      return false;
+    }
+    clearCategory();
+    contentFilter.value = null;
+    savedFilter.value = true;
+    return true;
+  }
+
+  /// Toque no pino de um local salvo: abre o card (foco e câmera inclusos).
+  void selectSavedPlace(String id) {
+    if (_disposed) return;
+    for (final place in savedPlaces.value) {
+      if (place.id == id) {
+        selectPlace(place);
+        return;
+      }
+    }
+  }
+
+  /// Portarias e alimentação (pontos permanentes do PUCMaps). Sem catálogo
+  /// (ex.: testes, API fora do ar) a lista fica vazia e o mapa segue.
+  final CampusPointOfInterestCatalog? pointOfInterestCatalog;
+  final ValueNotifier<List<CampusPlace>> pointsOfInterest = ValueNotifier(
+    const [],
+  );
+  Future<void>? _loadingPointsOfInterest;
+
+  /// Uma vez por controller; falha permite nova tentativa na próxima carga.
+  Future<void> loadPointsOfInterest() =>
+      _loadingPointsOfInterest ??= _loadPointsOfInterest();
+
+  Future<void> _loadPointsOfInterest() async {
+    final catalog = pointOfInterestCatalog;
+    if (catalog == null || _disposed) return;
+    try {
+      final places = await catalog.pointsOfInterest();
+      if (_disposed) return;
+      pointsOfInterest.value = List.unmodifiable([
+        for (final place in {for (final p in places) p.id: p}.values)
+          if (CampusPoiKind.fromType(place.type) != null) place,
+      ]);
+    } catch (_) {
+      _loadingPointsOfInterest = null;
+    }
+  }
+
+  /// Toque num pino de portaria/alimentação: abre o card do local.
+  void selectPointOfInterest(String id) {
+    if (_disposed) return;
+    for (final place in pointsOfInterest.value) {
+      if (place.id == id) {
+        selectPlace(place);
+        return;
+      }
+    }
+  }
+
+  /// Local aberto no card: destacado no mapa até o card fechar.
+  final ValueNotifier<CampusPlace?> selectedPlace = ValueNotifier(null);
+
+  /// Botão de cadeira de rodas do PUCMaps: as rotas pedidas daqui em diante
+  /// usam só trechos marcados como acessíveis no grafo do campus.
+  final ValueNotifier<bool> accessibleRoutes = ValueNotifier(false);
+
+  /// Botão "Luz" do PUCMaps; a view aplica no style.
+  final ValueNotifier<CampusLightMode> lightMode = ValueNotifier(
+    CampusLightMode.auto,
+  );
+
+  void cycleLightMode() {
+    if (_disposed) return;
+    lightMode.value = lightMode.value.next;
+  }
+
+  /// Botões + e −: um nível de zoom por toque, animado pela view.
+  Future<void> zoomBy(double delta) async {
+    final camera = _camera;
+    if (_disposed || camera is! CampusMapZoom) return;
+    try {
+      await (camera as CampusMapZoom).zoomBy(delta);
+    } catch (_) {
+      // Mapa recriado durante a animação: o próximo toque funciona.
+    }
+  }
+
+  /// Locais salvos no aparelho ("Salvar local" do PUCMaps).
+  final CampusSavedPlacesStore? savedPlacesStore;
+  final ValueNotifier<List<CampusPlace>> savedPlaces = ValueNotifier(const []);
+  Future<void>? _loadingSaved;
+  Future<void> _savedQueue = Future.value();
+
+  bool get canSavePlaces => savedPlacesStore != null;
+
+  bool isSaved(String id) => savedPlaces.value.any((place) => place.id == id);
+
+  Future<void> loadSavedPlaces() => _loadingSaved ??= _loadSaved();
+
+  Future<void> _loadSaved() async {
+    final store = savedPlacesStore;
+    if (store == null || _disposed) return;
+    try {
+      final places = await store.load();
+      if (!_disposed) savedPlaces.value = List.unmodifiable(places);
+    } catch (_) {
+      _loadingSaved = null;
+    }
+  }
+
+  /// Salva ou remove; devolve se o local ficou salvo. Falha ao gravar
+  /// desfaz a mudança e é relançada para a tela avisar.
+  Future<bool> toggleSaved(CampusPlace place) {
+    final store = savedPlacesStore;
+    if (store == null || _disposed) return Future.value(false);
+    final work = _savedQueue.then((_) async {
+      await loadSavedPlaces();
+      if (_disposed) return false;
+      final previous = savedPlaces.value;
+      final saved = !previous.any((p) => p.id == place.id);
+      final next = List<CampusPlace>.unmodifiable(
+        saved
+            ? [...previous, place]
+            : [
+                for (final p in previous)
+                  if (p.id != place.id) p,
+              ],
+      );
+      savedPlaces.value = next;
+      try {
+        await store.save(next);
+      } catch (_) {
+        if (!_disposed) savedPlaces.value = previous;
+        rethrow;
+      }
+      return saved;
+    });
+    _savedQueue = work.then((_) {}, onError: (_) {});
+    return work;
+  }
+
   /// Resolve o ID na coleção atualmente visível; o overlay reutiliza a seleção
   /// da busca, incluindo card, foco e rota. Toques de um filtro antigo são ignorados.
   void selectCategoryPlace(String id) {
     if (_disposed) return;
     for (final place in categoryFilter.value.places) {
       if (place.id == id) {
-        _placeSelections.add(place);
+        selectPlace(place);
         return;
       }
     }
+  }
+
+  /// Abre o card normal de um lugar conhecido pelo mapa (ex.: prédio tocado).
+  /// A resolução da feature é local; nenhuma consulta remota é necessária.
+  void selectPlace(CampusPlace place) {
+    if (_disposed) return;
+    _placeSelections.add(place);
   }
 
   final Duration Function() _elapsed;
@@ -350,6 +536,65 @@ class CampusMapController {
   }
 
   bool get canRoute => routeService != null;
+
+  /// Rota entre dois locais escolhidos ("Escolher ponto de partida").
+  bool get canRouteBetween => routeService is CampusPlaceRouteService;
+
+  /// Rota de [origin] até [destination], sem GPS. Sem acompanhamento de
+  /// desvio: a origem não é a posição do usuário. Mesmo cancelamento de
+  /// [routeTo].
+  Future<CampusRouteResult> routeBetween(
+    CampusPlace origin,
+    CampusPlace destination, {
+    bool accessible = false,
+  }) async {
+    _stopRouteMonitoring();
+    _routeTarget = null;
+    _automaticRequest = null;
+    final service = routeService;
+    final camera = _camera;
+    final revision = _revision;
+    final request = ++_routeRequest;
+    bool stale() =>
+        _disposed || revision != _revision || request != _routeRequest;
+    if (_disposed || camera == null) {
+      return const CampusRouteResult.location(
+        CampusLocationStatus.mapUnavailable,
+      );
+    }
+    if (service is! CampusPlaceRouteService) {
+      return const CampusRouteResult.failed(CampusRouteFailure.unavailable);
+    }
+    final CampusRoute route;
+    try {
+      route = await service.routeBetween(
+        origin: CampusRouteTarget.forPlace(origin),
+        destination: CampusRouteTarget.forPlace(destination),
+        accessible: accessible,
+      );
+    } on CampusRouteException catch (erro) {
+      return stale()
+          ? const CampusRouteResult.cancelled()
+          : CampusRouteResult.failed(erro.failure);
+    } catch (_) {
+      return stale()
+          ? const CampusRouteResult.cancelled()
+          : const CampusRouteResult.failed(CampusRouteFailure.unavailable);
+    }
+    if (stale()) return const CampusRouteResult.cancelled();
+    try {
+      await camera.showRoute(route);
+    } catch (_) {
+      return stale()
+          ? const CampusRouteResult.cancelled()
+          : const CampusRouteResult.location(
+              CampusLocationStatus.mapUnavailable,
+            );
+    }
+    if (stale()) return const CampusRouteResult.cancelled();
+    activeRoute.value = route;
+    return CampusRouteResult.shown(route);
+  }
 
   /// Rota a pé da posição atual até o prédio [placeId]. Um pedido novo,
   /// [clearRoute] ou a saída da tela cancelam o anterior (`cancelled`).
@@ -689,12 +934,27 @@ class CampusMapController {
     }
   }
 
+  /// Entra (id) ou sai (`null`) da experiência do totem: a view leva a
+  /// câmera até ele e libera o giro do topo; os controles mostram o painel.
   void selectPucStop(String? id) {
     if (_disposed) return;
     _pucStopRequest++;
-    // Um card por vez.
+    // Uma experiência por vez.
     if (id != null) selectedContent.value = null;
     selectedPucStop.value = id;
+  }
+
+  final _pucStopSpins = StreamController<String>.broadcast(sync: true);
+
+  /// Giros completos do topo do totem em foco (id do PucStop). É o gatilho
+  /// da coleta: XP só depois de girar, nunca por abrir o totem.
+  Stream<String> get pucStopSpins => _pucStopSpins.stream;
+
+  /// Chamado pela view quando o topo termina de girar. Ignorado se o
+  /// totem já não está em foco.
+  void completePucStopSpin(String id) {
+    if (_disposed || selectedPucStop.value != id) return;
+    _pucStopSpins.add(id);
   }
 
   bool get hasContent => contentService != null;
@@ -913,7 +1173,15 @@ class CampusMapController {
     _camera = null;
     pucStops.dispose();
     categoryFilter.dispose();
+    contentFilter.dispose();
+    savedFilter.dispose();
+    pointsOfInterest.dispose();
+    selectedPlace.dispose();
+    accessibleRoutes.dispose();
+    lightMode.dispose();
+    savedPlaces.dispose();
     unawaited(_placeSelections.close());
+    unawaited(_pucStopSpins.close());
     collectedPucStops.dispose();
     selectedPucStop.dispose();
     events.dispose();

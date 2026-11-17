@@ -6,7 +6,9 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { DataSource, type QueryRunner } from 'typeorm';
+import { nivelDe } from '../economia.js';
 import {
+  AjusteForaDoLimiteError,
   registrarMovimentacao,
   type ResponsavelCoordenacao,
   SaldoInsuficienteError,
@@ -21,7 +23,7 @@ import type {
   ExtratoXpAdminDto,
   ParticipanteXpDto,
 } from './xp-admin.dto.js';
-import { resumoXp, XpService } from './xp.service.js';
+import { XpService } from './xp.service.js';
 
 const g = `"${SCHEMA_GAMIFICACAO}"`;
 const LIMITE_LISTA = 50;
@@ -84,9 +86,8 @@ export class XpAdminService {
   async listar(busca?: string): Promise<ParticipanteXpDto[]> {
     const termo = busca?.trim();
     const linhas = (await this.db.query(
-      `SELECT u."id", u."nome", u."email", COALESCE(c."saldo", 0) AS "saldo", c."atualizado_em" AS "atualizadoEm", ` +
-        `COALESCE((SELECT sum(m."quantidade") FROM ${g}."xp_movimentacoes" m ` +
-        `WHERE m."usuario_id" = u."id" AND m."tipo" = 'RECOMPENSA'), 0)::int AS "trocas" ` +
+      `SELECT u."id", u."nome", u."email", COALESCE(c."saldo", 0) AS "moedas", ` +
+        `COALESCE(c."xp_acumulado", 0) AS "xpAcumulado", c."atualizado_em" AS "atualizadoEm" ` +
         `FROM ${schemaUsuarios(this.db)}."usuarios" u ` +
         `LEFT JOIN ${g}."xp_carteiras" c ON c."usuario_id" = u."id" ` +
         `WHERE ($1::text IS NULL OR u."nome" ILIKE $1 OR u."email" ILIKE $1) ` +
@@ -96,15 +97,15 @@ export class XpAdminService {
       id: number;
       nome: string;
       email: string;
-      saldo: number;
+      moedas: number;
+      xpAcumulado: number;
       atualizadoEm: Date | null;
-      trocas: number;
     }>;
     return linhas.map((l) => ({
       usuario: { id: l.id, nome: l.nome, email: l.email },
-      saldo: l.saldo,
-      totalGanho: l.saldo - l.trocas,
-      totalGasto: -l.trocas,
+      moedas: l.moedas,
+      xpAcumulado: l.xpAcumulado,
+      nivel: nivelDe(l.xpAcumulado),
       atualizadoEm: l.atualizadoEm
         ? new Date(l.atualizadoEm).toISOString()
         : null,
@@ -118,7 +119,7 @@ export class XpAdminService {
   ): Promise<ExtratoXpAdminDto> {
     const usuario = await this.usuario(this.db, usuarioId);
     const [resumo, movimentacoes, ajustes] = await Promise.all([
-      resumoXp(this.db, usuarioId),
+      this.xp.resumo(usuarioId),
       this.xp.movimentacoes(usuarioId, limite, antes),
       this.db.query(
         `${AJUSTE} WHERE a."usuario_id" = $1 ORDER BY a."criado_em" DESC, a."id" DESC`,
@@ -137,7 +138,7 @@ export class XpAdminService {
     usuarioId: number,
     dados: AjustarXpDto,
     responsavel: ResponsavelCoordenacao,
-  ): Promise<{ ajuste: AjusteXpDto; saldo: number }> {
+  ): Promise<{ ajuste: AjusteXpDto; saldo: number; xpAcumulado: number }> {
     const qr = this.db.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
@@ -164,7 +165,7 @@ export class XpAdminService {
     usuarioId: number,
     dados: AjustarXpDto,
     responsavel: ResponsavelCoordenacao,
-  ): Promise<{ ajuste: AjusteXpDto; saldo: number }> {
+  ): Promise<{ ajuste: AjusteXpDto; saldo: number; xpAcumulado: number }> {
     const motivo = dados.motivo.trim();
     let movimento;
     try {
@@ -184,8 +185,23 @@ export class XpAdminService {
         throw new UnprocessableEntityException({
           statusCode: 422,
           message:
-            'O ajuste deixaria o saldo negativo. Informe um débito de no máximo o saldo atual.',
+            'O ajuste deixaria as moedas negativas. Informe um débito de no máximo o saldo atual.',
           motivo: 'saldo-insuficiente',
+        });
+      }
+      if (ehViolacaoCheck(erro, 'ck_xp_carteiras_xp_acumulado')) {
+        throw new UnprocessableEntityException({
+          statusCode: 422,
+          message:
+            'O ajuste deixaria o XP acumulado negativo. Informe um débito de no máximo o XP atual.',
+          motivo: 'xp-insuficiente',
+        });
+      }
+      if (erro instanceof AjusteForaDoLimiteError) {
+        throw new UnprocessableEntityException({
+          statusCode: 422,
+          message: erro.message,
+          motivo: 'ajuste-fora-do-limite',
         });
       }
       throw erro;
@@ -202,7 +218,11 @@ export class XpAdminService {
       ) {
         throw new ConflictException('Chave já usada em outro ajuste.');
       }
-      return { ajuste: ajusteDto(anterior), saldo: movimento.saldo };
+      return {
+        ajuste: ajusteDto(anterior),
+        saldo: movimento.saldo,
+        xpAcumulado: movimento.xpAcumulado,
+      };
     }
     const [linha] = (await qr.query(
       `INSERT INTO ${g}."xp_ajustes" ` +
@@ -224,7 +244,11 @@ export class XpAdminService {
     const [ajuste] = (await qr.query(`${AJUSTE} WHERE a."id" = $1`, [
       linha.id,
     ])) as LinhaAjuste[];
-    return { ajuste: ajusteDto(ajuste), saldo: movimento.saldo };
+    return {
+      ajuste: ajusteDto(ajuste),
+      saldo: movimento.saldo,
+      xpAcumulado: movimento.xpAcumulado,
+    };
   }
 }
 
@@ -238,18 +262,39 @@ async function registrarMovimentacaoOuAnterior(
 ): Promise<{
   movimentacaoId: string | null;
   saldo: number;
+  xpAcumulado: number;
   anterior: boolean;
 }> {
   const saldo = await travarCarteira(qr, m.usuarioId);
   const [existe] = (await qr.query(
-    `SELECT 1 FROM ${g}."xp_movimentacoes" WHERE "chave_idempotencia" = $1`,
+    `SELECT c."xp_acumulado" FROM ${g}."xp_movimentacoes" mv ` +
+      `JOIN ${g}."xp_carteiras" c ON c."usuario_id" = mv."usuario_id" ` +
+      `WHERE mv."chave_idempotencia" = $1`,
     [m.chaveIdempotencia],
-  )) as unknown[];
-  if (existe) return { movimentacaoId: null, saldo, anterior: true };
+  )) as Array<{ xp_acumulado: number }>;
+  if (existe) {
+    return {
+      movimentacaoId: null,
+      saldo,
+      xpAcumulado: existe.xp_acumulado,
+      anterior: true,
+    };
+  }
   const mov = await registrarMovimentacao(qr, m);
   return {
     movimentacaoId: mov.movimentacaoId,
     saldo: mov.saldo,
+    xpAcumulado: mov.xpAcumulado,
     anterior: false,
   };
+}
+
+/** Violação de CHECK do PostgreSQL. */
+function ehViolacaoCheck(erro: unknown, constraint: string): boolean {
+  const e = (erro as { driverError?: unknown })?.driverError ?? erro;
+  const { code, constraint: nome } = (e ?? {}) as {
+    code?: string;
+    constraint?: string;
+  };
+  return code === '23514' && nome === constraint;
 }

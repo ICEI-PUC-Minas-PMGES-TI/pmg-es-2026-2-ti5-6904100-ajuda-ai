@@ -66,8 +66,9 @@ test('validarPucStop: nome, XP, raio e ponto na criação', () => {
   assert.match(validarPucStop({ ...ok, nome: '   ' }), /Informe o nome/);
   assert.match(validarPucStop({ ...ok, nome: 'x'.repeat(121) }), /120 caracteres/);
   assert.equal(validarPucStop({ ...ok, nome: `  ${'x'.repeat(120)}  ` }), '');
-  for (const xp of ['', '0', '1001', '2.5', 'abc', '-3']) assert.match(validarPucStop({ ...ok, xp }), /XP deve ser um número inteiro entre 1 e 1000/, `xp=${xp}`);
-  for (const xp of ['1', '1000']) assert.equal(validarPucStop({ ...ok, xp }), '');
+  // BL-50: só 10, 20, 30, 40 ou 50 XP (o servidor também recusa o resto).
+  for (const xp of ['', '0', '1', '15', '25', '60', '1000', '2.5', 'abc', '-3']) assert.match(validarPucStop({ ...ok, xp }), /10, 20, 30, 40 ou 50 XP/, `xp=${xp}`);
+  for (const xp of ['10', '20', '30', '40', '50']) assert.equal(validarPucStop({ ...ok, xp }), '');
   for (const raioMetros of ['', '9.9', '201', 'x']) assert.match(validarPucStop({ ...ok, raioMetros }), /entre 10 e 200 metros/, `raio=${raioMetros}`);
   for (const raioMetros of ['10', '200', '12.5']) assert.equal(validarPucStop({ ...ok, raioMetros }), '');
   assert.match(validarPucStop({ ...ok, latitude: null, longitude: null }, { criando: true }), /Escolha a posição/);
@@ -86,9 +87,9 @@ test('camposAlterados envia só o que mudou; latitude e longitude juntas', () =>
   assert.equal('ativo' in camposAlterados(base, { ...form, ativo: false }), false);
 });
 
-test('corpoCriacao converte números e mantém ativo', () => {
-  assert.deepEqual(corpoCriacao({ nome: ' Totem ', xp: '20', raioMetros: '15', latitude: -19.92, longitude: -43.99, ativo: false }),
-    { nome: 'Totem', xp: 20, raioMetros: 15, latitude: -19.92, longitude: -43.99, ativo: false });
+test('corpoCriacao converte 25 XP e mantém ativo', () => {
+  assert.deepEqual(corpoCriacao({ nome: ' Totem ', xp: '25', raioMetros: '15', latitude: -19.92, longitude: -43.99, ativo: false }),
+    { nome: 'Totem', xp: 25, raioMetros: 15, latitude: -19.92, longitude: -43.99, ativo: false });
 });
 
 test('pontoDentroDoPoligono (ray casting, buracos e MultiPolygon)', () => {
@@ -177,13 +178,15 @@ test('ponto fora da área permitida mostra aviso', () => {
 test('formulário: criação sem ponto fica bloqueada; edição sem mudanças também', () => {
   const props = { campus: null, erroCampus: '', outros: [], onCancelar: () => {}, onSalvo: () => {} };
   const criar = renderToStaticMarkup(createElement(FormularioPucStop, { ...props, original: null }));
-  assert.match(criar, /Adicionar PucStop/);
+  assert.match(criar, /Novo totem/);
   assert.match(criar, /Raio da geofence \(m\)/);
+  assert.match(criar, /Escolher no mapa 3D/);
+  assert.doesNotMatch(criar, /aria-label="Mapa do campus/);
   assert.match(criar, /role="switch"[^>]*aria-checked="true"/);
-  assert.match(criar, /<button type="submit"[^>]*disabled=""[^>]*>.*Criar PucStop/);
+  assert.match(criar, /<button type="submit"[^>]*disabled=""[^>]*>.*Criar totem/);
   assert.match(criar, /Informe o nome do PucStop/);
   const editar = renderToStaticMarkup(createElement(FormularioPucStop, { ...props, original: base }));
-  assert.match(editar, /Editar PucStop &quot;Totem Biblioteca&quot;/);
+  assert.match(editar, /Editar totem &quot;Totem Biblioteca&quot;/);
   assert.match(editar, /só para novas coletas/);
   assert.match(editar, /não apaga coletas anteriores/);
   assert.match(editar, /<button type="submit"[^>]*disabled=""[^>]*>.*Salvar alterações/);

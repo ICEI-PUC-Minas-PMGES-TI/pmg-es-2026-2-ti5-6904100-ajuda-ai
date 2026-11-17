@@ -1228,3 +1228,37 @@ html.a11y-sem-animacao *, html.a11y-sem-animacao *::before, html.a11y-sem-animac
 }
 .requisitos-declaracao { margin: 8px 0 0; padding: 0; border: 0; }
 .requisitos-declaracao legend { margin-bottom: 4px; color: #2a267d; font-size: 12px; font-weight: 700; }
+
+/* BL-50 / BL-55: progresso (emblema em pixel art, nível, barra e moedas). */
+.progresso-card { display: grid; gap: 10px; padding: 18px 20px; }
+.progresso-topo { display: flex; align-items: center; gap: 16px; }
+.progresso-topo > div { min-width: 0; }
+.progresso-nivel {
+  display: block;
+  color: #12105f;
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+.emblema-nivel {
+  display: block;
+  flex: none;
+  width: 104px;
+  height: 104px;
+  object-fit: contain;
+  background: transparent;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
+.emblema-nivel-fallback {
+  display: grid;
+  place-items: center;
+  color: #420594;
+  font-weight: 800;
+  font-size: 1.25rem;
+}
+@media (max-width: 390px) {
+  .emblema-nivel { width: 88px; height: 88px; }
+  .progresso-nivel { font-size: 1rem; }
+}
+.barra-nivel { height: 10px; border-radius: 999px; background: #f5f2fb; overflow: hidden; }
+.barra-nivel > span { display: block; height: 100%; background: #420594; border-radius: inherit; transition: width .4s ease; }

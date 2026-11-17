@@ -31,8 +31,10 @@ import { PucStopsEXpGlobal1792279161187 } from '../src/migrations/1792279161187-
 import { LojinhaResgates1792800000000 } from '../src/migrations/1792800000000-LojinhaResgates.js';
 import { LojinhaRecompensas1792900000000 } from '../src/migrations/1792900000000-LojinhaRecompensas.js';
 import { CodigoResgates1793500000000 } from '../src/migrations/1793500000000-CodigoResgates.js';
-import { EntregaResgatesEAjustesXp1793600000000 } from '../src/migrations/1793600000000-EntregaResgatesEAjustesXp.js';
-import { ProgramaRecompensasFk1793700000000 } from '../src/migrations/1793700000000-ProgramaRecompensasFk.js';
+import { GamificacaoNiveisMoedasCiclos1794000000000 } from '../src/migrations/1794000000000-GamificacaoNiveisMoedasCiclos.js';
+import { permissoesPeloToken } from './helpers/permissoes.js';
+import { EntregaResgatesEAjustesXp1794200000000 } from '../src/migrations/1794200000000-EntregaResgatesEAjustesXp.js';
+import { ProgramaRecompensasFk1794100000000 } from '../src/migrations/1794100000000-ProgramaRecompensasFk.js';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
 const SEGREDO = 'segredo-de-teste-resgates-xp';
@@ -46,8 +48,9 @@ const MIGRATIONS: Array<new () => MigrationInterface> = [
   LojinhaResgates1792800000000,
   LojinhaRecompensas1792900000000,
   CodigoResgates1793500000000,
-  EntregaResgatesEAjustesXp1793600000000,
-  ProgramaRecompensasFk1793700000000,
+  GamificacaoNiveisMoedasCiclos1794000000000,
+  ProgramaRecompensasFk1794100000000,
+  EntregaResgatesEAjustesXp1794200000000,
 ];
 
 async function admin(sql: string): Promise<void> {
@@ -160,7 +163,7 @@ describe.skipIf(!URL_TESTE)(
       ).estoque;
     const saldo = async (auth = aluno()) =>
       (await http().get('/me/xp').set('Authorization', auth).expect(200))
-        .body as { saldo: number; totalGanho: number; totalGasto: number };
+        .body as { saldo: number; moedas: number; xpAcumulado: number };
     const entregar = (id: string, auth = coord()) =>
       http()
         .post(`/coordenacao/resgates/${id}/entregar`)
@@ -239,6 +242,7 @@ describe.skipIf(!URL_TESTE)(
           XpAdminService,
           JwtAuthGuard,
           RolesGuard,
+          permissoesPeloToken(),
           { provide: DataSource, useValue: ds },
         ],
       }).compile();
@@ -470,11 +474,12 @@ describe.skipIf(!URL_TESTE)(
     });
 
     describe('F26: saldo, extrato e ajustes de XP', () => {
-      it('separa total ganho do saldo disponível; estorno não conta como ganho', async () => {
+      it('XP acumulado separado das moedas; resgate e estorno só mexem nas moedas', async () => {
+        // Resgates gastaram moedas; o XP acumulado (nível) não cai.
         const r = await saldo();
-        expect(r.saldo).toBe(r.totalGanho - r.totalGasto);
-        expect(r.totalGanho).toBe(1000);
-        expect(r.totalGasto).toBeGreaterThan(0);
+        expect(r.xpAcumulado).toBe(1000);
+        expect(r.moedas).toBe(r.saldo);
+        expect(r.saldo).toBeLessThan(1000);
       });
 
       it('ajuste credita com motivo e responsável, preservando os lançamentos', async () => {
@@ -492,6 +497,7 @@ describe.skipIf(!URL_TESTE)(
         const { body } = await envio().expect(201);
         expect(body).toMatchObject({
           saldo: antes.saldo + 40,
+          xpAcumulado: antes.xpAcumulado + 40,
           ajuste: {
             quantidade: 40,
             motivo: 'Participação no mutirão',
@@ -506,7 +512,7 @@ describe.skipIf(!URL_TESTE)(
         );
         const depois = await saldo(outro());
         expect(depois.saldo).toBe(antes.saldo + 40);
-        expect(depois.totalGanho).toBe(antes.totalGanho + 40);
+        expect(depois.xpAcumulado).toBe(antes.xpAcumulado + 40);
         await conferirLedger(outroId);
       });
 
@@ -525,19 +531,23 @@ describe.skipIf(!URL_TESTE)(
       });
 
       it('débito não deixa o saldo negativo', async () => {
-        const { saldo: atual } = await saldo(outro());
+        const [{ id: pobreId }] = (await ds.query(
+          `INSERT INTO feed.usuarios (nome, email, curso, periodo, tipo_participacao, status_cadastro) ` +
+            `VALUES ('Pouco Saldo', 'pouco@pucminas.edu.br', 'ES', 2, 'apadrinhado', 'aprovado') RETURNING id`,
+        )) as Array<{ id: number }>;
+        await creditar(pobreId, 30);
         const r = await http()
-          .post(`/coordenacao/xp/${outroId}/ajustes`)
+          .post(`/coordenacao/xp/${pobreId}/ajustes`)
           .set('Authorization', coord())
           .send({
-            quantidade: -(atual + 1),
+            quantidade: -31,
             motivo: 'Correção de crédito duplicado',
             chaveIdempotencia: randomUUID(),
           })
           .expect(422);
         expect(r.body).toMatchObject({ motivo: 'saldo-insuficiente' });
-        await http()
-          .post(`/coordenacao/xp/${outroId}/ajustes`)
+        const ok = await http()
+          .post(`/coordenacao/xp/${pobreId}/ajustes`)
           .set('Authorization', coord())
           .send({
             quantidade: -10,
@@ -545,7 +555,7 @@ describe.skipIf(!URL_TESTE)(
             chaveIdempotencia: randomUUID(),
           })
           .expect(201);
-        expect((await saldo(outro())).saldo).toBe(atual - 10);
+        expect(ok.body).toMatchObject({ saldo: 20, xpAcumulado: 20 });
       });
 
       it('valida quantidade, motivo e participante', async () => {
@@ -558,6 +568,13 @@ describe.skipIf(!URL_TESTE)(
         await enviar(outroId, { quantidade: 10, motivo: '  ' }).expect(400);
         await enviar(outroId, { quantidade: 10 }).expect(400);
         await enviar(outroId, { quantidade: 1.5, motivo: 'Meio' }).expect(400);
+        // Teto individual do ajuste (LIMITES.ajusteAdmin = 200).
+        await enviar(outroId, { quantidade: 201, motivo: 'Demais' }).expect(
+          400,
+        );
+        await enviar(outroId, { quantidade: -201, motivo: 'Demais' }).expect(
+          400,
+        );
         await enviar(999999, { quantidade: 10, motivo: 'Ninguém' }).expect(404);
         await http()
           .post(`/coordenacao/xp/${outroId}/ajustes`)
@@ -578,13 +595,15 @@ describe.skipIf(!URL_TESTE)(
         const extrato = body as {
           usuario: { id: number };
           saldo: number;
-          totalGanho: number;
-          totalGasto: number;
+          moedas: number;
+          xpAcumulado: number;
+          nivel: { numero: number };
           movimentacoes: Array<{ tipo: string; saldoApos: number }>;
           ajustes: Array<{ motivo: string }>;
         };
         expect(extrato.usuario.id).toBe(outroId);
-        expect(extrato.saldo).toBe(extrato.totalGanho - extrato.totalGasto);
+        expect(extrato.moedas).toBe(extrato.saldo);
+        expect(extrato.nivel.numero).toBeGreaterThanOrEqual(1);
         expect(extrato.movimentacoes[0].saldoApos).toBe(extrato.saldo);
         expect(extrato.movimentacoes.map((m) => m.tipo)).toContain(
           'AJUSTE_ADMIN',
@@ -600,8 +619,9 @@ describe.skipIf(!URL_TESTE)(
         expect(lista.body).toEqual([
           expect.objectContaining({
             usuario: expect.objectContaining({ id: outroId }),
-            saldo: extrato.saldo,
-            totalGanho: extrato.totalGanho,
+            moedas: extrato.saldo,
+            xpAcumulado: extrato.xpAcumulado,
+            nivel: expect.objectContaining({ numero: extrato.nivel.numero }),
           }),
         ]);
         await http()
@@ -624,7 +644,7 @@ describe.skipIf(!URL_TESTE)(
       const qr = ds.createQueryRunner();
       try {
         await expect(
-          new EntregaResgatesEAjustesXp1793600000000().down(qr),
+          new EntregaResgatesEAjustesXp1794200000000().down(qr),
         ).rejects.toThrow(/Rollback recusado/);
       } finally {
         await qr.release();

@@ -15,7 +15,7 @@ void main() {
     );
   });
 
-  test('renderer registra duas sources e quatro layers sem duplicar', () async {
+  test('renderer registra duas sources e cinco layers sem duplicar', () async {
     final style = _MemoryStyle();
     final renderer = CampusMapRenderer(style);
     await Future.wait([
@@ -31,6 +31,7 @@ void main() {
       CampusMapLayerIds.fill,
       CampusMapLayerIds.outline,
       CampusMapLayerIds.basemapLabelClip,
+      CampusMapLayerIds.selected,
       CampusMapLayerIds.labels,
     ]);
     expect(
@@ -47,7 +48,7 @@ void main() {
     style.layers.clear();
     await renderer.render(snapshot, isActive: () => true);
     expect(style.sources, hasLength(2));
-    expect(style.layers, hasLength(4));
+    expect(style.layers, hasLength(5));
   });
 
   test('ciclo de vida interrompido não registra source/layer', () async {
@@ -67,6 +68,7 @@ void main() {
       'fill',
       'line',
       'clip',
+      'line',
       'symbol',
     ]);
     final fill = jsonEncode(layers.first['paint']);

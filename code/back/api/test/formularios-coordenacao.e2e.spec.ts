@@ -18,8 +18,12 @@ import {
   repositorioEmMemoria,
 } from './helpers/repositorio-memoria.js';
 
-const CICLO = '2099/1';
-const OUTRO = '2099/2';
+const CICLO = ParticipacoesService.programaAtual();
+const [ANO_CICLO, SEMESTRE_CICLO] = CICLO.split('/').map(Number);
+const OUTRO =
+  SEMESTRE_CICLO === 1
+    ? `${ANO_CICLO}/2`
+    : `${ANO_CICLO + 1}/1`;
 
 /** Publicação, versões, encerramento, duplicação e respostas (rotas da coordenação). */
 describe('formulários da coordenação (e2e)', () => {

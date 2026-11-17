@@ -16,6 +16,8 @@ import {
   TABELAS_CATALOGO_CRITERIOS,
 } from './1792600000000-CatalogoCriteriosMatching.js';
 import { VerificacaoAcademicaParticipacoes1792700000000 } from './1792700000000-VerificacaoAcademicaParticipacoes.js';
+import { InformacoesImagensLocais1793600000000 } from './1793600000000-InformacoesImagensLocais.js';
+import { GaranteRestaurantesOficiaisCampus1793800000000 } from './1793800000000-GaranteRestaurantesOficiaisCampus.js';
 
 /** QueryRunner falso: responde o catálogo com as colunas dadas e grava o SQL. */
 function runner(colunas: Array<[string, string]>) {
@@ -351,5 +353,57 @@ describe('VerificacaoAcademicaParticipacoes', () => {
       await migration.down(forcado.qr);
       expect(forcado.executado).toHaveLength(2);
     });
+  });
+});
+
+describe('InformacoesImagensLocais', () => {
+  const migration = new InformacoesImagensLocais1793600000000();
+
+  afterEach(() => {
+    delete process.env.MIGRATION_DOWN_DESCARTAR_DADOS;
+  });
+
+  function rollback(total: number) {
+    const executado: string[] = [];
+    const qr = {
+      query: async (sql: string) => {
+        executado.push(sql);
+        return sql.startsWith('SELECT (SELECT count') ? [{ total }] : [];
+      },
+    } as unknown as QueryRunner;
+    return { qr, executado };
+  }
+
+  it('recusa rollback que perderia descrições ou referências de imagens', async () => {
+    const { qr, executado } = rollback(2);
+    await expect(migration.down(qr)).rejects.toThrow(/Rollback recusado/);
+    expect(executado).toHaveLength(1);
+  });
+
+  it('permite rollback vazio e descarte explicitamente autorizado', async () => {
+    const vazio = rollback(0);
+    await migration.down(vazio.qr);
+    expect(vazio.executado).toHaveLength(3);
+
+    process.env.MIGRATION_DOWN_DESCARTAR_DADOS = 'true';
+    const forcado = rollback(2);
+    await migration.down(forcado.qr);
+    expect(forcado.executado).toHaveLength(3);
+  });
+});
+
+describe('GaranteRestaurantesOficiaisCampus', () => {
+  it('semeia P16/P29 mesmo antes da primeira versão ativa do mapa', async () => {
+    const executado: string[] = [];
+    const qr = {
+      query: async (sql: string) => {
+        executado.push(sql);
+        return [];
+      },
+    } as unknown as QueryRunner;
+    await new GaranteRestaurantesOficiaisCampus1793800000000().up(qr);
+    expect(executado[0]).toContain('INSERT INTO "mapa"."restaurantes"');
+    expect(executado[0]).not.toContain('FROM "mapa"."predios"');
+    expect(executado[0]).toContain('NOT EXISTS');
   });
 });

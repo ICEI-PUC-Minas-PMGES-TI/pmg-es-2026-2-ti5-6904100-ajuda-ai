@@ -18,14 +18,23 @@ const lista = (valores: readonly string[]) =>
  *   o resgate está aguardando entrega.
  * - `xp_ajustes`: ajuste manual de XP pela coordenação, com motivo e
  *   responsável, ligado à movimentação `AJUSTE_ADMIN` do ledger.
+ *
+ * Era `1793600000000`; renomeada para depois da Sprint-6 (timestamp repetido).
  */
-export class EntregaResgatesEAjustesXp1793600000000 implements MigrationInterface {
-  name = 'EntregaResgatesEAjustesXp1793600000000';
+export class EntregaResgatesEAjustesXp1794200000000 implements MigrationInterface {
+  name = 'EntregaResgatesEAjustesXp1794200000000';
 
   async up(qr: QueryRunner): Promise<void> {
     const schema =
       (qr.connection.options as { schema?: string }).schema ?? 'feed';
     const u = `"${schema.replaceAll('"', '""')}"`;
+
+    // Já aplicada com o nome antigo (EntregaResgatesEAjustesXp1793600000000).
+    const [{ tabelas }] = (await qr.query(
+      `SELECT count(*)::int AS tabelas FROM information_schema.tables ` +
+        `WHERE table_schema = 'gamificacao' AND table_name IN ('resgate_desfechos', 'xp_ajustes')`,
+    )) as Array<{ tabelas: number }>;
+    if (tabelas === 2) return;
 
     await qr.query(
       `CREATE TABLE ${g}."resgate_desfechos" (` +

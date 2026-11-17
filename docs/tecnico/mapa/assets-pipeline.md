@@ -12,8 +12,8 @@ A publicação é reproduzível com os GLBs finais e o manifesto; gerar novos
 modelos exige acesso ao pipeline externo.
 
 Ao reexportar o modelo herdado do totem, preservar os nós `Aneis_Bronze` e
-`Joia_Azul` para compatibilidade com sua estrutura. O renderer do Ajuda-aí
-não anima esses nós. O vitral deve usar `TEXCOORD_0`: o uso do segundo canal
+`Joia_Azul`: o renderer do Ajuda-aí gira esses nós (topo do totem) por
+feature-state, e o material `GLB_Totem_Vitral` tem brilho próprio. O vitral deve usar `TEXCOORD_0`: o uso do segundo canal
 UV não é compatível com o comportamento documentado do Mapbox para esse modelo.
 Não extrapolar essas convenções para outro modelo sem validá-lo.
 

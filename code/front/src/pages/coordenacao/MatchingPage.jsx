@@ -194,9 +194,9 @@ function DetalheSugestao({ id, onFechar, onAlterado }) {
                 {dados.motivoDecisao ? ` Motivo: ${dados.motivoDecisao}` : ''}
               </p>
             )}
-            {dados.outbox?.length > 0 && (
+            {dados.status === 'aprovada' && (
               <p className="matching-chat-note">
-                <Icon name="chat" size={16} /> Há {dados.outbox.length} efeito(s) de chat registrado(s) para processamento.
+                <Icon name="chat" size={16} /> Conversa privada criada para este vínculo.
               </p>
             )}
           </>
@@ -793,7 +793,6 @@ export default function MatchingPage() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
   const [executando, setExecutando] = useState(false);
-  const [liberando, setLiberando] = useState(false);
   const [confirmarExecucao, setConfirmarExecucao] = useState(false);
   const [detalheId, setDetalheId] = useState(null);
 
@@ -819,19 +818,6 @@ export default function MatchingPage() {
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  async function alternarLiberacao() {
-    setLiberando(true);
-    try {
-      await api.liberarMatching(programa, !visao.configuracao?.liberado);
-      toast(visao.configuracao?.liberado ? 'Matching bloqueado.' : 'Matching liberado.', 'sucesso');
-      await carregar();
-    } catch (e) {
-      setErro(e.message);
-    } finally {
-      setLiberando(false);
-    }
-  }
-
   async function executar() {
     setExecutando(true);
     setConfirmarExecucao(false);
@@ -852,7 +838,6 @@ export default function MatchingPage() {
   const totais = visao?.totais || {};
   const ultimaExecucao = execucoes[0];
   const bloqueios = visao?.bloqueios || [];
-  const releaseDisabled = !visao?.configuracao;
   const cards = useMemo(() => [
     ['Pessoas elegíveis', `${totais.padrinhosElegiveis || 0} padrinhos · ${totais.apadrinhadosElegiveis || 0} apadrinhados`, 'users'],
     ['Sugestões pendentes', totais.sugestoesPendentes || 0, 'spark'],
@@ -869,10 +854,9 @@ export default function MatchingPage() {
         </div>
         {aba === 'operacao' && (
           <div className="matching-run-actions">
-            <button type="button" className="mini-btn" disabled={releaseDisabled || liberando} onClick={alternarLiberacao}>
-              <Icon name={visao?.configuracao?.liberado ? 'lock' : 'checkCircle'} size={15} />
-              {liberando ? 'Atualizando…' : visao?.configuracao?.liberado ? 'Bloquear matching' : 'Liberar matching'}
-            </button>
+            <Link to={`/coordenacao/matching/manual?programa=${encodeURIComponent(programa || '')}`} className="mini-btn">
+              Gerenciar vínculos manualmente
+            </Link>
             <button type="button" className="primary-button inline" disabled={!visao?.podeExecutar || executando} onClick={() => setConfirmarExecucao(true)}>
               <Icon name="spark" size={16} /> {executando ? 'Executando…' : 'Gerar sugestões'}
             </button>
@@ -956,12 +940,6 @@ export default function MatchingPage() {
                 </div>
               </section>
 
-              {!visao.chat?.disponivel && (
-                <div className="matching-chat-warning">
-                  <Icon name="chat" size={18} />
-                  <div><strong>Integração de chat pendente</strong><p>{visao.chat.mensagem} {visao.chat.pendencias} evento(s) aguardando processamento.</p></div>
-                </div>
-              )}
             </>
           )}
         </>

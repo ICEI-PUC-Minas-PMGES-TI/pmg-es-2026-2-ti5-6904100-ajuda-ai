@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'tela_perfil.dart';
+import 'widgets/app_bottom_navigation.dart';
+import 'widgets/navegacao_app.dart';
 import 'tela_status_candidatura.dart';
 import 'theme/colors.dart';
 import 'widgets/campos_cadastro.dart';
@@ -10,7 +11,9 @@ class CandidaturaEnviadaPage extends StatelessWidget {
 
   void _irParaPerfil(BuildContext context) {
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const ProfilePage()),
+      MaterialPageRoute(
+        builder: (_) => const AppShell(inicial: AppDestination.perfil),
+      ),
       (_) => false,
     );
   }

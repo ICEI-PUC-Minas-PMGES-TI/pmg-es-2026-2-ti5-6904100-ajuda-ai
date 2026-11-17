@@ -35,6 +35,13 @@ abstract final class CampusMapDefaults {
   /// Área mínima do mapa que sobra acima do card ao reservar o rodapé.
   static const minVisibleMapHeight = 160.0;
 
+  /// Bottom sheet do local (frações da altura do mapa). Aberto e expandido
+  /// iguais ao `PlaceDetailSheet` do PUCMaps (45 % e 92 %); o recolhido
+  /// (com rota na tela) deixa a linha visível sem fechar o card.
+  static const placeSheetCollapsed = 0.25;
+  static const placeSheetDefault = 0.45;
+  static const placeSheetExpanded = 0.92;
+
   /// Inclinação inicial só com 3D ligado. O PUCMaps usava 65°; aqui é menor
   /// para facilitar a leitura dos prédios centrais na abertura.
   static const pitch3d = 45.0;

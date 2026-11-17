@@ -4,6 +4,20 @@ XP é global por `usuarios.id`, independente do ciclo de apadrinhamento.
 O ledger é a fonte de verdade; a carteira materializa seu saldo.
 [Decisão arquitetural](../decisoes/ADR-0002-xp-central.md).
 
+## BL-50 — XP, moedas, níveis e tetos
+
+Decisões DP-24 (opção B) e DP-25. Regras em `src/gamificacao/economia.ts` (fonte única; os apps só exibem).
+
+- **XP acumulado** (`xp_carteiras.xp_acumulado`): experiência; define o nível. Só sobe com atividades; desce apenas por correção administrativa (`AJUSTE_ADMIN`, ±200, auditável). Mantido pelo gatilho `gamificacao.acumular_xp` a cada INSERT no ledger — vale também para versões antigas do backend.
+- **Moedas** (`xp_carteiras.saldo`, nome histórico; `saldo` na API): saldo da lojinha. Ganham 1:1 com o XP; resgates (`RECOMPENSA` negativo) e estornos (`RECOMPENSA` positivo, formato da branch `Arthur_gv`) mexem **só** nas moedas. Nunca negativas.
+- **Ledger**: `xp_movimentacoes.quantidade` = efeito nas moedas; `xp_quantidade` = efeito no XP (NULL nas linhas antigas: vale a regra do tipo — `RECOMPENSA` 0, demais = quantidade); `ciclo` = semestre do ganho. Tipos: `PUCSTOP_CLAIM`, `RECOMPENSA`, `AJUSTE_ADMIN`, `MISSAO`.
+- **Níveis** (10): 0, 50, 150, 300, 500, 750, 1050, 1400, 1950, 2600 — Primeiro passo … Lenda da PUC. `GET /gamificacao/niveis` (público). O nível é conquista, não papel.
+- **Totens**: recompensa 10/20/30/40/50 XP (+ moedas 1:1), padrão 30 (CHECK no banco e validação na API). Uma coleta por usuário, totem e **ciclo** (`uq_pucstop_coletas_usuario_pucstop_ciclo`); o mapa mostra como coletadas só as do ciclo atual. `pucstop_coletas.xp` = creditado; `xp_configurado` = valor do totem na hora.
+- **Tetos** (sob a trava da carteira, sem corrida): 400 XP de totens e 1.500 XP de atividades por aluno e ciclo; missão até 100 XP; missões recorrentes até 60 XP/semana. Acima do teto o ganho é parcial ou zero (a coleta fica registrada, sem movimentação).
+- **API**: `GET /me/xp` → `saldo` (moedas, compatível), `moedas`, `xpAcumulado`, `nivel{numero,nome,xpMinimo,proximoXp,proximoNome,xpNoNivel,xpDoNivel,xpRestante,progresso,maximo}`, `ciclo`, `limites{totens,ciclo}`. Coleta devolve `xpGanho` (efetivo), `moedasGanhas`, `xpConfigurado`, `limiteAtingido`, `xpAcumulado`, `nivel`, `subiuDeNivel`, `ciclo` (e `xpTotal` = moedas, compatível). `GET /coordenacao/pucstops/orcamento` mostra o XP potencial dos totens frente ao teto.
+- **Missões**: a base (`creditarGanho` com fonte `MISSAO`, tetos e tipo no ledger) está pronta; o catálogo e os gatilhos são o BL-12.
+- **Migration** `1794000000000-GamificacaoNiveisMoedasCiclos`: reconstrói o XP do ledger (não copia o saldo), classifica coletas antigas pelo semestre da data (fuso de Brasília), normaliza totens para a opção mais próxima (meio para cima, 10–50) e recusa migrar se algum histórico resultar em XP negativo.
+
 ## Modelo e invariantes
 
 O schema `gamificacao` é mantido por migrations, sem entidades registradas
@@ -37,10 +51,10 @@ Editar o XP de um ponto afeta só novas coletas:
 
 ## API e app
 
-- `GET /me/xp`: `{saldo, totalGanho, totalGasto, atualizadoEm}`; sem
-  movimentação, 0/null. Leitura não cria carteira. `totalGanho` soma PucStops
-  e ajustes da coordenação; `totalGasto` soma as trocas na lojinha menos os
-  estornos. Sempre `saldo = totalGanho - totalGasto` (F26).
+- `GET /me/xp`: resumo do BL-50 (moedas, XP acumulado, nível e tetos; ver
+  acima). Sem movimentação, zeros/null. Leitura não cria carteira. O XP
+  acumulado é o total ganho na trajetória; as moedas são o saldo disponível
+  para troca (F26).
 - `GET /me/xp/movimentacoes?limite=1..100&antes=<id>`: histórico do próprio
   usuário, mais recente primeiro, com paginação por cursor.
 
@@ -66,21 +80,29 @@ A lojinha (cadastro, resgate, entrega e cancelamento) está em
 Rotas em `/coordenacao/xp` (perfil `coordenador`), código em
 `src/gamificacao/xp/xp-admin.*`.
 
-- `GET /coordenacao/xp?busca=`: participantes com saldo e totais (até 50).
-- `GET /coordenacao/xp/:usuarioId`: saldo, totais, extrato paginado como em
-  `/me/xp/movimentacoes` e a lista de ajustes com motivo e responsável.
+- `GET /coordenacao/xp?busca=`: participantes com `moedas`, `xpAcumulado` e
+  `nivel` (até 50).
+- `GET /coordenacao/xp/:usuarioId`: o mesmo resumo de `/me/xp`, o extrato
+  paginado como em `/me/xp/movimentacoes` e os ajustes com motivo e
+  responsável.
 - `POST /coordenacao/xp/:usuarioId/ajustes`: `{ quantidade, motivo,
-  chaveIdempotencia }`. Quantidade inteira diferente de zero (até ±100.000),
-  motivo de 3 a 300 caracteres. Débito que deixaria o saldo negativo: 422
-  `saldo-insuficiente`. Repetir a mesma chave devolve o ajuste já feito.
+  chaveIdempotencia }`. Quantidade inteira diferente de zero, até ±200
+  (`LIMITES.ajusteAdmin`), motivo de 3 a 300 caracteres. Mexe no XP e nas
+  moedas na mesma quantidade. Débito que deixaria as moedas negativas: 422
+  `saldo-insuficiente` (ou `xp-insuficiente` para o XP). Repetir a mesma chave
+  devolve o ajuste já feito; a mesma chave em outro participante dá 409.
 
 O ajuste entra no ledger como `AJUSTE_ADMIN` (chave `ajuste:<chave>`) e em
-`xp_ajustes` (migration `1793600000000-EntregaResgatesEAjustesXp`), com
+`xp_ajustes` (migration `1794200000000-EntregaResgatesEAjustesXp`), com
 motivo, responsável e a movimentação. As duas tabelas são só de inserção:
 corrigir um ajuste é fazer outro.
 
-Pendente de decisão do grupo: política de saldo no encerramento do programa
-e expiração de XP. Hoje o saldo permanece entre programas e nada expira.
+Tela: painel web da coordenação, "XP e moedas" (`/coordenacao/xp`).
+
+Encerramento do programa (DP-07): o ex-participante mantém XP, nível e
+moedas, consulta o histórico, mas não resgata (`podeUsarLojinha`). XP e
+moedas não expiram; se o grupo decidir por expiração, ela deve entrar no
+ledger como movimentação própria (nunca apagando linhas).
 
 Concorrência e consistência são verificadas em
 `test/pucstops-xp.integration.spec.ts`; validações unitárias ficam em

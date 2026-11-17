@@ -13,6 +13,7 @@ import { Test } from '@nestjs/testing';
 import pg from 'pg';
 import request from 'supertest';
 import { DataSource, type MigrationInterface } from 'typeorm';
+import { permissoesPeloToken } from './helpers/permissoes.js';
 import { JwtAuthGuard } from '../src/auth/jwt-auth.guard.js';
 import { RolesGuard } from '../src/auth/roles.guard.js';
 import { PucStopsAdminController } from '../src/gamificacao/pucstops/pucstops-admin.controller.js';
@@ -25,7 +26,10 @@ import {
   PucStopsController,
 } from '../src/gamificacao/pucstops/pucstops.controller.js';
 import { PucStopsService } from '../src/gamificacao/pucstops/pucstops.service.js';
-import { XpController } from '../src/gamificacao/xp/xp.controller.js';
+import {
+  NiveisController,
+  XpController,
+} from '../src/gamificacao/xp/xp.controller.js';
 import { XpService } from '../src/gamificacao/xp/xp.service.js';
 import { importarSnapshot } from '../src/mapa/importacao/importar-snapshot.js';
 import { validarSnapshot } from '../src/mapa/importacao/snapshot.js';
@@ -33,9 +37,17 @@ import { BaselineFeed1791900000000 } from '../src/migrations/1791900000000-Basel
 import { UsuariosERequisitosPadrinho1791944105933 } from '../src/migrations/1791944105933-UsuariosERequisitosPadrinho.js';
 import { HabilitaPostgisESchemaMapa1792263378656 } from '../src/migrations/1792263378656-HabilitaPostgisESchemaMapa.js';
 import { CriaTabelasMapa1792263378657 } from '../src/migrations/1792263378657-CriaTabelasMapa.js';
+import { GamificacaoNiveisMoedasCiclos1794000000000 } from '../src/migrations/1794000000000-GamificacaoNiveisMoedasCiclos.js';
+import { nivelDe } from '../src/gamificacao/economia.js';
+import { ParticipacoesService } from '../src/participacoes/participacoes.service.js';
+import {
+  registrarMovimentacao,
+  travarCarteira,
+} from '../src/gamificacao/gamificacao.js';
 import { PucStopsEXpGlobal1792279161187 } from '../src/migrations/1792279161187-PucStopsEXpGlobal.js';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
+const CICLO = ParticipacoesService.programaAtual();
 const SEGREDO = 'segredo-de-teste-pucstops';
 const MIGRATIONS: Array<new () => MigrationInterface> = [
   BaselineFeed1791900000000,
@@ -43,6 +55,7 @@ const MIGRATIONS: Array<new () => MigrationInterface> = [
   HabilitaPostgisESchemaMapa1792263378656,
   CriaTabelasMapa1792263378657,
   PucStopsEXpGlobal1792279161187,
+  GamificacaoNiveisMoedasCiclos1794000000000,
 ];
 const mapa = validarSnapshot(
   JSON.parse(
@@ -89,8 +102,8 @@ const ATIVOS = [
   BIBLIOTECA,
   MEDICINA,
   fixture('ICEI', 'P34', 25, 20),
-  fixture('Cantina', 'P16', 20, 15),
-  fixture('Teatro', 'P30', 25, 25),
+  fixture('Cantina', 'P16', 20, 10),
+  fixture('Teatro', 'P30', 25, 20),
 ];
 
 function urlDo(banco: string): string {
@@ -247,6 +260,7 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
     const modulo = await Test.createTestingModule({
       imports: [JwtModule.register({ secret: SEGREDO })],
       controllers: [
+        NiveisController,
         PucStopsController,
         MinhasColetasController,
         XpController,
@@ -258,6 +272,7 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
         XpService,
         JwtAuthGuard,
         RolesGuard,
+        permissoesPeloToken(),
         { provide: DataSource, useValue: ds },
       ],
     }).compile();
@@ -510,14 +525,14 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
       const novo = await aDistancia(noPredio('P12'), 15, 0);
       const { body } = await editar(criado.id, {
         nome: '  Psicologia  ',
-        xp: 35,
+        xp: 40,
         raioMetros: 45,
         ...novo,
       }).expect(200);
       expect(body).toMatchObject({
         id: criado.id,
         nome: 'Psicologia',
-        xp: 35,
+        xp: 40,
         raioMetros: 45,
         ativo: true,
         criadoEm: criado.criadoEm,
@@ -529,14 +544,14 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
       );
       expect((await publicos()).find((p) => p.id === criado.id)).toMatchObject({
         nome: 'Psicologia',
-        xp: 35,
+        xp: 40,
         raioMetros: 45,
       });
       // Só o XP: o resto fica.
-      const { body: soXp } = await editar(criado.id, { xp: 36 }).expect(200);
+      const { body: soXp } = await editar(criado.id, { xp: 30 }).expect(200);
       expect(soXp).toMatchObject({
         nome: 'Psicologia',
-        xp: 36,
+        xp: 30,
         raioMetros: 45,
       });
       expect(soXp.latitude).toBeCloseTo(novo.latitude, 9);
@@ -566,8 +581,8 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
         longitude: -43.938,
       }).expect(422);
       expect(body.motivo).toBe('fora-do-campus');
-      await editar(ID_INEXISTENTE, { xp: 5 }).expect(404);
-      await editar('totem_biblioteca', { xp: 5 }).expect(400);
+      await editar(ID_INEXISTENTE, { xp: 20 }).expect(404);
+      await editar('totem_biblioteca', { xp: 20 }).expect(400);
       await http()
         .get('/coordenacao/pucstops/nao-e-uuid')
         .set('Authorization', coordenador())
@@ -671,7 +686,15 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
       expect(body).toEqual({
         pucstopId: BIBLIOTECA.id,
         xpGanho: BIBLIOTECA.xp,
+        moedasGanhas: BIBLIOTECA.xp,
+        xpConfigurado: BIBLIOTECA.xp,
+        limiteAtingido: false,
         xpTotal: BIBLIOTECA.xp,
+        moedas: BIBLIOTECA.xp,
+        xpAcumulado: BIBLIOTECA.xp,
+        nivel: expect.objectContaining({ numero: 2, nome: 'Curiosidade' }),
+        subiuDeNivel: true,
+        ciclo: CICLO,
         claimedAt: expect.any(String),
         distanciaMetros: 12,
       });
@@ -690,7 +713,7 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
         tipo: 'PUCSTOP_CLAIM',
         referencia_tipo: 'pucstop',
         referencia_id: BIBLIOTECA.id,
-        chave_idempotencia: `pucstop:${BIBLIOTECA.id}:usuario:${ids[camila]}`,
+        chave_idempotencia: `pucstop:${BIBLIOTECA.id}:usuario:${ids[camila]}:ciclo:${CICLO}`,
         saldo_apos: BIBLIOTECA.xp,
       });
       // Nenhuma coluna de coordenada nas tabelas de gamificação.
@@ -871,8 +894,14 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
         .expect(200);
       expect(resumo.body).toEqual({
         saldo: total,
-        totalGanho: total,
-        totalGasto: 0,
+        moedas: total,
+        xpAcumulado: total,
+        nivel: expect.objectContaining({ numero: nivelDe(total).numero }),
+        ciclo: CICLO,
+        limites: {
+          totens: { ganho: total, limite: 400 },
+          ciclo: { ganho: total, limite: 1500 },
+        },
         atualizadoEm: expect.any(String),
       });
 
@@ -911,10 +940,11 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
         .get('/me/xp')
         .set('Authorization', token('lucas.almeida@pucminas.edu.br'))
         .expect(200);
-      expect(nova.body).toEqual({
+      expect(nova.body).toMatchObject({
         saldo: 0,
-        totalGanho: 0,
-        totalGasto: 0,
+        moedas: 0,
+        xpAcumulado: 0,
+        nivel: { numero: 1, nome: 'Primeiro passo', progresso: 0 },
         atualizadoEm: null,
       });
     });
@@ -928,6 +958,7 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
         {
           pucstopId: BIBLIOTECA.id,
           xp: BIBLIOTECA.xp,
+          ciclo: CICLO,
           claimedAt: expect.any(String),
         },
       ]);
@@ -1066,7 +1097,7 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
   describe('histórico após edição', () => {
     const camila = 'camila@pucminas.edu.br';
     const marina = 'marina.rocha@pucminas.edu.br';
-    const editavel = fixture('Prédio 4', 'P04', 25, 60);
+    const editavel = fixture('Prédio 4', 'P04', 25, 50);
 
     it('claim e XP antigos ficam; o novo XP vale só para as próximas coletas', async () => {
       const { body } = await criarPucStop({
@@ -1087,7 +1118,7 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
       const novo = await aDistancia(editavel, 150, 180);
       await editar(editavel.id, {
         nome: 'Prédio 4 (novo local)',
-        xp: 90,
+        xp: 30,
         raioMetros: 30,
         ...novo,
       }).expect(200);
@@ -1099,14 +1130,14 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
         [ids[camila], editavel.id],
       );
       expect(coleta).toEqual({
-        xp: 60,
-        quantidade: 60,
+        xp: 50,
+        quantidade: 50,
         descricao: 'PucStop: Prédio 4',
-        saldo_apos: antes.saldo + 60,
+        saldo_apos: antes.saldo + 50,
       });
       expect(await saldoELedger(ids[camila])).toMatchObject({
-        saldo: antes.saldo + 60,
-        soma: antes.soma + 60,
+        saldo: antes.saldo + 50,
+        soma: antes.soma + 50,
       });
       // Camila já coletou: mudar a posição não reabre a coleta.
       const repetida = await coletar(editavel.id, camila, novo).expect(409);
@@ -1122,14 +1153,14 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
       const { body: nova } = await coletar(editavel.id, marina, novo).expect(
         201,
       );
-      expect(nova.xpGanho).toBe(90);
+      expect(nova.xpGanho).toBe(30);
       const { body: minhas } = await http()
         .get('/me/pucstops')
         .set('Authorization', token(camila))
         .expect(200);
       expect(
         minhas.find((c: { pucstopId: string }) => c.pucstopId === editavel.id),
-      ).toMatchObject({ xp: 60 });
+      ).toMatchObject({ xp: 50 });
     });
 
     it('desativar não apaga coletas nem ledger; coleta nova fica bloqueada', async () => {
@@ -1143,7 +1174,7 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
           )
         )[0];
       const antes = await contar();
-      expect(antes).toEqual({ coletas: 2, movimentacoes: 2, xp: 150 });
+      expect(antes).toEqual({ coletas: 2, movimentacoes: 2, xp: 80 });
       const { body } = await acao(editavel.id, 'desativar').expect(200);
       expect(body).toMatchObject({ ativo: false, coletas: 2 });
       expect(await contar()).toEqual(antes);
@@ -1160,7 +1191,532 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
     });
   });
 
+  describe('BL-50: coleta por ciclo, tetos e XP x moedas', () => {
+    let seq = 0;
+    async function novoAluno(): Promise<string> {
+      const email = `bl50.${++seq}.${Date.now()}@pucminas.edu.br`;
+      const [{ id }] = (await ds.query(
+        `INSERT INTO feed.usuarios (nome, email, curso, periodo, tipo_participacao, status_cadastro) ` +
+          `VALUES ('Aluno BL50', $1, 'ES', 3, 'apadrinhado', 'aprovado') RETURNING id`,
+        [email],
+      )) as Array<{ id: number }>;
+      ids[email] = id;
+      return email;
+    }
+
+    /** Coleta já feita (ledger + coleta) num ciclo qualquer, como o servidor grava. */
+    async function coletaAnterior(
+      email: string,
+      pucstopId: string,
+      xp: number,
+      ciclo: string,
+    ) {
+      await ds.transaction(async (m) => {
+        const qr = m.queryRunner!;
+        await travarCarteira(qr, ids[email]);
+        const mov = await registrarMovimentacao(qr, {
+          usuarioId: ids[email],
+          quantidade: xp,
+          xp,
+          ciclo,
+          tipo: 'PUCSTOP_CLAIM',
+          referenciaTipo: 'pucstop',
+          referenciaId: pucstopId,
+          descricao: 'coleta anterior',
+          chaveIdempotencia: `teste:${pucstopId}:${ids[email]}:${ciclo}`,
+        });
+        await qr.query(
+          `INSERT INTO gamificacao.pucstop_coletas (usuario_id, pucstop_id, movimentacao_id, xp, xp_configurado, ciclo) ` +
+            `VALUES ($1, $2, $3, $4, NULL, $5)`,
+          [ids[email], pucstopId, mov.movimentacaoId, xp, ciclo],
+        );
+      });
+    }
+
+    async function carteira(email: string) {
+      const [c] = (await ds.query(
+        `SELECT saldo, xp_acumulado FROM gamificacao.xp_carteiras WHERE usuario_id = $1`,
+        [ids[email]],
+      )) as Array<{ saldo: number; xp_acumulado: number }>;
+      return c;
+    }
+
+    it('o totem volta a dar recompensa no ciclo seguinte; o histórico fica', async () => {
+      const aluno = await novoAluno();
+      await coletaAnterior(aluno, BIBLIOTECA.id, 50, '2020/1');
+      const { body } = await coletar(
+        BIBLIOTECA.id,
+        aluno,
+        await aDistancia(BIBLIOTECA, 1),
+      ).expect(201);
+      expect(body).toMatchObject({
+        xpGanho: 50,
+        moedasGanhas: 50,
+        ciclo: CICLO,
+        xpAcumulado: 100,
+        moedas: 100,
+      });
+      // Mesmo ciclo: não repete.
+      const repetida = await coletar(
+        BIBLIOTECA.id,
+        aluno,
+        await aDistancia(BIBLIOTECA, 1),
+      ).expect(409);
+      expect(repetida.body.motivo).toBe('ja-coletado');
+      // O mapa mostra só a coleta deste ciclo; as duas ficam no banco.
+      const { body: minhas } = await http()
+        .get('/me/pucstops')
+        .set('Authorization', token(aluno))
+        .expect(200);
+      expect(minhas).toEqual([
+        expect.objectContaining({ pucstopId: BIBLIOTECA.id, ciclo: CICLO }),
+      ]);
+      const [{ n }] = await ds.query(
+        `SELECT count(*)::int AS n FROM gamificacao.pucstop_coletas WHERE usuario_id = $1`,
+        [ids[aluno]],
+      );
+      expect(n).toBe(2);
+    });
+
+    it('teto de 400 XP de totens no ciclo: crédito parcial e depois coleta sem XP', async () => {
+      const aluno = await novoAluno();
+      await coletaAnterior(aluno, INATIVO.id, 380, CICLO);
+      const { body: parcial } = await coletar(
+        BIBLIOTECA.id,
+        aluno,
+        await aDistancia(BIBLIOTECA, 1),
+      ).expect(201);
+      expect(parcial).toMatchObject({
+        xpConfigurado: 50,
+        xpGanho: 20,
+        moedasGanhas: 20,
+        limiteAtingido: true,
+        xpAcumulado: 400,
+        moedas: 400,
+      });
+      const { body: zero } = await coletar(
+        MEDICINA.id,
+        aluno,
+        await aDistancia(MEDICINA, 1),
+      ).expect(201);
+      expect(zero).toMatchObject({
+        xpConfigurado: 40,
+        xpGanho: 0,
+        moedasGanhas: 0,
+        limiteAtingido: true,
+        xpAcumulado: 400,
+        moedas: 400,
+      });
+      // A coleta fica registrada, sem movimentação.
+      const [coleta] = await ds.query(
+        `SELECT xp, xp_configurado, movimentacao_id FROM gamificacao.pucstop_coletas WHERE usuario_id = $1 AND pucstop_id = $2`,
+        [ids[aluno], MEDICINA.id],
+      );
+      expect(coleta).toEqual({
+        xp: 0,
+        xp_configurado: 40,
+        movimentacao_id: null,
+      });
+      const { body: resumo } = await http()
+        .get('/me/xp')
+        .set('Authorization', token(aluno))
+        .expect(200);
+      expect(resumo.limites.totens).toEqual({ ganho: 400, limite: 400 });
+      expect(resumo.nivel).toMatchObject({ numero: 4, nome: 'Descoberta' });
+    });
+
+    it('coletas simultâneas perto do teto nunca passam de 400', async () => {
+      const aluno = await novoAluno();
+      await coletaAnterior(aluno, INATIVO.id, 380, CICLO);
+      const respostas = await Promise.all(
+        await Promise.all(
+          ATIVOS.map(async (p) => coletar(p.id, aluno, await aDistancia(p, 1))),
+        ),
+      );
+      expect(respostas.map((r) => r.status)).toEqual(ATIVOS.map(() => 201));
+      const ganhos = respostas.reduce(
+        (s, r) => s + (r.body as { xpGanho: number }).xpGanho,
+        0,
+      );
+      expect(ganhos).toBe(20);
+      const [{ total }] = await ds.query(
+        `SELECT sum(xp)::int AS total FROM gamificacao.pucstop_coletas WHERE usuario_id = $1 AND ciclo = $2`,
+        [ids[aluno], CICLO],
+      );
+      expect(total).toBe(400);
+      expect(await carteira(aluno)).toEqual({ saldo: 400, xp_acumulado: 400 });
+    });
+
+    it('resgate e estorno mexem só nas moedas; XP e nível ficam', async () => {
+      const aluno = await novoAluno();
+      await coletaAnterior(aluno, BIBLIOTECA.id, 50, '2020/1');
+      await coletaAnterior(aluno, MEDICINA.id, 40, '2020/1');
+      await ds.transaction(async (m) => {
+        const qr = m.queryRunner!;
+        await travarCarteira(qr, ids[aluno]);
+        await registrarMovimentacao(qr, {
+          usuarioId: ids[aluno],
+          quantidade: -60,
+          tipo: 'RECOMPENSA',
+          referenciaTipo: 'RESGATE',
+          referenciaId: 'r-bl50',
+          descricao: 'Resgate',
+          chaveIdempotencia: `resgate-bl50-${ids[aluno]}`,
+        });
+      });
+      expect(await carteira(aluno)).toEqual({ saldo: 30, xp_acumulado: 90 });
+      // Estorno no formato da branch Arthur_gv (RECOMPENSA positivo).
+      await ds.transaction(async (m) => {
+        const qr = m.queryRunner!;
+        await travarCarteira(qr, ids[aluno]);
+        await registrarMovimentacao(qr, {
+          usuarioId: ids[aluno],
+          quantidade: 60,
+          tipo: 'RECOMPENSA',
+          referenciaTipo: 'RESGATE',
+          referenciaId: 'r-bl50',
+          descricao: 'Estorno',
+          chaveIdempotencia: `estorno-bl50-${ids[aluno]}`,
+        });
+      });
+      expect(await carteira(aluno)).toEqual({ saldo: 90, xp_acumulado: 90 });
+      // Moedas nunca negativas.
+      await expect(
+        ds.transaction(async (m) => {
+          const qr = m.queryRunner!;
+          await travarCarteira(qr, ids[aluno]);
+          await registrarMovimentacao(qr, {
+            usuarioId: ids[aluno],
+            quantidade: -91,
+            tipo: 'RECOMPENSA',
+            referenciaTipo: 'RESGATE',
+            referenciaId: 'r2',
+            descricao: 'Resgate',
+            chaveIdempotencia: `resgate2-bl50-${ids[aluno]}`,
+          });
+        }),
+      ).rejects.toThrow(/Moedas insuficientes/);
+      // Resgate não pode carregar XP.
+      await expect(
+        ds.query(
+          `INSERT INTO gamificacao.xp_movimentacoes (usuario_id, quantidade, xp_quantidade, tipo, descricao, chave_idempotencia, saldo_apos) ` +
+            `VALUES ($1, -1, -1, 'RECOMPENSA', 'x', $2, 89)`,
+          [ids[aluno], `invalido-${ids[aluno]}`],
+        ),
+      ).rejects.toThrow(/ck_xp_movimentacoes_xp_recompensa/);
+    });
+
+    it('ajuste administrativo fica entre -200 e +200 e corrige XP e moedas', async () => {
+      const aluno = await novoAluno();
+      await coletaAnterior(aluno, BIBLIOTECA.id, 50, '2020/1');
+      const ajustar = (quantidade: number, chave: string) =>
+        ds.transaction(async (m) => {
+          const qr = m.queryRunner!;
+          await travarCarteira(qr, ids[aluno]);
+          await registrarMovimentacao(qr, {
+            usuarioId: ids[aluno],
+            quantidade,
+            tipo: 'AJUSTE_ADMIN',
+            referenciaTipo: 'AJUSTE',
+            referenciaId: chave,
+            descricao: 'Correção de fraude',
+            chaveIdempotencia: `ajuste-${chave}-${ids[aluno]}`,
+          });
+        });
+      await expect(ajustar(201, 'a')).rejects.toThrow(/limitado a 200/);
+      await expect(ajustar(-201, 'b')).rejects.toThrow(/limitado a 200/);
+      await ajustar(-20, 'c');
+      expect(await carteira(aluno)).toEqual({ saldo: 30, xp_acumulado: 30 });
+      // O XP acumulado também nunca fica negativo.
+      await expect(ajustar(-31, 'd')).rejects.toThrow();
+    });
+
+    it('versão antiga do backend (sem xp_quantidade): o gatilho mantém o XP', async () => {
+      const aluno = await novoAluno();
+      await coletaAnterior(aluno, BIBLIOTECA.id, 50, '2020/1');
+      await ds.query(
+        `INSERT INTO gamificacao.xp_movimentacoes (usuario_id, quantidade, tipo, descricao, chave_idempotencia, saldo_apos) ` +
+          `VALUES ($1, 30, 'PUCSTOP_CLAIM', 'versão antiga', $2, 80)`,
+        [ids[aluno], `antiga-${ids[aluno]}`],
+      );
+      await ds.query(
+        `UPDATE gamificacao.xp_carteiras SET saldo = 80 WHERE usuario_id = $1`,
+        [ids[aluno]],
+      );
+      expect(await carteira(aluno)).toEqual({ saldo: 80, xp_acumulado: 80 });
+    });
+
+    it('CRUD aceita só 10/20/30/40/50 e o orçamento mostra o potencial', async () => {
+      for (const xp of [0, 5, 15, 35, 60, 100, 1000])
+        await editar(BIBLIOTECA.id, { xp }).expect(400);
+      await expect(
+        ds.query(`UPDATE mapa.pucstops SET xp = 45 WHERE id = $1`, [
+          BIBLIOTECA.id,
+        ]),
+      ).rejects.toThrow(/ck_pucstops_xp/);
+      const { body } = await http()
+        .get('/coordenacao/pucstops/orcamento')
+        .set('Authorization', coordenador())
+        .expect(200);
+      const [{ ativos, inativos, potencial }] = await ds.query(
+        `SELECT count(*) FILTER (WHERE ativo)::int AS ativos, count(*) FILTER (WHERE NOT ativo)::int AS inativos, ` +
+          `COALESCE(sum(xp) FILTER (WHERE ativo), 0)::int AS potencial FROM mapa.pucstops`,
+      );
+      expect(body).toMatchObject({
+        ativos,
+        inativos,
+        xpPotencial: potencial,
+        moedasPotenciais: potencial,
+        recompensaMedia: Math.round((potencial / ativos) * 10) / 10,
+        limitePorCiclo: 400,
+        excedeLimite: potencial > 400,
+        ciclo: CICLO,
+        opcoes: [10, 20, 30, 40, 50],
+        padrao: 30,
+      });
+      // Distribuição por faixa soma os ativos; inativos ficam de fora.
+      expect(body.distribuicao.map((d: { xp: number }) => d.xp)).toEqual([
+        10, 20, 30, 40, 50,
+      ]);
+      expect(
+        body.distribuicao.reduce(
+          (s: number, d: { totens: number }) => s + d.totens,
+          0,
+        ),
+      ).toBe(ativos);
+
+      // Estimativa de emissão: participantes elegíveis (uma vez cada) ×
+      // menor valor entre o potencial e o teto.
+      await ds.query(
+        `INSERT INTO feed.programas (codigo, titulo, etapa_atual) VALUES ($1, 'Ciclo', 'andamento') ON CONFLICT DO NOTHING`,
+        [CICLO],
+      );
+      await ds.query(
+        `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ` +
+          `('elegivel.a@pucminas.edu.br', $1, 'apadrinhado', 'em_andamento'), ` +
+          `('elegivel.b@pucminas.edu.br', $1, 'candidato', 'aprovado'), ` +
+          `('elegivel.b@pucminas.edu.br', $1, 'padrinho', 'em_andamento'), ` +
+          `('pendente@pucminas.edu.br', $1, 'candidato', 'pendente'), ` +
+          `('antigo@pucminas.edu.br', '2020/1', 'apadrinhado', 'em_andamento')`,
+        [CICLO],
+      );
+      const { body: comAlunos } = await http()
+        .get('/coordenacao/pucstops/orcamento')
+        .set('Authorization', coordenador())
+        .expect(200);
+      expect(comAlunos.participantesElegiveis).toBe(2);
+      expect(comAlunos.emissaoMaximaEstimada).toBe(
+        2 * Math.min(potencial, 400),
+      );
+      await http()
+        .get('/coordenacao/pucstops/orcamento')
+        .set('Authorization', token('camila@pucminas.edu.br'))
+        .expect(403);
+    });
+
+    it('GET /gamificacao/niveis é a tabela única dos níveis', async () => {
+      const { body } = await http().get('/gamificacao/niveis').expect(200);
+      expect(body).toHaveLength(10);
+      expect(body[9]).toEqual({
+        numero: 10,
+        nome: 'Lenda da PUC',
+        xpMinimo: 2600,
+      });
+    });
+  });
+
   describe('migration', () => {
+    it('BL-50 reconstrói o XP do ledger, classifica coletas por semestre e normaliza totens', async () => {
+      const banco = 'pucstops_bl50_backfill';
+      await admin(`DROP DATABASE IF EXISTS ${banco} WITH (FORCE)`);
+      await admin(`CREATE DATABASE ${banco}`);
+      criados.push(banco);
+      const antigo = new DataSource({
+        type: 'postgres',
+        url: urlDo(banco),
+        schema: 'feed',
+        migrations: MIGRATIONS.filter(
+          (m) => m !== GamificacaoNiveisMoedasCiclos1794000000000,
+        ),
+        migrationsTableName: 'migrations',
+        installExtensions: false,
+      });
+      await antigo.initialize();
+      try {
+        await antigo.query('CREATE SCHEMA IF NOT EXISTS feed');
+        await antigo.runMigrations({ transaction: 'all' });
+        const [{ id: uid }] = await antigo.query(
+          `INSERT INTO feed.usuarios (nome, email, curso, periodo, tipo_participacao, status_cadastro) ` +
+            `VALUES ('Legado', 'legado@pucminas.edu.br', 'ES', 3, 'apadrinhado', 'aprovado') RETURNING id`,
+        );
+        const totem = async (nome: string, xp: number) =>
+          (
+            await antigo.query(
+              `INSERT INTO mapa.pucstops (nome, localizacao, raio_metros, xp) ` +
+                `VALUES ($1, ST_SetSRID(ST_MakePoint(-43.99, -19.92), 4326), 30, $2) RETURNING id`,
+              [nome, xp],
+            )
+          )[0].id as string;
+        const t15 = await totem('Quinze', 15);
+        const t100 = await totem('Cem', 100);
+        const t25 = await totem('Vinte e cinco', 25);
+        const t30 = await totem('Trinta', 30);
+        // Histórico: 300 XP de totens (um no fim de junho, outro em julho,
+        // em Brasília), resgate de 200, estorno de 50 e ajuste de +20.
+        const mov = async (
+          quantidade: number,
+          tipo: string,
+          saldo: number,
+          chave: string,
+          criadoEm: string,
+        ) =>
+          (
+            await antigo.query(
+              `INSERT INTO gamificacao.xp_movimentacoes (usuario_id, quantidade, tipo, descricao, chave_idempotencia, saldo_apos, criado_em) ` +
+                `VALUES ($1, $2, $3, 'legado', $4, $5, $6) RETURNING id`,
+              [uid, quantidade, tipo, chave, saldo, criadoEm],
+            )
+          )[0].id as string;
+        const m1 = await mov(
+          150,
+          'PUCSTOP_CLAIM',
+          150,
+          'k1',
+          '2026-06-30T23:30:00-03:00',
+        );
+        const m2 = await mov(
+          150,
+          'PUCSTOP_CLAIM',
+          300,
+          'k2',
+          '2026-07-01T00:30:00-03:00',
+        );
+        await mov(-200, 'RECOMPENSA', 100, 'k3', '2026-08-01T10:00:00-03:00');
+        await mov(50, 'RECOMPENSA', 150, 'k4', '2026-08-02T10:00:00-03:00');
+        await mov(20, 'AJUSTE_ADMIN', 170, 'k5', '2026-08-03T10:00:00-03:00');
+        await antigo.query(
+          `INSERT INTO gamificacao.xp_carteiras (usuario_id, saldo) VALUES ($1, 170)`,
+          [uid],
+        );
+        await antigo.query(
+          `INSERT INTO gamificacao.pucstop_coletas (usuario_id, pucstop_id, movimentacao_id, xp, coletado_em) VALUES ` +
+            `($1, $2, $3, 150, '2026-06-30T23:30:00-03:00'), ($1, $4, $5, 150, '2026-07-01T00:30:00-03:00')`,
+          [uid, t15, m1, t100, m2],
+        );
+
+        const qr = antigo.createQueryRunner();
+        try {
+          await qr.startTransaction();
+          await new GamificacaoNiveisMoedasCiclos1794000000000().up(qr);
+          await qr.commitTransaction();
+        } finally {
+          await qr.release();
+        }
+
+        // XP = ganhos de atividade + ajustes (300 + 20); resgate e estorno fora.
+        expect(
+          await antigo.query(
+            `SELECT saldo, xp_acumulado FROM gamificacao.xp_carteiras WHERE usuario_id = $1`,
+            [uid],
+          ),
+        ).toEqual([{ saldo: 170, xp_acumulado: 320 }]);
+        // Ledger intacto.
+        expect(
+          (
+            await antigo.query(
+              `SELECT count(*)::int AS n, sum(quantidade)::int AS soma FROM gamificacao.xp_movimentacoes WHERE usuario_id = $1`,
+              [uid],
+            )
+          )[0],
+        ).toEqual({ n: 5, soma: 170 });
+        // Coletas no semestre da própria data (fuso de Brasília).
+        expect(
+          await antigo.query(
+            `SELECT pucstop_id, ciclo, xp, xp_configurado FROM gamificacao.pucstop_coletas WHERE usuario_id = $1 ORDER BY coletado_em`,
+            [uid],
+          ),
+        ).toEqual([
+          { pucstop_id: t15, ciclo: '2026/1', xp: 150, xp_configurado: 150 },
+          { pucstop_id: t100, ciclo: '2026/2', xp: 150, xp_configurado: 150 },
+        ]);
+        // Totens: opção mais próxima (meio para cima), limitada a 10–50.
+        const totens = Object.fromEntries(
+          (
+            (await antigo.query(`SELECT id, xp FROM mapa.pucstops`)) as Array<{
+              id: string;
+              xp: number;
+            }>
+          ).map((t) => [t.id, t.xp]),
+        );
+        expect([totens[t15], totens[t100], totens[t25], totens[t30]]).toEqual([
+          20, 50, 30, 30,
+        ]);
+        // Coletas continuam só-inserção depois da migração.
+        await expect(
+          antigo.query(`UPDATE gamificacao.pucstop_coletas SET xp = 1`),
+        ).rejects.toThrow(/somente inserção/);
+
+        // Rollback (sem dados que o esquema antigo não represente).
+        const qr2 = antigo.createQueryRunner();
+        try {
+          await qr2.startTransaction();
+          await new GamificacaoNiveisMoedasCiclos1794000000000().down(qr2);
+          await qr2.commitTransaction();
+        } finally {
+          await qr2.release();
+        }
+        const [{ n }] = await antigo.query(
+          `SELECT count(*)::int AS n FROM information_schema.columns WHERE table_schema = 'gamificacao' AND column_name IN ('xp_acumulado', 'xp_quantidade', 'ciclo', 'xp_configurado')`,
+        );
+        expect(n).toBe(0);
+      } finally {
+        await antigo.destroy();
+      }
+    });
+
+    it('BL-50 recusa migrar histórico em que o XP ficaria negativo', async () => {
+      const banco = 'pucstops_bl50_inconsistente';
+      await admin(`DROP DATABASE IF EXISTS ${banco} WITH (FORCE)`);
+      await admin(`CREATE DATABASE ${banco}`);
+      criados.push(banco);
+      const antigo = new DataSource({
+        type: 'postgres',
+        url: urlDo(banco),
+        schema: 'feed',
+        migrations: MIGRATIONS.filter(
+          (m) => m !== GamificacaoNiveisMoedasCiclos1794000000000,
+        ),
+        migrationsTableName: 'migrations',
+        installExtensions: false,
+      });
+      await antigo.initialize();
+      try {
+        await antigo.query('CREATE SCHEMA IF NOT EXISTS feed');
+        await antigo.runMigrations({ transaction: 'all' });
+        const [{ id: uid }] = await antigo.query(
+          `INSERT INTO feed.usuarios (nome, email, curso, periodo, tipo_participacao, status_cadastro) ` +
+            `VALUES ('X', 'x@pucminas.edu.br', 'ES', 3, 'apadrinhado', 'aprovado') RETURNING id`,
+        );
+        await antigo.query(
+          `INSERT INTO gamificacao.xp_movimentacoes (usuario_id, quantidade, tipo, descricao, chave_idempotencia, saldo_apos) ` +
+            `VALUES ($1, 100, 'RECOMPENSA', 'crédito estranho', 'z1', 100), ($1, -50, 'AJUSTE_ADMIN', 'ajuste', 'z2', 50)`,
+          [uid],
+        );
+        const qr = antigo.createQueryRunner();
+        try {
+          await qr.startTransaction();
+          await expect(
+            new GamificacaoNiveisMoedasCiclos1794000000000().up(qr),
+          ).rejects.toThrow(/Histórico inconsistente/);
+          await qr.rollbackTransaction();
+        } finally {
+          await qr.release();
+        }
+      } finally {
+        await antigo.destroy();
+      }
+    });
+
     it('sem versão ativa do mapa: campus e criação dão 503; rollback e nova subida', async () => {
       const migration = new PucStopsEXpGlobal1792279161187();
       const qr = ds.createQueryRunner();
@@ -1182,7 +1738,8 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
         ).rejects.toThrow(/sem versão ativa/);
         expect(await new PucStopsService(vazio).listar()).toEqual([]);
 
-        await vazio.undoLastMigration();
+        await vazio.undoLastMigration(); // BL-50
+        await vazio.undoLastMigration(); // PucStops e XP
         const [{ n }] = await vazio.query(
           `SELECT count(*)::int AS n FROM pg_namespace WHERE nspname = 'gamificacao'`,
         );
@@ -1195,7 +1752,7 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
           await vazio.query(`SELECT to_regclass('mapa.versoes')::text AS t`),
         ).toEqual([{ t: 'mapa.versoes' }]);
         expect(await vazio.runMigrations({ transaction: 'all' })).toHaveLength(
-          1,
+          2,
         );
       } finally {
         await vazio.destroy();

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/feed_comment.dart';
 import '../theme/colors.dart';
 import 'app_feedback.dart';
+import 'feed_curtidores_sheet.dart';
 
 const _fundoPainel = Color(0xFFF6F3FB);
 
@@ -15,6 +16,7 @@ class FeedCommentsSheet extends StatefulWidget {
     required this.onLike,
     required this.onDelete,
     required this.podeInteragir,
+    this.onVerCurtidas,
   });
   final List<FeedComment> Function() comentarios;
   final ValueNotifier<int> mudancas;
@@ -22,6 +24,9 @@ class FeedCommentsSheet extends StatefulWidget {
   final Future<bool> Function(FeedComment, int) onLike;
   final Future<bool> Function(FeedComment) onDelete;
   final bool podeInteragir;
+
+  /// Abre a lista de quem curtiu o comentário.
+  final void Function(FeedComment)? onVerCurtidas;
   @override
   State<FeedCommentsSheet> createState() => _FeedCommentsSheetState();
 }
@@ -420,12 +425,42 @@ class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
                         ),
                     ],
                   ),
+                  // Em linha própria: ao lado dos botões estourava a largura.
+                  _quemCurtiu(c),
                 ],
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  /// Quem curtiu + selo quando a coordenação curtiu (DP-01).
+  Widget _quemCurtiu(FeedComment c) {
+    if (c.curtidas == 0) return const SizedBox.shrink();
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 6,
+      children: [
+        if (widget.onVerCurtidas != null)
+          TextButton(
+            key: ValueKey('ver-curtidas-${c.id}'),
+            onPressed: () => widget.onVerCurtidas!(c),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              minimumSize: const Size(0, 36),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: AppColors.muted,
+            ),
+            child: const Text(
+              'Ver curtidas',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+          ),
+        if (c.curtidoPelaCoordenacao)
+          const SeloCoordenacao(rotulo: 'Curtido pela coordenação'),
+      ],
     );
   }
 

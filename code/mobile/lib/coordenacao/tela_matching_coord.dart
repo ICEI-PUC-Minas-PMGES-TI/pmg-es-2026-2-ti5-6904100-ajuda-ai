@@ -123,35 +123,6 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
     if (alterou == true && mounted) await _carregar();
   }
 
-  Future<void> _alternarLiberacao() async {
-    final configuracao = _mapa(_visao?['configuracao']);
-    if (configuracao.isEmpty || _alterando) return;
-    final liberado = configuracao['liberado'] == true;
-    final confirmou = await confirmarAcaoCoord(
-      context,
-      titulo: liberado ? 'Bloquear matching?' : 'Liberar matching?',
-      mensagem: liberado
-          ? 'Novas execuções e aprovações ficarão bloqueadas.'
-          : 'A configuração atual ficará disponível para execução e aprovação.',
-      confirmar: liberado ? 'Bloquear' : 'Liberar',
-    );
-    if (!confirmou || !mounted) return;
-    setState(() => _alterando = true);
-    try {
-      await widget.api.liberarMatching(widget.programa, !liberado);
-      if (!mounted) return;
-      mostrarMensagemCoord(
-        context,
-        liberado ? 'Matching bloqueado.' : 'Matching liberado.',
-      );
-      await _carregar();
-    } catch (erro) {
-      if (mounted) setState(() => _erro = mensagemDeErro(erro));
-    } finally {
-      if (mounted) setState(() => _alterando = false);
-    }
-  }
-
   Future<void> _executar() async {
     if (_visao?['podeExecutar'] != true || _alterando) return;
     final confirmou = await confirmarAcaoCoord(
@@ -311,7 +282,6 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
                   configuracao: configuracao,
                   alterando: _alterando,
                   onConfigurar: _configurar,
-                  onAlternar: configuracao.isEmpty ? null : _alternarLiberacao,
                   onExecutar: visao['podeExecutar'] == true ? _executar : null,
                 ),
                 _Aviso(
@@ -320,10 +290,11 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
                   titulo: chat['disponivel'] == true
                       ? 'Chat integrado'
                       : 'Dependência de chat pendente',
-                  descricao:
-                      '${chat['mensagem'] ?? 'Eventos são gravados em outbox.'} '
-                      '${chat['pendencias'] ?? totais['outboxPendentes'] ?? 0} '
-                      'evento(s) aguardando processamento na outbox.',
+                  descricao: chat['disponivel'] == true
+                      ? 'A aprovação cria a conversa privada do vínculo.'
+                      : '${chat['mensagem'] ?? 'A integração do chat está pendente.'} '
+                            '${chat['pendencias'] ?? totais['outboxPendentes'] ?? 0} '
+                            'evento(s) aguardando processamento.',
                 ),
                 _CabecalhoSugestoes(
                   execucao: _execucoes.isEmpty ? null : _execucoes.first,
@@ -491,14 +462,12 @@ class _CardConfiguracao extends StatelessWidget {
     required this.configuracao,
     required this.alterando,
     required this.onConfigurar,
-    required this.onAlternar,
     required this.onExecutar,
   });
 
   final Map<String, dynamic> configuracao;
   final bool alterando;
   final VoidCallback onConfigurar;
-  final VoidCallback? onAlternar;
   final VoidCallback? onExecutar;
 
   @override
@@ -558,12 +527,6 @@ class _CardConfiguracao extends StatelessWidget {
                     configuracao.isEmpty ? 'Configurar' : 'Editar configuração',
                   ),
                 ),
-                if (configuracao.isNotEmpty)
-                  OutlinedButton.icon(
-                    onPressed: alterando ? null : onAlternar,
-                    icon: Icon(liberado ? Icons.lock : Icons.lock_open),
-                    label: Text(liberado ? 'Bloquear' : 'Liberar'),
-                  ),
                 FilledButton.icon(
                   onPressed: alterando ? null : onExecutar,
                   style: FilledButton.styleFrom(
@@ -1543,8 +1506,9 @@ class _TelaComparacaoMatchingState extends State<TelaComparacaoMatching> {
       final chat = _mapa(resposta['chat']);
       mostrarMensagemCoord(
         context,
-        'Match aprovado. Chat ainda não criado: '
-        '${chat['eventosPendentes'] ?? 1} evento(s) registrado(s) na outbox.',
+        chat['criado'] == true
+            ? 'Match aprovado. Conversa privada criada.'
+            : 'Match aprovado.',
       );
       Navigator.pop(context, true);
     } catch (erro) {
@@ -1649,7 +1613,6 @@ class _TelaComparacaoMatchingState extends State<TelaComparacaoMatching> {
     final capA = _mapa(capacidade['apadrinhado']);
     final explicacao = _mapa(dados['explicacao']);
     final criterios = _mapas(explicacao['criterios']);
-    final outbox = _mapas(dados['outbox']);
     final pendente = dados['status'] == 'pendente';
 
     return ListView(
@@ -1732,10 +1695,10 @@ class _TelaComparacaoMatchingState extends State<TelaComparacaoMatching> {
         _Aviso(
           icone: Icons.chat_bubble_outline,
           cor: AppAccents.iconeLaranja,
-          titulo: 'Chat depende da outbox',
+          titulo: 'Conversa privada',
           descricao: dados['status'] == 'aprovada'
-              ? '${outbox.length} evento(s) de chat registrado(s). O vínculo existe, mas a conversa depende de processamento externo.'
-              : 'Ao aprovar, o vínculo é criado agora; a conversa privada/grupo é apenas registrada na outbox para integração futura.',
+              ? 'A conversa privada do vínculo foi criada.'
+              : 'A conversa privada será criada junto com a aprovação do vínculo.',
         ),
         if (!pendente)
           _Aviso(

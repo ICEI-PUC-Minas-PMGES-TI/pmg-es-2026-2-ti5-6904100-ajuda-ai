@@ -12,7 +12,8 @@ import {
   MinLength,
   NotEquals,
 } from 'class-validator';
-import { MOTIVO_AJUSTE_XP, QUANTIDADE_AJUSTE_XP_MAX } from './ajustes-xp.js';
+import { type NivelDto, LIMITES } from '../economia.js';
+import { MOTIVO_AJUSTE_XP } from './ajustes-xp.js';
 import type { MovimentacaoXpDto, XpResumoDto } from './xp.dto.js';
 import { LIMITE_MOVIMENTACOES_MAXIMO } from './xp.dto.js';
 
@@ -44,15 +45,16 @@ export class ExtratoXpQuery {
 
 /**
  * `POST /coordenacao/xp/:usuarioId/ajustes`. Positivo credita, negativo
- * debita (nunca deixa o saldo negativo). A tela gera a chave uma vez por
+ * debita XP e moedas na mesma quantidade (±200, `LIMITES.ajusteAdmin`),
+ * sem deixar nenhum dos dois negativo. A tela gera a chave uma vez por
  * ajuste: repetir o envio com a mesma chave devolve o ajuste já feito.
  */
 export class AjustarXpDto {
   @IsDefined()
   @IsInt()
   @NotEquals(0, { message: 'quantidade não pode ser zero' })
-  @Min(-QUANTIDADE_AJUSTE_XP_MAX)
-  @Max(QUANTIDADE_AJUSTE_XP_MAX)
+  @Min(-LIMITES.ajusteAdmin)
+  @Max(LIMITES.ajusteAdmin)
   quantidade!: number;
 
   @IsDefined()
@@ -67,8 +69,15 @@ export class AjustarXpDto {
   chaveIdempotencia!: string;
 }
 
-export interface ParticipanteXpDto extends XpResumoDto {
+/** Linha de `GET /coordenacao/xp`. */
+export interface ParticipanteXpDto {
   usuario: { id: number; nome: string; email: string };
+  /** Moedas para a lojinha (`saldo` em `/me/xp`). */
+  moedas: number;
+  /** XP da trajetória: não cai com resgates; define o nível. */
+  xpAcumulado: number;
+  nivel: NivelDto;
+  atualizadoEm: string | null;
 }
 
 export interface AjusteXpDto {
@@ -80,7 +89,9 @@ export interface AjusteXpDto {
   criadoEm: string;
 }
 
-export interface ExtratoXpAdminDto extends ParticipanteXpDto {
+/** `GET /coordenacao/xp/:usuarioId`: o mesmo resumo de `/me/xp`, mais extrato e ajustes. */
+export interface ExtratoXpAdminDto extends XpResumoDto {
+  usuario: { id: number; nome: string; email: string };
   movimentacoes: MovimentacaoXpDto[];
   ajustes: AjusteXpDto[];
 }

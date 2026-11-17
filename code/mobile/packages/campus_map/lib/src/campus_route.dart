@@ -167,3 +167,15 @@ abstract interface class CampusRouteService {
     required bool accessible,
   });
 }
+
+/// Serviço que também traça rota entre dois locais escolhidos pelo usuário
+/// ("Escolher ponto de partida" do PUCMaps). A origem segue as mesmas regras
+/// do destino: prédio pelo id, área/sala pela coordenada.
+abstract interface class CampusPlaceRouteService implements CampusRouteService {
+  /// Lança [CampusRouteException] quando não houver rota para mostrar.
+  Future<CampusRoute> routeBetween({
+    required CampusRouteTarget origin,
+    required CampusRouteTarget destination,
+    required bool accessible,
+  });
+}

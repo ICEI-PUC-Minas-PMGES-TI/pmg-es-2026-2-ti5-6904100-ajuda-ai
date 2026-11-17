@@ -6,15 +6,22 @@ import { SCHEMA_GAMIFICACAO } from '../gamificacao/gamificacao.js';
  * Excluir um programa com recompensas restritas a ele fica bloqueado
  * (RESTRICT → 409 em `ProgramasService`), em vez de deixar recompensas órfãs.
  * Se já houver órfãs, a migration recusa e lista os códigos para correção manual.
+ * Era `1793700000000`; renomeada para depois da Sprint-6 (timestamp repetido).
  */
-export class ProgramaRecompensasFk1793700000000 implements MigrationInterface {
-  name = 'ProgramaRecompensasFk1793700000000';
+export class ProgramaRecompensasFk1794100000000 implements MigrationInterface {
+  name = 'ProgramaRecompensasFk1794100000000';
 
   async up(qr: QueryRunner): Promise<void> {
     const schema =
       (qr.connection.options as { schema?: string }).schema ?? 'feed';
     const u = `"${schema.replaceAll('"', '""')}"`;
     const r = `"${SCHEMA_GAMIFICACAO}"."recompensas"`;
+
+    // Já aplicada com o nome antigo (ProgramaRecompensasFk1793700000000).
+    const [existe] = (await qr.query(
+      `SELECT 1 FROM pg_constraint WHERE conname = 'fk_recompensas_programa'`,
+    )) as unknown[];
+    if (existe) return;
 
     const orfas = (await qr.query(
       `SELECT DISTINCT x."programa_codigo" AS codigo FROM ${r} x ` +

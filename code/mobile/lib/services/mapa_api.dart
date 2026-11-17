@@ -13,7 +13,8 @@ import 'api_config.dart';
 /// chaves estáveis do campus (`P01_R4751608`), as mesmas do snapshot; área e
 /// sala têm id UUID e vão para a rota pela coordenada (o `tipo` vira
 /// [CampusPlace.kind]).
-class MapaApiPlaceRepository implements CampusPlaceRepository {
+class MapaApiPlaceRepository
+    implements CampusPlaceRepository, CampusPointOfInterestCatalog {
   MapaApiPlaceRepository({
     http.Client? client,
     this.baseUrl = apiBaseUrl,
@@ -67,6 +68,27 @@ class MapaApiPlaceRepository implements CampusPlaceRepository {
     }
   }
 
+  /// Portarias e alimentação (pinos permanentes do PUCMaps), de
+  /// `GET /mapa/predios`: o snapshot local do pacote não tem esses locais.
+  /// Só os campos de identidade e centro são usados (a geometria é ignorada).
+  @override
+  Future<List<CampusPlace>> pointsOfInterest() async {
+    final resposta = await executarRequisicao(
+      () => _client.get(Uri.parse('$baseUrl/mapa/predios'), headers: _headers),
+      erroPadrao: 'Não foi possível carregar os pontos do mapa',
+      // Lista completa dos prédios: mais lenta que a busca, sem pressa.
+      timeout: timeout * 3,
+    );
+    final corpo = decodificarJson(resposta);
+    if (corpo is! List) throw const FormatException('Resposta inválida.');
+    return List.unmodifiable([
+      for (final item in corpo)
+        if (item is Map &&
+            CampusPoiKind.fromType(item['categoria'] as String?) != null)
+          ?_lugar(item, padrao: CampusPlaceKind.building),
+    ]);
+  }
+
   static const _tipos = {
     'predio': CampusPlaceKind.building,
     'area': CampusPlaceKind.area,
@@ -88,11 +110,39 @@ class MapaApiPlaceRepository implements CampusPlaceRepository {
         code: item['codigo'] as String?,
         type: item['categoria'] as String?,
         kind: _tipos[item['tipo']] ?? padrao,
+        heightMeters: item['altura'] is num
+            ? (item['altura'] as num).toDouble()
+            : null,
+        description: item['descricao'] as String? ?? '',
+        images: [
+          for (final imagem
+              in item['imagens'] is List ? item['imagens'] as List : const [])
+            ?_imagem(imagem),
+        ],
         center: [longitude.toDouble(), latitude.toDouble()],
       );
     } on Object {
       return null;
     }
+  }
+
+  static CampusPlaceImage? _imagem(Object? item) {
+    if (item is! Map || item['id'] is! String) return null;
+    final url = Uri.tryParse('${item['url'] ?? ''}');
+    final original = Uri.tryParse(
+      '${item['originalUrl'] ?? item['url'] ?? ''}',
+    );
+    if (url == null ||
+        original == null ||
+        !url.hasScheme ||
+        !original.hasScheme) {
+      return null;
+    }
+    return CampusPlaceImage(
+      id: item['id'] as String,
+      url: url,
+      originalUrl: original,
+    );
   }
 }
 
@@ -101,7 +151,7 @@ class MapaApiPlaceRepository implements CampusPlaceRepository {
 ///
 /// Sem rota local: qualquer falha de rede/servidor vira
 /// [CampusRouteFailure.unavailable] ("Não foi possível calcular a rota agora.").
-class MapaApiRouteService implements CampusRouteService {
+class MapaApiRouteService implements CampusPlaceRouteService {
   MapaApiRouteService({
     http.Client? client,
     this.baseUrl = apiBaseUrl,
@@ -137,6 +187,29 @@ class MapaApiRouteService implements CampusRouteService {
     required CampusUserLocation origin,
     required CampusRouteTarget destination,
     required bool accessible,
+  }) => _calcular(
+    origem: {'latitude': origin.latitude, 'longitude': origin.longitude},
+    destination: destination,
+    accessible: accessible,
+  );
+
+  /// "Escolher ponto de partida": a origem é outro local (prédio pelo id,
+  /// área/sala pela coordenada), com as mesmas regras do destino.
+  @override
+  Future<CampusRoute> routeBetween({
+    required CampusRouteTarget origin,
+    required CampusRouteTarget destination,
+    required bool accessible,
+  }) => _calcular(
+    origem: destinoJson(origin),
+    destination: destination,
+    accessible: accessible,
+  );
+
+  Future<CampusRoute> _calcular({
+    required Map<String, Object> origem,
+    required CampusRouteTarget destination,
+    required bool accessible,
   }) async {
     final http.Response resposta;
     try {
@@ -148,10 +221,7 @@ class MapaApiRouteService implements CampusRouteService {
               'content-type': 'application/json',
             },
             body: jsonEncode({
-              'origem': {
-                'latitude': origin.latitude,
-                'longitude': origin.longitude,
-              },
+              'origem': origem,
               'destino': destinoJson(destination),
               'acessivel': accessible,
             }),

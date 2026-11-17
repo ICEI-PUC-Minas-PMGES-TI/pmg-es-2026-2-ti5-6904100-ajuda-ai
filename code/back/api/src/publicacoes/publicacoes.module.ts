@@ -11,7 +11,12 @@ import { PublicacoesController } from './publicacoes.controller.js';
 import { PublicacoesService } from './publicacoes.service.js';
 import { StorageModule } from '../storage/storage.module.js';
 import { ConfigModule } from '@nestjs/config';
-import { FeedAdminGuard, FeedPolicy, FeedPublishGuard } from './feed-policy.js';
+import {
+  FeedAdminGuard,
+  FeedLeituraGuard,
+  FeedPolicy,
+  FeedPublishGuard,
+} from './feed-policy.js';
 import { FeedMidiasService } from './feed-midias.service.js';
 import { FeedStreamService } from './feed-stream.service.js';
 import { FeedRabbitService } from './feed-rabbit.service.js';
@@ -39,6 +44,7 @@ import { FeedOutboxEntity } from './entities/feed-outbox.entity.js';
     FeedPolicy,
     FeedPublishGuard,
     FeedAdminGuard,
+    FeedLeituraGuard,
     FeedMidiasService,
     FeedStreamService,
     FeedRabbitService,
