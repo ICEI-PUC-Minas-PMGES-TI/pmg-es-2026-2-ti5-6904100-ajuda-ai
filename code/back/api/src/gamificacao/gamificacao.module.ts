@@ -3,6 +3,10 @@ import { AuthModule } from '../auth/auth.module.js';
 import { ParticipacoesModule } from '../participacoes/participacoes.module.js';
 import { LojinhaController } from './lojinha/lojinha.controller.js';
 import { LojinhaService } from './lojinha/lojinha.service.js';
+import { MissoesAdminController } from './missoes/missoes-admin.controller.js';
+import { MissoesAdminService } from './missoes/missoes-admin.service.js';
+import { MissoesController } from './missoes/missoes.controller.js';
+import { MissoesService } from './missoes/missoes.service.js';
 import { PucStopsAdminController } from './pucstops/pucstops-admin.controller.js';
 import { PucStopsAdminService } from './pucstops/pucstops-admin.service.js';
 import {
@@ -33,6 +37,8 @@ import { XpService } from './xp/xp.service.js';
     PucStopsAdminController,
     RecompensasAdminController,
     LojinhaController,
+    MissoesController,
+    MissoesAdminController,
   ],
   providers: [
     PucStopsService,
@@ -40,6 +46,8 @@ import { XpService } from './xp/xp.service.js';
     PucStopsAdminService,
     RecompensasAdminService,
     LojinhaService,
+    MissoesService,
+    MissoesAdminService,
   ],
 })
 export class GamificacaoModule {}
