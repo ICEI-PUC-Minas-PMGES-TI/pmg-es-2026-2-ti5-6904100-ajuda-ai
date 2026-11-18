@@ -4,11 +4,15 @@ import 'package:ajuda_ai/models/notificacao.dart';
 import 'package:ajuda_ai/services/notificacoes_api.dart';
 import 'package:ajuda_ai/services/participacoes_api.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
+import 'package:ajuda_ai/widgets/app_bottom_navigation.dart';
+import 'package:ajuda_ai/widgets/navegacao_app.dart';
 import 'package:ajuda_ai/widgets/painel_notificacoes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import 'helpers/api_falsa.dart';
 
 http.Response resposta(Object corpo, int status) => http.Response.bytes(
   utf8.encode(jsonEncode(corpo)),
@@ -35,9 +39,11 @@ Map<String, dynamic> item(
 };
 
 class Servidor {
-  Servidor(this.itens);
+  Servidor(this.itens, {this.atraso = Duration.zero, this.ativo = false});
 
   List<Map<String, dynamic>> itens;
+  final Duration atraso;
+  final bool ativo;
   final chamadas = <String>[];
 
   int get naoLidas => itens.where((i) => i['lida'] != true).length;
@@ -46,7 +52,11 @@ class Servidor {
     chamadas.add('${request.method} ${request.url.path}');
     final path = request.url.path;
     if (path == '/me/notificacoes') {
+      await Future<void>.delayed(atraso);
       return resposta({'naoLidas': naoLidas, 'itens': itens}, 200);
+    }
+    if (path == '/participacoes/situacao' && ativo) {
+      return resposta(situacaoApadrinhadoAtivo(), 200);
     }
     if (path == '/me/notificacoes/lidas') {
       itens = [
@@ -72,11 +82,15 @@ class Servidor {
   });
 }
 
-Servidor instalar(List<Map<String, dynamic>> itens) {
-  final servidor = Servidor(itens);
+Servidor instalar(
+  List<Map<String, dynamic>> itens, {
+  Duration atraso = Duration.zero,
+  String token = 'token-teste',
+  bool ativo = false,
+}) {
+  final servidor = Servidor(itens, atraso: atraso, ativo: ativo);
   SessaoUsuario.atual.configurarApi(
-    ParticipacoesApi(client: servidor.client, baseUrl: '')
-      ..accessToken = 'token-teste',
+    ParticipacoesApi(client: servidor.client, baseUrl: '')..accessToken = token,
   );
   CentralNotificacoes.atual.api = NotificacoesApi(
     client: servidor.client,
@@ -170,5 +184,102 @@ void main() {
     expect(tempoRelativo(DateTime(2026, 11, 18, 11), agora: agora), 'há 1 h');
     expect(tempoRelativo(DateTime(2026, 11, 17, 10), agora: agora), 'ontem');
     expect(tempoRelativo(DateTime(2026, 11, 12, 10), agora: agora), '12/11');
+  });
+
+  test('trocar de conta descarta a resposta da conta anterior', () async {
+    instalar([item('da-conta-a')], atraso: const Duration(milliseconds: 200));
+    final emVoo = CentralNotificacoes.atual.atualizar();
+    SessaoUsuario.atual.limpar();
+    final outra = instalar([], token: 'token-b');
+    await CentralNotificacoes.atual.atualizar();
+    await emVoo;
+    expect(CentralNotificacoes.atual.estado.value.itens, isEmpty);
+    expect(outra.chamadas, contains('GET /me/notificacoes'));
+  });
+
+  testWidgets('lista que chega depois dos avisos tira o estado vazio', (
+    tester,
+  ) async {
+    instalar([item('a')], atraso: const Duration(milliseconds: 500));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => mostrarNotificacoes(context),
+              child: const Text('abrir'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('abrir'));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(find.byKey(const Key('notificacoes-vazio')), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('notificacao-a')), findsOneWidget);
+    expect(find.byKey(const Key('notificacoes-vazio')), findsNothing);
+  });
+
+  testWidgets('tocar em missão nova abre a aba Missões', (tester) async {
+    final servidor = instalar([item('a')], ativo: true);
+    await SessaoUsuario.atual.sincronizarSituacao();
+    final casca = GlobalKey<AppShellState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppShell(
+          key: casca,
+          construtorDePagina: (destino) => destino == AppDestination.inicio
+              ? Builder(
+                  builder: (context) => Center(
+                    child: TextButton(
+                      onPressed: () => mostrarNotificacoes(context),
+                      child: const Text('abrir'),
+                    ),
+                  ),
+                )
+              : Center(child: Text('pagina-${destino.name}')),
+        ),
+      ),
+    );
+    await tester.tap(find.text('abrir'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('notificacao-a')));
+    await tester.pumpAndSettle();
+    expect(casca.currentState!.atual, AppDestination.missoes);
+    expect(find.text('pagina-missoes'), findsOneWidget);
+    expect(servidor.chamadas, contains('PATCH /me/notificacoes/a/lida'));
+  });
+
+  test('link da notificação vira a aba certa', () {
+    expect(abaDaNotificacao('/missoes'), AppDestination.missoes);
+    expect(abaDaNotificacao('/perfil'), AppDestination.perfil);
+    expect(abaDaNotificacao('/lojinha/resgates/x'), isNull);
+    expect(abaDaNotificacao(null), isNull);
+  });
+
+  test('tempo relativo segue o dia do calendário', () {
+    final noite = DateTime(2026, 11, 18, 23, 40);
+    expect(
+      tempoRelativo(DateTime(2026, 11, 18, 0, 5), agora: noite),
+      'há 23 h',
+    );
+    expect(
+      tempoRelativo(
+        DateTime(2026, 11, 17, 23),
+        agora: DateTime(2026, 11, 18, 8),
+      ),
+      'ontem',
+    );
+    expect(
+      tempoRelativo(
+        DateTime(2026, 11, 16, 20),
+        agora: DateTime(2026, 11, 18, 8),
+      ),
+      '16/11',
+    );
   });
 }

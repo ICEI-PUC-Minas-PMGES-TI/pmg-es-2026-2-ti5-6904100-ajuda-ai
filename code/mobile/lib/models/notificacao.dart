@@ -71,8 +71,10 @@ String tempoRelativo(DateTime? data, {DateTime? agora}) {
   final minutos = referencia.difference(data).inMinutes;
   if (minutos < 1) return 'agora';
   if (minutos < 60) return 'há $minutos min';
-  final horas = (minutos / 60).round();
-  if (horas < 24) return 'há $horas h';
-  if (horas < 48) return 'ontem';
+  final hoje = DateTime(referencia.year, referencia.month, referencia.day);
+  final dia = DateTime(data.year, data.month, data.day);
+  final dias = (hoje.difference(dia).inHours / 24).round();
+  if (dias <= 0) return 'há ${minutos ~/ 60} h';
+  if (dias == 1) return 'ontem';
   return '${data.day.toString().padLeft(2, '0')}/${data.month.toString().padLeft(2, '0')}';
 }

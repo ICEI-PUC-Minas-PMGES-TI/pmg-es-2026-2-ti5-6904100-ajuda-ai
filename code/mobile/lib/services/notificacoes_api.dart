@@ -66,21 +66,34 @@ class CentralNotificacoes {
   final ValueNotifier<bool> falhou = ValueNotifier(false);
 
   Future<void>? _emVoo;
+  int _conta = 0;
 
-  Future<void> atualizar() => _emVoo ??= _ler().whenComplete(() {
-    _emVoo = null;
-  });
+  Future<void> atualizar() {
+    final emVoo = _emVoo;
+    if (emVoo != null) return emVoo;
+    late final Future<void> leitura;
+    leitura = _ler(_conta).whenComplete(() {
+      if (identical(_emVoo, leitura)) _emVoo = null;
+    });
+    return _emVoo = leitura;
+  }
 
-  Future<void> _ler() async {
+  bool _mesmaConta(int conta, String token) =>
+      conta == _conta && SessaoUsuario.atual.accessToken == token;
+
+  Future<void> _ler(int conta) async {
     final token = SessaoUsuario.atual.accessToken;
     if (token == null) {
       estado.value = Notificacoes.vazias;
       return;
     }
     try {
-      estado.value = await api.listar(token);
+      final dados = await api.listar(token);
+      if (!_mesmaConta(conta, token)) return;
+      estado.value = dados;
       falhou.value = false;
     } on ApiException catch (erro) {
+      if (!_mesmaConta(conta, token)) return;
       if (erro.statusCode == 401 || erro.statusCode == 403) {
         estado.value = Notificacoes.vazias;
         falhou.value = false;
@@ -88,12 +101,13 @@ class CentralNotificacoes {
         falhou.value = true;
       }
     } catch (_) {
-      falhou.value = true;
+      if (_mesmaConta(conta, token)) falhou.value = true;
     }
   }
 
   Future<void> marcarLida(String id) async {
     final token = SessaoUsuario.atual.accessToken;
+    final conta = _conta;
     final atual = estado.value;
     final alvo = atual.itens.where((n) => n.id == id).firstOrNull;
     if (token == null || alvo == null || alvo.lida) return;
@@ -103,18 +117,20 @@ class CentralNotificacoes {
     );
     try {
       final naoLidas = await api.marcarLida(token, id);
+      if (!_mesmaConta(conta, token)) return;
       estado.value = Notificacoes(
         naoLidas: naoLidas,
         itens: estado.value.itens,
       );
     } catch (_) {
-      await atualizar();
+      if (_mesmaConta(conta, token)) await atualizar();
     }
   }
 
   Future<void> marcarTodas() async {
     final token = SessaoUsuario.atual.accessToken;
     if (token == null) return;
+    final conta = _conta;
     estado.value = Notificacoes(
       naoLidas: 0,
       itens: [for (final n in estado.value.itens) n.lida ? n : n.comoLida()],
@@ -122,11 +138,13 @@ class CentralNotificacoes {
     try {
       await api.marcarTodas(token);
     } catch (_) {
-      await atualizar();
+      if (_mesmaConta(conta, token)) await atualizar();
     }
   }
 
   void limpar() {
+    _conta++;
+    _emVoo = null;
     estado.value = Notificacoes.vazias;
     falhou.value = false;
   }

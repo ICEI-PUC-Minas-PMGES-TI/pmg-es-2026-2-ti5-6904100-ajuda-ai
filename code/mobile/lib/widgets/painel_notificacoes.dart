@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../models/notificacao.dart';
 import '../models/situacao_participacao.dart';
+import '../services/lojinha_api.dart';
 import '../services/notificacoes_api.dart';
 import '../sessao_usuario.dart';
 import '../status_participacao.dart';
 import '../tela_padrinho_definido.dart';
+import '../tela_resgates.dart';
 import '../theme/colors.dart';
+import 'app_bottom_navigation.dart';
+import 'navegacao_app.dart';
 
 /// Notificações usadas quando a API de avisos não responde.
 const avisosOffline = [
@@ -21,6 +25,12 @@ const avisosOffline = [
     descricao: 'Consulte o guia do calouro no feed do campus.',
   ),
 ];
+
+AppDestination? abaDaNotificacao(String? link) => switch (link) {
+  '/missoes' => AppDestination.missoes,
+  '/perfil' => AppDestination.perfil,
+  _ => null,
+};
 
 class _Notificacao {
   const _Notificacao({
@@ -62,13 +72,13 @@ class _PainelNotificacoes extends StatefulWidget {
 }
 
 class _PainelNotificacoesState extends State<_PainelNotificacoes> {
-  late final Future<List<_Notificacao>> _carregamento = _carregar();
+  late final Future<List<_Notificacao>> _carregamento = Future(_carregar);
   bool _offline = false;
 
   @override
   void initState() {
     super.initState();
-    CentralNotificacoes.atual.atualizar();
+    Future.microtask(CentralNotificacoes.atual.atualizar);
   }
 
   Future<List<_Notificacao>> _carregar() async {
@@ -100,6 +110,33 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
         ),
       for (final aviso in avisos) _Notificacao(aviso: aviso),
     ];
+  }
+
+  void _abrir(Notificacao notificacao) {
+    CentralNotificacoes.atual.marcarLida(notificacao.id);
+    final pai = widget.contextoPai;
+    final aba = abaDaNotificacao(notificacao.link);
+    if (aba != null && SessaoUsuario.atual.destinos.contains(aba)) {
+      Navigator.of(context).pop();
+      if (pai.mounted) {
+        navegarDestino(
+          pai,
+          aba,
+          atual: AppShell.of(pai)?.atual ?? AppDestination.inicio,
+        );
+      }
+      return;
+    }
+    if (notificacao.link?.startsWith('/lojinha/resgates') == true) {
+      Navigator.of(context).pop();
+      if (pai.mounted) {
+        Navigator.of(pai).push(
+          MaterialPageRoute(
+            builder: (_) => TelaMeusResgates(api: LojinhaApi()),
+          ),
+        );
+      }
+    }
   }
 
   void _abrirPadrinho() {
@@ -171,19 +208,27 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
                       );
                     }
                     final itens = snapshot.data!;
-                    final reais = CentralNotificacoes.atual.estado.value.itens;
                     return ListView(
                       shrinkWrap: true,
                       children: [
                         ValueListenableBuilder<Notificacoes>(
                           valueListenable: CentralNotificacoes.atual.estado,
                           builder: (context, dados, _) => Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               for (final n in dados.itens)
                                 _ItemNotificacao(
                                   notificacao: n,
-                                  onTap: () => CentralNotificacoes.atual
-                                      .marcarLida(n.id),
+                                  onTap: () => _abrir(n),
+                                ),
+                              if (dados.itens.isEmpty && itens.isEmpty)
+                                const Padding(
+                                  key: Key('notificacoes-vazio'),
+                                  padding: EdgeInsets.symmetric(vertical: 24),
+                                  child: Text(
+                                    'Nenhuma notificação por enquanto.',
+                                    style: TextStyle(color: AppColors.muted),
+                                  ),
                                 ),
                             ],
                           ),
@@ -198,14 +243,6 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
                                 color: AppColors.muted,
                                 fontSize: 12,
                               ),
-                            ),
-                          ),
-                        if (itens.isEmpty && reais.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 24),
-                            child: Text(
-                              'Nenhuma notificação por enquanto.',
-                              style: TextStyle(color: AppColors.muted),
                             ),
                           ),
                         for (final item in itens)
