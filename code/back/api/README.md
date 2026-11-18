@@ -139,6 +139,14 @@ A API fica disponível em `http://localhost:3000`.
 | `GET`       | `/me/lojinha`                                           | Lojinha do aluno: publicadas, na vigência, do seu público/programa (`estoque` disponível; `null` = ilimitado). |
 | `POST`      | `/me/lojinha/:id/resgatar`                              | Resgata com XP (`{ chaveIdempotencia, versao, custoXp }`); 404 indisponível, 409 esgotada/limite/recompensa alterada, 422 saldo insuficiente. |
 | `GET`       | `/me/lojinha/resgates`                                  | Histórico de resgates do aluno, com as condições da versão resgatada. |
+| `GET`       | `/coordenacao/missoes`                                  | Missões do ciclo com conclusões e XP creditado (`?status=ativa\|inativa&ciclo=`). |
+| `POST`      | `/coordenacao/missoes`                                  | Cria (`titulo`, `descricao`, `tipo` `UNICA\|SEMANAL`, `xp` até 100, semanal até 60; opcionais `inicio`, `fim`, `ativar`). |
+| `PATCH`     | `/coordenacao/missoes/:id`                              | Edita com `atualizadoEm`; 409 `missao-alterada` ou `missao-com-conclusoes` (tipo). |
+| `POST`      | `/coordenacao/missoes/:id/ativar` \| `desativar`        | Liga ou desliga a missão; a primeira ativação notifica os participantes do ciclo. |
+| `GET`       | `/me/missoes`                                           | Missões ativas do ciclo com status, `xpPrevisto` e uso dos tetos semanal e do ciclo. |
+| `POST`      | `/me/missoes/:id/concluir`                              | Conclui e credita XP e moedas pelo ledger; 409 `ja-concluida`, 422 `fora-do-periodo`. |
+| `GET`       | `/me/notificacoes`                                      | Notificações do usuário (`?limite=1..50`) e `naoLidas`. |
+| `PATCH`     | `/me/notificacoes/:id/lida` \| `/me/notificacoes/lidas` | Marca uma ou todas como lidas. |
 | `POST`      | `/coordenacao/comunicados`                              | Publica um comunicado para todos, padrinhos ou apadrinhados.                                                                          |
 | `GET`       | `/publicacoes`                                          | Lista as publicações persistidas no backend.                                                                                          |
 | `POST`      | `/publicacoes`                                          | Cria uma publicação com zero curtidas e zero comentários.                                                                             |
