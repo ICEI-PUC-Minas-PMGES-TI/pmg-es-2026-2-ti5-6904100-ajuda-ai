@@ -446,6 +446,31 @@ export const api = {
     return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
   },
 
+  missoesCoordenacao(status) {
+    return request(`/coordenacao/missoes${query({ status })}`);
+  },
+  criarMissao(dados) {
+    return request('/coordenacao/missoes', { method: 'POST', body: dados });
+  },
+  atualizarMissao(id, dados) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  ativarMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+  desativarMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  notificacoes(limite) {
+    return request(`/me/notificacoes${query({ limite })}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  marcarNotificacaoLida(id) {
+    return request(`/me/notificacoes/${encodeURIComponent(id)}/lida`, { method: 'PATCH', aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  marcarNotificacoesLidas() {
+    return request('/me/notificacoes/lidas', { method: 'PATCH', aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+
   /* ===== Lojinha: recompensas (coordenação; F27) ===== */
   /** Todas as recompensas (`status` opcional: rascunho, publicada, inativa, arquivada). */
   recompensas(status) {

@@ -24,6 +24,7 @@ import FormularioRespostasPage from './pages/coordenacao/FormularioRespostasPage
 import FormulariosPage from './pages/coordenacao/FormulariosPage';
 import MatchingPage from './pages/coordenacao/MatchingPage';
 import MatchingManualPage from './pages/coordenacao/MatchingManualPage';
+import MissoesPage from './pages/coordenacao/MissoesPage';
 import ProgramasPage from './pages/coordenacao/ProgramasPage';
 import PucStopsPage from './pages/coordenacao/PucStopsPage';
 import RecompensasPage from './pages/coordenacao/RecompensasPage';
@@ -67,6 +68,7 @@ export default function App() {
               <Route path="formularios/respostas" element={<FormularioRespostasPage />} />
               <Route path="pucstops" element={<PucStopsPage />} />
               <Route path="lojinha" element={<RecompensasPage />} />
+              <Route path="missoes" element={<MissoesPage />} />
               <Route path="eventos" element={<EventosPage />} />
               <Route path="restaurantes" element={<RestaurantesPage />} />
               <Route path="comunicados" element={<ComunicadosPage />} />
