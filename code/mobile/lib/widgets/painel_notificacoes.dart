@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../models/notificacao.dart';
 import '../models/situacao_participacao.dart';
+import '../services/notificacoes_api.dart';
 import '../sessao_usuario.dart';
 import '../status_participacao.dart';
 import '../tela_padrinho_definido.dart';
@@ -63,6 +65,12 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
   late final Future<List<_Notificacao>> _carregamento = _carregar();
   bool _offline = false;
 
+  @override
+  void initState() {
+    super.initState();
+    CentralNotificacoes.atual.atualizar();
+  }
+
   Future<List<_Notificacao>> _carregar() async {
     final sessao = SessaoUsuario.atual;
     await sessao.sincronizarSituacao();
@@ -117,12 +125,34 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Notificações',
-                style: TextStyle(
-                  color: AppColors.ink,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
+              ValueListenableBuilder<Notificacoes>(
+                valueListenable: CentralNotificacoes.atual.estado,
+                builder: (context, dados, _) => Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Notificações',
+                        style: TextStyle(
+                          color: AppColors.ink,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    if (dados.naoLidas > 0)
+                      TextButton(
+                        key: const Key('notificacoes-marcar-todas'),
+                        onPressed: CentralNotificacoes.atual.marcarTodas,
+                        child: const Text(
+                          'Marcar todas como lidas',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(height: 10),
@@ -141,9 +171,23 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
                       );
                     }
                     final itens = snapshot.data!;
+                    final reais = CentralNotificacoes.atual.estado.value.itens;
                     return ListView(
                       shrinkWrap: true,
                       children: [
+                        ValueListenableBuilder<Notificacoes>(
+                          valueListenable: CentralNotificacoes.atual.estado,
+                          builder: (context, dados, _) => Column(
+                            children: [
+                              for (final n in dados.itens)
+                                _ItemNotificacao(
+                                  notificacao: n,
+                                  onTap: () => CentralNotificacoes.atual
+                                      .marcarLida(n.id),
+                                ),
+                            ],
+                          ),
+                        ),
                         if (_offline)
                           const Padding(
                             padding: EdgeInsets.only(bottom: 8),
@@ -156,7 +200,7 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
                               ),
                             ),
                           ),
-                        if (itens.isEmpty)
+                        if (itens.isEmpty && reais.isEmpty)
                           const Padding(
                             padding: EdgeInsets.symmetric(vertical: 24),
                             child: Text(
@@ -227,6 +271,124 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ItemNotificacao extends StatelessWidget {
+  const _ItemNotificacao({required this.notificacao, required this.onTap});
+
+  final Notificacao notificacao;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icone, fundo, cor) = switch (notificacao.tipo) {
+      'MISSAO_NOVA' => (
+        Icons.hexagon_outlined,
+        AppAccents.tileLilas,
+        AppColors.primary,
+      ),
+      'NIVEL_SUBIU' => (
+        Icons.emoji_events_outlined,
+        AppAccents.tileVerde,
+        AppAccents.iconeVerde,
+      ),
+      'RESGATE_ENTREGUE' => (
+        Icons.card_giftcard_rounded,
+        AppAccents.tileLaranja,
+        AppAccents.iconeLaranja,
+      ),
+      'RESGATE_CANCELADO' => (
+        Icons.undo_rounded,
+        AppAccents.tileLaranja,
+        AppAccents.iconeLaranja,
+      ),
+      _ => (
+        Icons.notifications_none_rounded,
+        AppAccents.tileAzul,
+        AppAccents.iconeAzul,
+      ),
+    };
+    final naoLida = !notificacao.lida;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: naoLida ? AppColors.lavender : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          key: Key('notificacao-${notificacao.id}'),
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: fundo,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icone, color: cor),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        notificacao.titulo,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          color: AppColors.ink,
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        notificacao.mensagem,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          color: AppColors.muted,
+                          fontSize: 13,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        tempoRelativo(notificacao.criadoEm),
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          color: AppColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (naoLida)
+                  Semantics(
+                    label: 'Não lida',
+                    child: Container(
+                      key: Key('notificacao-nao-lida-${notificacao.id}'),
+                      width: 8,
+                      height: 8,
+                      margin: const EdgeInsets.only(top: 6, left: 8),
+                      decoration: const BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
