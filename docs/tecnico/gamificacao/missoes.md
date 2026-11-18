@@ -3,12 +3,15 @@
 Migrations:
 
 - `1794300000000-CriaMissoes` (schema `gamificacao`): `missoes` e
-  `missoes_conclusoes`. A conclusão é só de inserção (trigger
+  `missoes_conclusoes`. `missoes.ciclo` referencia `programas.codigo`
+  (`fk_missoes_ciclo`, RESTRICT): um programa com missões não é excluído
+  (409, encerre o programa). A conclusão é só de inserção (trigger
   `somente_insercao`) e tem índice único por (missão, usuário, ciclo) nas
   missões `UNICA` e por (missão, usuário, semana) nas `SEMANAL`.
 - `1794400000000-CriaNotificacoes` (schema `DB_SCHEMA`, padrão `feed`):
   `notificacoes`, com UNIQUE (`usuario_id`, `chave`) para o mesmo evento não
-  notificar duas vezes.
+  notificar duas vezes. O `tipo` é validado no código (sem CHECK no banco):
+  um tipo novo não exige migration nem falha calado em banco antigo.
 
 ## Economia
 
@@ -48,13 +51,15 @@ Perfil `coordenador` (aluno recebe 403). Tela "Missões" do painel web
 
 - `GET /` (`?status=ativa|inativa&ciclo=`), `GET /:id`.
 - `POST /`: `titulo`, `descricao`, `tipo` (`UNICA`/`SEMANAL`), `xp`, `inicio`
-  e `fim` opcionais (ISO com fuso) e `ativar`.
+  e `fim` opcionais (ISO com fuso) e `ativar`. A missão entra no ciclo atual,
+  que precisa estar aberto em Programas (senão 400).
 - `PATCH /:id`: qualquer campo, com o `atualizadoEm` que a tela mostrava (409
   `missao-alterada` se outra pessoa editou antes). O tipo não muda depois da
   primeira conclusão (409 `missao-com-conclusoes`). Mudar o XP vale só para
   conclusões futuras.
 - `POST /:id/ativar` e `POST /:id/desativar`: idempotentes. Desativar é o
-  "excluir": conclusões e ledger ficam.
+  "excluir": conclusões e ledger ficam. Ativar não notifica na hora: o aviso
+  sai quando a missão fica visível para o aluno (veja abaixo).
 
 ## Notificações: `/me/notificacoes`
 
@@ -62,17 +67,18 @@ Exigem JWT de usuário cadastrado (não exigem participação: o ex-participante
 também recebe aviso de resgate).
 
 - `GET /?limite=1..50` (padrão 20): `{ naoLidas, itens }`, mais recentes
-  primeiro.
+  primeiro. Para quem participa do ciclo, antes de listar, cria o aviso das
+  missões que ele já pode ver e ainda não recebeu.
 - `PATCH /:id/lida`: idempotente, mantém o `lidaEm` original. Notificação de
   outro usuário responde 404.
 - `PATCH /lidas`: marca todas.
 
-Geração (`NotificacoesService.criar` e `criarParaParticipantes`), sempre
-depois do commit da operação principal. Uma falha ao notificar só gera log.
+Geração (`NotificacoesService.criar` e `sincronizarMissoes`), sempre depois
+do commit da operação principal. Uma falha ao notificar só gera log.
 
 | Evento | Tipo | Chave |
 |---|---|---|
-| Primeira ativação de missão | `MISSAO_NOVA` (participantes ativos do ciclo) | `missao-nova:<id>` |
+| Missão visível para o aluno (ativa, no período, aluno participante do ciclo); gerada quando ele consulta o sino | `MISSAO_NOVA` | `missao-nova:<id>` |
 | Subida de nível (missão ou totem) | `NIVEL_SUBIU` | `nivel:<numero>` |
 | Resgate entregue / cancelado | `RESGATE_ENTREGUE` / `RESGATE_CANCELADO` | `resgate-entregue:<id>` / `resgate-cancelado:<id>` |
 
@@ -85,9 +91,12 @@ abrir o painel do sino. A preferência de alertas fica no cliente
 
 ## Telas
 
-- App (aluno): aba Missões (`tela_missoes.dart`) com limites da semana e do
-  ciclo, filtros, detalhe e o aviso de ganho limitado; sino da Home com a
-  contagem real (`CentralNotificacoes`, `painel_notificacoes.dart`).
+- App (aluno): aba Missões (`tela_missoes.dart`) para quem participa do ciclo,
+  com ou sem par, com limites da semana e do ciclo, filtros, detalhe e o aviso
+  de ganho limitado; a lista recarrega ao voltar para a aba e ao reabrir o
+  app. Sino da Home com a contagem real (`CentralNotificacoes`,
+  `painel_notificacoes.dart`); tocar numa notificação marca como lida e abre a
+  tela dela (Missões, Perfil ou Meus resgates).
 - Web (aluno): painel do sino em `AlunoLayout.jsx`, com notificações e
   comunicados.
 - Web (coordenação): `MissoesPage.jsx`, com métricas, busca, filtros,
