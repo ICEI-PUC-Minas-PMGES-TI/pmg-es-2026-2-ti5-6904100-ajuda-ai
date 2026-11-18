@@ -11,6 +11,10 @@ export function xpMaximoDe(tipo: TipoMissao): number {
   return tipo === 'SEMANAL' ? LIMITES.missoesSemanais : LIMITES.porMissao;
 }
 
+export function sqlMissaoVisivel(m: string): string {
+  return `${m}."ativa" AND (${m}."inicio" IS NULL OR ${m}."inicio" <= now()) AND (${m}."fim" IS NULL OR ${m}."fim" > now())`;
+}
+
 export const ID_MISSAO =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

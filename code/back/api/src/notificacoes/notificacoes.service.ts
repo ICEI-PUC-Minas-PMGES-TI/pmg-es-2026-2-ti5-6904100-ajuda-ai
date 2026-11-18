@@ -1,12 +1,18 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { schemaUsuarios } from '../gamificacao/gamificacao.js';
 import {
+  SCHEMA_GAMIFICACAO,
+  schemaUsuarios,
+} from '../gamificacao/gamificacao.js';
+import { sqlMissaoVisivel } from '../gamificacao/missoes/missoes.js';
+import {
+  CHAVE_MISSAO_NOVA,
   ID_NOTIFICACAO,
   LIMITE_NOTIFICACOES,
   type NotificacaoDto,
   type NotificacoesDto,
   type NovaNotificacao,
+  notificacaoMissaoNova,
   type TipoNotificacao,
 } from './notificacoes.js';
 
@@ -114,23 +120,21 @@ export class NotificacoesService {
     }
   }
 
-  async criarParaParticipantes(
-    ciclo: string,
-    nova: NovaNotificacao,
-  ): Promise<void> {
-    const u = schemaUsuarios(this.dataSource);
+  async sincronizarMissoes(usuarioId: number, ciclo: string): Promise<void> {
     try {
-      await this.dataSource.query(
-        `INSERT INTO ${this.tabela} ("usuario_id", "tipo", "titulo", "mensagem", "link", "chave") ` +
-          `SELECT DISTINCT us."id", $2, $3, $4, $5, $6 FROM ${u}."participacoes" p ` +
-          `JOIN ${u}."usuarios" us ON lower(us."email") = lower(p."usuario_id") OR us."id"::text = p."usuario_id" ` +
-          `WHERE p."programa" = $1 AND p."termino_em" IS NULL AND p."status" IN ('aprovado', 'em_andamento') ` +
-          `ON CONFLICT ("usuario_id", "chave") DO NOTHING`,
-        [ciclo, nova.tipo, nova.titulo, nova.mensagem, nova.link, nova.chave],
-      );
+      const missoes = (await this.dataSource.query(
+        `SELECT m."id", m."titulo", m."xp" FROM "${SCHEMA_GAMIFICACAO}"."missoes" m ` +
+          `WHERE m."ciclo" = $2 AND ${sqlMissaoVisivel('m')} ` +
+          `AND NOT EXISTS (SELECT 1 FROM ${this.tabela} n WHERE n."usuario_id" = $1 AND n."chave" = $3 || m."id"::text) ` +
+          `ORDER BY m."criado_em", m."id"`,
+        [usuarioId, ciclo, CHAVE_MISSAO_NOVA],
+      )) as Array<{ id: string; titulo: string; xp: number }>;
+      for (const missao of missoes) {
+        await this.criar(usuarioId, notificacaoMissaoNova(missao));
+      }
     } catch (erro) {
       this.logger.warn(
-        `falha ao notificar participantes ciclo=${ciclo} chave=${nova.chave}: ${(erro as Error).message}`,
+        `falha ao avisar missões usuario=${usuarioId} ciclo=${ciclo}: ${(erro as Error).message}`,
       );
     }
   }

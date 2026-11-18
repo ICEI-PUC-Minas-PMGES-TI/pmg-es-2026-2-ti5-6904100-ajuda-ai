@@ -12,6 +12,7 @@ import { DataSource } from 'typeorm';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { usuarioDoToken } from '../gamificacao/gamificacao.js';
+import { PermissoesAlunoService } from '../participacoes/permissoes-aluno.service.js';
 import { ListarNotificacoesQuery } from './notificacoes.dto.js';
 import { NotificacoesService } from './notificacoes.service.js';
 
@@ -23,6 +24,7 @@ export class NotificacoesController {
   constructor(
     private readonly notificacoes: NotificacoesService,
     private readonly dataSource: DataSource,
+    private readonly permissoes: PermissoesAlunoService,
   ) {}
 
   @Get()
@@ -30,8 +32,10 @@ export class NotificacoesController {
     @Req() req: AuthenticatedRequest,
     @Query() consulta: ListarNotificacoesQuery,
   ) {
+    const usuarioId = await usuarioDoToken(this.dataSource, req.user);
+    await this.avisarMissoes(req, usuarioId);
     return this.notificacoes.listar(
-      await usuarioDoToken(this.dataSource, req.user),
+      usuarioId,
       consulta.limite === undefined ? undefined : Number(consulta.limite),
     );
   }
@@ -52,5 +56,20 @@ export class NotificacoesController {
       await usuarioDoToken(this.dataSource, req.user),
       id,
     );
+  }
+
+  private async avisarMissoes(
+    req: AuthenticatedRequest,
+    usuarioId: number,
+  ): Promise<void> {
+    const permissoes = await this.permissoes
+      .doUsuario(req.user)
+      .catch(() => null);
+    if (permissoes?.podeColetarTotens) {
+      await this.notificacoes.sincronizarMissoes(
+        usuarioId,
+        permissoes.programa,
+      );
+    }
   }
 }

@@ -32,7 +32,6 @@ export class CriaMissoes1794300000000 implements MigrationInterface {
         `"fim" TIMESTAMP WITH TIME ZONE, ` +
         `"ciclo" character varying(20) NOT NULL, ` +
         `"criado_por" integer, ` +
-        `"ativada_em" TIMESTAMP WITH TIME ZONE, ` +
         `"criado_em" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), ` +
         `"atualizado_em" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), ` +
         `CONSTRAINT "pk_missoes" PRIMARY KEY ("id"), ` +

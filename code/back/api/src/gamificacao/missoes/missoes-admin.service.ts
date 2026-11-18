@@ -7,8 +7,6 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { DataSource, type EntityManager } from 'typeorm';
-import { notificacaoMissaoNova } from '../../notificacoes/notificacoes.js';
-import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
 import { SCHEMA_GAMIFICACAO } from '../gamificacao.js';
 import type {
@@ -16,7 +14,12 @@ import type {
   CriarMissaoDto,
   MissaoAdminDto,
 } from './missoes.dto.js';
-import { ID_MISSAO, type TipoMissao, xpMaximoDe } from './missoes.js';
+import {
+  ID_MISSAO,
+  sqlMissaoVisivel,
+  type TipoMissao,
+  xpMaximoDe,
+} from './missoes.js';
 
 const g = `"${SCHEMA_GAMIFICACAO}"`;
 
@@ -40,7 +43,7 @@ interface Linha {
 
 const SELECT =
   `SELECT m."id", m."titulo", m."descricao", m."tipo", m."xp", m."ativa", m."inicio", m."fim", m."ciclo", ` +
-  `(m."ativa" AND (m."inicio" IS NULL OR m."inicio" <= now()) AND (m."fim" IS NULL OR m."fim" > now())) AS vigente_agora, ` +
+  `(${sqlMissaoVisivel('m')}) AS vigente_agora, ` +
   `(SELECT count(*)::int FROM ${g}."missoes_conclusoes" c WHERE c."missao_id" = m."id") AS conclusoes, ` +
   `(SELECT COALESCE(sum(c."xp_creditado"), 0)::int FROM ${g}."missoes_conclusoes" c WHERE c."missao_id" = m."id") AS xp_creditado_total, ` +
   `m."criado_por", m."criado_em", m."atualizado_em" FROM ${g}."missoes" m`;
@@ -96,10 +99,7 @@ function exigirRegras(
 export class MissoesAdminService {
   private readonly logger = new Logger('MissoesAdmin');
 
-  constructor(
-    private readonly dataSource: DataSource,
-    private readonly notificacoes: NotificacoesService,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async listar(
     status?: 'ativa' | 'inativa',
@@ -126,8 +126,8 @@ export class MissoesAdminService {
     exigirRegras(dados.tipo, dados.xp, inicio, fim, true, agora);
     const ativar = dados.ativar === true;
     const [{ id }] = (await this.dataSource.query(
-      `INSERT INTO ${g}."missoes" ("titulo", "descricao", "tipo", "xp", "ativa", "inicio", "fim", "ciclo", "criado_por", "ativada_em") ` +
-        `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $5 THEN now() END) RETURNING "id"`,
+      `INSERT INTO ${g}."missoes" ("titulo", "descricao", "tipo", "xp", "ativa", "inicio", "fim", "ciclo", "criado_por") ` +
+        `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING "id"`,
       [
         dados.titulo.trim(),
         dados.descricao.trim(),
@@ -141,9 +141,7 @@ export class MissoesAdminService {
       ],
     )) as Array<{ id: string }>;
     this.logger.log(`missao criada id=${id} ativa=${ativar}`);
-    const missao = await this.detalhe(id);
-    if (ativar) await this.avisarNova(missao);
-    return missao;
+    return this.detalhe(id);
   }
 
   async atualizar(
@@ -205,9 +203,9 @@ export class MissoesAdminService {
   }
 
   async definirAtiva(id: string, ativa: boolean): Promise<MissaoAdminDto> {
-    const primeiraAtivacao = await this.dataSource.transaction(async (m) => {
+    await this.dataSource.transaction(async (m) => {
       const atual = await this.buscar(m, id, true);
-      if (atual.ativa === ativa) return false;
+      if (atual.ativa === ativa) return;
       if (ativa && atual.fim && new Date(atual.fim) <= new Date()) {
         throw new UnprocessableEntityException({
           statusCode: 422,
@@ -217,28 +215,13 @@ export class MissoesAdminService {
           fim: atual.fim,
         });
       }
-      const [{ ativada_em: ativadaAntes }] = (await m.query(
-        `SELECT "ativada_em" FROM ${g}."missoes" WHERE "id" = $1`,
-        [id],
-      )) as Array<{ ativada_em: Date | null }>;
       await m.query(
-        `UPDATE ${g}."missoes" SET "ativa" = $2, "ativada_em" = CASE WHEN $2 THEN COALESCE("ativada_em", now()) ELSE "ativada_em" END, ` +
-          `"atualizado_em" = now() WHERE "id" = $1`,
+        `UPDATE ${g}."missoes" SET "ativa" = $2, "atualizado_em" = now() WHERE "id" = $1`,
         [id, ativa],
       );
-      return ativa && ativadaAntes === null;
     });
     this.logger.log(`missao ${ativa ? 'ativada' : 'desativada'} id=${id}`);
-    const missao = await this.detalhe(id);
-    if (primeiraAtivacao) await this.avisarNova(missao);
-    return missao;
-  }
-
-  private async avisarNova(missao: MissaoAdminDto): Promise<void> {
-    await this.notificacoes.criarParaParticipantes(
-      missao.ciclo,
-      notificacaoMissaoNova(missao),
-    );
+    return this.detalhe(id);
   }
 
   private async buscar(

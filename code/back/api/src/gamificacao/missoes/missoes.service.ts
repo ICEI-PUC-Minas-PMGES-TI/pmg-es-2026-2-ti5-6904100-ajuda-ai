@@ -25,6 +25,7 @@ import {
   chaveConclusao,
   ID_MISSAO,
   semanaDe,
+  sqlMissaoVisivel,
   type TipoMissao,
   xpPrevisto,
 } from './missoes.js';
@@ -90,7 +91,7 @@ export class MissoesService {
           `c."id" AS conclusao_id, c."xp_configurado", c."xp_creditado", c."criado_em" AS concluida_em ` +
           `FROM ${g}."missoes" m LEFT JOIN ${g}."missoes_conclusoes" c ON c."missao_id" = m."id" AND c."usuario_id" = $1 ` +
           `AND ((m."tipo" = 'UNICA' AND c."semana" IS NULL AND c."ciclo" = $2) OR (m."tipo" = 'SEMANAL' AND c."semana" = $3::date)) ` +
-          `WHERE m."ativa" AND m."ciclo" = $2 AND (m."inicio" IS NULL OR m."inicio" <= now()) AND (m."fim" IS NULL OR m."fim" > now()) ` +
+          `WHERE m."ciclo" = $2 AND ${sqlMissaoVisivel('m')} ` +
           `ORDER BY m."fim" ASC NULLS LAST, m."criado_em" DESC`,
         [usuarioId, ciclo, semana],
       ) as Promise<LinhaMissaoAluno[]>,

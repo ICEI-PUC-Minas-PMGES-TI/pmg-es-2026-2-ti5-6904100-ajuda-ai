@@ -1,13 +1,11 @@
 import { NotFoundException } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
-import {
-  notificacaoMissaoNova,
-  notificacaoNivel,
-  notificacaoResgate,
-} from './notificacoes.js';
+import { notificacaoNivel, notificacaoResgate } from './notificacoes.js';
 import { NotificacoesService } from './notificacoes.service.js';
 
 const ID = '4a3b2c1d-0e9f-4876-a5b4-c3d2e1f0a9b8';
+const MISSAO = '6f1c2b0e-3d7a-4c61-9a52-1b8e0f4d2a77';
+const MISSAO_2 = '9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a';
 const CRIADO = new Date('2026-11-17T15:20:41.000Z');
 const LIDA = new Date('2026-11-17T15:30:00.000Z');
 
@@ -23,7 +21,17 @@ interface Registro {
   criado_em: Date;
 }
 
-function banco(inicial: Registro[] = [], falhar = false) {
+interface MissaoVisivel {
+  id: string;
+  titulo: string;
+  xp: number;
+}
+
+function banco(
+  inicial: Registro[] = [],
+  falhar = false,
+  missoes: MissaoVisivel[] = [],
+) {
   const linhas = [...inicial];
   const comandos: Array<[string, unknown[]]> = [];
   const query = async (sql: string, params: unknown[] = []) => {
@@ -34,6 +42,15 @@ function banco(inicial: Registro[] = [], falhar = false) {
         (l) => l.usuario_id === params[0] && l.lida_em === null,
       ).length;
       return [{ total }];
+    }
+    if (sql.startsWith('SELECT m."id"')) {
+      return missoes.filter(
+        (m) =>
+          !linhas.some(
+            (l) =>
+              l.usuario_id === params[0] && l.chave === `${params[2]}${m.id}`,
+          ),
+      );
     }
     if (sql.startsWith('SELECT "id"')) {
       return linhas
@@ -204,31 +221,37 @@ describe('NotificacoesService', () => {
       service.criar(7, notificacaoNivel(500)),
     ).resolves.toBeUndefined();
     await expect(
-      service.criarParaParticipantes(
-        '2026/2',
-        notificacaoMissaoNova({ id: ID, titulo: 'X', xp: 10 }),
-      ),
+      service.sincronizarMissoes(7, '2026/2'),
     ).resolves.toBeUndefined();
   });
 
-  it('missão nova vai só para participantes ativos do ciclo', async () => {
-    const { service, comandos } = banco();
-    await service.criarParaParticipantes(
-      '2026/2',
-      notificacaoMissaoNova({ id: ID, titulo: 'Visite a biblioteca', xp: 80 }),
-    );
-    const [sql, params] = comandos[0];
-    expect(sql).toContain('"participacoes"');
-    expect(sql).toContain('"termino_em" IS NULL');
-    expect(sql).toContain("IN ('aprovado', 'em_andamento')");
-    expect(params).toEqual([
-      '2026/2',
-      'MISSAO_NOVA',
-      'Nova missão disponível',
-      'Visite a biblioteca · 80 XP',
-      '/missoes',
-      `missao-nova:${ID}`,
+  it('avisa as missões que o aluno já pode ver no ciclo', async () => {
+    const { service, comandos, linhas } = banco([], false, [
+      { id: MISSAO, titulo: 'Visite a biblioteca', xp: 80 },
+      { id: MISSAO_2, titulo: 'Converse com seu padrinho', xp: 30 },
     ]);
+    await service.sincronizarMissoes(7, '2026/2');
+    const [sql, params] = comandos[0];
+    expect(sql).toContain('"missoes" m');
+    expect(sql).toContain('m."ciclo" = $2');
+    expect(sql).toContain('m."ativa"');
+    expect(sql).toContain('m."inicio" <= now()');
+    expect(sql).toContain('m."fim" > now()');
+    expect(sql).toContain('NOT EXISTS');
+    expect(params).toEqual([7, '2026/2', 'missao-nova:']);
+    expect(linhas.map((l) => [l.usuario_id, l.chave, l.mensagem])).toEqual([
+      [7, `missao-nova:${MISSAO}`, 'Visite a biblioteca · 80 XP'],
+      [7, `missao-nova:${MISSAO_2}`, 'Converse com seu padrinho · 30 XP'],
+    ]);
+  });
+
+  it('não repete o aviso da mesma missão', async () => {
+    const { service, linhas } = banco([], false, [
+      { id: MISSAO, titulo: 'Visite a biblioteca', xp: 80 },
+    ]);
+    await service.sincronizarMissoes(7, '2026/2');
+    await service.sincronizarMissoes(7, '2026/2');
+    expect(linhas).toHaveLength(1);
   });
 });
 
@@ -247,11 +270,14 @@ describe('textos das notificações', () => {
     const resgate = { id: ID, nome: 'Caneca Ajuda-aí' };
     expect(notificacaoResgate('entregue', resgate)).toMatchObject({
       tipo: 'RESGATE_ENTREGUE',
+      mensagem: 'Seu resgate de Caneca Ajuda-aí foi entregue.',
       link: `/lojinha/resgates/${ID}`,
       chave: `resgate-entregue:${ID}`,
     });
     expect(notificacaoResgate('cancelado', resgate)).toMatchObject({
       tipo: 'RESGATE_CANCELADO',
+      mensagem:
+        'Seu resgate de Caneca Ajuda-aí foi cancelado e as moedas voltaram para a sua carteira.',
       chave: `resgate-cancelado:${ID}`,
     });
   });

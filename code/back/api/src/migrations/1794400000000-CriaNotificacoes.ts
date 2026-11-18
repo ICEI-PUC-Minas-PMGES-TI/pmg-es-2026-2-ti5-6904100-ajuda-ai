@@ -3,7 +3,6 @@ import {
   CHAVE_NOTIFICACAO_MAX,
   LINK_NOTIFICACAO_MAX,
   MENSAGEM_NOTIFICACAO_MAX,
-  TIPOS_NOTIFICACAO,
   TITULO_NOTIFICACAO_MAX,
 } from '../notificacoes/notificacoes.js';
 
@@ -17,7 +16,6 @@ export class CriaNotificacoes1794400000000 implements MigrationInterface {
 
   async up(qr: QueryRunner): Promise<void> {
     const u = schemaUsuarios(qr);
-    const tipos = TIPOS_NOTIFICACAO.map((t) => `'${t}'`).join(', ');
     await qr.query(
       `CREATE TABLE ${u}."notificacoes" (` +
         `"id" uuid NOT NULL DEFAULT gen_random_uuid(), ` +
@@ -31,8 +29,7 @@ export class CriaNotificacoes1794400000000 implements MigrationInterface {
         `"criado_em" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), ` +
         `CONSTRAINT "pk_notificacoes" PRIMARY KEY ("id"), ` +
         `CONSTRAINT "uq_notificacoes_usuario_chave" UNIQUE ("usuario_id", "chave"), ` +
-        `CONSTRAINT "fk_notificacoes_usuario" FOREIGN KEY ("usuario_id") REFERENCES ${u}."usuarios"("id") ON DELETE CASCADE, ` +
-        `CONSTRAINT "ck_notificacoes_tipo" CHECK ("tipo" IN (${tipos})))`,
+        `CONSTRAINT "fk_notificacoes_usuario" FOREIGN KEY ("usuario_id") REFERENCES ${u}."usuarios"("id") ON DELETE CASCADE)`,
     );
     await qr.query(
       `CREATE INDEX "idx_notificacoes_usuario_lida" ON ${u}."notificacoes" ("usuario_id", "lida_em")`,

@@ -13,6 +13,7 @@ export const MENSAGEM_NOTIFICACAO_MAX = 500;
 export const LINK_NOTIFICACAO_MAX = 200;
 export const CHAVE_NOTIFICACAO_MAX = 120;
 export const LIMITE_NOTIFICACOES = { padrao: 20, max: 50 } as const;
+export const CHAVE_MISSAO_NOVA = 'missao-nova:';
 
 export const ID_NOTIFICACAO =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -51,7 +52,7 @@ export function notificacaoMissaoNova(missao: {
     titulo: 'Nova missão disponível',
     mensagem: `${missao.titulo} · ${missao.xp} XP`,
     link: '/missoes',
-    chave: `missao-nova:${missao.id}`,
+    chave: `${CHAVE_MISSAO_NOVA}${missao.id}`,
   };
 }
 
@@ -77,8 +78,8 @@ export function notificacaoResgate(
     tipo: entregue ? 'RESGATE_ENTREGUE' : 'RESGATE_CANCELADO',
     titulo: entregue ? 'Resgate entregue' : 'Resgate cancelado',
     mensagem: entregue
-      ? `${resgate.nome} foi marcada como entregue.`
-      : `${resgate.nome} foi cancelado e as moedas voltaram para a sua carteira.`,
+      ? `Seu resgate de ${resgate.nome} foi entregue.`
+      : `Seu resgate de ${resgate.nome} foi cancelado e as moedas voltaram para a sua carteira.`,
     link: `/lojinha/resgates/${resgate.id}`,
     chave: `resgate-${desfecho}:${resgate.id}`,
   };
