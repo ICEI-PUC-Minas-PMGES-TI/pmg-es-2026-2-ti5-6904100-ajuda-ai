@@ -59,6 +59,10 @@ test('tempo relativo e rotas da web', () => {
   assert.equal(n.tempoRelativo('2026-11-18T11:55:00Z', agora), 'há 5 min');
   assert.equal(n.tempoRelativo('2026-11-18T11:00:00Z', agora), 'há 1 h');
   assert.equal(n.tempoRelativo('2026-11-17T10:00:00Z', agora), 'ontem');
+  const noite = new Date(2026, 10, 18, 23, 40);
+  assert.equal(n.tempoRelativo(new Date(2026, 10, 18, 0, 5).toISOString(), noite), 'há 23 h');
+  assert.equal(n.tempoRelativo(new Date(2026, 10, 17, 23).toISOString(), new Date(2026, 10, 18, 8)), 'ontem');
+  assert.equal(n.tempoRelativo(new Date(2026, 10, 16, 20).toISOString(), new Date(2026, 10, 18, 8)), '16/11');
   assert.equal(n.rotaDaNotificacao('/perfil'), '/aluno/perfil');
   assert.equal(n.rotaDaNotificacao('/missoes'), null);
   assert.equal(n.ICONE_NOTIFICACAO.MISSAO_NOVA, 'trophy');

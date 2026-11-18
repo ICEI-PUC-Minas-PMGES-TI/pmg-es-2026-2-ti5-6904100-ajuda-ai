@@ -14,12 +14,14 @@ export function rotaDaNotificacao(link) {
 export function tempoRelativo(iso, agora = new Date()) {
   const data = new Date(iso);
   if (Number.isNaN(data.getTime())) return '';
-  const minutos = Math.max(0, Math.round((agora - data) / 60000));
+  const minutos = Math.max(0, Math.floor((agora - data) / 60000));
   if (minutos < 1) return 'agora';
   if (minutos < 60) return `há ${minutos} min`;
-  const horas = Math.round(minutos / 60);
-  if (horas < 24) return `há ${horas} h`;
-  if (horas < 48) return 'ontem';
+  const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+  const dia = new Date(data.getFullYear(), data.getMonth(), data.getDate());
+  const dias = Math.round((hoje - dia) / 86400000);
+  if (dias <= 0) return `há ${Math.floor(minutos / 60)} h`;
+  if (dias === 1) return 'ontem';
   return `${String(data.getDate()).padStart(2, '0')}/${String(data.getMonth() + 1).padStart(2, '0')}`;
 }
 

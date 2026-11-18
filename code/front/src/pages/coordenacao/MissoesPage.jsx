@@ -430,7 +430,7 @@ export default function MissoesPage() {
 
       {missoes?.length > 0 && (
         <p className="detail-muted small">
-          A primeira ativação de uma missão avisa os participantes do ciclo no sino. Desativar não apaga conclusões nem XP já concedidos.
+          Os participantes do ciclo recebem o aviso no sino quando a missão fica disponível para eles. Desativar não apaga conclusões nem XP já concedidos.
         </p>
       )}
 
