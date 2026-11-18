@@ -38,18 +38,44 @@ class MissoesPage extends StatefulWidget {
   State<MissoesPage> createState() => _MissoesPageState();
 }
 
-class _MissoesPageState extends State<MissoesPage> {
+class _MissoesPageState extends State<MissoesPage> with WidgetsBindingObserver {
   late final MissoesApi _api = widget.api ?? MissoesApi();
   MissoesAluno? _dados;
   Object? _erro;
   bool _carregando = true;
   FiltroMissoes _filtro = FiltroMissoes.disponiveis;
   final Set<String> _concluindo = {};
+  AppDestination? _aba;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _carregar();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final aba = AppShell.of(context)?.atual;
+    if (aba == AppDestination.missoes && _aba != null && _aba != aba) {
+      _carregar();
+    }
+    _aba = aba;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        (_aba == null || _aba == AppDestination.missoes)) {
+      _carregar();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   Future<void> _carregar() async {

@@ -4,7 +4,10 @@ import 'package:ajuda_ai/models/missao.dart';
 import 'package:ajuda_ai/services/missoes_api.dart';
 import 'package:ajuda_ai/services/participacoes_api.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
+import 'package:ajuda_ai/status_participacao.dart';
 import 'package:ajuda_ai/tela_missoes.dart';
+import 'package:ajuda_ai/widgets/app_bottom_navigation.dart';
+import 'package:ajuda_ai/widgets/navegacao_app.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -94,11 +97,15 @@ class Servidor {
   Map<String, dynamic> respostaConclusao = conclusao();
   int statusConclusao = 201;
   int statusLista = 200;
+  int listagens = 0;
   final concluidas = <String>[];
 
   MockClient get client => MockClient((request) async {
-    expect(request.headers['authorization'], 'Bearer token-teste');
+    if (request.headers['authorization'] != 'Bearer token-teste') {
+      return resposta('{"message":"Token inválido."}', 401);
+    }
     if (request.method == 'GET' && request.url.path == '/me/missoes') {
+      listagens++;
       if (statusLista != 200) {
         return resposta(
           jsonEncode({'statusCode': statusLista, 'message': 'Sem acesso.'}),
@@ -291,5 +298,69 @@ void main() {
     })!;
     expect(dados.missoes.map((m) => m.id), ['m1']);
     expect(dados.tetoSemanal!.restante, 20);
+  });
+
+  test('participante sem par também tem a aba Missões', () {
+    for (final status in [
+      StatusParticipacao.apadrinhadoAguardandoMatch,
+      StatusParticipacao.padrinhoAguardandoMatching,
+    ]) {
+      SessaoUsuario.atual.status = status;
+      expect(SessaoUsuario.atual.destinos, [
+        AppDestination.mapa,
+        AppDestination.missoes,
+        AppDestination.feed,
+        AppDestination.perfil,
+      ]);
+    }
+  });
+
+  testWidgets('aba recarrega ao voltar para ela e ao retomar o app', (
+    tester,
+  ) async {
+    telaAlta(tester);
+    final servidor = Servidor([missao('m1')]);
+    SessaoUsuario.atual.configurarApi(
+      ParticipacoesApi(client: servidor.client)..accessToken = 'token-teste',
+    );
+    SessaoUsuario.atual.status = StatusParticipacao.apadrinhadoAtivo;
+    final casca = GlobalKey<AppShellState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppShell(
+          key: casca,
+          inicial: AppDestination.missoes,
+          construtorDePagina: (destino) => destino == AppDestination.missoes
+              ? MissoesPage(
+                  api: MissoesApi(client: servidor.client, baseUrl: ''),
+                )
+              : Center(child: Text('pagina-${destino.name}')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(servidor.listagens, 1);
+
+    servidor.missoes = [missao('m1'), missao('m2', titulo: 'Missão nova')];
+    casca.currentState!.ir(AppDestination.inicio);
+    await tester.pumpAndSettle();
+    expect(servidor.listagens, 1);
+    casca.currentState!.ir(AppDestination.missoes);
+    await tester.pumpAndSettle();
+    expect(servidor.listagens, 2);
+    expect(find.text('Missão nova'), findsOneWidget);
+
+    for (final estado in [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(estado);
+    }
+    await tester.pumpAndSettle();
+    expect(servidor.listagens, 3);
   });
 }

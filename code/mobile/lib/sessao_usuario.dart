@@ -268,7 +268,12 @@ class SessaoUsuario {
   List<AppDestination> get destinos => status.ativo
       ? AppDestination.values
       : status.participante
-      ? const [AppDestination.mapa, AppDestination.feed, AppDestination.perfil]
+      ? const [
+          AppDestination.mapa,
+          AppDestination.missoes,
+          AppDestination.feed,
+          AppDestination.perfil,
+        ]
       : const [AppDestination.mapa, AppDestination.perfil];
 
   bool get podeCandidatarPadrinho =>
