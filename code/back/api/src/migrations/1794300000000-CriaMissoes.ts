@@ -12,8 +12,8 @@ function schemaUsuarios(queryRunner: QueryRunner): string {
   return `"${(options.schema ?? 'feed').replaceAll('"', '""')}"`;
 }
 
-export class CriaMissoes1794100000000 implements MigrationInterface {
-  name = 'CriaMissoes1794100000000';
+export class CriaMissoes1794300000000 implements MigrationInterface {
+  name = 'CriaMissoes1794300000000';
 
   async up(qr: QueryRunner): Promise<void> {
     const g = `"${SCHEMA_GAMIFICACAO}"`;

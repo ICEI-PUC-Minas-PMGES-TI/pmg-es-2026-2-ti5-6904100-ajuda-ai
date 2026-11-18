@@ -6,6 +6,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { notificacaoNivel } from '../../notificacoes/notificacoes.js';
+import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
 import { LIMITES, moedasPorXp, nivelDe } from '../economia.js';
 import {
@@ -71,7 +73,10 @@ function jaConcluida(tipo: TipoMissao, anterior?: ConclusaoAnterior) {
 export class MissoesService {
   private readonly logger = new Logger('Missoes');
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly notificacoes: NotificacoesService,
+  ) {}
 
   async listar(
     usuarioId: number,
@@ -232,6 +237,10 @@ export class MissoesService {
 
       const xpAcumulado = ganho.movimentacao?.xpAcumulado ?? xpAntes;
       const nivel = nivelDe(xpAcumulado);
+      const subiuDeNivel = nivel.numero > nivelDe(xpAntes).numero;
+      if (subiuDeNivel) {
+        await this.notificacoes.criar(usuarioId, notificacaoNivel(xpAcumulado));
+      }
       return {
         missaoId: missao.id,
         conclusaoId: conclusao.id,
@@ -243,7 +252,7 @@ export class MissoesService {
         saldoMoedas: ganho.movimentacao?.saldo ?? saldoAntes,
         xpAcumulado,
         nivel,
-        subiuDeNivel: nivel.numero > nivelDe(xpAntes).numero,
+        subiuDeNivel,
         ciclo,
         semana,
         concluidaEm: conclusao.criado_em.toISOString(),

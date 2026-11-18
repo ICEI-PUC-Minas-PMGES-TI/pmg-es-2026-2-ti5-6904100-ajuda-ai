@@ -7,6 +7,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { DataSource, type EntityManager } from 'typeorm';
+import { notificacaoMissaoNova } from '../../notificacoes/notificacoes.js';
+import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
 import { SCHEMA_GAMIFICACAO } from '../gamificacao.js';
 import type {
@@ -94,7 +96,10 @@ function exigirRegras(
 export class MissoesAdminService {
   private readonly logger = new Logger('MissoesAdmin');
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly notificacoes: NotificacoesService,
+  ) {}
 
   async listar(
     status?: 'ativa' | 'inativa',
@@ -136,7 +141,9 @@ export class MissoesAdminService {
       ],
     )) as Array<{ id: string }>;
     this.logger.log(`missao criada id=${id} ativa=${ativar}`);
-    return this.detalhe(id);
+    const missao = await this.detalhe(id);
+    if (ativar) await this.avisarNova(missao);
+    return missao;
   }
 
   async atualizar(
@@ -198,9 +205,9 @@ export class MissoesAdminService {
   }
 
   async definirAtiva(id: string, ativa: boolean): Promise<MissaoAdminDto> {
-    await this.dataSource.transaction(async (m) => {
+    const primeiraAtivacao = await this.dataSource.transaction(async (m) => {
       const atual = await this.buscar(m, id, true);
-      if (atual.ativa === ativa) return;
+      if (atual.ativa === ativa) return false;
       if (ativa && atual.fim && new Date(atual.fim) <= new Date()) {
         throw new UnprocessableEntityException({
           statusCode: 422,
@@ -210,14 +217,28 @@ export class MissoesAdminService {
           fim: atual.fim,
         });
       }
+      const [{ ativada_em: ativadaAntes }] = (await m.query(
+        `SELECT "ativada_em" FROM ${g}."missoes" WHERE "id" = $1`,
+        [id],
+      )) as Array<{ ativada_em: Date | null }>;
       await m.query(
         `UPDATE ${g}."missoes" SET "ativa" = $2, "ativada_em" = CASE WHEN $2 THEN COALESCE("ativada_em", now()) ELSE "ativada_em" END, ` +
           `"atualizado_em" = now() WHERE "id" = $1`,
         [id, ativa],
       );
+      return ativa && ativadaAntes === null;
     });
     this.logger.log(`missao ${ativa ? 'ativada' : 'desativada'} id=${id}`);
-    return this.detalhe(id);
+    const missao = await this.detalhe(id);
+    if (primeiraAtivacao) await this.avisarNova(missao);
+    return missao;
+  }
+
+  private async avisarNova(missao: MissaoAdminDto): Promise<void> {
+    await this.notificacoes.criarParaParticipantes(
+      missao.ciclo,
+      notificacaoMissaoNova(missao),
+    );
   }
 
   private async buscar(

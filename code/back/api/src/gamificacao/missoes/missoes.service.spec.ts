@@ -4,6 +4,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import type { DataSource, QueryRunner } from 'typeorm';
+import type { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
 import { MissoesService } from './missoes.service.js';
 import { semanaDe, xpPrevisto } from './missoes.js';
@@ -12,6 +13,16 @@ const ID = '6f1c2b0e-3d7a-4c61-9a52-1b8e0f4d2a77';
 const USUARIO = 7;
 const AGORA = new Date('2026-11-18T15:00:00-03:00');
 const CICLO = ParticipacoesService.programaAtual(AGORA);
+
+function notificacoesFalsas() {
+  const enviadas: Array<[number, { tipo: string; chave: string }]> = [];
+  const servico = {
+    criar: async (usuarioId: number, nova: { tipo: string; chave: string }) => {
+      enviadas.push([usuarioId, nova]);
+    },
+  } as unknown as NotificacoesService;
+  return { servico, enviadas };
+}
 
 interface Cenario {
   tipo?: 'UNICA' | 'SEMANAL';
@@ -113,7 +124,12 @@ function banco(c: Cenario = {}) {
     createQueryRunner: () => qr,
     query: (sql: string, params?: unknown[]) => qr.query(sql, params),
   } as unknown as DataSource;
-  return { service: new MissoesService(db), comandos };
+  const avisos = notificacoesFalsas();
+  return {
+    service: new MissoesService(db, avisos.servico),
+    comandos,
+    enviadas: avisos.enviadas,
+  };
 }
 
 const ledger = (comandos: Array<[string, unknown[]]>) =>
@@ -150,6 +166,24 @@ describe('xpPrevisto', () => {
 });
 
 describe('MissoesService.concluir', () => {
+  it('subir de nível gera a notificação NIVEL_SUBIU depois do commit', async () => {
+    const { service, enviadas, comandos } = banco();
+    await service.concluir(USUARIO, ID, AGORA);
+    expect(enviadas).toEqual([
+      [
+        USUARIO,
+        expect.objectContaining({ tipo: 'NIVEL_SUBIU', chave: 'nivel:5' }),
+      ],
+    ]);
+    expect(comandos.some(([sql]) => sql === 'COMMIT')).toBe(true);
+  });
+
+  it('sem subir de nível não notifica', async () => {
+    const { service, enviadas } = banco({ geral: 1500 });
+    await service.concluir(USUARIO, ID, AGORA);
+    expect(enviadas).toEqual([]);
+  });
+
   it('credita XP e moedas pelo ledger com a chave da missão no ciclo', async () => {
     const { service, comandos } = banco();
     const r = await service.concluir(USUARIO, ID, AGORA);
@@ -332,7 +366,7 @@ describe('MissoesService.listar', () => {
       query: async (sql: string) =>
         sql.includes('AS totens') ? [{ totens: 0, geral, semana }] : linhas,
     } as unknown as DataSource;
-    return new MissoesService(db);
+    return new MissoesService(db, notificacoesFalsas().servico);
   }
 
   it('status por missão, limites e concluídas no fim', async () => {

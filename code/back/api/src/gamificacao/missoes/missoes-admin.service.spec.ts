@@ -4,6 +4,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
+import type { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { MissoesAdminService } from './missoes-admin.service.js';
 
 const ID = '6f1c2b0e-3d7a-4c61-9a52-1b8e0f4d2a77';
@@ -34,6 +35,8 @@ function banco(linha: Record<string, unknown> = {}) {
     comandos.push([sql, params]);
     if (sql.startsWith('INSERT INTO')) return [{ id: ID }];
     if (sql.startsWith('SELECT m."id"')) return [atual];
+    if (sql.startsWith('SELECT "ativada_em"'))
+      return [{ ativada_em: linha.ativada_em ?? null }];
     return [];
   };
   const manager = { query };
@@ -43,7 +46,17 @@ function banco(linha: Record<string, unknown> = {}) {
     transaction: async (fn: (m: typeof manager) => Promise<unknown>) =>
       fn(manager),
   } as unknown as DataSource;
-  return { service: new MissoesAdminService(db), comandos };
+  const avisos: Array<[string, { chave: string }]> = [];
+  const notificacoes = {
+    criarParaParticipantes: async (ciclo: string, nova: { chave: string }) => {
+      avisos.push([ciclo, nova]);
+    },
+  } as unknown as NotificacoesService;
+  return {
+    service: new MissoesAdminService(db, notificacoes),
+    comandos,
+    avisos,
+  };
 }
 
 const gravou = (comandos: Array<[string, unknown[]]>) =>
@@ -172,5 +185,40 @@ describe('MissoesAdminService', () => {
     await service.definirAtiva(ID, false);
     const [, params] = comandos.find(([sql]) => sql.startsWith('UPDATE'))!;
     expect(params).toEqual([ID, false]);
+  });
+
+  it('primeira ativação avisa os participantes do ciclo', async () => {
+    const { service, avisos } = banco();
+    await service.definirAtiva(ID, true);
+    expect(avisos).toEqual([
+      [
+        '2026/2',
+        expect.objectContaining({
+          chave: `missao-nova:${ID}`,
+          tipo: 'MISSAO_NOVA',
+        }),
+      ],
+    ]);
+  });
+
+  it('reativar não avisa de novo', async () => {
+    const { service, avisos } = banco({ ativada_em: ATUALIZADO });
+    await service.definirAtiva(ID, true);
+    expect(avisos).toEqual([]);
+  });
+
+  it('desativar não avisa', async () => {
+    const { service, avisos } = banco({ ativa: true, ativada_em: ATUALIZADO });
+    await service.definirAtiva(ID, false);
+    expect(avisos).toEqual([]);
+  });
+
+  it('criar já ativa avisa; rascunho não', async () => {
+    const ativa = banco();
+    await ativa.service.criar({ ...base, ativar: true }, null, AGORA);
+    expect(ativa.avisos).toHaveLength(1);
+    const rascunho = banco();
+    await rascunho.service.criar(base, null, AGORA);
+    expect(rascunho.avisos).toEqual([]);
   });
 });
