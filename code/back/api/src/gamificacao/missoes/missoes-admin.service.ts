@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { DataSource, type EntityManager } from 'typeorm';
 import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
-import { SCHEMA_GAMIFICACAO } from '../gamificacao.js';
+import { SCHEMA_GAMIFICACAO, schemaUsuarios } from '../gamificacao.js';
 import type {
   AtualizarMissaoDto,
   CriarMissaoDto,
@@ -124,6 +124,8 @@ export class MissoesAdminService {
     const inicio = data(dados.inicio);
     const fim = data(dados.fim);
     exigirRegras(dados.tipo, dados.xp, inicio, fim, true, agora);
+    const ciclo = ParticipacoesService.programaAtual(agora);
+    await this.exigirPrograma(ciclo);
     const ativar = dados.ativar === true;
     const [{ id }] = (await this.dataSource.query(
       `INSERT INTO ${g}."missoes" ("titulo", "descricao", "tipo", "xp", "ativa", "inicio", "fim", "ciclo", "criado_por") ` +
@@ -136,7 +138,7 @@ export class MissoesAdminService {
         ativar,
         inicio,
         fim,
-        ParticipacoesService.programaAtual(agora),
+        ciclo,
         criadoPor,
       ],
     )) as Array<{ id: string }>;
@@ -222,6 +224,18 @@ export class MissoesAdminService {
     });
     this.logger.log(`missao ${ativa ? 'ativada' : 'desativada'} id=${id}`);
     return this.detalhe(id);
+  }
+
+  private async exigirPrograma(ciclo: string): Promise<void> {
+    const [programa] = (await this.dataSource.query(
+      `SELECT 1 FROM ${schemaUsuarios(this.dataSource)}."programas" WHERE "codigo" = $1`,
+      [ciclo],
+    )) as unknown[];
+    if (!programa) {
+      throw new BadRequestException(
+        `Ciclo ${ciclo} não cadastrado. A coordenação precisa abrir o ciclo em Programas.`,
+      );
+    }
   }
 
   private async buscar(

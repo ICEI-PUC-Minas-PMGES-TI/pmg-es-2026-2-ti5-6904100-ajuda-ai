@@ -35,6 +35,7 @@ export class CriaMissoes1794300000000 implements MigrationInterface {
         `"criado_em" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), ` +
         `"atualizado_em" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), ` +
         `CONSTRAINT "pk_missoes" PRIMARY KEY ("id"), ` +
+        `CONSTRAINT "fk_missoes_ciclo" FOREIGN KEY ("ciclo") REFERENCES ${u}."programas"("codigo") ON DELETE RESTRICT ON UPDATE RESTRICT, ` +
         `CONSTRAINT "fk_missoes_criado_por" FOREIGN KEY ("criado_por") REFERENCES ${u}."usuarios"("id") ON DELETE SET NULL, ` +
         `CONSTRAINT "ck_missoes_titulo" CHECK (btrim("titulo") <> ''), ` +
         `CONSTRAINT "ck_missoes_descricao" CHECK (btrim("descricao") <> ''), ` +

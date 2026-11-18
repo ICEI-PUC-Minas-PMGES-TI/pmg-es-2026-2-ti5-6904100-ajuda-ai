@@ -10,7 +10,7 @@ const ID = '6f1c2b0e-3d7a-4c61-9a52-1b8e0f4d2a77';
 const ATUALIZADO = new Date('2026-11-16T18:00:00.000Z');
 const AGORA = new Date('2026-11-17T12:00:00Z');
 
-function banco(linha: Record<string, unknown> = {}) {
+function banco(linha: Record<string, unknown> = {}, programa = true) {
   const comandos: Array<[string, unknown[]]> = [];
   const atual = {
     id: ID,
@@ -34,10 +34,12 @@ function banco(linha: Record<string, unknown> = {}) {
     comandos.push([sql, params]);
     if (sql.startsWith('INSERT INTO')) return [{ id: ID }];
     if (sql.startsWith('SELECT m."id"')) return [atual];
+    if (sql.includes('"programas"')) return programa ? [{ existe: 1 }] : [];
     return [];
   };
   const manager = { query };
   const db = {
+    options: {},
     query,
     manager,
     transaction: async (fn: (m: typeof manager) => Promise<unknown>) =>
@@ -179,5 +181,13 @@ describe('MissoesAdminService', () => {
     await service.definirAtiva(ID, true);
     const [, params] = comandos.find(([sql]) => sql.startsWith('UPDATE'))!;
     expect(params).toEqual([ID, true]);
+  });
+
+  it('criar exige o ciclo aberto em Programas', async () => {
+    const { service, comandos } = banco({}, false);
+    const erro = await service.criar(base, null, AGORA).catch((e) => e);
+    expect(erro).toBeInstanceOf(BadRequestException);
+    expect(erro.message).toMatch(/Ciclo 2026\/2 não cadastrado/);
+    expect(gravou(comandos)).toBe(false);
   });
 });
