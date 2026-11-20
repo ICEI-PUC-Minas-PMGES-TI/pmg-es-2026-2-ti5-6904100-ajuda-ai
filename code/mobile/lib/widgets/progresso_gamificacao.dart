@@ -227,79 +227,125 @@ class CartaoProgresso extends StatelessWidget {
             ),
           );
         }
-        final nivel = resumo.nivel;
-        return _Moldura(
+        return CartaoProgressoResumo(
           key: const Key('cartao-progresso'),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  EmblemaNivel(numero: nivel.numero, nome: nivel.nome),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Nível ${nivel.numero} · ${nivel.nome}',
-                          style: const TextStyle(
-                            color: AppColors.ink,
-                            fontSize: 17,
-                            height: 1.2,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${_milhar(resumo.xpAcumulado)} XP acumulado',
-                          style: const TextStyle(
-                            fontFamily: 'Inter',
-                            color: AppColors.muted,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+          resumo: resumo,
+          onLojinha: onLojinha,
+          desatualizado: sessao.gamificacaoFalhou.value,
+        );
+      },
+    );
+  }
+}
+
+/// Conteúdo do cartão de progresso para um resumo dado: o da sessão (Home)
+/// ou um perfil simulado pelo painel de QA (mesma aparência, com selo).
+class CartaoProgressoResumo extends StatelessWidget {
+  const CartaoProgressoResumo({
+    super.key,
+    required this.resumo,
+    this.onLojinha,
+    this.desatualizado = false,
+  });
+
+  final ResumoGamificacao resumo;
+  final VoidCallback? onLojinha;
+
+  /// A última leitura falhou e este é o valor anterior.
+  final bool desatualizado;
+
+  @override
+  Widget build(BuildContext context) {
+    final nivel = resumo.nivel;
+    return _Moldura(
+      tracejada: resumo.simulado,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (resumo.simulado)
+            Container(
+              key: const Key('selo-simulacao'),
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3E8FF),
+                borderRadius: BorderRadius.circular(999),
               ),
-              const SizedBox(height: 14),
-              BarraNivel(nivel: nivel),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  SaldoMoedas(moedas: resumo.moedas),
-                  const Spacer(),
-                  if (onLojinha != null)
-                    TextButton.icon(
-                      onPressed: onLojinha,
-                      icon: const Icon(Icons.redeem_rounded, size: 18),
-                      label: const Text('Lojinha'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: AppColors.primary,
-                        minimumSize: const Size(48, 44),
+              child: const Text(
+                'Simulação · não altera seu progresso',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  color: Color(0xFF5B21B6),
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              EmblemaNivel(numero: nivel.numero, nome: nivel.nome),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Nível ${nivel.numero} · ${nivel.nome}',
+                      style: const TextStyle(
+                        color: AppColors.ink,
+                        fontSize: 17,
+                        height: 1.2,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                ],
-              ),
-              if (sessao.gamificacaoFalhou.value)
-                const Padding(
-                  padding: EdgeInsets.only(top: 6),
-                  child: Text(
-                    'Mostrando o último valor carregado.',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      color: AppColors.muted,
-                      fontSize: 11.5,
+                    const SizedBox(height: 2),
+                    Text(
+                      '${_milhar(resumo.xpAcumulado)} XP acumulado',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        color: AppColors.muted,
+                        fontSize: 13,
+                      ),
                     ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          BarraNivel(nivel: nivel),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              SaldoMoedas(moedas: resumo.moedas),
+              const Spacer(),
+              if (onLojinha != null)
+                TextButton.icon(
+                  onPressed: onLojinha,
+                  icon: const Icon(Icons.redeem_rounded, size: 18),
+                  label: const Text('Lojinha'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    minimumSize: const Size(48, 44),
                   ),
                 ),
             ],
           ),
-        );
-      },
+          if (desatualizado)
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text(
+                'Mostrando o último valor carregado.',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  color: AppColors.muted,
+                  fontSize: 11.5,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -367,10 +413,13 @@ class ResumoProgressoCompacto extends StatelessWidget {
 }
 
 class _Moldura extends StatelessWidget {
-  const _Moldura({super.key, required this.child, this.onTap});
+  const _Moldura({required this.child, this.onTap, this.tracejada = false});
 
   final Widget child;
   final VoidCallback? onTap;
+
+  /// Borda lilás mais forte (perfil simulado).
+  final bool tracejada;
 
   @override
   Widget build(BuildContext context) {
@@ -385,7 +434,12 @@ class _Moldura extends StatelessWidget {
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: AppAccents.cardBorder),
+            border: Border.all(
+              color: tracejada
+                  ? const Color(0xFFC4B5FD)
+                  : AppAccents.cardBorder,
+              width: tracejada ? 1.5 : 1,
+            ),
           ),
           child: child,
         ),

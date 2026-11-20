@@ -424,6 +424,20 @@ export const api = {
   progressoAluno() {
     return request('/me/xp', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
   },
+  /** A animação do nível foi exibida: não volta a aparecer (só avança, nunca concede XP). */
+  confirmarCelebracaoNivel(nivel) {
+    return request('/me/xp/celebracoes', { method: 'POST', body: { nivel }, aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  /** Painel de QA da gamificação: 200 só para contas autorizadas no servidor. */
+  qaGamificacaoAcesso() {
+    return request('/qa/gamificacao/acesso', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  /** Perfil simulado de um nível (cálculo do servidor, nada é gravado). */
+  qaGamificacaoSimulacao(nivel, progresso) {
+    const consulta = new URLSearchParams({ nivel: String(nivel) });
+    if (progresso !== undefined) consulta.set('progresso', String(progresso));
+    return request(`/qa/gamificacao/simulacao?${consulta}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
   /** Área do campus onde o servidor aceita PucStops (limite, bbox e centro). */
   campusPucStops() {
     return requestMapa('/coordenacao/pucstops/campus');

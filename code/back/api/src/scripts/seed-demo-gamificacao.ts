@@ -18,6 +18,10 @@
  * - Nunca toca em quem não está na lista; nas contas demo antigas (Camila,
  *   Thiago, Lucas) só acrescenta XP e moedas, sem mexer em perfil, vínculo
  *   ou participação.
+ * - Linha de `celebracoes_nivel` (se a migration já rodou): o nível atual
+ *   da conta demo fica "celebrado" quando o seed muda o XP, para que a
+ *   trajetória fictícia não dispare a animação de novo nível. Subidas reais
+ *   depois do seed (ex.: Gabriel coletando um totem) são celebradas.
  * - Recusado com NODE_ENV=production.
  */
 import { DataSource, type QueryRunner } from 'typeorm';
@@ -209,6 +213,26 @@ async function estado(executor: DataSource | QueryRunner, usuarioId: number) {
   return { moedas: c?.saldo ?? 0, xp: c?.xp_acumulado ?? 0 };
 }
 
+/**
+ * Marca o nível atual como celebrado. `exato`: o seed acabou de mudar o XP
+ * (o estado da conta é o alvo). Sem mudança, só cria a linha se faltar: uma
+ * conquista real ainda não vista continua pendente.
+ */
+async function baselineCelebracao(
+  qr: QueryRunner,
+  usuarioId: number,
+  exato: boolean,
+) {
+  const { xp } = await estado(qr, usuarioId);
+  await qr.query(
+    `INSERT INTO gamificacao.celebracoes_nivel (usuario_id, nivel_celebrado) VALUES ($1, $2) ` +
+      (exato
+        ? `ON CONFLICT (usuario_id) DO UPDATE SET nivel_celebrado = EXCLUDED.nivel_celebrado, atualizado_em = now()`
+        : `ON CONFLICT (usuario_id) DO NOTHING`),
+    [usuarioId, nivelDe(xp).numero],
+  );
+}
+
 /** XP das fixtures de teto (cenários B/C), quando existem (só local). */
 async function extraFixture(
   executor: DataSource | QueryRunner,
@@ -361,6 +385,9 @@ async function principal() {
   const ciclo = ParticipacoesService.programaAtual();
   const so = args.has('--verificar');
   const marca = new Date().toISOString();
+  const [{ celebracoes }] = (await ds.query(
+    `SELECT to_regclass('gamificacao.celebracoes_nivel') IS NOT NULL AS celebracoes`,
+  )) as Array<{ celebracoes: boolean }>;
   try {
     const ids = new Map<string, number>();
     for (const conta of CONTAS_DEMO_GAMIFICACAO) {
@@ -386,6 +413,7 @@ async function principal() {
         else
           for (const m of plano(conta))
             if (await movimentar(qr, u.id, m)) novas++;
+        if (celebracoes) await baselineCelebracao(qr, u.id, novas > 0);
         await qr.commitTransaction();
         console.log(
           `${conta.email}: usuário ${u.criado ? 'criado' : 'existente'}, participação ${p ? 'criada' : 'mantida'}, ${novas} movimentações novas`,

@@ -213,6 +213,80 @@ class XpApi {
     return resumo;
   }
 
+  /// A animação do nível foi exibida (`POST /me/xp/celebracoes`). O servidor
+  /// só avança, nunca passa do nível real e não concede nada.
+  Future<void> confirmarCelebracao(String accessToken, int nivel) async {
+    await executarRequisicao(
+      () => _client.post(
+        Uri.parse('$baseUrl/me/xp/celebracoes'),
+        headers: {
+          'accept': 'application/json',
+          'content-type': 'application/json',
+          'authorization': 'Bearer $accessToken',
+        },
+        body: jsonEncode({'nivel': nivel}),
+      ),
+      erroPadrao: 'Não foi possível confirmar a conquista',
+      timeout: const Duration(seconds: 5),
+    );
+  }
+
+  /// Painel de QA: tabela real de níveis, só para contas liberadas pela API
+  /// (403/404 para as demais → [ApiException]).
+  Future<List<NivelTabela>> qaAcesso(String accessToken) async {
+    final corpo = decodificarJson(
+      await executarRequisicao(
+        () => _client.get(
+          Uri.parse('$baseUrl/qa/gamificacao/acesso'),
+          headers: {
+            'accept': 'application/json',
+            'authorization': 'Bearer $accessToken',
+          },
+        ),
+        erroPadrao: 'Painel de testes indisponível',
+        timeout: const Duration(seconds: 5),
+      ),
+    );
+    final lista = corpo is Map ? corpo['niveis'] : null;
+    if (lista is! List) throw const FormatException('Resposta inválida.');
+    final niveis = lista.map(NivelTabela.fromJson).whereType<NivelTabela>();
+    if (niveis.length != lista.length || niveis.isEmpty) {
+      throw const FormatException('Resposta inválida.');
+    }
+    return niveis.toList();
+  }
+
+  /// Perfil simulado de um nível (cálculo do servidor, nada é gravado).
+  Future<ResumoGamificacao> qaSimulacao(
+    String accessToken,
+    int nivel, {
+    int? progresso,
+  }) async {
+    final corpo = decodificarJson(
+      await executarRequisicao(
+        () => _client.get(
+          Uri.parse('$baseUrl/qa/gamificacao/simulacao').replace(
+            queryParameters: {
+              'nivel': '$nivel',
+              if (progresso != null) 'progresso': '$progresso',
+            },
+          ),
+          headers: {
+            'accept': 'application/json',
+            'authorization': 'Bearer $accessToken',
+          },
+        ),
+        erroPadrao: 'Não foi possível simular o nível',
+        timeout: const Duration(seconds: 5),
+      ),
+    );
+    final resumo = ResumoGamificacao.fromJson(corpo);
+    if (resumo == null || !resumo.simulado) {
+      throw const FormatException('Resposta inválida.');
+    }
+    return resumo;
+  }
+
   Future<Object?> _resumoBruto(String accessToken) async {
     final resposta = await executarRequisicao(
       () => _client.get(

@@ -22,6 +22,9 @@ dependencies:
   path_provider: ^2.1.5
   url_launcher: ^6.3.3
   gal: 2.3.3
+  # Efeitos sonoros curtos da animação de novo nível (o Flutter não tem
+  # reprodução de áudio própria além de cliques do sistema).
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
@@ -34,6 +37,7 @@ flutter:
   assets:
     - assets/images/
     - assets/gamificacao/
+    - assets/gamificacao/sons/
 
   fonts:
     - family: Inter

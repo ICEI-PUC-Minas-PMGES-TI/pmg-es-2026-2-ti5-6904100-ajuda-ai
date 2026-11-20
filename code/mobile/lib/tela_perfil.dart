@@ -12,6 +12,7 @@ import 'tela_feed.dart';
 import 'tela_historico.dart';
 import 'tela_login.dart';
 import 'tela_padrinho_definido.dart';
+import 'tela_qa_gamificacao.dart';
 import 'tela_status_candidatura.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
@@ -524,7 +525,12 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 24),
                 const _Titulo('Acessos rápidos'),
                 const SizedBox(height: 10),
-                AcessosRapidos(itens: _acessosRapidos(status)),
+                // O atalho do painel de QA depende da resposta da API.
+                ValueListenableBuilder<bool>(
+                  valueListenable: _sessao.qaGamificacao,
+                  builder: (context, _, _) =>
+                      AcessosRapidos(itens: _acessosRapidos(status)),
+                ),
                 if (status == StatusParticipacao.apadrinhadoAguardandoMatch ||
                     status == StatusParticipacao.apadrinhadoPendente ||
                     status == StatusParticipacao.padrinhoEmAnalise ||
@@ -604,6 +610,13 @@ class _ProfilePageState extends State<ProfilePage> {
       'Ajuda e suporte',
       () => _abrir(const SuporteConfigPage()),
     ),
+    // Só para contas liberadas pela API (GAMIFICACAO_QA_EMAILS).
+    if (_sessao.qaGamificacao.value)
+      ItemAcessoRapido(
+        Icons.science_outlined,
+        'Testes de gamificação',
+        () => _abrir(const TelaQaGamificacao()),
+      ),
   ];
 
   void _candidatarPadrinho(BuildContext context) {
@@ -974,6 +987,8 @@ class _XpGlobalState extends State<_XpGlobal> {
   void initState() {
     super.initState();
     SessaoUsuario.atual.atualizarXp();
+    // Atalho do painel de QA: a API decide (uma consulta por conta).
+    SessaoUsuario.atual.verificarQaGamificacao();
   }
 
   @override

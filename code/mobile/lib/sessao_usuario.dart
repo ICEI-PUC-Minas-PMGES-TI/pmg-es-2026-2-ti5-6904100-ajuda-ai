@@ -136,8 +136,71 @@ class SessaoUsuario {
 
   XpApi _xpApi = XpApi();
 
+  /// API de XP (também usada pelo painel de QA).
+  XpApi get xpApi => _xpApi;
+
   /// Permite injetar a API de XP nos testes.
   void configurarXpApi(XpApi api) => _xpApi = api;
+
+  /// Conquista de nível a celebrar (valor do servidor). A casca do app ouve
+  /// e mostra a animação; [confirmarConquista] encerra.
+  final ValueNotifier<ConquistaNivel?> conquistaPendente = ValueNotifier(null);
+
+  /// Maior nível já exibido nesta sessão: a mesma conquista não aparece duas
+  /// vezes, mesmo se a confirmação ainda não chegou ao servidor.
+  int _nivelExibido = 0;
+
+  /// Confirmação que falhou (sem rede): reenviada na próxima leitura.
+  int? _confirmacaoPendente;
+
+  /// Painel de testes da gamificação liberado PELO SERVIDOR para esta conta.
+  final ValueNotifier<bool> qaGamificacao = ValueNotifier(false);
+  int _qaConferidoNaVersao = -1;
+
+  /// Pergunta à API se esta conta pode abrir o painel de QA (uma vez por
+  /// conta). Qualquer falha = sem acesso: o atalho simplesmente não aparece.
+  Future<void> verificarQaGamificacao() async {
+    final token = accessToken;
+    if (token == null || _qaConferidoNaVersao == _versaoConta) return;
+    final versao = _versaoConta;
+    _qaConferidoNaVersao = versao;
+    try {
+      await _xpApi.qaAcesso(token);
+      if (versao == _versaoConta) qaGamificacao.value = true;
+    } catch (_) {
+      if (versao == _versaoConta) qaGamificacao.value = false;
+    }
+  }
+
+  /// A animação do nível [nivel] foi exibida: marca e avisa o servidor (que
+  /// só avança e nunca concede nada). Sem rede, tenta de novo depois.
+  Future<void> confirmarConquista(int nivel) async {
+    if (nivel > _nivelExibido) _nivelExibido = nivel;
+    if (conquistaPendente.value?.para == nivel) conquistaPendente.value = null;
+    _confirmacaoPendente = _nivelExibido;
+    await _enviarConfirmacao();
+  }
+
+  Future<void> _enviarConfirmacao() async {
+    final token = accessToken;
+    final nivel = _confirmacaoPendente;
+    if (token == null || nivel == null) return;
+    final versao = _versaoConta;
+    try {
+      await _xpApi.confirmarCelebracao(token, nivel);
+      if (versao == _versaoConta && _confirmacaoPendente == nivel) {
+        _confirmacaoPendente = null;
+      }
+    } on ApiException catch (e) {
+      // 4xx: não adianta insistir (ex.: servidor sem a migration).
+      final codigo = e.statusCode ?? 0;
+      if (codigo >= 400 && codigo < 500 && versao == _versaoConta) {
+        _confirmacaoPendente = null;
+      }
+    } catch (_) {
+      // Sem rede: fica pendente para a próxima leitura.
+    }
+  }
 
   Future<void>? _xpEmVoo;
 
@@ -152,12 +215,18 @@ class SessaoUsuario {
     final token = accessToken;
     if (token == null) return;
     final versao = _versaoConta;
+    // Confirmação que ficou pendente (offline) vai antes da leitura.
+    await _enviarConfirmacao();
     try {
       final resumo = await _xpApi.resumo(token);
       if (versao != _versaoConta || accessToken != token) return;
       gamificacao.value = resumo;
       xp.value = resumo.moedas;
       gamificacaoFalhou.value = false;
+      final conquista = resumo.celebracao;
+      if (conquista != null && conquista.para > _nivelExibido) {
+        conquistaPendente.value = conquista;
+      }
     } catch (_) {
       if (versao != _versaoConta || accessToken != token) return;
       // Servidor antigo (sem nível) ainda informa o saldo de moedas.
@@ -285,6 +354,10 @@ class SessaoUsuario {
     _versaoConta++;
     gamificacao.value = null;
     gamificacaoFalhou.value = false;
+    conquistaPendente.value = null;
+    _nivelExibido = 0;
+    _confirmacaoPendente = null;
+    qaGamificacao.value = false;
     _xpEmVoo = null;
     estadoSituacao = EstadoSituacao.desconhecido;
     _ultimaSincronizacao = null;

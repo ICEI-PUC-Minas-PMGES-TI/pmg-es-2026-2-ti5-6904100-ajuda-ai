@@ -3,6 +3,7 @@ import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../../api/client';
 import { iniciaisDe, rotuloPeriodo } from '../../auth/sessaoAluno';
 import { EmblemaNivel } from '../../components/EmblemaNivel';
+import { lerProgresso, ouvirProgresso } from '../../components/levelup/progressoAluno';
 import Icon from '../../components/Icon';
 import { AVISO_MAPA, useToast } from '../../components/Toast';
 import { EstadoCarregando, EstadoErro, PageHeader } from './partes';
@@ -303,9 +304,10 @@ function SituacaoCard({ dados, perfil, resolucao }) {
 const milhar = (n) => Number(n).toLocaleString('pt-BR');
 
 /** Cartão já resolvido: emblema, nível, barra, XP e moedas. */
-export function ProgressoCarregado({ dados, erro = false }) {
+export function ProgressoCarregado({ dados, erro = false, simulado = false }) {
   return (
-    <div className="dash-card progresso-card">
+    <div className={`dash-card progresso-card${simulado ? ' progresso-simulado' : ''}`}>
+      {simulado && <span className="progresso-selo-simulado">Simulação · não altera seu progresso</span>}
       <div className="progresso-topo">
         <EmblemaNivel numero={dados.nivel.numero} nome={dados.nivel.nome} />
         <div>
@@ -341,7 +343,7 @@ export function ProgressoCarregado({ dados, erro = false }) {
  * Progresso real do aluno (`GET /me/xp`): nível, barra, XP acumulado e
  * moedas. Os valores vêm do servidor; aqui só exibição. Falha nunca vira 0.
  */
-export function ProgressoGamificacao({ carregar = () => api.progressoAluno() }) {
+export function ProgressoGamificacao({ carregar = () => lerProgresso() }) {
   const [estado, setEstado] = useState({ dados: null, erro: false, carregando: true });
   async function ler() {
     setEstado((e) => ({ ...e, carregando: true }));
@@ -355,6 +357,8 @@ export function ProgressoGamificacao({ carregar = () => api.progressoAluno() }) 
   }
   useEffect(() => {
     ler();
+    // Releituras de outros pontos (ex.: celebração de nível) atualizam o cartão.
+    return ouvirProgresso((novos) => setEstado({ dados: novos, erro: false, carregando: false }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const { dados, erro, carregando } = estado;

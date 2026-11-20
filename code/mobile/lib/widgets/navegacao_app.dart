@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -7,6 +9,7 @@ import '../tela_home.dart';
 import '../tela_mapa.dart';
 import '../tela_perfil.dart';
 import 'app_bottom_navigation.dart';
+import 'celebracao_nivel.dart';
 
 /// Diagnóstico de navegação, só em debug: mostra quando uma página nasce ou
 /// morre e quando a participação é consultada. Cada página deve aparecer UMA
@@ -60,12 +63,44 @@ class AppShellState extends State<AppShell>
     super.initState();
     _atual = widget.inicial;
     _visitadas.add(_atual);
+    SessaoUsuario.atual.conquistaPendente.addListener(_aoConquistar);
+    // Conquista lida antes da casca existir (ex.: logo após o login).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _aoConquistar());
   }
 
   @override
   void dispose() {
+    SessaoUsuario.atual.conquistaPendente.removeListener(_aoConquistar);
     _fade.dispose();
     super.dispose();
+  }
+
+  bool _celebrando = false;
+
+  /// Conquista real de nível (valor do servidor): mostra a animação sobre a
+  /// aba atual e confirma no servidor assim que ela aparece (não repete em
+  /// outra tela, outro aparelho ou ao reabrir o app).
+  Future<void> _aoConquistar() async {
+    final sessao = SessaoUsuario.atual;
+    final conquista = sessao.conquistaPendente.value;
+    if (conquista == null || _celebrando || !mounted) return;
+    _celebrando = true;
+    try {
+      // Um instante para a recompensa da coleta ("+30 XP") aparecer antes.
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      if (!mounted || sessao.conquistaPendente.value != conquista) return;
+      unawaited(sessao.confirmarConquista(conquista.para));
+      await mostrarCelebracaoNivel(
+        context,
+        numero: conquista.para,
+        nome: conquista.nome,
+        niveisAvancados: conquista.niveisAvancados,
+      );
+    } finally {
+      _celebrando = false;
+    }
+    // Outra conquista chegou enquanto esta estava na tela.
+    if (mounted && sessao.conquistaPendente.value != null) _aoConquistar();
   }
 
   AppDestination get atual => _atual;

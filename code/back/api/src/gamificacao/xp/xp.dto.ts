@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsDefined, IsInt, IsOptional, Max, Min } from 'class-validator';
+import type { CelebracaoNivelDto } from '../celebracoes.js';
 import type { NivelDto } from '../economia.js';
 import type { TipoMovimentacaoXp } from '../gamificacao.js';
 
@@ -26,6 +27,20 @@ export interface XpResumoDto {
   };
   /** Última movimentação; nulo para quem nunca ganhou XP. */
   atualizadoEm: string | null;
+  /**
+   * Conquista de nível ainda não celebrada (animação de "novo nível").
+   * Some depois de `POST /me/xp/celebracoes`; nunca volta para o mesmo nível.
+   */
+  celebracao: CelebracaoNivelDto | null;
+}
+
+/** Corpo de `POST /me/xp/celebracoes`: o nível cuja animação foi exibida. */
+export class ConfirmarCelebracaoDto {
+  @IsDefined()
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  nivel!: number;
 }
 
 /** Item de `GET /gamificacao/niveis`. */

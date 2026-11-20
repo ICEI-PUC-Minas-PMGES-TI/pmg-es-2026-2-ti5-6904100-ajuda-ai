@@ -8,6 +8,7 @@ import {
   lerPreferencias,
 } from '../../auth/sessaoAluno';
 import Icon from '../../components/Icon';
+import CelebracaoAutomatica from '../../components/levelup/CelebracaoAutomatica';
 import { formatarData } from './util';
 
 const VISTOS_KEY = 'ajudaai.aluno.avisosVistos';
@@ -40,8 +41,20 @@ export default function AlunoLayout() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
   const [menuAberto, setMenuAberto] = useState(false);
+  // Painel de QA da gamificação: só aparece se o SERVIDOR liberar esta conta.
+  const [qa, setQa] = useState({ email: '', liberado: false, conferido: false });
   const consultaAtual = useRef(0);
   const email = sessao?.email || '';
+  useEffect(() => {
+    if (!email || sessao?.onboardingToken) return undefined;
+    let ativo = true;
+    api.qaGamificacaoAcesso()
+      .then(() => { if (ativo) setQa({ email, liberado: true, conferido: true }); })
+      .catch(() => { if (ativo) setQa({ email, liberado: false, conferido: true }); });
+    return () => { ativo = false; };
+  }, [email, sessao?.onboardingToken]);
+  const qaLiberado = qa.email === email && qa.liberado;
+  const qaConferido = qa.email === email && qa.conferido;
   const recarregar = useCallback(async () => {
     if (!email) return;
     const consulta = ++consultaAtual.current;
@@ -78,8 +91,9 @@ export default function AlunoLayout() {
     {to: '/aluno/chat', label: 'Conversas', icon: 'chat'},
     {to: '/aluno/historico', label: 'Histórico', icon: 'history'},
     {to: '/aluno/configuracoes', label: 'Configurações', icon: 'settings'},
+    ...(qaLiberado ? [{to: '/aluno/testes-gamificacao', label: 'Testes de gamificação', icon: 'trophy'}] : []),
   ];
-  const contexto = {email, sessao, perfil, situacao, carregando, erro, recarregar, papel, resolucao, programa: codigo,
+  const contexto = {email, sessao, perfil, situacao, carregando, erro, recarregar, papel, resolucao, programa: codigo, qaLiberado, qaConferido,
     atualizarSessao: parcial => setSessao(atual => ({...atual, ...parcial}))};
   function trocarCiclo(novo) {
     if (novo === codigo) return;
@@ -107,7 +121,9 @@ export default function AlunoLayout() {
     <main className="aluno-content" id="conteudo">
       {erro ? <div className="aluno-state error" role="alert"><p>{erro}</p><button type="button" className="outline-button" onClick={recarregar}>Tentar novamente</button></div>
         : carregando ? <p className="aluno-loading" role="status">Carregando perfil e situação…</p> : <Outlet context={contexto}/>}
-    </main></div></div>;
+    </main></div>
+    <CelebracaoAutomatica email={email} />
+  </div>;
 }
 
 const ROTULO_TIPO = { padrinho: 'padrinho', apadrinhado: 'apadrinhado' };
