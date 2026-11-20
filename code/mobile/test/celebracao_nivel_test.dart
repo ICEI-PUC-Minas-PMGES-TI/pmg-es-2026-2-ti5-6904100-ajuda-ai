@@ -10,6 +10,7 @@ import 'package:ajuda_ai/tela_qa_gamificacao.dart';
 import 'package:ajuda_ai/widgets/celebracao_nivel.dart';
 import 'package:ajuda_ai/widgets/navegacao_app.dart';
 import 'package:ajuda_ai/widgets/progresso_gamificacao.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -411,6 +412,15 @@ void main() {
         final bytes = await rootBundle.load('assets/${som.asset}');
         expect(bytes.lengthInBytes, greaterThan(1000), reason: som.asset);
       }
+    });
+
+    test('efeitos usam volume de mídia/jogo, não de notificação', () {
+      final android = contextoSomConquista().android;
+      expect(android.usageType, AndroidUsageType.game);
+      expect(android.contentType, AndroidContentType.sonification);
+      expect(android.audioFocus, AndroidAudioFocus.none);
+      expect(android.usageType, isNot(AndroidUsageType.notification));
+      expect(android.usageType, isNot(AndroidUsageType.notificationRingtone));
     });
   });
 

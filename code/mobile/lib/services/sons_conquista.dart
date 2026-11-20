@@ -14,6 +14,26 @@ enum SomConquista {
   final String asset;
 }
 
+/// Contexto dos efeitos da conquista.
+///
+/// No `audioplayers`, `AudioContextConfig(respectSilence: true)` vira
+/// `USAGE_NOTIFICATION_RINGTONE` no Android: volume de toque/notificação e
+/// silêncio no modo silencioso. Os efeitos usam o volume de mídia/jogo
+/// (`USAGE_GAME` → `STREAM_MUSIC`), sem tomar o foco de áudio.
+AudioContext contextoSomConquista() {
+  return AudioContext(
+    android: const AudioContextAndroid(
+      contentType: AndroidContentType.sonification,
+      usageType: AndroidUsageType.game,
+      audioFocus: AndroidAudioFocus.none,
+    ),
+    iOS: AudioContextIOS(
+      category: AVAudioSessionCategory.playback,
+      options: const {AVAudioSessionOptions.mixWithOthers},
+    ),
+  );
+}
+
 /// Toca os efeitos da conquista. Falhas de áudio (sem plugin nos testes,
 /// aparelho sem saída) nunca interrompem a animação.
 class SonsConquista {
@@ -32,18 +52,10 @@ class SonsConquista {
 
   AudioPlayer _player(SomConquista som) => _players.putIfAbsent(som, () {
     final player = AudioPlayer();
-    // Efeitos curtos: modo de baixa latência, sem foco de áudio exclusivo
-    // (não pausa a música do usuário).
+    // Efeitos curtos: baixa latência, misturados com o áudio do aparelho.
     player.setPlayerMode(PlayerMode.lowLatency).catchError((_) {});
     player.setReleaseMode(ReleaseMode.stop).catchError((_) {});
-    player
-        .setAudioContext(
-          AudioContextConfig(
-            focus: AudioContextConfigFocus.mixWithOthers,
-            respectSilence: true,
-          ).build(),
-        )
-        .catchError((_) {});
+    player.setAudioContext(contextoSomConquista()).catchError((_) {});
     return player;
   });
 
