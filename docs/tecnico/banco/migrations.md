@@ -71,6 +71,20 @@ Migrations não publicam GLBs nem importam conteúdo administrativo.
   `recompensa_versoes` e `recompensa_estoque_ajustes` (só INSERT) e liga cada
   resgate à versão resgatada. CHECK impede total abaixo do comprometido.
   Rollback só sem histórico novo (versões, ajustes ou status inativa/arquivada).
+- `ProgramaRecompensasFk` (`1794100000000`): FK `recompensas.programa_codigo`
+  → `programas.codigo` (RESTRICT). Recusa se houver recompensas órfãs e lista
+  os códigos.
+- `EntregaResgatesEAjustesXp` (`1794200000000`, F29/F26):
+  `resgate_desfechos` (entrega ou cancelamento, UNIQUE por resgate, estorno
+  ligado ao ledger) e `xp_ajustes` (motivo, responsável e movimentação
+  `AJUSTE_ADMIN`). As duas tabelas são só de inserção. O rollback é
+  recusado se já houver entregas, cancelamentos ou ajustes gravados.
+
+As duas últimas foram criadas como `1793700000000` e `1793600000000`, os
+mesmos timestamps de `RestaurantesOficiaisCampus` e
+`InformacoesImagensLocais` da Sprint-6. Foram renomeadas para rodar depois de
+`1794000000000-GamificacaoNiveisMoedasCiclos`. Num banco que já as aplicou
+com o nome antigo, elas detectam a estrutura existente e não fazem nada.
 
 Modelos e regras têm fonte em [dados geoespaciais](../mapa/dados-geo.md),
 [PucStops](../mapa/pucstops.md), [XP](../gamificacao/xp.md) e

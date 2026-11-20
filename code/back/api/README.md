@@ -137,9 +137,10 @@ A API fica disponível em `http://localhost:3000`.
 | `POST`      | `/coordenacao/recompensas/:id/publicar` \| `desativar` \| `arquivar` | Publica, tira da lojinha ou arquiva (somente leitura, histórico preservado). |
 | `DELETE`    | `/coordenacao/recompensas/:id`                          | Exclui só sem transações; com resgates responde 409 `recompensa-com-transacoes` (arquive). |
 | `GET`       | `/me/lojinha`                                           | Lojinha do aluno: publicadas, na vigência, do seu público/programa (`estoque` disponível; `null` = ilimitado). |
-| `POST`      | `/me/lojinha/:id/resgatar`                              | Resgata com XP (`{ chaveIdempotencia, versao, custoXp }`); 404 indisponível, 409 esgotada/limite/recompensa alterada, 422 saldo insuficiente. |
+| `POST`      | `/me/lojinha/:id/resgatar`                              | Resgata com moedas (`{ chaveIdempotencia, versao, custoXp }`); 404 indisponível, 409 esgotada/limite/recompensa alterada, 422 saldo insuficiente. |
 | `GET`       | `/me/lojinha/resgates`                                  | Histórico de resgates do aluno, com as condições da versão resgatada e a situação (`aguardando_entrega`, `entregue`, `cancelado`). |
 | `GET`       | `/coordenacao/resgates`                                 | Resgates (F29) com participante, recompensa, custo, data e situação (`?situacao=`, `programa=`, `recompensaId=`, `busca=` nome/e-mail/código). |
+| `GET`       | `/coordenacao/resgates/:id`                             | Um resgate, no mesmo formato da lista; 404 se não existe. |
 | `POST`      | `/coordenacao/resgates/:id/entregar`                    | Registra a entrega com responsável e data; 409 se já entregue ou cancelado. |
 | `POST`      | `/coordenacao/resgates/:id/cancelar`                    | Cancela antes da entrega (`{ motivo }`), devolve as moedas e a unidade; 409 se já entregue ou cancelado. |
 | `GET`       | `/coordenacao/xp`                                       | Moedas, XP acumulado e nível dos participantes (F26; `?busca=` nome/e-mail). |

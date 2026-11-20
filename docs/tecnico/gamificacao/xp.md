@@ -9,7 +9,7 @@ O ledger é a fonte de verdade; a carteira materializa seu saldo.
 Decisões DP-24 (opção B) e DP-25. Regras em `src/gamificacao/economia.ts` (fonte única; os apps só exibem).
 
 - **XP acumulado** (`xp_carteiras.xp_acumulado`): experiência; define o nível. Só sobe com atividades; desce apenas por correção administrativa (`AJUSTE_ADMIN`, ±200, auditável). Mantido pelo gatilho `gamificacao.acumular_xp` a cada INSERT no ledger — vale também para versões antigas do backend.
-- **Moedas** (`xp_carteiras.saldo`, nome histórico; `saldo` na API): saldo da lojinha. Ganham 1:1 com o XP; resgates (`RECOMPENSA` negativo) e estornos (`RECOMPENSA` positivo, formato da branch `Arthur_gv`) mexem **só** nas moedas. Nunca negativas.
+- **Moedas** (`xp_carteiras.saldo`, nome histórico; `saldo` na API): saldo da lojinha. Ganham 1:1 com o XP; resgates (`RECOMPENSA` negativo) e estornos (`RECOMPENSA` positivo, cancelamento da F29) mexem **só** nas moedas. Nunca negativas.
 - **Ledger**: `xp_movimentacoes.quantidade` = efeito nas moedas; `xp_quantidade` = efeito no XP (NULL nas linhas antigas: vale a regra do tipo — `RECOMPENSA` 0, demais = quantidade); `ciclo` = semestre do ganho. Tipos: `PUCSTOP_CLAIM`, `RECOMPENSA`, `AJUSTE_ADMIN`, `MISSAO`.
 - **Níveis** (10): 0, 50, 150, 300, 500, 750, 1050, 1400, 1950, 2600 — Primeiro passo … Lenda da PUC. `GET /gamificacao/niveis` (público). O nível é conquista, não papel.
 - **Totens**: recompensa 10/20/30/40/50 XP (+ moedas 1:1), padrão 30 (CHECK no banco e validação na API). Uma coleta por usuário, totem e **ciclo** (`uq_pucstop_coletas_usuario_pucstop_ciclo`); o mapa mostra como coletadas só as do ciclo atual. `pucstop_coletas.xp` = creditado; `xp_configurado` = valor do totem na hora.
@@ -98,6 +98,8 @@ motivo, responsável e a movimentação. As duas tabelas são só de inserção:
 corrigir um ajuste é fazer outro.
 
 Tela: painel web da coordenação, "XP e moedas" (`/coordenacao/xp`).
+Contrato detalhado (respostas e erros) para o app da coordenação:
+[api-coordenacao-lojinha](api-coordenacao-lojinha.md).
 
 Encerramento do programa (DP-07): o ex-participante mantém XP, nível e
 moedas, consulta o histórico, mas não resgata (`podeUsarLojinha`). XP e
