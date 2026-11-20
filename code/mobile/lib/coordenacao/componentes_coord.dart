@@ -11,7 +11,8 @@ const corErroCoord = Color(0xFFB91C1C);
 String mensagemDeErro(Object erro) => switch (erro) {
   ApiException(:final mensagem) => mensagem,
   ApiIndisponivelException() =>
-    'Não foi possível conectar à API. Verifique se o backend está rodando.',
+    'Não foi possível conectar ao Ajuda-aí. '
+        'Verifique sua conexão com a internet e tente novamente.',
   _ => erro.toString().replaceFirst('Exception: ', ''),
 };
 
@@ -246,7 +247,7 @@ class SeloStatusCoord extends StatelessWidget {
         AppAccents.success,
         AppAccents.successBg,
       ),
-      'em_analise' => (AppAccents.iconeLaranja, AppAccents.tileLaranja),
+      'em_analise' => (AppAccents.textoAlerta, AppAccents.tileLaranja),
       _ => (AppColors.primary, AppColors.lavender),
     };
     final rotulo = papel == 'apadrinhado' && item['grupo'] == null
@@ -262,7 +263,7 @@ class SeloStatusCoord extends StatelessWidget {
         rotulo,
         style: TextStyle(
           fontFamily: 'Inter',
-          fontSize: 11,
+          fontSize: 12,
           fontWeight: FontWeight.w700,
           color: cor,
         ),

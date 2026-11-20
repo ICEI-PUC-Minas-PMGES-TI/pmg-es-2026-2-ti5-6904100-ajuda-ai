@@ -119,8 +119,8 @@ async function request(path, { method = 'GET', body, token, aluno, anonimo = fal
     });
   } catch (causa) {
     const mensagem = causa?.name === 'AbortError'
-      ? 'O servidor demorou para responder. Verifique se o backend está em execução.'
-      : 'Não foi possível conectar ao servidor. Verifique se o backend está em execução.';
+      ? 'O Ajuda-aí demorou para responder. Tente novamente em instantes.'
+      : 'Não foi possível conectar ao Ajuda-aí. Verifique sua conexão com a internet e tente novamente.';
     const error = new Error(mensagem);
     error.status = 0;
     throw error;

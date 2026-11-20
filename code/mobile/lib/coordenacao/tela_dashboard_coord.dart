@@ -542,44 +542,15 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                     style: TextStyle(color: Color(0xFF5C5678)),
                   )
                 : Column(
-                    children: recentes
-                        .map(
-                          (item) => ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            dense: true,
-                            leading: CircleAvatar(
-                              radius: 18,
-                              backgroundColor: const Color(0xFFEBE4FF),
-                              foregroundColor: AppColors.primary,
-                              child: Text(
-                                '${item['iniciais'] ?? '?'}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ),
-                            title: Text(
-                              '${item['nome'] ?? ''}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
-                              ),
-                            ),
-                            subtitle: Text(
-                              '${item['curso'] ?? ''}'
-                              '${item['periodo'] != null ? ' · ${item['periodo']}º período' : ''}',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Color(0xFF5C5678),
-                              ),
-                            ),
-                            trailing: _statusPill(
-                              '${item['statusRotulo'] ?? item['status'] ?? ''}',
-                            ),
+                    children: [
+                      for (final item in recentes)
+                        _LinhaCandidaturaRecente(
+                          item: item,
+                          selo: _statusPill(
+                            '${item['statusRotulo'] ?? item['status'] ?? ''}',
                           ),
-                        )
-                        .toList(),
+                        ),
+                    ],
                   ),
           ),
         ),
@@ -789,7 +760,7 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
 
   Widget _statusPill(String texto) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: AppColors.lavender,
         borderRadius: BorderRadius.circular(20),
@@ -797,10 +768,103 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
       child: Text(
         texto,
         style: const TextStyle(
-          fontSize: 11,
+          fontSize: 12,
           fontWeight: FontWeight.w700,
           color: AppColors.primary,
         ),
+      ),
+    );
+  }
+}
+
+/// Linha de "Candidaturas recentes". Com pouca largura (celular) o selo desce
+/// para baixo do nome: lado a lado, um selo longo como "Aprovado — aguardando
+/// matching" espremia o nome até quebrar letra por letra.
+class _LinhaCandidaturaRecente extends StatelessWidget {
+  const _LinhaCandidaturaRecente({required this.item, required this.selo});
+
+  /// Abaixo desta largura do cartão o selo vai para a linha de baixo.
+  static const larguraLadoALado = 420.0;
+
+  final Map<String, dynamic> item;
+  final Widget selo;
+
+  @override
+  Widget build(BuildContext context) {
+    final curso =
+        '${item['curso'] ?? ''}'
+        '${item['periodo'] != null ? ' · ${item['periodo']}º período' : ''}';
+    final avatar = CircleAvatar(
+      radius: 18,
+      backgroundColor: const Color(0xFFEBE4FF),
+      foregroundColor: AppColors.primary,
+      child: Text(
+        '${item['iniciais'] ?? '?'}',
+        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+      ),
+    );
+    final textos = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '${item['nome'] ?? ''}',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 14,
+            color: AppColors.ink,
+          ),
+        ),
+        if (curso.trim().isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            curso,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF5C5678)),
+          ),
+        ],
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: LayoutBuilder(
+        builder: (context, restricoes) {
+          final ladoALado = restricoes.maxWidth >= larguraLadoALado;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              avatar,
+              const SizedBox(width: 12),
+              Expanded(
+                child: ladoALado
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: textos),
+                          const SizedBox(width: 12),
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: restricoes.maxWidth * 0.4,
+                            ),
+                            child: selo,
+                          ),
+                        ],
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          textos,
+                          const SizedBox(height: 6),
+                          selo,
+                        ],
+                      ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
