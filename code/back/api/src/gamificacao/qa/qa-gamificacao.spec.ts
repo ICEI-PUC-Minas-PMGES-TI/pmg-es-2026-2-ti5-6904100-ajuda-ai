@@ -67,6 +67,34 @@ describe('configuração do painel de QA', () => {
     ).toBe(true);
   });
 
+  it('APP_ENV=producao conta como produção mesmo sem NODE_ENV', () => {
+    const base = { GAMIFICACAO_QA_EMAILS: QA.email, APP_ENV: 'producao' };
+    expect(configQaGamificacao(base).habilitado).toBe(false);
+    expect(
+      configQaGamificacao({ ...base, GAMIFICACAO_QA_PRODUCAO: 'true' }).habilitado,
+    ).toBe(true);
+  });
+
+  it('homologação usa NODE_ENV=production e liga só com a lista', () => {
+    expect(
+      configQaGamificacao({
+        GAMIFICACAO_QA_EMAILS: QA.email,
+        APP_ENV: 'homologacao',
+        NODE_ENV: 'production',
+      }).habilitado,
+    ).toBe(true);
+  });
+
+  it('APP_ENV=producao vence um NODE_ENV não convencional', () => {
+    expect(
+      configQaGamificacao({
+        GAMIFICACAO_QA_EMAILS: QA.email,
+        APP_ENV: 'producao',
+        NODE_ENV: 'homologacao',
+      }).habilitado,
+    ).toBe(false);
+  });
+
   it('nenhuma conta tem acesso só por existir (nada fixo no código)', () => {
     expect(emailAutorizadoQa(configQaGamificacao({}), QA.email)).toBe(false);
   });

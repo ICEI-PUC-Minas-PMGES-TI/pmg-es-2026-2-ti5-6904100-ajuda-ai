@@ -5,7 +5,7 @@
  *
  * - `GAMIFICACAO_QA_EMAILS`: e-mails autorizados, separados por vírgula.
  *   Vazio (padrão) = painel desligado para todos.
- * - Em produção (`NODE_ENV=production`) o painel só liga com
+ * - Em produção (`APP_ENV=producao`, ou `NODE_ENV=production` sem `APP_ENV`) o painel só liga com
  *   `GAMIFICACAO_QA_PRODUCAO=true` além da lista: liberar em produção é
  *   sempre uma decisão explícita.
  */
@@ -25,7 +25,11 @@ export function configQaGamificacao(
       .map((e) => e.trim().toLowerCase())
       .filter((e) => EMAIL.test(e)),
   );
-  const producao = env.NODE_ENV === 'production';
+  // APP_ENV (quando definido) diz onde a API roda: homologação e produção usam
+  // NODE_ENV=production nos dois, e só APP_ENV=producao liga a trava do QA.
+  // Sem APP_ENV, vale NODE_ENV=production (lado seguro).
+  const appEnv = env.APP_ENV?.trim().toLowerCase();
+  const producao = appEnv ? appEnv === 'producao' : env.NODE_ENV === 'production';
   const liberadoEmProducao =
     env.GAMIFICACAO_QA_PRODUCAO?.trim().toLowerCase() === 'true';
   return {

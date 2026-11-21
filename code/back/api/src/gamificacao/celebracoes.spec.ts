@@ -6,11 +6,8 @@ import {
 } from './celebracoes.js';
 import { NIVEIS, nivelDe } from './economia.js';
 import { XpService } from './xp/xp.service.js';
-import {
-  CelebracoesNivel1794100000000,
-  LIMIARES_NIVEIS_V1,
-  sqlNivelDe,
-} from '../migrations/1794100000000-CelebracoesNivel.js';
+import { CelebracoesNivel1794100000000 } from '../migrations/1794100000000-CelebracoesNivel.js';
+import { LIMIARES_NIVEIS_V1, sqlNivelDe } from './celebracoes-sql.js';
 import type { DataSource, QueryRunner } from 'typeorm';
 
 /**

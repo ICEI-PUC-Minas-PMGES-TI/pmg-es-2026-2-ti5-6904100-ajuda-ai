@@ -1,27 +1,5 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
-
-/**
- * Limiares dos níveis quando esta migration foi escrita (cópia congelada de
- * `NIVEIS` em economia.ts): a migration histórica não muda se a tabela de
- * níveis mudar depois.
- */
-export const LIMIARES_NIVEIS_V1 = [
-  0, 50, 150, 300, 500, 750, 1050, 1400, 1950, 2600,
-] as const;
-
-/** Nível (1..n) de uma coluna de XP, em SQL, pelos limiares dados. */
-export function sqlNivelDe(
-  coluna: string,
-  limiares: readonly number[] = LIMIARES_NIVEIS_V1,
-): string {
-  const casos = limiares
-    .map((xp, i) => ({ xp, nivel: i + 1 }))
-    .slice(1)
-    .reverse()
-    .map(({ xp, nivel }) => `WHEN ${coluna} >= ${xp} THEN ${nivel}`)
-    .join(' ');
-  return `(CASE ${casos} ELSE 1 END)`;
-}
+import { LIMIARES_NIVEIS_V1, sqlNivelDe } from '../gamificacao/celebracoes-sql.js';
 
 /** Schema configurado no DataSource (DB_SCHEMA; padrão `feed`), já entre aspas. */
 function schemaUsuarios(queryRunner: QueryRunner): string {
