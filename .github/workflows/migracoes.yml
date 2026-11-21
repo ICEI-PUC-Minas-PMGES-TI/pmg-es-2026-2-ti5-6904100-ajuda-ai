@@ -1,0 +1,64 @@
+# Migrations do banco: NUNCA rodam sozinhas.
+# Só manualmente, escolhendo o ambiente e a ação. "mostrar" lista o que está
+# aplicado e o que está pendente; "aplicar" exige digitar a confirmação e passa
+# pela aprovação do Environment (produção). Sempre rode "mostrar" antes.
+name: Migrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: Banco do ambiente
+        type: choice
+        options: [homologacao, producao]
+        required: true
+      acao:
+        description: mostrar (só leitura) ou aplicar
+        type: choice
+        options: [mostrar, aplicar]
+        default: mostrar
+      confirmacao:
+        description: 'Para "aplicar", digite APLICAR-<ambiente> (ex.: APLICAR-homologacao)'
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migracoes-${{ github.event.inputs.ambiente }}
+  cancel-in-progress: false
+
+jobs:
+  migrations:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.ambiente }}
+    defaults: { run: { working-directory: code/back/api } }
+    env:
+      DB_HOST: ${{ secrets.DB_HOST }}
+      DB_PORT: ${{ secrets.DB_PORT }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_DATABASE: ${{ secrets.DB_DATABASE }}
+      DB_SCHEMA: ${{ vars.DB_SCHEMA || 'feed' }}
+      DB_SSL: 'true'
+      DB_SSL_CA: certs/supabase-ca.crt
+      DB_SYNCHRONIZE: 'false'
+      SEED_DEMO_DATA: 'false'
+    steps:
+      - name: Conferir confirmação
+        if: github.event.inputs.acao == 'aplicar'
+        run: |
+          [ "${{ github.event.inputs.confirmacao }}" = "APLICAR-${{ github.event.inputs.ambiente }}" ] || {
+            echo "::error::Confirmação incorreta. Nada foi aplicado."; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: code/back/api/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Estado das migrations
+        run: npm run migration:show
+      - name: Aplicar pendentes
+        if: github.event.inputs.acao == 'aplicar'
+        run: npm run migration:run

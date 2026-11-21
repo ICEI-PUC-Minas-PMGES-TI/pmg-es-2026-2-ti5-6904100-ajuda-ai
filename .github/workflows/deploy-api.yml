@@ -1,0 +1,118 @@
+# Publica a API no Azure Container Apps.
+# - push em Sprint-* (branch de integração) → homologação, automático;
+# - push em main → produção, só após aprovação no GitHub Environment "producao";
+# - manual (workflow_dispatch) → qualquer ambiente, inclusive ROLLBACK para uma
+#   imagem anterior (informe o SHA do commit já publicado).
+# TRAVA: nada roda enquanto a variável de REPOSITÓRIO DEPLOY_ATIVO não for "true"
+# (assim o merge desta configuração não tenta publicar antes da infraestrutura existir).
+# Registro de imagens: Docker Hub privado (grátis) ou ACR (usa crédito Azure).
+# Migrations NÃO rodam aqui (workflow próprio, manual: migracoes.yml).
+name: Deploy API
+
+on:
+  push:
+    branches: [main, 'Sprint-*']
+    paths:
+      - 'code/back/api/**'
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: Ambiente
+        type: choice
+        options: [homologacao, producao]
+        required: true
+      imagem:
+        description: 'Rollback: SHA de uma imagem já publicada (vazio = construir este commit)'
+        required: false
+
+permissions:
+  contents: read
+  id-token: write   # login no Azure por OIDC, sem senha guardada
+
+concurrency:
+  group: deploy-api-${{ github.event.inputs.ambiente || (github.ref_name == 'main' && 'producao' || 'homologacao') }}
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    if: vars.DEPLOY_ATIVO == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.ambiente || (github.ref_name == 'main' && 'producao' || 'homologacao') }}
+      url: ${{ vars.API_URL }}/health
+    env:
+      # Ex.: docker.io/<usuario-dockerhub> (privado, grátis) ou <nome>.azurecr.io
+      REGISTRO: ${{ vars.REGISTRO }}
+      TAG: ${{ github.event.inputs.imagem || github.sha }}
+    steps:
+      - name: Conferir configuração do ambiente
+        env:
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          ACA_APP_NAME: ${{ vars.ACA_APP_NAME }}
+          API_URL: ${{ vars.API_URL }}
+        run: |
+          for v in REGISTRO AZURE_RESOURCE_GROUP ACA_APP_NAME API_URL; do
+            [ -n "${!v}" ] || { echo "::error::Variável $v ausente no Environment"; exit 1; }
+          done
+          echo "IMAGEM=$REGISTRO/ajudaai-api" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        if: ${{ !github.event.inputs.imagem }}
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login no registro (Docker Hub)
+        if: ${{ !github.event.inputs.imagem && !endsWith(vars.REGISTRO, '.azurecr.io') }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.REGISTRO_USUARIO }}
+          password: ${{ secrets.REGISTRO_SENHA }}   # access token do Docker Hub, não a senha da conta
+
+      - name: Login no registro (ACR)
+        if: ${{ !github.event.inputs.imagem && endsWith(vars.REGISTRO, '.azurecr.io') }}
+        run: az acr login --name "${REGISTRO%%.*}"
+
+      - name: Construir e enviar a imagem (tag = SHA do commit)
+        if: ${{ !github.event.inputs.imagem }}
+        run: |
+          docker build --build-arg APP_VERSION="$TAG" -t "$IMAGEM:$TAG" code/back/api
+          docker push "$IMAGEM:$TAG"
+
+      - name: Guardar a imagem atual (para rollback automático)
+        id: anterior
+        run: |
+          atual=$(az containerapp show -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.ACA_APP_NAME }}" \
+            --query "properties.template.containers[0].image" -o tsv)
+          echo "imagem=$atual" >> "$GITHUB_OUTPUT"
+          echo "Imagem em uso antes do deploy: $atual"
+
+      - name: Atualizar o Container App
+        run: |
+          az containerapp update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.ACA_APP_NAME }}" \
+            --image "$IMAGEM:$TAG" \
+            --set-env-vars "APP_VERSION=$TAG" \
+            --revision-suffix "v${TAG:0:7}-${{ github.run_attempt }}" -o none
+
+      - name: Verificar saúde (até 3 min; com réplica mínima 0 a 1ª resposta demora)
+        id: saude
+        run: |
+          for i in $(seq 1 36); do
+            corpo=$(curl -fsS --max-time 20 "${{ vars.API_URL }}/health/ready" || true)
+            if echo "$corpo" | grep -q '"status":"ok"' && echo "$corpo" | grep -q "$TAG"; then
+              echo "API saudável: $corpo"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::API não ficou saudável com a imagem $TAG"; exit 1
+
+      - name: Rollback automático
+        if: failure() && steps.saude.outcome == 'failure' && steps.anterior.outputs.imagem != ''
+        run: |
+          echo "Voltando para ${{ steps.anterior.outputs.imagem }}"
+          az containerapp update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.ACA_APP_NAME }}" \
+            --image "${{ steps.anterior.outputs.imagem }}" -o none
