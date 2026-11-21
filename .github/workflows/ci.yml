@@ -18,6 +18,11 @@ concurrency:
 jobs:
   mudancas:
     runs-on: ubuntu-latest
+    # Em pull_request o paths-filter lista os arquivos pela API do GitHub
+    # (pulls.listFiles), que exige "pull-requests: read". Só leitura.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       api: ${{ steps.filtro.outputs.api }}
       web: ${{ steps.filtro.outputs.web }}
