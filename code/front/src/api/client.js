@@ -93,8 +93,8 @@ export function clearAlunoSession() {
 }
 
 /** Aluno exige seu próprio JWT; consultas não usam identidade livre por e-mail. */
-async function request(path, { method = 'GET', body, token, aluno, anonimo = false, signal } = {}) {
-  const headers = { Accept: 'application/json' };
+async function request(path, { method = 'GET', body, token, aluno, anonimo = false, signal, cabecalhos } = {}) {
+  const headers = { Accept: 'application/json', ...cabecalhos };
   const multipart = typeof FormData !== 'undefined' && body instanceof FormData;
   if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json';
   if (aluno) {
@@ -210,8 +210,16 @@ export const api = {
   programasAluno() { return request('/participacoes/programas', {aluno: getAlunoSession()?.email || '__sem_sessao__'}); },
 
   /* ===== Autenticação (coordenação) ===== */
-  loginDemo(email) {
-    return request('/auth/login-demo', { method: 'POST', body: { email } });
+  /**
+   * Em homologação a API exige a chave de demonstração (X-Demo-Chave). Ela é
+   * digitada por quem apresenta e nunca vai no bundle publicado.
+   */
+  loginDemo(email, chave) {
+    return request('/auth/login-demo', {
+      method: 'POST',
+      body: { email },
+      cabecalhos: chave ? { 'X-Demo-Chave': chave } : undefined,
+    });
   },
   me(token) {
     return request('/me', { token });
