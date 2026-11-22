@@ -4,6 +4,7 @@ import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import Toggle from '../../components/Toggle';
 import { useToast } from '../../components/Toast';
+import './missoes.css';
 
 export const LIMITES_MISSAO = { tituloMax: 120, descricaoMax: 1000, xpMax: 100, xpSemanalMax: 60 };
 
@@ -117,48 +118,333 @@ export function filtrarMissoes(missoes, { busca = '', tipo = '', status = '' }) 
 
 const numero = (v) => Number(v ?? 0).toLocaleString('pt-BR');
 
-export function ListaMissoes({ missoes, ocupadoId = null, onEditar, onAtivar, onDesativar }) {
+/*
+ * Seletor de lista e calendário no mesmo visual do formulário da lojinha
+ * (classes `recompensa-*` de coordenacao.css). Cópia de RecompensasPage.jsx,
+ * que não exporta esses componentes.
+ */
+function usePopupMissao(largura, altura) {
+  const [aberto, setAberto] = useState(false);
+  const [posicao, setPosicao] = useState({});
+  const gatilho = useRef(null);
+  const painel = useRef(null);
+  const fechar = useCallback((focar = false) => {
+    setAberto(false);
+    if (focar) gatilho.current?.focus();
+  }, []);
+
+  function abrir() {
+    const caixa = gatilho.current?.getBoundingClientRect();
+    if (!caixa) return;
+    const larguraFinal = Math.min(largura || caixa.width, window.innerWidth - 24);
+    const esquerda = Math.max(12, Math.min(caixa.left, window.innerWidth - larguraFinal - 12));
+    const acima = caixa.bottom + altura + 8 > window.innerHeight && caixa.top >= altura + 8;
+    setPosicao({ left: esquerda, top: acima ? caixa.top - altura - 8 : caixa.bottom + 8, width: larguraFinal });
+    setAberto(true);
+  }
+
+  useEffect(() => {
+    if (!aberto) return undefined;
+    const fora = (event) => {
+      if (!gatilho.current?.contains(event.target) && !painel.current?.contains(event.target)) fechar();
+    };
+    const rolou = (event) => { if (!painel.current?.contains(event.target)) fechar(); };
+    const redimensionou = () => fechar();
+    document.addEventListener('pointerdown', fora);
+    document.addEventListener('scroll', rolou, true);
+    window.addEventListener('resize', redimensionou);
+    return () => {
+      document.removeEventListener('pointerdown', fora);
+      document.removeEventListener('scroll', rolou, true);
+      window.removeEventListener('resize', redimensionou);
+    };
+  }, [aberto, fechar]);
+
+  return { aberto, posicao, gatilho, painel, abrir, fechar };
+}
+
+function ListaMissao({ id, rotulo, valor, opcoes, onChange, desabilitado = false }) {
+  const popup = usePopupMissao(0, 240);
+  const selecionada = opcoes.find((opcao) => opcao.valor === valor) ?? opcoes[0];
+
+  useEffect(() => {
+    if (popup.aberto) popup.painel.current?.querySelector('[aria-selected="true"]')?.focus();
+  }, [popup.aberto]);
+
+  function teclado(event) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      popup.fechar(true);
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const itens = Array.from(popup.painel.current?.querySelectorAll('[role="option"]') ?? []);
+      const indice = itens.indexOf(document.activeElement);
+      itens[(indice + (event.key === 'ArrowDown' ? 1 : -1) + itens.length) % itens.length]?.focus();
+    }
+  }
+
   return (
-    <div className="users-table-wrap">
-      <table className="users-table missoes-table">
+    <div className="editor-field recompensa-seletor">
+      <span id={`${id}-rotulo`}>{rotulo}</span>
+      <button type="button" ref={popup.gatilho} className="recompensa-gatilho" disabled={desabilitado} style={desabilitado ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} aria-labelledby={`${id}-rotulo ${id}-valor`} aria-haspopup="listbox" aria-expanded={popup.aberto} aria-controls={popup.aberto ? `${id}-lista` : undefined} onClick={() => popup.aberto ? popup.fechar() : popup.abrir()} onKeyDown={(event) => { if (!popup.aberto && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) { event.preventDefault(); popup.abrir(); } else if (popup.aberto && event.key === 'Escape') { event.stopPropagation(); popup.fechar(); } }}>
+        <span id={`${id}-valor`}>{selecionada?.rotulo}</span>
+        <Icon name="chevronDown" size={16} />
+      </button>
+      {popup.aberto && (
+        <div id={`${id}-lista`} ref={popup.painel} className="recompensa-popup recompensa-opcoes" role="listbox" aria-labelledby={`${id}-rotulo`} style={popup.posicao} onKeyDown={teclado}>
+          {opcoes.map((opcao) => (
+            <button key={opcao.valor} type="button" role="option" aria-selected={opcao.valor === valor} onClick={() => { onChange(opcao.valor); popup.fechar(true); }}>
+              <span>{opcao.rotulo}</span>
+              {opcao.valor === valor && <Icon name="check" size={16} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function dataHoraPartes(valor) {
+  const partes = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(valor || '');
+  return partes ? { dia: `${partes[1]}-${partes[2]}-${partes[3]}`, hora: partes[4], minuto: partes[5] } : null;
+}
+
+function CalendarioMissao({ id, rotulo, valor, onChange }) {
+  const popup = usePopupMissao(326, 408);
+  const [mes, setMes] = useState(() => new Date());
+  const [dia, setDia] = useState('');
+  const [hora, setHora] = useState('12');
+  const [minuto, setMinuto] = useState('00');
+  const partes = dataHoraPartes(valor);
+  const texto = partes ? `${partes.dia.slice(8, 10)}/${partes.dia.slice(5, 7)}/${partes.dia.slice(0, 4)} ${partes.hora}:${partes.minuto}` : 'Selecionar data e hora';
+  const ano = mes.getFullYear();
+  const numeroMes = mes.getMonth();
+  const inicio = (new Date(ano, numeroMes, 1).getDay() + 6) % 7;
+  const total = new Date(ano, numeroMes + 1, 0).getDate();
+  const hoje = new Date();
+  const hojeIso = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+  const horaValida = /^\d{1,2}$/.test(hora) && Number(hora) <= 23;
+  const minutoValido = /^\d{1,2}$/.test(minuto) && Number(minuto) <= 59;
+
+  function abrir() {
+    const atual = dataHoraPartes(valor);
+    const referencia = atual ? new Date(`${atual.dia}T12:00`) : new Date();
+    setMes(new Date(referencia.getFullYear(), referencia.getMonth(), 1));
+    setDia(atual?.dia ?? '');
+    setHora(atual?.hora ?? '12');
+    setMinuto(atual?.minuto ?? '00');
+    popup.abrir();
+  }
+
+  function aplicar() {
+    if (!dia || !horaValida || !minutoValido) return;
+    onChange(`${dia}T${String(Number(hora)).padStart(2, '0')}:${String(Number(minuto)).padStart(2, '0')}`);
+    popup.fechar(true);
+  }
+
+  return (
+    <div className="editor-field recompensa-data">
+      <span id={`${id}-rotulo`}>{rotulo}</span>
+      <button type="button" ref={popup.gatilho} className={`recompensa-gatilho${partes ? '' : ' vazio'}`} aria-labelledby={`${id}-rotulo ${id}-valor`} aria-haspopup="dialog" aria-expanded={popup.aberto} onClick={() => popup.aberto ? popup.fechar() : abrir()} onKeyDown={(event) => { if (popup.aberto && event.key === 'Escape') { event.stopPropagation(); popup.fechar(); } }}>
+        <span id={`${id}-valor`}>{texto}</span>
+        <Icon name="calendar" size={17} />
+      </button>
+      {popup.aberto && (
+        <div ref={popup.painel} className="recompensa-popup recompensa-calendario" role="dialog" aria-label={`Escolher ${rotulo.toLowerCase()}`} style={popup.posicao} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); popup.fechar(true); } }}>
+          <div className="recompensa-calendario-topo">
+            <button type="button" aria-label="Mês anterior" onClick={() => setMes(new Date(ano, numeroMes - 1, 1))}><Icon name="chevron" size={17} className="recompensa-seta-esquerda" /></button>
+            <strong>{new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(mes).replace(/^./, (letra) => letra.toUpperCase())}</strong>
+            <button type="button" aria-label="Próximo mês" onClick={() => setMes(new Date(ano, numeroMes + 1, 1))}><Icon name="chevron" size={17} /></button>
+          </div>
+          <div className="recompensa-calendario-grade">
+            {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((nome) => <span key={nome} className="recompensa-dia-semana">{nome}</span>)}
+            {Array.from({ length: inicio }, (_, indice) => <span key={`vazio-${indice}`} aria-hidden="true" />)}
+            {Array.from({ length: total }, (_, indice) => {
+              const data = `${ano}-${String(numeroMes + 1).padStart(2, '0')}-${String(indice + 1).padStart(2, '0')}`;
+              return <button key={data} type="button" className={`${data === dia ? ' selecionado' : ''}${data === hojeIso ? ' hoje' : ''}`} aria-label={new Intl.DateTimeFormat('pt-BR', { dateStyle: 'full' }).format(new Date(ano, numeroMes, indice + 1))} aria-pressed={data === dia} onClick={() => setDia(data)}>{indice + 1}</button>;
+            })}
+          </div>
+          <div className="recompensa-calendario-hora">
+            <span>Horário</span>
+            <div>
+              <input aria-label="Hora" type="number" inputMode="numeric" min="0" max="23" value={hora} onChange={(event) => setHora(event.target.value)} />
+              <strong>:</strong>
+              <input aria-label="Minuto" type="number" inputMode="numeric" min="0" max="59" value={minuto} onChange={(event) => setMinuto(event.target.value)} />
+            </div>
+          </div>
+          <div className="recompensa-calendario-acoes">
+            <button type="button" onClick={() => { onChange(''); popup.fechar(true); }}>Limpar</button>
+            <button type="button" className="aplicar" disabled={!dia || !horaValida || !minutoValido} onClick={aplicar}>Aplicar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Situação mostrada no selo da lista. */
+export function situacaoMissao(m) {
+  if (!m.ativa) return { chave: 'inativa', rotulo: 'Inativa', ordem: 2 };
+  if (!m.vigenteAgora) return { chave: 'fora', rotulo: 'Fora do período', ordem: 1 };
+  return { chave: 'ativa', rotulo: 'Ativa', ordem: 0 };
+}
+
+const COMPARADORES = {
+  titulo: (a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR'),
+  tipo: (a, b) => a.tipo.localeCompare(b.tipo),
+  status: (a, b) => situacaoMissao(a).ordem - situacaoMissao(b).ordem,
+  xp: (a, b) => a.xp - b.xp,
+  conclusoes: (a, b) => (a.conclusoes ?? 0) - (b.conclusoes ?? 0),
+  periodo: (a, b) => (a.inicio ?? '').localeCompare(b.inicio ?? ''),
+  atualizadoEm: (a, b) => a.atualizadoEm.localeCompare(b.atualizadoEm),
+};
+
+export const ORDEM_PADRAO = { campo: 'atualizadoEm', direcao: 'desc' };
+
+/** Ordena sem mexer na lista original; empate cai na data de criação. */
+export function ordenarMissoes(missoes, { campo, direcao } = ORDEM_PADRAO) {
+  const comparar = COMPARADORES[campo] ?? COMPARADORES.atualizadoEm;
+  const sinal = direcao === 'asc' ? 1 : -1;
+  return [...missoes].sort((a, b) => sinal * comparar(a, b) || b.criadoEm.localeCompare(a.criadoEm));
+}
+
+/** "Hoje", "Ontem" ou a data curta, como na coluna "Atualizada". */
+export function textoAtualizada(iso, agora = new Date()) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const dia = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const dias = Math.round((dia(agora) - dia(d)) / 86400000);
+  if (dias === 0) return 'Hoje';
+  if (dias === 1) return 'Ontem';
+  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).format(d);
+}
+
+const COLUNAS = [
+  { campo: 'titulo', rotulo: 'Missão' },
+  { campo: 'status', rotulo: 'Status' },
+  { campo: 'xp', rotulo: 'Recompensa' },
+  { campo: 'conclusoes', rotulo: 'Conclusões', centro: true },
+  { campo: 'periodo', rotulo: 'Período' },
+  { campo: 'atualizadoEm', rotulo: 'Atualizada' },
+];
+
+function CaixaSelecao({ marcada, parcial = false, rotulo, onChange }) {
+  const ref = useRef(null);
+  useEffect(() => { if (ref.current) ref.current.indeterminate = parcial; }, [parcial]);
+  return (
+    <input ref={ref} type="checkbox" className="missoes-check" checked={marcada} aria-label={rotulo} onChange={(e) => onChange(e.target.checked)} />
+  );
+}
+
+function MenuMissao({ missao, ocupado, onEditar, onAtivar, onDesativar }) {
+  const popup = usePopupMissao(190, 100);
+  useEffect(() => {
+    if (popup.aberto) popup.painel.current?.querySelector('[role="menuitem"]')?.focus();
+  }, [popup.aberto]);
+  const escolher = (acao) => { popup.fechar(true); acao?.(missao); };
+  return (
+    <>
+      <button type="button" ref={popup.gatilho} className="missoes-menu-gatilho" disabled={ocupado} aria-label={`Ações da missão ${missao.titulo}`} aria-haspopup="menu" aria-expanded={popup.aberto} onClick={() => popup.aberto ? popup.fechar() : popup.abrir()}>
+        <span aria-hidden="true" />
+      </button>
+      {popup.aberto && (
+        <div ref={popup.painel} className="recompensa-popup recompensa-opcoes missoes-menu" role="menu" style={popup.posicao} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); popup.fechar(true); } }}>
+          <button type="button" role="menuitem" onClick={() => escolher(onEditar)}><span>Editar</span><Icon name="edit" size={15} /></button>
+          {missao.ativa
+            ? <button type="button" role="menuitem" className="perigo" onClick={() => escolher(onDesativar)}><span>Desativar</span><Icon name="trash" size={15} /></button>
+            : <button type="button" role="menuitem" onClick={() => escolher(onAtivar)}><span>Ativar</span><Icon name="refresh" size={15} /></button>}
+        </div>
+      )}
+    </>
+  );
+}
+
+export function ListaMissoes({
+  missoes,
+  ocupadoId = null,
+  selecionadas = new Set(),
+  ordem = ORDEM_PADRAO,
+  emLote = false,
+  onSelecionar,
+  onSelecionarTodas,
+  onOrdenar,
+  onEditar,
+  onAtivar,
+  onDesativar,
+  onAtivarSelecionadas,
+  onDesativarSelecionadas,
+}) {
+  const selecao = missoes.filter((m) => selecionadas.has(m.id));
+  const marcadas = selecao.length;
+  const todas = marcadas > 0 && marcadas === missoes.length;
+  return (
+    <div className="missoes-lista-wrap">
+      <table className="missoes-lista">
         <caption className="sr-only">Missões do ciclo</caption>
+        <colgroup>
+          <col className="c-check" />
+          <col className="c-titulo" />
+          <col className="c-status" />
+          <col className="c-xp" />
+          <col className="c-conclusoes" />
+          <col className="c-periodo" />
+          <col className="c-atualizada" />
+          <col className="c-menu" />
+        </colgroup>
         <thead>
-          <tr>
-            <th scope="col">Missão</th>
-            <th scope="col">Tipo</th>
-            <th scope="col">Recompensa</th>
-            <th scope="col">Período</th>
-            <th scope="col">Conclusões</th>
-            <th scope="col">Status</th>
-            <th scope="col"><span className="sr-only">Ações</span></th>
+          <tr className={marcadas > 0 ? 'em-selecao' : undefined}>
+            <th scope="col" className="col-check">
+              <CaixaSelecao marcada={todas} parcial={marcadas > 0 && !todas} rotulo="Selecionar todas as missões" onChange={(v) => onSelecionarTodas?.(v)} />
+            </th>
+            {marcadas > 0 ? (
+              <th scope="col" colSpan={COLUNAS.length + 1} className="missoes-lote">
+                <span className="missoes-lote-conta">{marcadas} {marcadas === 1 ? 'selecionada' : 'selecionadas'}</span>
+                <button type="button" disabled={emLote || !selecao.some((m) => !m.ativa)} onClick={() => onAtivarSelecionadas?.(selecao.filter((m) => !m.ativa))}>
+                  <Icon name="refresh" size={14} /> Ativar
+                </button>
+                <button type="button" className="perigo" disabled={emLote || !selecao.some((m) => m.ativa)} onClick={() => onDesativarSelecionadas?.(selecao.filter((m) => m.ativa))}>
+                  <Icon name="trash" size={14} /> Desativar
+                </button>
+                <button type="button" disabled={emLote} onClick={() => onSelecionarTodas?.(false)}>
+                  <Icon name="close" size={14} /> Limpar
+                </button>
+                {emLote && <span className="missoes-lote-status" role="status">Aplicando…</span>}
+              </th>
+            ) : COLUNAS.map((c) => {
+              const ativa = ordem.campo === c.campo;
+              return (
+                <th key={c.campo} scope="col" className={c.centro ? 'centro' : undefined} aria-sort={ativa ? (ordem.direcao === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                  <button type="button" className={`missoes-ordenar${ativa ? ' ativa' : ''}`} onClick={() => onOrdenar?.(c.campo)}>
+                    {c.rotulo}
+                    {ativa && <Icon name={ordem.direcao === 'asc' ? 'arrowUp' : 'arrowDown'} size={15} />}
+                  </button>
+                </th>
+              );
+            })}
+            {marcadas === 0 && <th scope="col" className="col-menu"><span className="sr-only">Ações</span></th>}
           </tr>
         </thead>
         <tbody>
           {missoes.map((m) => {
-            const ocupado = ocupadoId === m.id;
+            const situacao = situacaoMissao(m);
+            const marcada = selecionadas.has(m.id);
             return (
-              <tr key={m.id} className={m.ativa ? undefined : 'inativo'}>
-                <td data-label="Missão"><strong>{m.titulo}</strong></td>
-                <td data-label="Tipo">{ROTULO_TIPO[m.tipo] ?? m.tipo}</td>
-                <td data-label="Recompensa">{m.xp} XP + {m.xp} moedas</td>
-                <td data-label="Período">{periodoMissao(m)}</td>
-                <td data-label="Conclusões">{numero(m.conclusoes)}</td>
-                <td data-label="Status">
-                  <span className={`flag ${m.ativa ? 'green' : 'muted'}`}>{m.ativa ? (m.vigenteAgora ? 'Ativa' : 'Ativa · fora do período') : 'Inativa'}</span>
+              <tr key={m.id} className={marcada ? 'selecionada' : undefined}>
+                <td className="col-check">
+                  <CaixaSelecao marcada={marcada} rotulo={`Selecionar missão ${m.titulo}`} onChange={(v) => onSelecionar?.(m.id, v)} />
                 </td>
-                <td className="user-actions">
-                  <button type="button" className="mini-btn" disabled={ocupado} onClick={() => onEditar?.(m)} aria-label={`Editar missão ${m.titulo}`}>
-                    <Icon name="edit" size={14} /> Editar
-                  </button>
-                  {m.ativa ? (
-                    <button type="button" className="mini-btn danger" disabled={ocupado} onClick={() => onDesativar?.(m)} aria-label={`Desativar missão ${m.titulo}`}>
-                      <Icon name="trash" size={14} /> Desativar
-                    </button>
-                  ) : (
-                    <button type="button" className="mini-btn success" disabled={ocupado} onClick={() => onAtivar?.(m)} aria-label={`Ativar missão ${m.titulo}`}>
-                      <Icon name="refresh" size={14} /> {ocupado ? 'Ativando…' : 'Ativar'}
-                    </button>
-                  )}
+                <td data-label="Missão" className="col-titulo">
+                  <strong title={m.titulo}>{m.titulo}</strong>
+                  <small title={m.descricao}><span className={`missoes-tipo ${m.tipo === 'SEMANAL' ? 'semanal' : ''}`}>{ROTULO_TIPO[m.tipo] ?? m.tipo}</span>{m.descricao}</small>
+                </td>
+                <td data-label="Status"><span className={`missoes-selo ${situacao.chave}`}>{situacao.rotulo}</span></td>
+                <td data-label="Recompensa" className="col-recompensa"><strong>{m.xp} XP</strong><small>+{m.xp} moedas</small></td>
+                <td data-label="Conclusões" className="centro">{numero(m.conclusoes)}</td>
+                <td data-label="Período" className="col-secundaria">{periodoMissao(m)}</td>
+                <td data-label="Atualizada" className="col-secundaria">{textoAtualizada(m.atualizadoEm)}</td>
+                <td className="col-menu">
+                  <MenuMissao missao={m} ocupado={ocupadoId === m.id} onEditar={onEditar} onAtivar={onAtivar} onDesativar={onDesativar} />
                 </td>
               </tr>
             );
@@ -166,6 +452,30 @@ export function ListaMissoes({ missoes, ocupadoId = null, onEditar, onAtivar, on
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** Confirmação de desativar várias missões de uma vez. */
+export function ConfirmarDesativacaoLote({ missoes, ocupado, onConfirmar, onFechar }) {
+  const fechar = () => { if (!ocupado) onFechar(); };
+  const conclusoes = missoes.reduce((t, m) => t + (m.conclusoes ?? 0), 0);
+  return (
+    <Modal
+      titulo={`Desativar ${missoes.length} missões?`}
+      descricao="Elas somem da lista dos alunos e não podem mais ser concluídas. Conclusões, XP e moedas já concedidos continuam no histórico, e você pode reativá-las depois."
+      onFechar={fechar}
+      acoes={(
+        <>
+          <button type="button" className="ghost-button" disabled={ocupado} onClick={fechar} data-autofocus>Cancelar</button>
+          <button type="button" className="danger-button" disabled={ocupado} onClick={() => { if (!ocupado) onConfirmar(); }}>
+            <Icon name="trash" size={16} /> {ocupado ? 'Desativando…' : `Desativar ${missoes.length}`}
+          </button>
+        </>
+      )}
+    >
+      <ul className="missoes-lote-lista">{missoes.map((m) => <li key={m.id}>{m.titulo}</li>)}</ul>
+      {conclusoes > 0 && <p className="detail-muted">Juntas, elas têm {conclusoes} conclusão(ões); serão preservadas.</p>}
+    </Modal>
   );
 }
 
@@ -190,6 +500,39 @@ export function ConfirmarDesativacaoMissao({ missao, ocupado, erro, onConfirmar,
     </Modal>
   );
 }
+
+/** Filtro compacto da barra de ferramentas (mesmo popup do formulário). */
+function FiltroMissao({ rotulo, valor, opcoes, onChange }) {
+  const popup = usePopupMissao(220, 180);
+  const selecionada = opcoes.find((o) => o.valor === valor) ?? opcoes[0];
+  useEffect(() => {
+    if (popup.aberto) popup.painel.current?.querySelector('[aria-selected="true"]')?.focus();
+  }, [popup.aberto]);
+  return (
+    <>
+      <button type="button" ref={popup.gatilho} className={`missoes-filtro${valor ? ' ativo' : ''}`} aria-haspopup="listbox" aria-expanded={popup.aberto} onClick={() => popup.aberto ? popup.fechar() : popup.abrir()}>
+        <span className="missoes-filtro-rotulo">{rotulo}</span>
+        <span>{selecionada.rotulo}</span>
+        <Icon name="chevronDown" size={15} />
+      </button>
+      {popup.aberto && (
+        <div ref={popup.painel} className="recompensa-popup recompensa-opcoes" role="listbox" aria-label={rotulo} style={popup.posicao} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); popup.fechar(true); } }}>
+          {opcoes.map((o) => (
+            <button key={o.valor || 'todos'} type="button" role="option" aria-selected={o.valor === valor} onClick={() => { onChange(o.valor); popup.fechar(true); }}>
+              <span>{o.rotulo}</span>
+              {o.valor === valor && <Icon name="check" size={16} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+const OPCOES_TIPO = [
+  { valor: 'UNICA', rotulo: 'Única no ciclo' },
+  { valor: 'SEMANAL', rotulo: 'Semanal (renova toda segunda)' },
+];
 
 export function FormularioMissao({ original, onCancelar, onSalvo }) {
   const criando = !original;
@@ -236,50 +579,53 @@ export function FormularioMissao({ original, onCancelar, onSalvo }) {
   return (
     <Modal
       titulo={criando ? 'Nova missão' : `Editar missão "${original.titulo}"`}
+      descricao={criando ? 'Defina o que o aluno precisa fazer, quanto XP ganha e por quanto tempo a missão fica disponível. Moedas = XP.' : 'Alterar a recompensa vale só para novas conclusões.'}
       onFechar={fechar}
       tamanho="lg"
+      className="recompensa-modal"
       acoes={(
         <>
           <button type="button" className="ghost-button" onClick={fechar} disabled={salvando}>Cancelar</button>
           <button type="submit" form={formId} className="primary-button inline" disabled={!podeSalvar}>
-            <Icon name="save" size={16} /> {salvando ? 'Salvando…' : 'Salvar missão'}
+            <Icon name="save" size={16} /> {salvando ? 'Salvando…' : criando ? (form.ativar ? 'Criar e publicar' : 'Criar rascunho') : 'Salvar alterações'}
           </button>
         </>
       )}
     >
-      <form id={formId} className="missao-form" onSubmit={salvar} noValidate>
+      <form id={formId} className="pucstop-form recompensa-form missao-form" onSubmit={salvar} noValidate>
         <label className="editor-field" htmlFor={`${base}-titulo`}>
           <span>Título</span>
           <input id={`${base}-titulo`} value={form.titulo} maxLength={tituloMax} required data-autofocus placeholder="Ex.: Participe da Semana do Calouro" onChange={(e) => campo('titulo', e.target.value)} />
         </label>
         <label className="editor-field" htmlFor={`${base}-descricao`}>
           <span>Descrição</span>
-          <textarea id={`${base}-descricao`} rows={3} value={form.descricao} maxLength={descricaoMax} required placeholder="Como o aluno conclui a missão" onChange={(e) => campo('descricao', e.target.value)} />
+          <textarea id={`${base}-descricao`} className="detail-textarea" rows={2} value={form.descricao} maxLength={descricaoMax} required placeholder="Como o aluno conclui a missão" onChange={(e) => campo('descricao', e.target.value)} />
         </label>
-        <div className="editor-grid">
-          <label className="editor-field" htmlFor={`${base}-tipo`}>
-            <span>Tipo</span>
-            <select id={`${base}-tipo`} value={form.tipo} disabled={tipoBloqueado} onChange={(e) => campo('tipo', e.target.value)}>
-              <option value="UNICA">Única no ciclo</option>
-              <option value="SEMANAL">Semanal (renova toda segunda)</option>
-            </select>
-            {tipoBloqueado && <small className="field-hint">Já há conclusões: o tipo não pode mudar.</small>}
-          </label>
-          <label className="editor-field" htmlFor={`${base}-xp`}>
-            <span>Recompensa (XP)</span>
-            <input id={`${base}-xp`} type="number" inputMode="numeric" min={1} max={form.tipo === 'SEMANAL' ? xpSemanalMax : xpMax} step={1} value={form.xp} required onChange={(e) => campo('xp', e.target.value)} />
-            <small className="field-hint">Máximo de {form.tipo === 'SEMANAL' ? `${xpSemanalMax} XP por missão semanal` : `${xpMax} XP por missão`}. Moedas = XP.</small>
-          </label>
-          <label className="editor-field" htmlFor={`${base}-inicio`}>
-            <span>Início (opcional)</span>
-            <input id={`${base}-inicio`} type="datetime-local" value={form.inicio} onChange={(e) => campo('inicio', e.target.value)} />
-          </label>
-          <label className="editor-field" htmlFor={`${base}-fim`}>
-            <span>Fim (opcional)</span>
-            <input id={`${base}-fim`} type="datetime-local" value={form.fim} onChange={(e) => campo('fim', e.target.value)} />
-          </label>
-        </div>
-        {!criando && <p className="field-hint">Alterar a recompensa vale só para novas conclusões.</p>}
+
+        <fieldset className="recompensa-bloco">
+          <legend>Recompensa</legend>
+          <div className="editor-grid pucstop-grid">
+            <ListaMissao id={`${base}-tipo`} rotulo="Tipo" valor={form.tipo} opcoes={OPCOES_TIPO} desabilitado={tipoBloqueado} onChange={(valor) => campo('tipo', valor)} />
+            <label className="editor-field" htmlFor={`${base}-xp`}>
+              <span>Recompensa (XP)</span>
+              <input id={`${base}-xp`} type="number" inputMode="numeric" min={1} max={form.tipo === 'SEMANAL' ? xpSemanalMax : xpMax} step={1} value={form.xp} required onChange={(e) => campo('xp', e.target.value)} />
+            </label>
+          </div>
+          <p className="field-hint">
+            Máximo de {form.tipo === 'SEMANAL' ? `${xpSemanalMax} XP por missão semanal` : `${xpMax} XP por missão`}. Moedas = XP.
+            {tipoBloqueado && <strong> Já há conclusões: o tipo não pode mudar.</strong>}
+          </p>
+        </fieldset>
+
+        <fieldset className="recompensa-bloco">
+          <legend>Período</legend>
+          <div className="editor-grid pucstop-grid">
+            <CalendarioMissao id={`${base}-inicio`} rotulo="Disponível a partir de" valor={form.inicio} onChange={(valor) => campo('inicio', valor)} />
+            <CalendarioMissao id={`${base}-fim`} rotulo="Disponível até" valor={form.fim} onChange={(valor) => campo('fim', valor)} />
+          </div>
+          <p className="field-hint">Datas vazias: sem prazo. A missão só aparece para os alunos ativa e dentro do período.</p>
+        </fieldset>
+
         {criando && (
           <div className="editor-toggles">
             <Toggle label="Publicar e notificar os alunos" descricao="Desligado, a missão fica como rascunho até ser ativada." checked={form.ativar} onChange={(v) => campo('ativar', v)} />
@@ -306,6 +652,10 @@ export default function MissoesPage() {
   const [desativando, setDesativando] = useState(null);
   const [erroDesativacao, setErroDesativacao] = useState('');
   const [ocupadoId, setOcupadoId] = useState(null);
+  const [selecionadas, setSelecionadas] = useState(() => new Set());
+  const [ordem, setOrdem] = useState(ORDEM_PADRAO);
+  const [loteDesativar, setLoteDesativar] = useState(null);
+  const [emLote, setEmLote] = useState(false);
   const trava = useRef(false);
 
   const carregar = useCallback(async () => {
@@ -327,7 +677,53 @@ export default function MissoesPage() {
   }
 
   const resumo = useMemo(() => resumoMissoes(missoes || []), [missoes]);
-  const lista = useMemo(() => filtrarMissoes(missoes || [], { busca, tipo, status }), [missoes, busca, tipo, status]);
+  const lista = useMemo(
+    () => ordenarMissoes(filtrarMissoes(missoes || [], { busca, tipo, status }), ordem),
+    [missoes, busca, tipo, status, ordem],
+  );
+
+  function selecionar(id, marcar) {
+    setSelecionadas((atual) => {
+      const nova = new Set(atual);
+      if (marcar) nova.add(id); else nova.delete(id);
+      return nova;
+    });
+  }
+
+  function selecionarTodas(marcar) {
+    setSelecionadas(marcar ? new Set(lista.map((m) => m.id)) : new Set());
+  }
+
+  function ordenar(campo) {
+    setOrdem((atual) => (atual.campo === campo
+      ? { campo, direcao: atual.direcao === 'asc' ? 'desc' : 'asc' }
+      : { campo, direcao: campo === 'titulo' || campo === 'tipo' || campo === 'status' ? 'asc' : 'desc' }));
+  }
+
+  /** Ativa ou desativa várias, uma por vez; o que falhar fica selecionado. */
+  async function aplicarEmLote(alvo, ativar) {
+    if (trava.current || alvo.length === 0) return;
+    trava.current = true;
+    setEmLote(true);
+    setErroAcao('');
+    const falhas = [];
+    const idsComFalha = new Set();
+    for (const missao of alvo) {
+      try {
+        substituir(await (ativar ? api.ativarMissao(missao.id) : api.desativarMissao(missao.id)));
+      } catch (error) {
+        idsComFalha.add(missao.id);
+        falhas.push(`"${missao.titulo}": ${error.message || 'erro desconhecido'}`);
+      }
+    }
+    const ok = alvo.length - falhas.length;
+    setSelecionadas(idsComFalha);
+    if (ok > 0) mostrarToast(`${ok} ${ok === 1 ? 'missão' : 'missões'} ${ativar ? 'ativada(s)' : 'desativada(s)'}.`, 'sucesso');
+    if (falhas.length) setErroAcao(`Não foi possível ${ativar ? 'ativar' : 'desativar'} ${falhas.join('; ')}.`);
+    setLoteDesativar(null);
+    trava.current = false;
+    setEmLote(false);
+  }
 
   async function ativar(missao) {
     if (trava.current) return;
@@ -369,46 +765,41 @@ export default function MissoesPage() {
       <header className="dash-header">
         <div>
           <h1>Missões</h1>
-          <p>Crie desafios que rendem XP e moedas aos alunos.</p>
+          {missoes && missoes.length > 0 && (
+            <ul className="missoes-resumo" aria-label="Resumo do ciclo">
+              <li><strong>{numero(resumo.ativas)}</strong> {resumo.ativas === 1 ? 'ativa' : 'ativas'} de {numero(missoes.length)}</li>
+              <li><strong>{numero(resumo.conclusoes)}</strong> {resumo.conclusoes === 1 ? 'conclusão' : 'conclusões'}</li>
+              <li><strong>{numero(resumo.xp)}</strong> XP distribuídos</li>
+              {missoes[0]?.ciclo && <li className="missoes-resumo-ciclo">Ciclo {missoes[0].ciclo}</li>}
+            </ul>
+          )}
         </div>
         <button type="button" className="primary-button inline" onClick={() => setEditando('novo')}>
           <Icon name="plus" size={17} /> Nova missão
         </button>
       </header>
 
-      {missoes && (
-        <div className="users-summary">
-          <div className="summary-tile"><strong>{numero(resumo.ativas)}</strong><span>Missões ativas</span></div>
-          <div className="summary-tile"><strong>{numero(resumo.conclusoes)}</strong><span>Conclusões no ciclo</span></div>
-          <div className="summary-tile"><strong>{numero(resumo.xp)}</strong><span>XP distribuído</span></div>
-        </div>
-      )}
-
       {missoes && missoes.length > 0 && (
-        <div className="cand-tools users-tools">
-          <label className="search-field">
-            <Icon name="search" size={17} />
+        <div className="missoes-ferramentas">
+          <div className="forms-tabs missoes-abas" role="tablist" aria-label="Filtrar por status">
+            {[
+              { valor: '', rotulo: 'Todas', total: missoes.length },
+              { valor: 'ativa', rotulo: 'Ativas', total: resumo.ativas },
+              { valor: 'inativa', rotulo: 'Inativas', total: missoes.length - resumo.ativas },
+            ].map((aba) => (
+              <button key={aba.valor || 'todas'} type="button" role="tab" aria-selected={status === aba.valor} className={`forms-tab${status === aba.valor ? ' active' : ''}`} onClick={() => setStatus(aba.valor)}>
+                {aba.rotulo}<span className="forms-tab-status">{numero(aba.total)}</span>
+              </button>
+            ))}
+          </div>
+          <label className="missoes-busca">
+            <Icon name="search" size={16} />
             <span className="sr-only">Buscar missão</span>
-            <input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar missão" />
+            <input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por título ou descrição" />
           </label>
-          <label className="filter-select">
-            <Icon name="filter" size={16} />
-            <span className="sr-only">Filtrar por tipo</span>
-            <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
-              <option value="">Tipo: todas</option>
-              <option value="UNICA">Única</option>
-              <option value="SEMANAL">Semanal</option>
-            </select>
-          </label>
-          <label className="filter-select">
-            <Icon name="filter" size={16} />
-            <span className="sr-only">Filtrar por status</span>
-            <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="">Status: todas</option>
-              <option value="ativa">Ativas</option>
-              <option value="inativa">Inativas</option>
-            </select>
-          </label>
+          <div className="missoes-filtros">
+            <FiltroMissao rotulo="Tipo" valor={tipo} onChange={setTipo} opcoes={[{ valor: '', rotulo: 'Todos' }, { valor: 'UNICA', rotulo: 'Única' }, { valor: 'SEMANAL', rotulo: 'Semanal' }]} />
+          </div>
         </div>
       )}
 
@@ -422,16 +813,18 @@ export default function MissoesPage() {
         <ListaMissoes
           missoes={lista}
           ocupadoId={ocupadoId}
+          selecionadas={selecionadas}
+          ordem={ordem}
+          emLote={emLote}
+          onAtivarSelecionadas={(alvo) => aplicarEmLote(alvo, true)}
+          onDesativarSelecionadas={(alvo) => setLoteDesativar(alvo)}
+          onSelecionar={selecionar}
+          onSelecionarTodas={selecionarTodas}
+          onOrdenar={ordenar}
           onEditar={(m) => setEditando(m)}
           onAtivar={ativar}
           onDesativar={(m) => { setErroDesativacao(''); setDesativando(m); }}
         />
-      )}
-
-      {missoes?.length > 0 && (
-        <p className="detail-muted small">
-          Os participantes do ciclo recebem o aviso no sino quando a missão fica disponível para eles. Desativar não apaga conclusões nem XP já concedidos.
-        </p>
       )}
 
       {editando && (
@@ -443,6 +836,15 @@ export default function MissoesPage() {
             setEditando(null);
             mostrarToast(criada ? `Missão "${salva.titulo}" criada.` : `Missão "${salva.titulo}" atualizada.`, 'sucesso');
           }}
+        />
+      )}
+
+      {loteDesativar && (
+        <ConfirmarDesativacaoLote
+          missoes={loteDesativar}
+          ocupado={emLote}
+          onConfirmar={() => aplicarEmLote(loteDesativar, false)}
+          onFechar={() => setLoteDesativar(null)}
         />
       )}
 

@@ -1,0 +1,131 @@
+/* Tela de missões da coordenação (MissoesPage.jsx). Só classes `missoes-*`. */
+
+.missoes-page { display: grid; gap: 16px; }
+
+/* Resumo do ciclo: mesmo roxo do botão "Nova missão" (.primary-button), números separados por divisórias. */
+.missoes-resumo { display: inline-flex; flex-wrap: wrap; align-items: center; margin: 12px 0 0; padding: 8px 6px; list-style: none; border-radius: 12px; background: linear-gradient(100deg, #5140ca, #4934c9); color: rgba(255, 255, 255, .8); font-size: .86rem; font-weight: 500; }
+.missoes-resumo li { display: inline-flex; align-items: baseline; gap: 6px; padding: 2px 16px; }
+.missoes-resumo li + li { border-left: 1px solid rgba(255, 255, 255, .18); }
+.missoes-resumo strong { color: #fff; font-size: 1.15rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.missoes-resumo li.missoes-resumo-ciclo { padding: 3px 10px; margin-left: 10px; border: 0; border-radius: 999px; color: #fff; background: rgba(255, 255, 255, .14); font-size: .76rem; font-weight: 600; }
+
+/* Barra de ferramentas: busca + filtros na mesma linha. */
+.missoes-ferramentas { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.missoes-abas { margin: 0; flex: none; border-color: #ddd8f8; }
+.missoes-busca { display: flex; flex: 1 1 260px; align-items: center; gap: 8px; min-width: 0; height: 50px; padding: 0 14px; border: 1px solid #ddd8f8; border-radius: 14px; color: var(--purple); background: #fff; }
+.missoes-busca:focus-within { border-color: #9587e8; box-shadow: 0 0 0 3px rgba(74, 52, 207, .1); }
+.missoes-busca input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; color: var(--ink); background: transparent; font: inherit; font-size: .88rem; }
+.missoes-filtros { display: flex; gap: 8px; }
+.missoes-filtro { display: inline-flex; align-items: center; gap: 6px; height: 50px; padding: 0 14px; border: 1px solid #ddd8f8; border-radius: 14px; color: var(--ink); background: #fff; font: inherit; font-size: .84rem; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.missoes-filtro:hover, .missoes-filtro[aria-expanded="true"] { border-color: #9587e8; background: #fcfbff; }
+.missoes-filtro.ativo { border-color: #c9c1f6; background: var(--lavender); color: var(--purple-deep); }
+.missoes-filtro-rotulo { color: var(--muted); font-weight: 500; }
+.missoes-filtro .icon { color: var(--purple); }
+.missoes-filtro:focus-visible { outline: 2px solid #a598f4; outline-offset: 2px; }
+
+
+.missoes-lista-wrap { overflow-x: auto; padding: 8px; border: 1px solid #ddd8f8; border-radius: 16px; background: #fff; box-shadow: 0 6px 18px rgba(74, 52, 207, .06); }
+.missoes-lista { width: 100%; min-width: 1000px; border-collapse: separate; border-spacing: 0; font-size: .88rem; table-layout: fixed; }
+/* Colunas de dados com largura fixa; a Missão fica com o resto. */
+.missoes-lista .c-check { width: 52px; }
+.missoes-lista .c-status { width: 170px; }
+.missoes-lista .c-xp { width: 140px; }
+.missoes-lista .c-conclusoes { width: 116px; }
+.missoes-lista .c-periodo { width: 150px; }
+.missoes-lista .c-atualizada { width: 130px; }
+.missoes-lista .c-menu { width: 52px; }
+.missoes-lista thead th { padding: 0 14px; height: 44px; background: #efecfd; color: #6a5fc0; font-size: .78rem; font-weight: 500; text-align: left; white-space: nowrap; }
+.missoes-lista thead th:first-child { border-radius: 10px 0 0 10px; }
+.missoes-lista thead th:last-child { border-radius: 0 10px 10px 0; }
+.missoes-lista thead th.centro { text-align: center; }
+.missoes-ordenar { display: inline-flex; align-items: center; gap: 5px; margin: 0 -8px; padding: 5px 8px; border: 0; border-radius: 8px; color: inherit; background: none; font: inherit; line-height: 1; cursor: pointer; }
+.missoes-ordenar:hover { color: var(--purple-deep); background: #e4defc; }
+.missoes-ordenar.ativa { color: var(--purple-deep); font-weight: 600; }
+.missoes-ordenar .icon { color: var(--purple); }
+.missoes-ordenar:focus { outline: none; }
+.missoes-ordenar:focus-visible { background: #e4defc; box-shadow: inset 0 0 0 1.5px #a598f4; }
+
+.missoes-lista tbody td { height: 68px; padding: 0 14px; color: var(--ink); vertical-align: middle; white-space: nowrap; }
+.missoes-lista tbody tr:nth-child(even) td { background: #faf9ff; }
+.missoes-lista tbody tr:hover td { background: #f6f5fe; }
+.missoes-lista tbody tr.selecionada td { background: #f6f5fe; }
+.missoes-lista tbody tr.selecionada td:first-child { box-shadow: inset 4px 0 0 var(--purple); }
+.missoes-lista td.centro { text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.missoes-lista .col-secundaria { color: #5c5678; }
+.missoes-lista .col-recompensa strong { display: block; color: var(--purple); font-weight: 800; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.missoes-lista .col-recompensa small { display: block; margin-top: 3px; color: var(--muted); font-size: .78rem; line-height: 1.3; }
+.missoes-lista .col-titulo strong, .missoes-lista .col-titulo small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.missoes-lista .col-titulo small { margin-top: 3px; color: var(--muted); font-size: .78rem; line-height: 1.3; }
+.missoes-lista .col-titulo strong { line-height: 1.3; }
+.missoes-tipo { display: inline-block; margin-right: 8px; padding: 1px 7px; border-radius: 6px; color: #5c5678; background: #efeff6; font-size: .7rem; font-weight: 700; }
+.missoes-tipo.semanal { color: var(--purple); background: var(--lavender); }
+.missoes-lista tbody td { overflow: hidden; text-overflow: ellipsis; }
+.missoes-lista .col-titulo strong { font-weight: 600; }
+.missoes-lista .col-check { padding: 0 0 0 16px; text-align: left; }
+.missoes-lista .col-menu { padding: 0 10px 0 0; text-align: right; }
+
+/* Checkbox arredondado, roxo quando marcado; "–" quando parcial. */
+.missoes-check { appearance: none; display: inline-grid; place-content: center; width: 20px; height: 20px; margin: 0; border: 1.5px solid #d6d4e6; border-radius: 5px; background: #fff; cursor: pointer; vertical-align: middle; }
+.missoes-check:hover { border-color: #9587e8; }
+.missoes-check:focus-visible { outline: 2px solid #a598f4; outline-offset: 2px; }
+.missoes-check:checked, .missoes-check:indeterminate { border-color: var(--purple); background: var(--purple); }
+.missoes-check:checked::after { content: ''; width: 10px; height: 6px; margin-top: -2px; border: solid #fff; border-width: 0 0 2px 2px; transform: rotate(-45deg); }
+.missoes-check:indeterminate::after { content: ''; width: 10px; height: 2px; border-radius: 1px; background: #fff; }
+
+/* Selos de status: caixa alta, bolinha colorida. */
+.missoes-selo { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px 0 9px; border-radius: 999px; font-size: .68rem; font-weight: 700; line-height: 1; letter-spacing: .5px; text-transform: uppercase; }
+.missoes-selo::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.missoes-selo.ativa { color: #1f9d55; background: #e6f7ed; }
+.missoes-selo.fora { color: #e09b07; background: #fff4dc; }
+.missoes-selo.inativa { color: #8a8aa3; background: #efeff5; }
+
+/* Menu "⋯". */
+.missoes-menu-gatilho { display: inline-grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
+.missoes-menu-gatilho:hover:not(:disabled), .missoes-menu-gatilho[aria-expanded="true"] { background: var(--lavender); }
+.missoes-menu-gatilho:disabled { opacity: .5; cursor: not-allowed; }
+.missoes-menu-gatilho:focus-visible { outline: 2px solid #a598f4; outline-offset: 1px; }
+.missoes-menu-gatilho span { width: 4px; height: 4px; border-radius: 50%; background: #b8bad0; box-shadow: -7px 0 0 #b8bad0, 7px 0 0 #b8bad0; }
+.missoes-menu button.perigo { color: #b42318; }
+.missoes-menu button.perigo .icon { color: #b42318; }
+
+/* Seleção: o cabeçalho vira a barra de ações, no mesmo tamanho. */
+.missoes-lista thead tr.em-selecao th { background: #e4defc; }
+.missoes-lote { color: var(--purple-deep); }
+.missoes-lote > * { vertical-align: middle; }
+.missoes-lote-conta { margin-right: 14px; font-size: .84rem; font-weight: 700; }
+.missoes-lote button { display: inline-flex; align-items: center; gap: 5px; height: 30px; margin-right: 4px; padding: 0 10px; border: 0; border-radius: 8px; color: var(--purple-deep); background: transparent; font: inherit; font-size: .82rem; font-weight: 600; cursor: pointer; }
+.missoes-lote button:hover:not(:disabled) { background: #fff; }
+.missoes-lote button:disabled { opacity: .45; cursor: not-allowed; }
+.missoes-lote button.perigo { color: #b42318; }
+.missoes-lote button:focus-visible { outline: 2px solid #a598f4; outline-offset: 1px; }
+.missoes-lote-status { margin-left: 6px; color: var(--muted); font-size: .8rem; font-weight: 500; }
+.missoes-lote-lista { margin: 0 0 8px; padding-left: 18px; color: var(--ink); font-size: .86rem; }
+
+/* Telas estreitas: cada missão vira um cartão. */
+@media (max-width: 900px) {
+  .missoes-resumo { display: flex; }
+  .missoes-resumo li { padding: 4px 12px; }
+  .missoes-abas { flex: 1 1 100%; }
+  .missoes-abas .forms-tab { flex: 1; padding: 0 10px; }
+  .missoes-filtros { flex: 1 1 100%; }
+  .missoes-filtro { flex: 1; justify-content: space-between; }
+  .missoes-lista { min-width: 0; table-layout: auto; }
+  .missoes-lista colgroup { display: none; }
+  .missoes-lista thead { display: block; }
+  .missoes-lista thead tr { display: flex; align-items: center; min-height: 44px; border-radius: 10px; background: #efecfd; }
+  .missoes-lista thead th { height: auto; background: none; }
+  .missoes-lista thead tr:not(.em-selecao) th:not(.col-check) { display: none; }
+  .missoes-lista thead tr.em-selecao { background: #efecfd; }
+  .missoes-lista thead tr.em-selecao th { display: block; padding: 6px 8px; }
+  .missoes-lista tbody td { overflow: visible; }
+  .missoes-lista, .missoes-lista tbody { display: block; }
+  .missoes-lista tbody tr { position: relative; display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; padding: 12px 10px; border-radius: 10px; }
+  .missoes-lista tbody tr:nth-child(even) { background: #fafafd; }
+  .missoes-lista tbody tr.selecionada { background: #f6f5fe; box-shadow: inset 4px 0 0 var(--purple); }
+  .missoes-lista tbody td, .missoes-lista tbody tr:nth-child(even) td, .missoes-lista tbody tr:hover td, .missoes-lista tbody tr.selecionada td { height: auto; padding: 0; background: none; box-shadow: none; white-space: normal; }
+  .missoes-lista .col-check { grid-row: 1; grid-column: 1; padding: 0; }
+  .missoes-lista .col-titulo { grid-row: 1; grid-column: 2; min-width: 0; }
+  .missoes-lista .col-menu { grid-row: 1; grid-column: 3; }
+  .missoes-lista td[data-label]:not(.col-titulo) { grid-column: 2 / 4; text-align: left; font-size: .82rem; }
+  .missoes-lista td[data-label]:not(.col-titulo)::before { content: attr(data-label) ': '; color: var(--muted); font-size: .76rem; font-weight: 600; }
+}

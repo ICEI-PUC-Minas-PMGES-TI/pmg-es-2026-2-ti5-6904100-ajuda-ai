@@ -87,8 +87,44 @@ test('resumo, filtros e período', () => {
 test('tabela mostra recompensa, conclusões e a ação certa por status', () => {
   const html = renderToStaticMarkup(createElement(m.ListaMissoes, { missoes: [base, { ...base, id: 'b', ativa: false }] }));
   assert.match(html, /Visite a biblioteca/);
-  assert.match(html, /80 XP \+ 80 moedas/);
+  assert.match(html, /80 XP<\/strong><small>\+80 moedas/);
   assert.match(html, />37</);
-  assert.match(html, /Desativar missão Visite a biblioteca/);
-  assert.match(html, /Ativar missão Visite a biblioteca/);
+  assert.match(html, /Ações da missão Visite a biblioteca/);
+  assert.match(html, /Selecionar todas as missões/);
+  assert.match(html, /missoes-selo ativa/);
+  assert.match(html, /missoes-selo inativa/);
+});
+
+test('lista marca as selecionadas e o cabeçalho fica parcial', () => {
+  const base = { id: 'a', titulo: 'A', descricao: 'd', tipo: 'UNICA', xp: 10, ativa: true, vigenteAgora: true, inicio: null, fim: null, ciclo: '2026/2', conclusoes: 0, xpCreditadoTotal: 0, criadoEm: '2026-11-01T10:00:00.000Z', atualizadoEm: '2026-11-01T10:00:00.000Z' };
+  const html = renderToStaticMarkup(createElement(m.ListaMissoes, {
+    missoes: [base, { ...base, id: 'b', titulo: 'B' }],
+    selecionadas: new Set(['a']),
+    ordem: { campo: 'xp', direcao: 'asc' },
+  }));
+  assert.equal((html.match(/class="selecionada"/g) || []).length, 1);
+  // Com seleção, o cabeçalho vira a barra de ações em lote.
+  assert.match(html, /1 selecionada/);
+  assert.match(html, /Desativar/);
+  assert.doesNotMatch(html, /aria-sort/);
+  const semSelecao = renderToStaticMarkup(createElement(m.ListaMissoes, {
+    missoes: [base],
+    ordem: { campo: 'xp', direcao: 'asc' },
+  }));
+  assert.match(semSelecao, /aria-sort="ascending"/);
+  assert.doesNotMatch(semSelecao, /selecionada/);
+});
+
+test('ordenação, status e data da coluna Atualizada', () => {
+  const mk = (id, extra) => ({ id, titulo: id, tipo: 'UNICA', xp: 10, ativa: true, vigenteAgora: true, conclusoes: 0, inicio: null, criadoEm: '2026-11-01T10:00:00.000Z', atualizadoEm: '2026-11-01T10:00:00.000Z', ...extra });
+  const lista = [mk('b', { xp: 50 }), mk('a', { xp: 20, ativa: false }), mk('c', { xp: 30, vigenteAgora: false })];
+  assert.deepEqual(m.ordenarMissoes(lista, { campo: 'xp', direcao: 'asc' }).map((x) => x.id), ['a', 'c', 'b']);
+  assert.deepEqual(m.ordenarMissoes(lista, { campo: 'titulo', direcao: 'asc' }).map((x) => x.id), ['a', 'b', 'c']);
+  assert.deepEqual(m.ordenarMissoes(lista, { campo: 'status', direcao: 'asc' }).map((x) => x.id), ['b', 'c', 'a']);
+  assert.deepEqual(lista.map((x) => x.id), ['b', 'a', 'c'], 'não altera a lista original');
+  assert.equal(m.situacaoMissao(lista[2]).rotulo, 'Fora do período');
+  const agora = new Date(2026, 10, 22, 15, 0);
+  assert.equal(m.textoAtualizada(new Date(2026, 10, 22, 8).toISOString(), agora), 'Hoje');
+  assert.equal(m.textoAtualizada(new Date(2026, 10, 21, 23).toISOString(), agora), 'Ontem');
+  assert.match(m.textoAtualizada(new Date(2026, 9, 3).toISOString(), agora), /03.*out.*2026/);
 });
