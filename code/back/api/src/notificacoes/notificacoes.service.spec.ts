@@ -150,7 +150,8 @@ describe('NotificacoesService', () => {
     const { service, comandos } = banco();
     await service.listar(7, 5);
     const [, params] = comandos.find(([sql]) => sql.startsWith('SELECT "id"'))!;
-    expect(params).toEqual([7, 5]);
+    // Uma a mais para saber se há outra página (`temMais`).
+    expect(params).toEqual([7, 6, null]);
   });
 
   it('marca como lida e devolve a nova contagem', async () => {

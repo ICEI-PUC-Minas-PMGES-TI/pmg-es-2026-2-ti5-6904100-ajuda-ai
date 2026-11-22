@@ -33,10 +33,10 @@ describe('NotificacoesController', () => {
     }));
     await controller.listar(req, {});
     expect(service.sincronizarMissoes).toHaveBeenCalledWith(1, '2026/2');
-    expect(service.listar).toHaveBeenCalledWith(1, undefined);
-    expect(
-      service.sincronizarMissoes.mock.invocationCallOrder[0],
-    ).toBeLessThan(service.listar.mock.invocationCallOrder[0]);
+    expect(service.listar).toHaveBeenCalledWith(1, undefined, undefined);
+    expect(service.sincronizarMissoes.mock.invocationCallOrder[0]).toBeLessThan(
+      service.listar.mock.invocationCallOrder[0],
+    );
   });
 
   it('quem não participa do ciclo só lista', async () => {
@@ -46,7 +46,18 @@ describe('NotificacoesController', () => {
     }));
     await controller.listar(req, { limite: 5 });
     expect(service.sincronizarMissoes).not.toHaveBeenCalled();
-    expect(service.listar).toHaveBeenCalledWith(1, 5);
+    expect(service.listar).toHaveBeenCalledWith(1, 5, undefined);
+  });
+
+  it('página seguinte (antes) não cria avisos de missão de novo', async () => {
+    const { controller, service } = montar(async () => ({
+      podeColetarTotens: true,
+      programa: '2026/2',
+    }));
+    const antes = '11111111-1111-4111-8111-111111111111';
+    await controller.listar(req, { antes });
+    expect(service.sincronizarMissoes).not.toHaveBeenCalled();
+    expect(service.listar).toHaveBeenCalledWith(1, undefined, antes);
   });
 
   it('falha ao ler a participação não impede a lista', async () => {

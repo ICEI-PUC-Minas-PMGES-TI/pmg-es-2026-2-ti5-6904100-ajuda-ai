@@ -11,6 +11,7 @@ import Icon from '../../components/Icon';
 import { formatarData } from './util';
 import {
   ICONE_NOTIFICACAO,
+  juntarPagina,
   marcarLidaLocal,
   marcarTodasLocal,
   NOTIFICACOES_VAZIAS,
@@ -219,7 +220,7 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, 
   const carregarNotificacoes = useCallback(async () => {
     try {
       const dados = await api.notificacoes(20);
-      setNotificacoes({ naoLidas: dados?.naoLidas ?? 0, itens: Array.isArray(dados?.itens) ? dados.itens : [] });
+      setNotificacoes({ naoLidas: dados?.naoLidas ?? 0, itens: Array.isArray(dados?.itens) ? dados.itens : [], temMais: Boolean(dados?.temMais) });
       setErroNotificacoes(false);
     } catch (error) {
       if (error.status === 401 || error.status === 403) setNotificacoes(NOTIFICACOES_VAZIAS);
@@ -256,15 +257,35 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, 
     }
   }
 
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  async function carregarMaisNotificacoes() {
+    const ultimo = notificacoes.itens.at(-1)?.id;
+    if (!ultimo || carregandoMais) return;
+    setCarregandoMais(true);
+    try {
+      const pagina = await api.notificacoes(20, ultimo);
+      setNotificacoes((atual) => juntarPagina(atual, pagina));
+    } catch {
+      setErroNotificacoes(true);
+    } finally {
+      setCarregandoMais(false);
+    }
+  }
+
   async function marcarTodas() {
+    // Só até a mais recente que está na tela: um aviso que chegou depois
+    // da última leitura continua não lido.
+    const ateId = notificacoes.itens[0]?.id;
     setNotificacoes((atual) => marcarTodasLocal(atual));
     if (avisos.length) {
       const ids = Array.from(new Set([...vistos, ...avisos.map((a) => a.id)]));
       setVistos(ids);
       gravarVistos(ids);
     }
+    if (!ateId) return;
     try {
-      await api.marcarNotificacoesLidas();
+      const resposta = await api.marcarNotificacoesLidas(ateId);
+      if (resposta?.naoLidas > 0) carregarNotificacoes();
     } catch {
       carregarNotificacoes();
     }
@@ -422,6 +443,11 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, 
                     </li>
                   ))}
                 </ul>
+              )}
+              {notificacoes.temMais && (
+                <button type="button" className="notif-marcar notif-mais" onClick={carregarMaisNotificacoes} disabled={carregandoMais}>
+                  {carregandoMais ? 'Carregando…' : 'Ver notificações anteriores'}
+                </button>
               )}
               {erroAvisos ? (
                 <p className="notif-empty">Não foi possível carregar os comunicados agora.</p>

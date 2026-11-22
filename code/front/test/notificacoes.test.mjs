@@ -67,3 +67,23 @@ test('tempo relativo e rotas da web', () => {
   assert.equal(n.rotaDaNotificacao('/missoes'), null);
   assert.equal(n.ICONE_NOTIFICACAO.MISSAO_NOVA, 'trophy');
 });
+
+test('paginação: antes na URL e ateId no corpo do marcar todas', async () => {
+  client.persistAlunoSession({ accessToken: 'jwt-aluno', expiresIn: 3600, usuario: { email: 'ana@sga.pucminas.br', nome: 'Ana' } });
+  let chamadas = capturar({ naoLidas: 0, itens: [], temMais: false });
+  await client.api.notificacoes(20, ID);
+  assert.ok(chamadas[0].url.endsWith(`/me/notificacoes?limite=20&antes=${ID}`), chamadas[0].url);
+  chamadas = capturar({ atualizadas: 1, naoLidas: 0 });
+  await client.api.marcarNotificacoesLidas(ID);
+  assert.deepEqual(JSON.parse(chamadas[0].body), { ateId: ID });
+});
+
+test('juntar página não repete itens e guarda temMais da página nova', () => {
+  const estado = { naoLidas: 3, itens: [{ id: 'a' }, { id: 'b' }], temMais: true };
+  const junto = n.juntarPagina(estado, { naoLidas: 2, itens: [{ id: 'b' }, { id: 'c' }], temMais: false });
+  assert.deepEqual(junto.itens.map((i) => i.id), ['a', 'b', 'c']);
+  assert.equal(junto.temMais, false);
+  assert.equal(junto.naoLidas, 2);
+  assert.equal(n.marcarTodasLocal(estado).temMais, true);
+  assert.equal(n.marcarLidaLocal(estado, 'a').temMais, true);
+});

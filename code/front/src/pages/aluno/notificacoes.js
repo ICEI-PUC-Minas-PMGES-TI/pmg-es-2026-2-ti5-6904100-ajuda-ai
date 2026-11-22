@@ -27,14 +27,26 @@ export function tempoRelativo(iso, agora = new Date()) {
 
 export function marcarLidaLocal(estado, id, resposta) {
   return {
+    ...estado,
     naoLidas: resposta?.naoLidas ?? Math.max(0, estado.naoLidas - 1),
     itens: estado.itens.map((n) => (n.id === id ? { ...n, lida: true, lidaEm: resposta?.lidaEm ?? n.lidaEm ?? new Date().toISOString() } : n)),
   };
 }
 
+/** Marca como lidas as notificações que a tela mostra (o servidor devolve o total real depois). */
 export function marcarTodasLocal(estado) {
   const agora = new Date().toISOString();
-  return { naoLidas: 0, itens: estado.itens.map((n) => (n.lida ? n : { ...n, lida: true, lidaEm: agora })) };
+  return { ...estado, naoLidas: 0, itens: estado.itens.map((n) => (n.lida ? n : { ...n, lida: true, lidaEm: agora })) };
 }
 
-export const NOTIFICACOES_VAZIAS = { naoLidas: 0, itens: [] };
+/** Junta uma página de notificações mais antigas, sem repetir itens. */
+export function juntarPagina(estado, pagina) {
+  const ids = new Set(estado.itens.map((n) => n.id));
+  return {
+    naoLidas: pagina?.naoLidas ?? estado.naoLidas,
+    itens: [...estado.itens, ...(pagina?.itens ?? []).filter((n) => !ids.has(n.id))],
+    temMais: Boolean(pagina?.temMais),
+  };
+}
+
+export const NOTIFICACOES_VAZIAS = { naoLidas: 0, itens: [], temMais: false };

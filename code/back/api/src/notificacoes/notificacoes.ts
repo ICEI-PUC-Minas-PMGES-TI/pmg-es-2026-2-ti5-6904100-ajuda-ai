@@ -40,6 +40,8 @@ export interface NotificacaoDto {
 export interface NotificacoesDto {
   naoLidas: number;
   itens: NotificacaoDto[];
+  /** Há notificações mais antigas: pedir de novo com `antes` = último id. */
+  temMais: boolean;
 }
 
 export function notificacaoMissaoNova(missao: {

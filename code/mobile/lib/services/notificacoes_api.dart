@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -17,10 +19,18 @@ class NotificacoesApi {
     'authorization': 'Bearer $token',
   };
 
-  Future<Notificacoes> listar(String token, {int limite = 20}) async {
+  /// [antes]: id da última notificação carregada, para buscar as mais antigas.
+  Future<Notificacoes> listar(
+    String token, {
+    int limite = 20,
+    String? antes,
+  }) async {
+    final consulta = antes == null
+        ? 'limite=$limite'
+        : 'limite=$limite&antes=${Uri.encodeQueryComponent(antes)}';
     final resposta = await executarRequisicao(
       () => _client.get(
-        Uri.parse('$baseUrl/me/notificacoes?limite=$limite'),
+        Uri.parse('$baseUrl/me/notificacoes?$consulta'),
         headers: _cabecalhos(token),
       ),
       erroPadrao: 'Não foi possível carregar as notificações',
@@ -44,14 +54,19 @@ class NotificacoesApi {
     return corpo is Map && corpo['naoLidas'] is int ? corpo['naoLidas'] : 0;
   }
 
-  Future<void> marcarTodas(String token) async {
-    await executarRequisicao(
+  /// Marca como lidas [ateId] e as anteriores; devolve as não lidas que
+  /// sobraram (avisos que chegaram depois da última leitura).
+  Future<int> marcarTodas(String token, {String? ateId}) async {
+    final resposta = await executarRequisicao(
       () => _client.patch(
         Uri.parse('$baseUrl/me/notificacoes/lidas'),
-        headers: _cabecalhos(token),
+        headers: {..._cabecalhos(token), 'content-type': 'application/json'},
+        body: jsonEncode(ateId == null ? {} : {'ateId': ateId}),
       ),
       erroPadrao: 'Não foi possível marcar as notificações como lidas',
     );
+    final corpo = decodificarJson(resposta);
+    return corpo is Map && corpo['naoLidas'] is int ? corpo['naoLidas'] : 0;
   }
 }
 
@@ -114,6 +129,7 @@ class CentralNotificacoes {
     estado.value = Notificacoes(
       naoLidas: (atual.naoLidas - 1).clamp(0, atual.naoLidas),
       itens: [for (final n in atual.itens) n.id == id ? n.comoLida() : n],
+      temMais: atual.temMais,
     );
     try {
       final naoLidas = await api.marcarLida(token, id);
@@ -121,24 +137,55 @@ class CentralNotificacoes {
       estado.value = Notificacoes(
         naoLidas: naoLidas,
         itens: estado.value.itens,
+        temMais: estado.value.temMais,
       );
     } catch (_) {
       if (_mesmaConta(conta, token)) await atualizar();
     }
   }
 
+  /// Marca até a notificação mais recente que está na tela: um aviso que
+  /// chegou depois da última leitura continua não lido.
   Future<void> marcarTodas() async {
     final token = SessaoUsuario.atual.accessToken;
-    if (token == null) return;
+    final atual = estado.value;
+    if (token == null || atual.itens.isEmpty) return;
     final conta = _conta;
     estado.value = Notificacoes(
       naoLidas: 0,
-      itens: [for (final n in estado.value.itens) n.lida ? n : n.comoLida()],
+      itens: [for (final n in atual.itens) n.lida ? n : n.comoLida()],
+      temMais: atual.temMais,
     );
     try {
-      await api.marcarTodas(token);
+      final restantes = await api.marcarTodas(
+        token,
+        ateId: atual.itens.first.id,
+      );
+      if (_mesmaConta(conta, token) && restantes > 0) await atualizar();
     } catch (_) {
       if (_mesmaConta(conta, token)) await atualizar();
+    }
+  }
+
+  bool _carregandoMais = false;
+
+  /// Busca a próxima página (mais antigas) e junta à lista.
+  Future<void> carregarMais() async {
+    final token = SessaoUsuario.atual.accessToken;
+    final atual = estado.value;
+    if (token == null || _carregandoMais || !atual.temMais) return;
+    if (atual.itens.isEmpty) return;
+    final conta = _conta;
+    _carregandoMais = true;
+    try {
+      final pagina = await api.listar(token, antes: atual.itens.last.id);
+      if (_mesmaConta(conta, token)) {
+        estado.value = estado.value.comPagina(pagina);
+      }
+    } catch (_) {
+      if (_mesmaConta(conta, token)) falhou.value = true;
+    } finally {
+      _carregandoMais = false;
     }
   }
 

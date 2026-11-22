@@ -145,6 +145,27 @@ export class MissoesService {
     missaoId: string,
     agora = new Date(),
   ): Promise<ConclusaoMissaoDto> {
+    const resultado = await this.concluirNaTransacao(
+      usuarioId,
+      missaoId,
+      agora,
+    );
+    // Só depois de liberar a conexão da transação: pedir outra ao pool
+    // segurando esta pode esgotar o pool quando muitos sobem de nível juntos.
+    if (resultado.subiuDeNivel) {
+      await this.notificacoes.criar(
+        usuarioId,
+        notificacaoNivel(resultado.xpAcumulado),
+      );
+    }
+    return resultado;
+  }
+
+  private async concluirNaTransacao(
+    usuarioId: number,
+    missaoId: string,
+    agora: Date,
+  ): Promise<ConclusaoMissaoDto> {
     if (!ID_MISSAO.test(missaoId)) {
       throw new NotFoundException('Missão não encontrada.');
     }
@@ -239,9 +260,6 @@ export class MissoesService {
       const xpAcumulado = ganho.movimentacao?.xpAcumulado ?? xpAntes;
       const nivel = nivelDe(xpAcumulado);
       const subiuDeNivel = nivel.numero > nivelDe(xpAntes).numero;
-      if (subiuDeNivel) {
-        await this.notificacoes.criar(usuarioId, notificacaoNivel(xpAcumulado));
-      }
       return {
         missaoId: missao.id,
         conclusaoId: conclusao.id,

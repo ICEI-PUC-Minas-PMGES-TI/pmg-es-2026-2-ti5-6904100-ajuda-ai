@@ -102,6 +102,81 @@ Servidor instalar(
 void main() {
   tearDown(SessaoUsuario.atual.limpar);
 
+  test('marcar todas manda a mais recente da tela (ateId) e relê se sobrou não lida', () async {
+    final corpos = <Object?>[];
+    var listagens = 0;
+    final client = MockClient((request) async {
+      final path = request.url.path;
+      if (path == '/me/notificacoes') {
+        listagens++;
+        return resposta({
+          'naoLidas': listagens == 1 ? 2 : 1,
+          'itens': [item('b'), item('a')],
+          'temMais': false,
+        }, 200);
+      }
+      if (path == '/me/notificacoes/lidas') {
+        corpos.add(jsonDecode(request.body));
+        // Um aviso chegou depois da última leitura: continua não lido.
+        return resposta({'atualizadas': 2, 'naoLidas': 1}, 200);
+      }
+      return resposta({}, 404);
+    });
+    SessaoUsuario.atual.configurarApi(
+      ParticipacoesApi(client: client, baseUrl: '')
+        ..accessToken = 'token-teste',
+    );
+    CentralNotificacoes.atual.api = NotificacoesApi(
+      client: client,
+      baseUrl: '',
+    );
+    await CentralNotificacoes.atual.atualizar();
+    await CentralNotificacoes.atual.marcarTodas();
+    expect(corpos, [
+      {'ateId': 'b'},
+    ]);
+    expect(listagens, 2);
+    expect(CentralNotificacoes.atual.estado.value.naoLidas, 1);
+  });
+
+  test(
+    'carregar mais busca com antes = último id e junta sem repetir',
+    () async {
+      final pedidos = <Uri>[];
+      final client = MockClient((request) async {
+        pedidos.add(request.url);
+        if (request.url.path != '/me/notificacoes') return resposta({}, 404);
+        final antes = request.url.queryParameters['antes'];
+        return antes == null
+            ? resposta({
+                'naoLidas': 3,
+                'itens': [item('c'), item('b')],
+                'temMais': true,
+              }, 200)
+            : resposta({
+                'naoLidas': 3,
+                'itens': [item('b'), item('a')],
+                'temMais': false,
+              }, 200);
+      });
+      SessaoUsuario.atual.configurarApi(
+        ParticipacoesApi(client: client, baseUrl: '')
+          ..accessToken = 'token-teste',
+      );
+      CentralNotificacoes.atual.api = NotificacoesApi(
+        client: client,
+        baseUrl: '',
+      );
+      await CentralNotificacoes.atual.atualizar();
+      expect(CentralNotificacoes.atual.estado.value.temMais, isTrue);
+      await CentralNotificacoes.atual.carregarMais();
+      expect(pedidos.last.queryParameters['antes'], 'b');
+      final estado = CentralNotificacoes.atual.estado.value;
+      expect(estado.itens.map((n) => n.id), ['c', 'b', 'a']);
+      expect(estado.temMais, isFalse);
+    },
+  );
+
   test('central lê a contagem real e marca como lida', () async {
     final servidor = instalar([item('a'), item('b'), item('c', lida: true)]);
     await CentralNotificacoes.atual.atualizar();

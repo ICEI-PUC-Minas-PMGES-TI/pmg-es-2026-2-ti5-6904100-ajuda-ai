@@ -46,12 +46,29 @@ class Notificacao {
 }
 
 class Notificacoes {
-  const Notificacoes({required this.naoLidas, required this.itens});
+  const Notificacoes({
+    required this.naoLidas,
+    required this.itens,
+    this.temMais = false,
+  });
 
   final int naoLidas;
   final List<Notificacao> itens;
 
+  /// Há notificações mais antigas que as carregadas (`antes` = último id).
+  final bool temMais;
+
   static const vazias = Notificacoes(naoLidas: 0, itens: []);
+
+  /// Junta uma página mais antiga, sem repetir itens.
+  Notificacoes comPagina(Notificacoes pagina) {
+    final ids = {for (final n in itens) n.id};
+    return Notificacoes(
+      naoLidas: pagina.naoLidas,
+      itens: [...itens, ...pagina.itens.where((n) => !ids.contains(n.id))],
+      temMais: pagina.temMais,
+    );
+  }
 
   static Notificacoes? fromJson(Object? json) {
     if (json is! Map || json['itens'] is! List) return null;
@@ -61,6 +78,7 @@ class Notificacoes {
       itens: [
         for (final item in json['itens'] as List) ?Notificacao.fromJson(item),
       ],
+      temMais: json['temMais'] == true,
     );
   }
 }

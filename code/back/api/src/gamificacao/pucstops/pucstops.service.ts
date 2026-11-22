@@ -163,6 +163,7 @@ export class PucStopsService {
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
+    let xpParaAviso: number | null = null;
     try {
       const usuario = `${geo}.ST_SetSRID(${geo}.ST_MakePoint($2, $3), ${SRID})::${geo}.geography`;
       const [p] = (await qr
@@ -255,9 +256,7 @@ export class PucStopsService {
       const moedas = ganho.movimentacao?.saldo ?? saldoAntes;
       const nivel = nivelDe(xpAcumulado);
       const subiuDeNivel = nivel.numero > nivelDe(xpAntes).numero;
-      if (subiuDeNivel && this.notificacoes) {
-        await this.notificacoes.criar(usuarioId, notificacaoNivel(xpAcumulado));
-      }
+      if (subiuDeNivel) xpParaAviso = xpAcumulado;
       return {
         pucstopId: p.id,
         xpGanho: ganho.xp,
@@ -288,6 +287,11 @@ export class PucStopsService {
       throw erro;
     } finally {
       await qr.release();
+      // Só depois de liberar a conexão da transação: pedir outra ao pool
+      // segurando esta pode esgotar o pool quando muitos sobem de nível juntos.
+      if (xpParaAviso !== null && this.notificacoes) {
+        await this.notificacoes.criar(usuarioId, notificacaoNivel(xpParaAviso));
+      }
     }
   }
 }

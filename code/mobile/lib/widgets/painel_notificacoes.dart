@@ -221,6 +221,20 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
                                   notificacao: n,
                                   onTap: () => _abrir(n),
                                 ),
+                              if (dados.temMais)
+                                TextButton(
+                                  key: const Key('notificacoes-carregar-mais'),
+                                  onPressed:
+                                      CentralNotificacoes.atual.carregarMais,
+                                  child: const Text(
+                                    'Ver notificações anteriores',
+                                    style: TextStyle(
+                                      fontFamily: 'Inter',
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
                               if (dados.itens.isEmpty && itens.isEmpty)
                                 const Padding(
                                   key: Key('notificacoes-vazio'),

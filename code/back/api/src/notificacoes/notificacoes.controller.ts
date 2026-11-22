@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
@@ -13,7 +14,7 @@ import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { usuarioDoToken } from '../gamificacao/gamificacao.js';
 import { PermissoesAlunoService } from '../participacoes/permissoes-aluno.service.js';
-import { ListarNotificacoesQuery } from './notificacoes.dto.js';
+import { ListarNotificacoesQuery, MarcarTodasDto } from './notificacoes.dto.js';
 import { NotificacoesService } from './notificacoes.service.js';
 
 const UUID = new ParseUUIDPipe({ version: '4' });
@@ -33,17 +34,23 @@ export class NotificacoesController {
     @Query() consulta: ListarNotificacoesQuery,
   ) {
     const usuarioId = await usuarioDoToken(this.dataSource, req.user);
-    await this.avisarMissoes(req, usuarioId);
+    // Avisos novos só entram na primeira página.
+    if (consulta.antes === undefined) await this.avisarMissoes(req, usuarioId);
     return this.notificacoes.listar(
       usuarioId,
       consulta.limite === undefined ? undefined : Number(consulta.limite),
+      consulta.antes,
     );
   }
 
   @Patch('lidas')
-  async marcarTodas(@Req() req: AuthenticatedRequest) {
+  async marcarTodas(
+    @Req() req: AuthenticatedRequest,
+    @Body() dados: MarcarTodasDto,
+  ) {
     return this.notificacoes.marcarTodas(
       await usuarioDoToken(this.dataSource, req.user),
+      dados?.ateId,
     );
   }
 

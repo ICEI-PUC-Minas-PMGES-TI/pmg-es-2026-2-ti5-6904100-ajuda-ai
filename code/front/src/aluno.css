@@ -221,6 +221,8 @@ textarea.extra-input { resize: vertical; line-height: 1.45; }
 .notif-item:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
 .notif-dot { width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--purple); }
 .notif-marcar { border: 0; padding: 0; background: none; color: var(--purple); font: inherit; font-size: .75rem; font-weight: 700; cursor: pointer; }
+.notif-mais { display: block; width: 100%; padding: 10px 14px; text-align: center; }
+.notif-mais:disabled { opacity: .6; cursor: default; }
 .notif-empty, .notif-foot { margin: 0; padding: 14px 10px; color: var(--muted); font-size: .82rem; }
 .notif-foot { padding-top: 6px; border-top: 1px solid #f0eef8; }
 .account-trigger { display: flex; align-items: center; gap: 9px; padding: 4px 6px; border: 0; border-radius: 999px; background: transparent; color: #21166e; cursor: pointer; }

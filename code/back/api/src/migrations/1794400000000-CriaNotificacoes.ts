@@ -40,6 +40,15 @@ export class CriaNotificacoes1794400000000 implements MigrationInterface {
   }
 
   async down(qr: QueryRunner): Promise<void> {
-    await qr.query(`DROP TABLE ${schemaUsuarios(qr)}."notificacoes"`);
+    const u = schemaUsuarios(qr);
+    const [{ total }] = (await qr.query(
+      `SELECT count(*)::int AS total FROM ${u}."notificacoes"`,
+    )) as Array<{ total: number }>;
+    if (Number(total) > 0) {
+      throw new Error(
+        `Rollback recusado: ${total} notificação(ões) seriam apagadas, com o que cada aluno já leu.`,
+      );
+    }
+    await qr.query(`DROP TABLE ${u}."notificacoes"`);
   }
 }

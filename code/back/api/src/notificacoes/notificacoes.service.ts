@@ -52,16 +52,25 @@ export class NotificacoesService {
   async listar(
     usuarioId: number,
     limite: number = LIMITE_NOTIFICACOES.padrao,
+    antes?: string,
   ): Promise<NotificacoesDto> {
-    const [itens, naoLidas] = await Promise.all([
+    if (antes !== undefined) await this.exigirPropria(usuarioId, antes);
+    // Busca uma a mais para saber se ainda há páginas.
+    const [linhas, naoLidas] = await Promise.all([
       this.dataSource.query(
-        `SELECT "id", "tipo", "titulo", "mensagem", "link", "lida_em", "criado_em" FROM ${this.tabela} ` +
-          `WHERE "usuario_id" = $1 ORDER BY "criado_em" DESC, "id" DESC LIMIT $2`,
-        [usuarioId, limite],
+        `SELECT "id", "tipo", "titulo", "mensagem", "link", "lida_em", "criado_em" FROM ${this.tabela} n ` +
+          `WHERE n."usuario_id" = $1 AND ($3::uuid IS NULL OR (n."criado_em", n."id") < ` +
+          `(SELECT a."criado_em", a."id" FROM ${this.tabela} a WHERE a."id" = $3 AND a."usuario_id" = $1)) ` +
+          `ORDER BY n."criado_em" DESC, n."id" DESC LIMIT $2`,
+        [usuarioId, limite + 1, antes ?? null],
       ) as Promise<Linha[]>,
       this.naoLidas(usuarioId),
     ]);
-    return { naoLidas, itens: itens.map(paraDto) };
+    return {
+      naoLidas,
+      itens: linhas.slice(0, limite).map(paraDto),
+      temMais: linhas.length > limite,
+    };
   }
 
   async marcarLida(
@@ -89,14 +98,34 @@ export class NotificacoesService {
 
   async marcarTodas(
     usuarioId: number,
+    ateId?: string,
   ): Promise<{ atualizadas: number; naoLidas: number }> {
+    if (ateId !== undefined) await this.exigirPropria(usuarioId, ateId);
     const linhas = linhasAtualizadas(
       await this.dataSource.query(
-        `UPDATE ${this.tabela} SET "lida_em" = now() WHERE "usuario_id" = $1 AND "lida_em" IS NULL RETURNING "id"`,
-        [usuarioId],
+        `UPDATE ${this.tabela} n SET "lida_em" = now() WHERE n."usuario_id" = $1 AND n."lida_em" IS NULL ` +
+          `AND ($2::uuid IS NULL OR (n."criado_em", n."id") <= ` +
+          `(SELECT a."criado_em", a."id" FROM ${this.tabela} a WHERE a."id" = $2 AND a."usuario_id" = $1)) ` +
+          `RETURNING n."id"`,
+        [usuarioId, ateId ?? null],
       ),
     );
-    return { atualizadas: linhas.length, naoLidas: 0 };
+    return {
+      atualizadas: linhas.length,
+      naoLidas: await this.naoLidas(usuarioId),
+    };
+  }
+
+  /** 404 para id malformado ou de outro usuário (sem revelar qual). */
+  private async exigirPropria(usuarioId: number, id: string): Promise<void> {
+    if (!ID_NOTIFICACAO.test(id)) {
+      throw new NotFoundException('Notificação não encontrada.');
+    }
+    const [existe] = (await this.dataSource.query(
+      `SELECT 1 FROM ${this.tabela} WHERE "id" = $1 AND "usuario_id" = $2`,
+      [id, usuarioId],
+    )) as unknown[];
+    if (!existe) throw new NotFoundException('Notificação não encontrada.');
   }
 
   async criar(usuarioId: number, nova: NovaNotificacao): Promise<void> {

@@ -461,14 +461,16 @@ export const api = {
   desativarMissao(id) {
     return request(`/coordenacao/missoes/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
   },
-  notificacoes(limite) {
-    return request(`/me/notificacoes${query({ limite })}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  /** `antes`: id da última notificação carregada, para buscar as mais antigas. */
+  notificacoes(limite, antes) {
+    return request(`/me/notificacoes${query({ limite, antes })}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });
   },
   marcarNotificacaoLida(id) {
     return request(`/me/notificacoes/${encodeURIComponent(id)}/lida`, { method: 'PATCH', aluno: getAlunoSession()?.email || '__sem_sessao__' });
   },
-  marcarNotificacoesLidas() {
-    return request('/me/notificacoes/lidas', { method: 'PATCH', aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  /** `ateId`: notificação mais recente que a tela mostrava (as criadas depois continuam não lidas). */
+  marcarNotificacoesLidas(ateId) {
+    return request('/me/notificacoes/lidas', { method: 'PATCH', body: ateId ? { ateId } : {}, aluno: getAlunoSession()?.email || '__sem_sessao__' });
   },
 
   /* ===== Lojinha: recompensas (coordenação; F27) ===== */
