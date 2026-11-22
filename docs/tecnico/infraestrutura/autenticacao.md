@@ -46,7 +46,7 @@ O objetivo é seguir apresentando os perfis aos professores **sem** deixar uma r
 - **Troca:** troque a chave depois de cada apresentação (é só mudar o secret do Container App).
 - **Falha fechada:** sem chave nem operador configurado, o demo fica **desligado**.
 - **Nada real em jogo:** a homologação usa um banco **diferente** da produção, só com dados fictícios. Nenhum dado real fica atrás de uma conta sem senha.
-- **APK de homologação:** pode levar a chave (`DEMO_CHAVE`) para o professor instalar e testar. A chave é extraível do binário: entregue esse APK só a quem avalia, e troque a chave depois.
+- **APK de homologação:** a chave **não** vai no APK (seria extraível do binário). O APK só liga o campo "Chave de demonstração" na tela de login (`DEMO_LOGIN` + `DEMO_LOGIN_PROTEGIDO`, que não são segredos) e quem apresenta a digita. Troque a chave depois da apresentação.
 
 **Usar a sua conta Microsoft para QA: viável e recomendado**, assim que o Entra estiver configurado.
 

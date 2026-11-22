@@ -170,7 +170,7 @@ Ver [autenticacao.md §4–5](autenticacao.md#4-microsoft-entra-id-o-que-configu
 | `WEB_STORAGE_ACCOUNT` | variável | Deploy Web: `ajudaiwebhomolog` / `ajudaiweb` |
 | `MAPBOX_ACCESS_TOKEN` | secret | Web e APK |
 | `MICROSOFT_CLIENT_ID`, `MICROSOFT_TENANT_ID`, `MAP_ASSETS_BASE_URL`, `MAPBOX_STYLE_URI` | variável | Web e APK |
-| `DEMO_LOGIN` (variável) e `DEMO_CHAVE_ACESSO` (secret) | — | Só homologação |
+| `DEMO_LOGIN` (variável; liga o painel demo e o campo da chave no APK) | — | Só homologação. A chave (`DEMO_CHAVE_ACESSO`) fica só na API e nunca entra no APK |
 | `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE` | secret | Migrations |
 | `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | secret | APK assinado |
 

@@ -47,8 +47,13 @@ jobs:
     steps:
       - name: Conferir confirmação
         if: github.event.inputs.acao == 'aplicar'
+        # Entradas passam por variáveis de ambiente (nunca ${{ }} dentro do script):
+        # "confirmacao" é texto livre e o job já tem as credenciais do banco.
+        env:
+          CONFIRMACAO: ${{ github.event.inputs.confirmacao }}
+          AMBIENTE: ${{ github.event.inputs.ambiente }}
         run: |
-          [ "${{ github.event.inputs.confirmacao }}" = "APLICAR-${{ github.event.inputs.ambiente }}" ] || {
+          [ "$CONFIRMACAO" = "APLICAR-$AMBIENTE" ] || {
             echo "::error::Confirmação incorreta. Nada foi aplicado."; exit 1; }
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
