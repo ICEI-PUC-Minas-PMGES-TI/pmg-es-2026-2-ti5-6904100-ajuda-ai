@@ -482,9 +482,15 @@ export const api = {
   },
 
   /* ===== Lojinha: resgates (coordenação; F29) ===== */
-  /** `situacao`: aguardando_entrega | entregue | cancelado; `busca`: nome, e-mail ou código. */
-  resgatesCoordenacao({ situacao, programa, recompensaId, busca } = {}) {
-    return request(`/coordenacao/resgates${query({ situacao, programa, recompensaId, busca })}`);
+  /**
+   * Uma página da fila: `{ itens, proximoCursor, contagem }`. Todos os
+   * filtros rodam no servidor antes da paginação. `situacao`:
+   * aguardando_entrega | entregue | cancelado; `programa`: ciclo da troca;
+   * `semPrograma: 'true'`: só sem programa identificado; `busca`: nome,
+   * e-mail, código ou recompensa; `cursor`: `proximoCursor` da página anterior.
+   */
+  resgatesCoordenacao({ situacao, programa, semPrograma, recompensaId, busca, limite, cursor } = {}) {
+    return request(`/coordenacao/resgates${query({ situacao, programa, semPrograma, recompensaId, busca, limite, cursor })}`);
   },
   resgateCoordenacao(id) {
     return request(`/coordenacao/resgates/${encodeURIComponent(id)}`);
