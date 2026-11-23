@@ -17,11 +17,22 @@ Migrations no schema `gamificacao`:
   recusar e listar os códigos.
 - `1794200000000-EntregaResgatesEAjustesXp` (F29/F26): `resgate_desfechos`
   (entrega ou cancelamento, no máximo um por resgate) e `xp_ajustes`.
+- `1794300000000-ResgatesProgramaDaTroca` (F29): `resgates.programa_codigo`,
+  o programa (ciclo) em que a troca foi feita. A lojinha grava na inserção:
+  o programa da recompensa restrita ou, se ela é aberta a todos, o da
+  participação ativa do aluno. "Resgates do programa" na coordenação usa esta
+  coluna, nunca `recompensas.programa_codigo` (que a coordenação pode editar
+  depois). Resgates antigos são preenchidos pela migration e ficam com
+  `programa_inferido = true`; sem evidência, ficam sem programa (filtro
+  `semPrograma=true`).
 
-As duas últimas eram `1793700000000` e `1793600000000` na branch
-`Arthur_gv`, os mesmos timestamps de duas migrations da Sprint-6, e foram
-renomeadas para rodar depois de `1794000000000-GamificacaoNiveisMoedasCiclos`. Num banco que já as aplicou com o nome antigo,
-elas detectam a estrutura existente e não fazem nada.
+`ProgramaRecompensasFk` e `EntregaResgatesEAjustesXp` eram `1793700000000` e
+`1793600000000` na branch `Arthur_gv`, os mesmos timestamps de duas
+migrations da Sprint-6, e foram renomeadas para rodar depois de
+`1794000000000-GamificacaoNiveisMoedasCiclos`. Num banco que já as aplicou
+com o nome antigo, só adotam a estrutura depois de conferi-la por inteiro e
+recusam, sem alterar nada, um schema incompleto ou divergente (detalhes em
+[migrations](../banco/migrations.md)).
 
 Execute as migrations da API antes de usar os endpoints.
 
