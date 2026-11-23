@@ -59,9 +59,14 @@ alterado depois.
   "recompensa": {
     "id": "9a0e…-uuid",
     "nome": "Caneca Ajuda-aí",       // nome da versão resgatada
-    "versao": 2,
-    "programaCodigo": "2026/2"       // null = recompensa aberta a todos os programas
+    "versao": 2
   },
+  // Programa (ciclo) em que a TROCA foi feita, gravado no resgate: editar a
+  // recompensa depois não muda. Recompensa restrita → o programa dela;
+  // aberta a todos → o da participação ativa do aluno na hora da troca.
+  // "inferido": true só em resgates anteriores a essa regra (preenchidos pela
+  // migration 1794300000000). codigo null = sem programa identificado.
+  "programa": { "codigo": "2026/2", "inferido": false },
   "custoXp": 120,                    // moedas debitadas no resgate
   "condicoesRetirada": "Retirar na sala da coordenação, 2ª a 6ª, 9h–17h.",
   "resgatadoEm": "2026-11-18T14:02:00.000Z",
@@ -74,18 +79,36 @@ alterado depois.
 
 ### `GET /coordenacao/resgates`
 
-Lista até **200** resgates, do mais recente para o mais antigo. Não há
-paginação: use os filtros para reduzir a lista.
+Uma página da fila, do mais recente para o mais antigo. **Todos os filtros e
+a busca rodam no banco antes da paginação**: um resgate pendente nunca some
+por estar atrás de outros mais recentes. Para ver o resto, chame de novo com
+o `proximoCursor` da página anterior (paginação por cursor em
+`criado_em, id`, estável mesmo com resgates novos chegando ou mudando de
+situação entre uma página e outra).
 
 | Query | Tipo | Regra |
 | --- | --- | --- |
 | `situacao` | `aguardando_entrega` \| `entregue` \| `cancelado` | opcional |
-| `programa` | string | opcional; formato de `programas.codigo` (`^[A-Za-z0-9._/-]{1,20}$`, ex.: `2026/2`). Filtra recompensas restritas a esse programa |
+| `programa` | string | opcional; formato de `programas.codigo` (`^[A-Za-z0-9._/-]{1,20}$`, ex.: `2026/2`). Filtra pelo **programa da troca** (`programa.codigo`) |
+| `semPrograma` | `true` \| `false` | opcional; `true` = só resgates sem programa identificado. Não combina com `programa` (400) |
 | `recompensaId` | UUID v4 | opcional |
-| `busca` | string, até 120 | opcional; parte do nome ou do e-mail (sem diferenciar maiúsculas) **ou** o código exato do comprovante |
+| `busca` | string, até 120 | opcional; parte do nome ou e-mail do participante, do código do comprovante ou do nome da recompensa (sem diferenciar maiúsculas) |
+| `limite` | inteiro 1–200 | opcional; padrão 50 |
+| `cursor` | string | opcional; o `proximoCursor` da página anterior, sem alterar |
 
-**200** → `ResgateAdmin[]` (pode ser `[]`).
-**400** → valor de filtro inválido (ex.: `situacao=pendente`).
+**200** →
+
+```jsonc
+{
+  "itens": [ /* ResgateAdmin */ ],
+  "proximoCursor": "MjAyNi0xMS0xOFQx…", // null = acabou
+  // Totais com programa/recompensa/busca aplicados, SEM o filtro de situação
+  // (para os contadores das abas).
+  "contagem": { "todos": 201, "aguardando_entrega": 1, "entregue": 200, "cancelado": 0 }
+}
+```
+
+**400** → filtro inválido (ex.: `situacao=pendente`, `limite=0`, cursor adulterado).
 
 ### `GET /coordenacao/resgates/:id`
 
@@ -113,7 +136,7 @@ saindo do estoque.
 
 | Campo | Regra |
 | --- | --- |
-| `motivo` | obrigatório, string de 3 a 300 caracteres, não pode ser só espaços (a API grava sem espaços nas pontas) |
+| `motivo` | obrigatório, string de 3 a 300 caracteres **contados depois de remover os espaços das pontas, em caracteres Unicode** (como o `char_length` do banco: `" a "` e `"😀a"` são curtos demais e dão 400). A API grava sem espaços nas pontas |
 
 Faz tudo numa transação só: devolve as **moedas** do resgate ao
 participante (aparece no extrato como `RECOMPENSA` positivo, descrição
@@ -232,28 +255,33 @@ itens. Os ajustes vêm completos em toda chamada.
 | Campo | Regra |
 | --- | --- |
 | `quantidade` | inteiro, diferente de 0, entre −200 e +200. Positivo credita, negativo debita **XP e moedas** na mesma quantidade |
-| `motivo` | obrigatório, 3 a 300 caracteres, não pode ser só espaços |
-| `chaveIdempotencia` | UUID v4 gerado **uma vez por ajuste**, quando o formulário é aberto. Mantenha a mesma chave em novas tentativas do mesmo envio |
+| `motivo` | obrigatório, 3 a 300 caracteres, mesma regra do cancelamento (medido sem as pontas, em caracteres Unicode) |
+| `chaveIdempotencia` | UUID v4 que identifica **uma intenção de ajuste** (participante + quantidade + motivo). Guarde-a de forma persistente ANTES de enviar e reuse-a em toda nova tentativa, inclusive depois de fechar e reabrir a tela; descarte só após uma resposta conclusiva (2xx ou 4xx) |
 
 **201** →
 
 ```jsonc
 {
-  "ajuste": { "id": "…", "quantidade": -15, "motivo": "…", "responsavel": { "id": 3, "email": "…" }, "saldoApos": 65, "criadoEm": "…" },
+  "ajuste": { "id": "…", "chaveIdempotencia": "7d9f…", "quantidade": -15, "motivo": "…", "responsavel": { "id": 3, "email": "…" }, "saldoApos": 65, "criadoEm": "…" },
   "saldo": 65,          // moedas atuais
   "xpAcumulado": 185    // XP acumulado atual
 }
 ```
 
-Reenviar com a **mesma chave** (por exemplo, depois de um timeout) devolve
-**201** com o ajuste já gravado, sem lançar de novo.
+Reenviar com a **mesma chave e os mesmos dados** (por exemplo, depois de um
+timeout) devolve **201** com o ajuste já gravado, sem lançar de novo; o motivo
+é comparado já normalizado (`" Bônus "` = `"Bônus"`). Requisições
+simultâneas com a mesma chave são serializadas no banco pela própria chave
+(não pela carteira), então nunca há crédito duplo nem 500. Para saber se um
+envio sem resposta entrou, procure a `chaveIdempotencia` em `ajustes` do
+`GET /coordenacao/xp/:usuarioId`.
 
 | Erro | `motivo` | Quando |
 | --- | --- | --- |
 | 400 | — | `quantidade` 0, decimal, fora de ±200 ou ausente; `motivo` inválido; `chaveIdempotencia` ausente ou não UUID v4 |
 | 403 | — | token sem perfil `coordenador` |
 | 404 | — | `Participante não encontrado.` |
-| 409 | — | `Chave já usada em outro ajuste.`: a chave já foi usada para outro participante ou outra quantidade. Gere uma chave nova |
+| 409 | `chave-reutilizada` | a chave já pertence a um ajuste com outro participante, quantidade ou motivo. O ajuste original está gravado: recarregue o extrato antes de gerar uma chave nova |
 | 422 | `saldo-insuficiente` | o débito deixaria as **moedas** negativas |
 | 422 | `xp-insuficiente` | o débito deixaria o **XP acumulado** negativo |
 | 422 | `ajuste-fora-do-limite` | proteção do ledger para mais de ±200 (na prática a validação 400 responde antes) |
@@ -268,7 +296,8 @@ errado, faça outro no sentido contrário.
 - [ ] Esconder as telas para perfis que não são `coordenador` (a API responde 403 de qualquer forma).
 - [ ] Usar o `motivo` dos erros 409/422 para decidir a ação e mostrar o `message`.
 - [ ] Depois de 409 em entregar/cancelar, recarregar o resgate.
-- [ ] Gerar `chaveIdempotencia` ao abrir o formulário de ajuste, não a cada toque em "Salvar".
+- [ ] Gerar `chaveIdempotencia` uma vez por intenção de ajuste e guardá-la (storage local) antes de enviar; reusar em toda nova tentativa, inclusive depois de fechar e reabrir a tela, e descartar só depois de 2xx/4xx. Ao reabrir, procurar a chave em `ajustes` para saber se o envio sem resposta entrou (a web faz isso em `ajustePendente.js`).
+- [ ] Fila de resgates: mandar `situacao`, `programa` e `busca` para a API (não filtrar no app) e usar `proximoCursor` para "carregar mais"; os contadores das abas vêm em `contagem`.
 - [ ] Pedir confirmação antes de cancelar, avisando que as moedas voltam ao aluno.
 - [ ] Mostrar "moedas" para `custoXp`/`saldo` e "XP" para `xpAcumulado`.
 - [ ] Não enviar campos extras (a API responde 400).

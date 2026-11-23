@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -6,26 +7,61 @@ import {
 } from '@nestjs/common';
 import { DataSource, type QueryRunner } from 'typeorm';
 import {
+  ehViolacaoCheck,
   ehViolacaoUnica,
   registrarMovimentacao,
   type ResponsavelCoordenacao,
   schemaUsuarios,
   travarCarteira,
 } from '../gamificacao.js';
+import { normalizarJustificativa } from '../justificativa.js';
 import type {
   ListarResgatesQuery,
+  PaginaResgatesAdminDto,
   ResgateAdminDto,
 } from './resgates-admin.dto.js';
 import {
   chaveEstorno,
   COLUNAS_SITUACAO,
   type DesfechoResgate,
+  MOTIVO_CANCELAMENTO,
+  PAGINA_RESGATES,
   type SituacaoResgate,
 } from './resgates.js';
 
 const g = '"gamificacao"';
-/** Teto da listagem; a coordenação filtra por situação, programa ou busca. */
-const LIMITE_LISTA = 200;
+
+/** Instante com microssegundos, em UTC: o `criado_em` exato do PostgreSQL. */
+const INSTANTE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Cursor da fila: posição (`criado_em`, `id`) do último item da página. Leva
+ * os microssegundos do banco; um `Date` do JavaScript (milissegundos) faria
+ * a próxima página repetir ou pular resgates criados no mesmo milissegundo.
+ */
+export function codificarCursor(criadoEm: string, id: string): string {
+  return Buffer.from(`${criadoEm}|${id}`, 'utf8').toString('base64url');
+}
+
+export function decodificarCursor(cursor: string): {
+  criadoEm: string;
+  id: string;
+} {
+  const [criadoEm, id, ...resto] = Buffer.from(cursor, 'base64url')
+    .toString('utf8')
+    .split('|');
+  if (resto.length || !INSTANTE.test(criadoEm ?? '') || !UUID.test(id ?? '')) {
+    throw new BadRequestException('cursor inválido');
+  }
+  return { criadoEm, id };
+}
+
+/** `%termo%` para ILIKE, com `\`, `%` e `_` do usuário escapados. */
+function padraoBusca(busca: string | undefined): string | null {
+  const termo = busca?.trim();
+  return termo ? `%${termo.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+}
 
 interface Linha {
   id: string;
@@ -38,9 +74,12 @@ interface Linha {
   recompensaNome: string;
   versao: number;
   programaCodigo: string | null;
+  programaInferido: boolean;
   custoXp: number;
   condicoesRetirada: string;
   resgatadoEm: Date;
+  /** `criado_em` em texto com microssegundos (cursor). */
+  cursorEm: string;
   entregueEm: Date | null;
   canceladoEm: Date | null;
   motivoCancelamento: string | null;
@@ -59,8 +98,8 @@ function paraDto(l: Linha): ResgateAdminDto {
       id: l.recompensaId,
       nome: l.recompensaNome,
       versao: l.versao,
-      programaCodigo: l.programaCodigo,
     },
+    programa: { codigo: l.programaCodigo, inferido: l.programaInferido },
     custoXp: l.custoXp,
     condicoesRetirada: l.condicoesRetirada,
     resgatadoEm: new Date(l.resgatadoEm).toISOString(),
@@ -90,39 +129,98 @@ export class ResgatesAdminService {
 
   constructor(private readonly db: DataSource) {}
 
+  /**
+   * O resgate é a fonte de tudo o que a coordenação vê: nome, versão, custo e
+   * programa são os do momento da troca. Não há JOIN com `recompensas`, então
+   * editar o catálogo depois não reescreve o histórico.
+   */
   private select(): string {
     const u = schemaUsuarios(this.db);
     return (
       `SELECT r."id", r."codigo", r."usuario_id" AS "usuarioId", us."nome", us."email", ` +
       `r."recompensa_id" AS "recompensaId", r."nome" AS "recompensaNome", r."versao", ` +
-      `c."programa_codigo" AS "programaCodigo", r."custo_xp" AS "custoXp", ` +
-      `r."condicoes_retirada" AS "condicoesRetirada", r."criado_em" AS "resgatadoEm", ` +
+      `r."programa_codigo" AS "programaCodigo", r."programa_inferido" AS "programaInferido", ` +
+      `r."custo_xp" AS "custoXp", r."condicoes_retirada" AS "condicoesRetirada", ` +
+      `r."criado_em" AS "resgatadoEm", ` +
+      `to_char(r."criado_em" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorEm", ` +
       `${COLUNAS_SITUACAO}, d."responsavel_id" AS "responsavelId", d."responsavel_email" AS "responsavelEmail" ` +
       `FROM ${g}."resgates" r ` +
       `JOIN ${u}."usuarios" us ON us."id" = r."usuario_id" ` +
-      `JOIN ${g}."recompensas" c ON c."id" = r."recompensa_id" ` +
       `LEFT JOIN ${g}."resgate_desfechos" d ON d."resgate_id" = r."id" `
     );
   }
 
-  async listar(filtros: ListarResgatesQuery): Promise<ResgateAdminDto[]> {
-    const busca = filtros.busca?.trim();
-    const linhas = (await this.db.query(
-      `${this.select()} WHERE ` +
-        `($1::text IS NULL OR COALESCE(d."tipo", 'aguardando_entrega') = $1) ` +
-        `AND ($2::text IS NULL OR c."programa_codigo" = $2) ` +
-        `AND ($3::uuid IS NULL OR r."recompensa_id" = $3) ` +
-        `AND ($4::text IS NULL OR us."nome" ILIKE $4 OR us."email" ILIKE $4 OR r."codigo" = upper($5)) ` +
-        `ORDER BY r."criado_em" DESC, r."id" DESC LIMIT ${LIMITE_LISTA}`,
-      [
-        filtros.situacao ?? null,
-        filtros.programa ?? null,
-        filtros.recompensaId ?? null,
-        busca ? `%${busca.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null,
-        busca ?? null,
-      ],
-    )) as Linha[];
-    return linhas.map(paraDto);
+  /**
+   * Fila da coordenação (F29). Situação, programa, recompensa e busca entram
+   * no `WHERE`, antes do `LIMIT`: um resgate pendente nunca some porque
+   * outros vieram depois dele. A paginação é por cursor (keyset em
+   * `criado_em DESC, id DESC`), estável mesmo com resgates novos chegando ou
+   * mudando de situação entre uma página e outra.
+   */
+  async listar(filtros: ListarResgatesQuery): Promise<PaginaResgatesAdminDto> {
+    const semPrograma = filtros.semPrograma === 'true';
+    if (semPrograma && filtros.programa) {
+      throw new BadRequestException(
+        'Use programa ou semPrograma, não os dois.',
+      );
+    }
+    const limite =
+      filtros.limite === undefined
+        ? PAGINA_RESGATES.padrao
+        : Number(filtros.limite);
+    const cursor = filtros.cursor ? decodificarCursor(filtros.cursor) : null;
+
+    // Filtros comuns à página e à contagem ($1..$4).
+    const comuns =
+      `($1::text IS NULL OR r."programa_codigo" = $1) ` +
+      `AND (NOT $2::boolean OR r."programa_codigo" IS NULL) ` +
+      `AND ($3::uuid IS NULL OR r."recompensa_id" = $3) ` +
+      `AND ($4::text IS NULL OR us."nome" ILIKE $4 OR us."email" ILIKE $4 ` +
+      `OR r."codigo" ILIKE $4 OR r."nome" ILIKE $4)`;
+    const parametros = [
+      filtros.programa ?? null,
+      semPrograma,
+      filtros.recompensaId ?? null,
+      padraoBusca(filtros.busca),
+    ];
+
+    const [linhas, [contagem]] = await Promise.all([
+      this.db.query(
+        `${this.select()} WHERE ${comuns} ` +
+          `AND ($5::text IS NULL OR COALESCE(d."tipo", 'aguardando_entrega') = $5) ` +
+          `AND ($6::timestamptz IS NULL OR (r."criado_em", r."id") < ($6::timestamptz, $7::uuid)) ` +
+          `ORDER BY r."criado_em" DESC, r."id" DESC LIMIT $8`,
+        [
+          ...parametros,
+          filtros.situacao ?? null,
+          cursor?.criadoEm ?? null,
+          cursor?.id ?? null,
+          limite + 1,
+        ],
+      ) as Promise<Linha[]>,
+      this.db.query(
+        `SELECT count(*)::int AS "todos", ` +
+          `(count(*) FILTER (WHERE d."tipo" IS NULL))::int AS "aguardando_entrega", ` +
+          `(count(*) FILTER (WHERE d."tipo" = 'entregue'))::int AS "entregue", ` +
+          `(count(*) FILTER (WHERE d."tipo" = 'cancelado'))::int AS "cancelado" ` +
+          `FROM ${g}."resgates" r ` +
+          `JOIN ${schemaUsuarios(this.db)}."usuarios" us ON us."id" = r."usuario_id" ` +
+          `LEFT JOIN ${g}."resgate_desfechos" d ON d."resgate_id" = r."id" ` +
+          `WHERE ${comuns}`,
+        parametros,
+      ) as Promise<Array<PaginaResgatesAdminDto['contagem']>>,
+    ]);
+
+    // Pede um a mais só para saber se há próxima página.
+    const temMais = linhas.length > limite;
+    const pagina = temMais ? linhas.slice(0, limite) : linhas;
+    const ultima = pagina.at(-1);
+    return {
+      itens: pagina.map(paraDto),
+      proximoCursor:
+        temMais && ultima ? codificarCursor(ultima.cursorEm, ultima.id) : null,
+      contagem,
+    };
   }
 
   async detalhe(id: string): Promise<ResgateAdminDto> {
@@ -187,7 +285,7 @@ export class ResgatesAdminService {
         id,
         'cancelado',
         responsavel,
-        motivo.trim(),
+        normalizarJustificativa(motivo),
         estorno.movimentacaoId,
       );
     });
@@ -237,6 +335,11 @@ export class ResgatesAdminService {
   /**
    * Transação própria. Duas ações simultâneas no mesmo resgate esperam a
    * trava; se mesmo assim uma corrida chegar ao UNIQUE, vira 409.
+   *
+   * O desfecho vencedor é lido pelo MESMO QueryRunner, depois do rollback e
+   * antes do `release()`. Pedir outra conexão ao pool (`this.db.query`)
+   * enquanto esta continua presa pode esperar indefinidamente com o pool
+   * cheio, por exemplo com várias instâncias correndo para o mesmo resgate.
    */
   private async emTransacao(
     id: string,
@@ -245,21 +348,31 @@ export class ResgatesAdminService {
   ): Promise<void> {
     const qr = this.db.createQueryRunner();
     await qr.connect();
-    await qr.startTransaction();
     try {
-      await corpo(qr);
-      await qr.commitTransaction();
+      await qr.startTransaction();
+      try {
+        await corpo(qr);
+        await qr.commitTransaction();
+      } catch (erro) {
+        await qr.rollbackTransaction();
+        throw erro;
+      }
     } catch (erro) {
-      await qr.rollbackTransaction();
       if (
         ehViolacaoUnica(erro, 'uq_resgate_desfechos_resgate') ||
         ehViolacaoUnica(erro, 'uq_xp_movimentacoes_chave')
       ) {
-        const [d] = (await this.db.query(
+        const [d] = (await qr.query(
           `SELECT "tipo" FROM ${g}."resgate_desfechos" WHERE "resgate_id" = $1`,
           [id],
         )) as Array<{ tipo: DesfechoResgate }>;
         throw this.jaConcluido(d?.tipo ?? tipo);
+      }
+      // Rede de segurança: o DTO já recusa o motivo inválido com 400.
+      if (ehViolacaoCheck(erro, 'ck_resgate_desfechos_motivo')) {
+        throw new BadRequestException(
+          `motivo deve ter de ${MOTIVO_CANCELAMENTO.min} a ${MOTIVO_CANCELAMENTO.max} caracteres, sem contar espaços no início e no fim`,
+        );
       }
       throw erro;
     } finally {

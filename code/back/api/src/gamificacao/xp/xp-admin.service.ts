@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -9,14 +10,16 @@ import { DataSource, type QueryRunner } from 'typeorm';
 import { nivelDe } from '../economia.js';
 import {
   AjusteForaDoLimiteError,
+  ehViolacaoCheck,
+  ehViolacaoUnica,
   registrarMovimentacao,
   type ResponsavelCoordenacao,
   SaldoInsuficienteError,
   SCHEMA_GAMIFICACAO,
   schemaUsuarios,
-  travarCarteira,
 } from '../gamificacao.js';
-import { chaveAjusteXp } from './ajustes-xp.js';
+import { normalizarJustificativa } from '../justificativa.js';
+import { chaveAjusteXp, MOTIVO_AJUSTE_XP } from './ajustes-xp.js';
 import type {
   AjustarXpDto,
   AjusteXpDto,
@@ -30,6 +33,7 @@ const LIMITE_LISTA = 50;
 
 interface LinhaAjuste {
   id: string;
+  chaveIdempotencia: string;
   usuarioId: number;
   quantidade: number;
   motivo: string;
@@ -39,8 +43,15 @@ interface LinhaAjuste {
   criadoEm: Date;
 }
 
+interface ResultadoAjuste {
+  ajuste: AjusteXpDto;
+  saldo: number;
+  xpAcumulado: number;
+}
+
 const AJUSTE =
-  `SELECT a."id", a."usuario_id" AS "usuarioId", a."quantidade", a."motivo", ` +
+  `SELECT a."id", a."chave_idempotencia" AS "chaveIdempotencia", a."usuario_id" AS "usuarioId", ` +
+  `a."quantidade", a."motivo", ` +
   `a."responsavel_id" AS "responsavelId", a."responsavel_email" AS "responsavelEmail", ` +
   `m."saldo_apos" AS "saldoApos", a."criado_em" AS "criadoEm" ` +
   `FROM ${g}."xp_ajustes" a JOIN ${g}."xp_movimentacoes" m ON m."id" = a."movimentacao_id" `;
@@ -48,12 +59,23 @@ const AJUSTE =
 function ajusteDto(l: LinhaAjuste): AjusteXpDto {
   return {
     id: l.id,
+    chaveIdempotencia: l.chaveIdempotencia,
     quantidade: l.quantidade,
     motivo: l.motivo,
     responsavel: { id: l.responsavelId, email: l.responsavelEmail },
     saldoApos: l.saldoApos,
     criadoEm: new Date(l.criadoEm).toISOString(),
   };
+}
+
+/** A chave já foi usada por um ajuste com outros dados. */
+function chaveReutilizada(): ConflictException {
+  return new ConflictException({
+    statusCode: 409,
+    message:
+      'Esta chave já foi usada em outro ajuste (participante, quantidade ou motivo diferentes).',
+    motivo: 'chave-reutilizada',
+  });
 }
 
 /**
@@ -134,51 +156,128 @@ export class XpAdminService {
     };
   }
 
+  /**
+   * Ajuste idempotente. A chave identifica uma intenção: mesmo participante,
+   * quantidade e motivo (normalizado).
+   *
+   * 1. Trava por CHAVE (`pg_advisory_xact_lock`), antes de qualquer outra
+   *    trava. A trava da carteira não basta: duas requisições com a mesma
+   *    chave para participantes diferentes travariam carteiras distintas e
+   *    as duas veriam a chave livre.
+   * 2. Chave já usada: devolve o ajuste gravado se os dados coincidem; senão
+   *    409 `chave-reutilizada`.
+   * 3. Se ainda assim o UNIQUE do ledger ou de `xp_ajustes` disparar (rede de
+   *    segurança), a resposta é a mesma do passo 2, nunca um 500. A consulta
+   *    usa o mesmo QueryRunner, já fora da transação desfeita, sem pedir
+   *    outra conexão ao pool.
+   */
   async ajustar(
     usuarioId: number,
     dados: AjustarXpDto,
     responsavel: ResponsavelCoordenacao,
-  ): Promise<{ ajuste: AjusteXpDto; saldo: number; xpAcumulado: number }> {
+  ): Promise<ResultadoAjuste> {
+    const pedido = {
+      usuarioId,
+      quantidade: dados.quantidade,
+      motivo: normalizarJustificativa(dados.motivo),
+      chave: dados.chaveIdempotencia,
+    };
     const qr = this.db.createQueryRunner();
     await qr.connect();
-    await qr.startTransaction();
     try {
-      await this.usuario(qr, usuarioId);
-      const resultado = await this.ajustarNaTransacao(
-        qr,
-        usuarioId,
-        dados,
-        responsavel,
-      );
-      await qr.commitTransaction();
-      return resultado;
+      await qr.startTransaction();
+      try {
+        await qr.query(
+          `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+          [chaveAjusteXp(pedido.chave)],
+        );
+        await this.usuario(qr, usuarioId);
+        const anterior = await this.ajusteDaChave(qr, pedido.chave);
+        const resultado = anterior
+          ? await this.repetir(qr, anterior, pedido)
+          : await this.ajustarNaTransacao(qr, pedido, responsavel);
+        await qr.commitTransaction();
+        return resultado;
+      } catch (erro) {
+        await qr.rollbackTransaction();
+        throw erro;
+      }
     } catch (erro) {
-      await qr.rollbackTransaction();
+      if (
+        ehViolacaoUnica(erro, 'uq_xp_movimentacoes_chave') ||
+        ehViolacaoUnica(erro, 'uq_xp_ajustes_chave')
+      ) {
+        const anterior = await this.ajusteDaChave(qr, pedido.chave);
+        if (anterior) return this.repetir(qr, anterior, pedido);
+        throw chaveReutilizada();
+      }
+      // Rede de segurança: o DTO já recusa o motivo inválido com 400.
+      if (ehViolacaoCheck(erro, 'ck_xp_ajustes_motivo')) {
+        throw new BadRequestException(
+          `motivo deve ter de ${MOTIVO_AJUSTE_XP.min} a ${MOTIVO_AJUSTE_XP.max} caracteres, sem contar espaços no início e no fim`,
+        );
+      }
       throw erro;
     } finally {
       await qr.release();
     }
   }
 
+  private async ajusteDaChave(
+    executor: Pick<QueryRunner, 'query'>,
+    chave: string,
+  ): Promise<LinhaAjuste | undefined> {
+    const [linha] = (await executor.query(
+      `${AJUSTE} WHERE a."chave_idempotencia" = $1`,
+      [chave],
+    )) as LinhaAjuste[];
+    return linha;
+  }
+
+  /** Reenvio da mesma chave: devolve o ajuste já gravado, se for o mesmo pedido. */
+  private async repetir(
+    executor: Pick<QueryRunner, 'query'>,
+    anterior: LinhaAjuste,
+    pedido: { usuarioId: number; quantidade: number; motivo: string },
+  ): Promise<ResultadoAjuste> {
+    if (
+      anterior.usuarioId !== pedido.usuarioId ||
+      anterior.quantidade !== pedido.quantidade ||
+      anterior.motivo !== pedido.motivo
+    ) {
+      throw chaveReutilizada();
+    }
+    const [carteira] = (await executor.query(
+      `SELECT "saldo", "xp_acumulado" AS "xpAcumulado" FROM ${g}."xp_carteiras" WHERE "usuario_id" = $1`,
+      [pedido.usuarioId],
+    )) as Array<{ saldo: number; xpAcumulado: number }>;
+    return {
+      ajuste: ajusteDto(anterior),
+      saldo: carteira.saldo,
+      xpAcumulado: carteira.xpAcumulado,
+    };
+  }
+
   private async ajustarNaTransacao(
     qr: QueryRunner,
-    usuarioId: number,
-    dados: AjustarXpDto,
+    pedido: {
+      usuarioId: number;
+      quantidade: number;
+      motivo: string;
+      chave: string;
+    },
     responsavel: ResponsavelCoordenacao,
-  ): Promise<{ ajuste: AjusteXpDto; saldo: number; xpAcumulado: number }> {
-    const motivo = dados.motivo.trim();
+  ): Promise<ResultadoAjuste> {
     let movimento;
     try {
-      // Trava a carteira antes de procurar a chave: um reenvio simultâneo
-      // espera o primeiro terminar e então encontra o ajuste já gravado.
-      movimento = await registrarMovimentacaoOuAnterior(qr, {
-        usuarioId,
-        quantidade: dados.quantidade,
+      movimento = await registrarMovimentacao(qr, {
+        usuarioId: pedido.usuarioId,
+        quantidade: pedido.quantidade,
         tipo: 'AJUSTE_ADMIN',
         referenciaTipo: 'AJUSTE',
-        referenciaId: dados.chaveIdempotencia,
-        descricao: `Ajuste da coordenação: ${motivo}`.slice(0, 200),
-        chaveIdempotencia: chaveAjusteXp(dados.chaveIdempotencia),
+        referenciaId: pedido.chave,
+        descricao: `Ajuste da coordenação: ${pedido.motivo}`.slice(0, 200),
+        chaveIdempotencia: chaveAjusteXp(pedido.chave),
       });
     } catch (erro) {
       if (erro instanceof SaldoInsuficienteError) {
@@ -206,40 +305,22 @@ export class XpAdminService {
       }
       throw erro;
     }
-    if (movimento.anterior) {
-      const [anterior] = (await qr.query(
-        `${AJUSTE} WHERE a."chave_idempotencia" = $1`,
-        [dados.chaveIdempotencia],
-      )) as LinhaAjuste[];
-      if (
-        !anterior ||
-        anterior.usuarioId !== usuarioId ||
-        anterior.quantidade !== dados.quantidade
-      ) {
-        throw new ConflictException('Chave já usada em outro ajuste.');
-      }
-      return {
-        ajuste: ajusteDto(anterior),
-        saldo: movimento.saldo,
-        xpAcumulado: movimento.xpAcumulado,
-      };
-    }
     const [linha] = (await qr.query(
       `INSERT INTO ${g}."xp_ajustes" ` +
         `("usuario_id", "movimentacao_id", "quantidade", "motivo", "chave_idempotencia", "responsavel_id", "responsavel_email") ` +
         `VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING "id"`,
       [
-        usuarioId,
+        pedido.usuarioId,
         movimento.movimentacaoId,
-        dados.quantidade,
-        motivo,
-        dados.chaveIdempotencia,
+        pedido.quantidade,
+        pedido.motivo,
+        pedido.chave,
         responsavel.id,
         responsavel.email,
       ],
     )) as Array<{ id: string }>;
     this.logger.log(
-      `ajuste de XP usuario=${usuarioId} quantidade=${dados.quantidade} id=${linha.id}`,
+      `ajuste de XP usuario=${pedido.usuarioId} quantidade=${pedido.quantidade} id=${linha.id}`,
     );
     const [ajuste] = (await qr.query(`${AJUSTE} WHERE a."id" = $1`, [
       linha.id,
@@ -250,51 +331,4 @@ export class XpAdminService {
       xpAcumulado: movimento.xpAcumulado,
     };
   }
-}
-
-/**
- * Como `registrarMovimentacao`, mas se a chave já existe no ledger devolve o
- * saldo atual com `anterior: true` em vez de lançar de novo.
- */
-async function registrarMovimentacaoOuAnterior(
-  qr: QueryRunner,
-  m: Parameters<typeof registrarMovimentacao>[1],
-): Promise<{
-  movimentacaoId: string | null;
-  saldo: number;
-  xpAcumulado: number;
-  anterior: boolean;
-}> {
-  const saldo = await travarCarteira(qr, m.usuarioId);
-  const [existe] = (await qr.query(
-    `SELECT c."xp_acumulado" FROM ${g}."xp_movimentacoes" mv ` +
-      `JOIN ${g}."xp_carteiras" c ON c."usuario_id" = mv."usuario_id" ` +
-      `WHERE mv."chave_idempotencia" = $1`,
-    [m.chaveIdempotencia],
-  )) as Array<{ xp_acumulado: number }>;
-  if (existe) {
-    return {
-      movimentacaoId: null,
-      saldo,
-      xpAcumulado: existe.xp_acumulado,
-      anterior: true,
-    };
-  }
-  const mov = await registrarMovimentacao(qr, m);
-  return {
-    movimentacaoId: mov.movimentacaoId,
-    saldo: mov.saldo,
-    xpAcumulado: mov.xpAcumulado,
-    anterior: false,
-  };
-}
-
-/** Violação de CHECK do PostgreSQL. */
-function ehViolacaoCheck(erro: unknown, constraint: string): boolean {
-  const e = (erro as { driverError?: unknown })?.driverError ?? erro;
-  const { code, constraint: nome } = (e ?? {}) as {
-    code?: string;
-    constraint?: string;
-  };
-  return code === '23514' && nome === constraint;
 }

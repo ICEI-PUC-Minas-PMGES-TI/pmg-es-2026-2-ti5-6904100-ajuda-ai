@@ -25,6 +25,7 @@ import { LojinhaResgates1792800000000 } from '../src/migrations/1792800000000-Lo
 import { LojinhaRecompensas1792900000000 } from '../src/migrations/1792900000000-LojinhaRecompensas.js';
 import { CodigoResgates1793500000000 } from '../src/migrations/1793500000000-CodigoResgates.js';
 import { EntregaResgatesEAjustesXp1794200000000 } from '../src/migrations/1794200000000-EntregaResgatesEAjustesXp.js';
+import { ResgatesProgramaDaTroca1794300000000 } from '../src/migrations/1794300000000-ResgatesProgramaDaTroca.js';
 import { ProgramaRecompensasFk1794100000000 } from '../src/migrations/1794100000000-ProgramaRecompensasFk.js';
 import { LojinhaController } from '../src/gamificacao/lojinha/lojinha.controller.js';
 import { LojinhaService } from '../src/gamificacao/lojinha/lojinha.service.js';
@@ -45,6 +46,7 @@ const MIGRATIONS: Array<new () => MigrationInterface> = [
   GamificacaoNiveisMoedasCiclos1794000000000,
   ProgramaRecompensasFk1794100000000,
   EntregaResgatesEAjustesXp1794200000000,
+  ResgatesProgramaDaTroca1794300000000,
 ];
 
 async function admin(sql: string): Promise<void> {

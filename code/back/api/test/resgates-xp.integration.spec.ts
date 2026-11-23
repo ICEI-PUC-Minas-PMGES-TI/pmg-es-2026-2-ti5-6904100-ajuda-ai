@@ -35,6 +35,7 @@ import { GamificacaoNiveisMoedasCiclos1794000000000 } from '../src/migrations/17
 import { permissoesPeloToken } from './helpers/permissoes.js';
 import { EntregaResgatesEAjustesXp1794200000000 } from '../src/migrations/1794200000000-EntregaResgatesEAjustesXp.js';
 import { ProgramaRecompensasFk1794100000000 } from '../src/migrations/1794100000000-ProgramaRecompensasFk.js';
+import { ResgatesProgramaDaTroca1794300000000 } from '../src/migrations/1794300000000-ResgatesProgramaDaTroca.js';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
 const SEGREDO = 'segredo-de-teste-resgates-xp';
@@ -51,6 +52,7 @@ const MIGRATIONS: Array<new () => MigrationInterface> = [
   GamificacaoNiveisMoedasCiclos1794000000000,
   ProgramaRecompensasFk1794100000000,
   EntregaResgatesEAjustesXp1794200000000,
+  ResgatesProgramaDaTroca1794300000000,
 ];
 
 async function admin(sql: string): Promise<void> {
@@ -68,13 +70,20 @@ interface ResgateAdmin {
   codigo: string;
   situacao: string;
   participante: { id: number; nome: string; email: string };
-  recompensa: { id: string; nome: string; programaCodigo: string | null };
+  recompensa: { id: string; nome: string };
+  programa: { codigo: string | null; inferido: boolean };
   custoXp: number;
   resgatadoEm: string;
   entregueEm: string | null;
   canceladoEm: string | null;
   motivoCancelamento: string | null;
   responsavel: { id: number | null; email: string | null } | null;
+}
+
+interface PaginaResgates {
+  itens: ResgateAdmin[];
+  proximoCursor: string | null;
+  contagem: Record<string, number>;
 }
 
 describe.skipIf(!URL_TESTE)(
@@ -177,6 +186,14 @@ describe.skipIf(!URL_TESTE)(
         .post(`/coordenacao/resgates/${id}/cancelar`)
         .set('Authorization', auth)
         .send({ motivo });
+    const listar = async (consulta = '') =>
+      (
+        await http()
+          .get(`/coordenacao/resgates${consulta}`)
+          .set('Authorization', coord())
+          .expect(200)
+      ).body as PaginaResgates;
+    const ids = (pagina: PaginaResgates) => pagina.itens.map((r) => r.id);
 
     /** O saldo materializado é sempre a soma do ledger. */
     async function conferirLedger(usuarioId: number) {
@@ -267,47 +284,189 @@ describe.skipIf(!URL_TESTE)(
       it('lista com participante, recompensa, custo, data e situação; filtra por situação e programa', async () => {
         const id = await recompensa(120, 5, { programaCodigo: '2026/2' });
         const resgateId = await resgatar(id);
-        const { body } = await http()
-          .get('/coordenacao/resgates?situacao=aguardando_entrega')
-          .set('Authorization', coord())
-          .expect(200);
-        const item = (body as ResgateAdmin[]).find((r) => r.id === resgateId)!;
+        const pendentes = await listar('?situacao=aguardando_entrega');
+        const item = pendentes.itens.find((r) => r.id === resgateId)!;
         expect(item).toMatchObject({
           situacao: 'aguardando_entrega',
           participante: { id: alunoId, nome: 'Aluno Teste' },
-          recompensa: { id, programaCodigo: '2026/2' },
+          recompensa: { id },
+          programa: { codigo: '2026/2', inferido: false },
           custoXp: 120,
           entregueEm: null,
           canceladoEm: null,
           responsavel: null,
         });
         expect(Date.parse(item.resgatadoEm)).not.toBeNaN();
+        expect(pendentes.contagem.aguardando_entrega).toBeGreaterThanOrEqual(1);
 
-        const doPrograma = await http()
-          .get('/coordenacao/resgates?programa=2026%2F2')
-          .set('Authorization', coord())
-          .expect(200);
-        expect((doPrograma.body as ResgateAdmin[]).map((r) => r.id)).toEqual([
+        expect(ids(await listar('?programa=2026%2F2'))).toEqual([resgateId]);
+        expect(ids(await listar('?situacao=entregue'))).not.toContain(
           resgateId,
-        ]);
-        const entregues = await http()
-          .get('/coordenacao/resgates?situacao=entregue')
-          .set('Authorization', coord())
-          .expect(200);
+        );
+        // Busca por código (sem diferenciar maiúsculas) e por recompensa.
         expect(
-          (entregues.body as ResgateAdmin[]).some((r) => r.id === resgateId),
-        ).toBe(false);
-        const porCodigo = await http()
-          .get(`/coordenacao/resgates?busca=${item.codigo.toLowerCase()}`)
-          .set('Authorization', coord())
+          ids(await listar(`?busca=${item.codigo.toLowerCase()}`)),
+        ).toEqual([resgateId]);
+        expect(ids(await listar('?busca=caneca'))).toContain(resgateId);
+
+        for (const invalida of [
+          '?situacao=perdido',
+          '?cursor=@@',
+          `?cursor=${Buffer.from('ontem|x').toString('base64url')}`,
+          '?limite=0',
+          '?limite=201',
+          '?programa=2026%2F2&semPrograma=true',
+        ]) {
+          await http()
+            .get(`/coordenacao/resgates${invalida}`)
+            .set('Authorization', coord())
+            .expect(400);
+        }
+      });
+
+      it('pendente seguido de 200 entregas continua na fila, na busca e na contagem; o cursor percorre tudo', async () => {
+        const [{ id: filaId }] = (await ds.query(
+          `INSERT INTO feed.usuarios (nome, email, curso, periodo, tipo_participacao, status_cadastro) ` +
+            `VALUES ('Fila Teste', 'fila@pucminas.edu.br', 'ES', 2, 'apadrinhado', 'aprovado') RETURNING id`,
+        )) as Array<{ id: number }>;
+        await ds.query(
+          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ('fila@pucminas.edu.br', '2026/2', 'apadrinhado', 'em_andamento')`,
+        );
+        await creditar(filaId, 1000);
+        const fila = () =>
+          `Bearer ${jwt.sign({ sub: String(filaId), email: 'fila@pucminas.edu.br', perfil: 'apadrinhado', escopo: 'acesso' })}`;
+        const brinde = await recompensa(1, 300);
+
+        const pendente = await resgatar(brinde, fila());
+        for (let i = 0; i < 200; i++) {
+          await entregar(await resgatar(brinde, fila())).expect(200);
+        }
+
+        // Sem nenhum outro filtro: a situação é aplicada antes do limite.
+        expect(
+          ids(await listar('?situacao=aguardando_entrega&limite=200')),
+        ).toContain(pendente);
+        const { codigo } = (
+          await http()
+            .get(`/coordenacao/resgates/${pendente}`)
+            .set('Authorization', coord())
+            .expect(200)
+        ).body as ResgateAdmin;
+        expect(ids(await listar(`?busca=${codigo}`))).toEqual([pendente]);
+
+        const doBrinde = `recompensaId=${brinde}`;
+        const pendentes = await listar(
+          `?${doBrinde}&situacao=aguardando_entrega`,
+        );
+        expect(ids(pendentes)).toEqual([pendente]);
+        expect(pendentes.contagem).toEqual({
+          todos: 201,
+          aguardando_entrega: 1,
+          entregue: 200,
+          cancelado: 0,
+        });
+
+        const vistos: string[] = [];
+        let cursor: string | null = null;
+        let paginas = 0;
+        do {
+          const pagina = await listar(
+            `?${doBrinde}&limite=50${cursor ? `&cursor=${cursor}` : ''}`,
+          );
+          vistos.push(...ids(pagina));
+          cursor = pagina.proximoCursor;
+          paginas++;
+        } while (cursor);
+        expect(paginas).toBe(5);
+        expect(new Set(vistos).size).toBe(201);
+        expect(vistos.at(-1)).toBe(pendente);
+      }, 180_000);
+
+      it('o programa da troca fica no resgate: editar a recompensa não move o histórico; aberta conta no programa do aluno', async () => {
+        await ds.query(
+          `INSERT INTO feed.programas (codigo, titulo, etapa_atual) VALUES ('2027/1', 'Programa 2027/1', 'inscricoes') ON CONFLICT DO NOTHING`,
+        );
+        const restrita = await recompensa(10, 5, { programaCodigo: '2026/2' });
+        const antigo = await resgatar(restrita);
+        const visto = await http()
+          .get(`/coordenacao/recompensas/${restrita}`)
+          .set('Authorization', mock())
           .expect(200);
-        expect((porCodigo.body as ResgateAdmin[]).map((r) => r.id)).toEqual([
-          resgateId,
-        ]);
         await http()
-          .get('/coordenacao/resgates?situacao=perdido')
-          .set('Authorization', coord())
-          .expect(400);
+          .patch(`/coordenacao/recompensas/${restrita}`)
+          .set('Authorization', mock())
+          .send({
+            programaCodigo: '2027/1',
+            atualizadoEm: (visto.body as { atualizadoEm: string }).atualizadoEm,
+          })
+          .expect(200);
+        expect(ids(await listar('?programa=2026%2F2'))).toContain(antigo);
+        expect(ids(await listar('?programa=2027%2F1'))).not.toContain(antigo);
+
+        const aberta = await recompensa(10, 5);
+        const daAberta = await resgatar(aberta);
+        const detalhe = (
+          await http()
+            .get(`/coordenacao/resgates/${daAberta}`)
+            .set('Authorization', coord())
+            .expect(200)
+        ).body as ResgateAdmin;
+        expect(detalhe.programa).toEqual({ codigo: '2026/2', inferido: false });
+        expect(ids(await listar('?programa=2026%2F2'))).toContain(daAberta);
+        expect(ids(await listar('?semPrograma=true'))).not.toContain(daAberta);
+      });
+
+      it('motivo é medido depois de normalizado: curto vira 400, nunca 500', async () => {
+        const id = await resgatar(await recompensa(10, 5));
+        // ' a ' passava no MinLength(3) e estourava o CHECK; '😀a' tem
+        // length 3 em UTF-16, mas char_length 2 no PostgreSQL.
+        for (const motivo of [' a ', '  ab  ', '\n\tab\n', '😀a', 'a😀']) {
+          await cancelar(id, motivo).expect(400);
+        }
+        const ok = await cancelar(id, '  Sem retirada  ').expect(200);
+        expect((ok.body as ResgateAdmin).motivoCancelamento).toBe(
+          'Sem retirada',
+        );
+      });
+
+      it('conflito no UNIQUE responde 409 sem pedir outra conexão ao pool', async () => {
+        const id = await resgatar(await recompensa(10, 5));
+        await entregar(id).expect(200);
+        const url = new URL(URL_TESTE!);
+        url.pathname = `/${BANCO}`;
+        // Pool de UMA conexão: se o tratamento do conflito pedir outra
+        // (this.db.query) enquanto segura o QueryRunner, estoura o timeout.
+        const pequeno = new DataSource({
+          type: 'postgres',
+          url: url.toString(),
+          schema: 'feed',
+          installExtensions: false,
+          extra: { max: 1, connectionTimeoutMillis: 2000 },
+        });
+        await pequeno.initialize();
+        try {
+          const servico = new ResgatesAdminService(pequeno) as unknown as {
+            emTransacao(
+              id: string,
+              tipo: string,
+              corpo: () => Promise<void>,
+            ): Promise<void>;
+          };
+          const violacao = Object.assign(new Error('duplicate key'), {
+            code: '23505',
+            constraint: 'uq_resgate_desfechos_resgate',
+          });
+          await expect(
+            servico.emTransacao(id, 'cancelado', () =>
+              Promise.reject(violacao),
+            ),
+          ).rejects.toMatchObject({
+            status: 409,
+            response: { motivo: 'resgate-entregue' },
+          });
+        } finally {
+          await pequeno.destroy();
+        }
       });
 
       it('aluno não acessa as rotas da coordenação', async () => {
@@ -530,6 +689,92 @@ describe.skipIf(!URL_TESTE)(
           .expect(409);
       });
 
+      it('mesma chave com outro motivo ou quantidade: 409; mesmos dados (motivo normalizado) devolvem o ajuste já feito', async () => {
+        const chave = randomUUID();
+        const enviar = (corpo: object) =>
+          http()
+            .post(`/coordenacao/xp/${outroId}/ajustes`)
+            .set('Authorization', coord())
+            .send({ chaveIdempotencia: chave, ...corpo });
+        const primeiro = await enviar({
+          quantidade: 7,
+          motivo: 'Monitoria extra',
+        }).expect(201);
+        const ajuste = (
+          primeiro.body as { ajuste: { id: string; chaveIdempotencia: string } }
+        ).ajuste;
+        expect(ajuste.chaveIdempotencia).toBe(chave);
+
+        const outroMotivo = await enviar({
+          quantidade: 7,
+          motivo: 'Outro motivo',
+        }).expect(409);
+        expect(outroMotivo.body).toMatchObject({ motivo: 'chave-reutilizada' });
+        await enviar({ quantidade: 8, motivo: 'Monitoria extra' }).expect(409);
+
+        const repetido = await enviar({
+          quantidade: 7,
+          motivo: '  Monitoria extra ',
+        }).expect(201);
+        expect((repetido.body as { ajuste: { id: string } }).ajuste.id).toBe(
+          ajuste.id,
+        );
+        const [{ n }] = (await ds.query(
+          `SELECT count(*)::int AS n FROM gamificacao.xp_movimentacoes WHERE chave_idempotencia = $1`,
+          [`ajuste:${chave}`],
+        )) as Array<{ n: number }>;
+        expect(n).toBe(1);
+        await conferirLedger(outroId);
+      });
+
+      it('corrida com a mesma chave: participantes diferentes dão 201 e 409 (nunca 500); o mesmo pedido credita uma vez', async () => {
+        for (let rodada = 0; rodada < 5; rodada++) {
+          const corpo = {
+            quantidade: 3,
+            motivo: 'Corrida',
+            chaveIdempotencia: randomUUID(),
+          };
+          const respostas = await Promise.all(
+            [outroId, alunoId].map((u) =>
+              http()
+                .post(`/coordenacao/xp/${u}/ajustes`)
+                .set('Authorization', coord())
+                .send(corpo),
+            ),
+          );
+          expect(respostas.map((r) => r.status).sort()).toEqual([201, 409]);
+        }
+
+        const corpo = {
+          quantidade: 2,
+          motivo: 'Reenvio',
+          chaveIdempotencia: randomUUID(),
+        };
+        const respostas = await Promise.all(
+          Array.from({ length: 6 }, () =>
+            http()
+              .post(`/coordenacao/xp/${outroId}/ajustes`)
+              .set('Authorization', coord())
+              .send(corpo),
+          ),
+        );
+        expect(respostas.map((r) => r.status)).toEqual(Array(6).fill(201));
+        expect(
+          new Set(
+            respostas.map(
+              (r) => (r.body as { ajuste: { id: string } }).ajuste.id,
+            ),
+          ).size,
+        ).toBe(1);
+        const [{ n }] = (await ds.query(
+          `SELECT count(*)::int AS n FROM gamificacao.xp_movimentacoes WHERE chave_idempotencia = $1`,
+          [`ajuste:${corpo.chaveIdempotencia}`],
+        )) as Array<{ n: number }>;
+        expect(n).toBe(1);
+        await conferirLedger(outroId);
+        await conferirLedger(alunoId);
+      });
+
       it('débito não deixa o saldo negativo', async () => {
         const [{ id: pobreId }] = (await ds.query(
           `INSERT INTO feed.usuarios (nome, email, curso, periodo, tipo_participacao, status_cadastro) ` +
@@ -566,6 +811,9 @@ describe.skipIf(!URL_TESTE)(
             .send({ chaveIdempotencia: randomUUID(), ...corpo });
         await enviar(outroId, { quantidade: 0, motivo: 'Zero' }).expect(400);
         await enviar(outroId, { quantidade: 10, motivo: '  ' }).expect(400);
+        // Medido depois de normalizado e em pontos de código (como o CHECK).
+        await enviar(outroId, { quantidade: 10, motivo: ' a ' }).expect(400);
+        await enviar(outroId, { quantidade: 10, motivo: '😀a' }).expect(400);
         await enviar(outroId, { quantidade: 10 }).expect(400);
         await enviar(outroId, { quantidade: 1.5, motivo: 'Meio' }).expect(400);
         // Teto individual do ajuste (LIMITES.ajusteAdmin = 200).
