@@ -24,18 +24,17 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import pg from 'pg';
 import request from 'supertest';
-import { DataSource, type MigrationInterface } from 'typeorm';
+import {
+  DataSource,
+  getMetadataArgsStorage,
+  type MigrationInterface,
+} from 'typeorm';
 import type { AccessTokenPayload } from '../src/auth/authenticated-request.js';
 import { JwtAuthGuard } from '../src/auth/jwt-auth.guard.js';
 import { RolesGuard } from '../src/auth/roles.guard.js';
 import { EventosService } from '../src/campus/eventos/eventos.service.js';
 import { ChatController } from '../src/chat/chat.controller.js';
 import { ChatService } from '../src/chat/chat.service.js';
-import {
-  ChatEntity,
-  ChatParticipanteEntity,
-  MensagemChatEntity,
-} from '../src/chat/entities/chat.entity.js';
 import { LIMITES } from '../src/gamificacao/economia.js';
 import { MissoesAdminController } from '../src/gamificacao/missoes/missoes-admin.controller.js';
 import { MissoesAdminService } from '../src/gamificacao/missoes/missoes-admin.service.js';
@@ -55,18 +54,6 @@ import { PucStopsService } from '../src/gamificacao/pucstops/pucstops.service.js
 import { importarSnapshot } from '../src/mapa/importacao/importar-snapshot.js';
 import { validarSnapshot } from '../src/mapa/importacao/snapshot.js';
 import { schemaPostgis } from '../src/mapa/postgis.js';
-import {
-  MatchingCriterioEntity,
-  MatchingCriterioVersaoEntity,
-} from '../src/matching/entities/criterio-catalogo.entity.js';
-import {
-  MatchingChatOutboxEntity,
-  MatchingConfiguracaoEntity,
-  MatchingDecisaoEntity,
-  MatchingExecucaoEntity,
-  MatchingSugestaoEntity,
-  MatchingVinculoEntity,
-} from '../src/matching/entities/matching.entity.js';
 import { CriaNotificacoes1794800000000 } from '../src/migrations/1794800000000-CriaNotificacoes.js';
 import { NotificacoesController } from '../src/notificacoes/notificacoes.controller.js';
 import { NotificacoesService } from '../src/notificacoes/notificacoes.service.js';
@@ -75,10 +62,6 @@ import { ParticipacoesService } from '../src/participacoes/participacoes.service
 import { PermissoesAlunoService } from '../src/participacoes/permissoes-aluno.service.js';
 import { ProgramaEntity } from '../src/programas/entities/programa.entity.js';
 import { ProgramasService } from '../src/programas/programas.service.js';
-import { ComentarioEntity } from '../src/publicacoes/entities/comentario.entity.js';
-import { CurtidaComentarioEntity } from '../src/publicacoes/entities/curtida-comentario.entity.js';
-import { CurtidaEntity } from '../src/publicacoes/entities/curtida.entity.js';
-import { FeedOutboxEntity } from '../src/publicacoes/entities/feed-outbox.entity.js';
 import { PublicacaoEntity } from '../src/publicacoes/entities/publicacao.entity.js';
 import { FeedMidiasService } from '../src/publicacoes/feed-midias.service.js';
 import { FeedPolicy } from '../src/publicacoes/feed-policy.js';
@@ -113,6 +96,16 @@ const MIGRATIONS = Object.entries(
     ),
   )
   .sort((a, b) => Number(a.name.slice(-13)) - Number(b.name.slice(-13)));
+
+const ENTIDADES = Object.values(
+  import.meta.glob<Record<string, unknown>>('../src/**/*.entity.ts', {
+    eager: true,
+  }),
+)
+  .flatMap((modulo) => Object.values(modulo))
+  .filter((v): v is Function =>
+    getMetadataArgsStorage().tables.some((t) => t.target === v),
+  );
 
 const MAPA = validarSnapshot(
   JSON.parse(
@@ -557,27 +550,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       type: 'postgres',
       url: urlDo(BANCO),
       schema: 'feed',
-      entities: [
-        ParticipacaoEntity,
-        ProgramaEntity,
-        UsuarioEntity,
-        PublicacaoEntity,
-        ComentarioEntity,
-        CurtidaEntity,
-        CurtidaComentarioEntity,
-        FeedOutboxEntity,
-        ChatEntity,
-        ChatParticipanteEntity,
-        MensagemChatEntity,
-        MatchingConfiguracaoEntity,
-        MatchingExecucaoEntity,
-        MatchingSugestaoEntity,
-        MatchingDecisaoEntity,
-        MatchingVinculoEntity,
-        MatchingChatOutboxEntity,
-        MatchingCriterioEntity,
-        MatchingCriterioVersaoEntity,
-      ],
+      entities: ENTIDADES,
       migrations: MIGRATIONS,
       migrationsTableName: 'migrations',
       installExtensions: false,
