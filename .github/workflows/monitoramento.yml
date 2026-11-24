@@ -1,0 +1,31 @@
+# Verificação diária dos ambientes publicados. Também mantém o Supabase Free
+# ativo (ele pausa projetos sem atividade por 7 dias): /health/ready faz uma
+# consulta ao banco. Falha aparece como execução vermelha no Actions.
+name: Monitoramento
+
+on:
+  schedule:
+    - cron: '17 10 * * *'   # 07:17 em Brasília
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  saude:
+    if: vars.DEPLOY_ATIVO == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        ambiente: [homologacao, producao]
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.ambiente }}
+    steps:
+      - name: API e banco
+        run: |
+          if [ -z "${{ vars.API_URL }}" ]; then echo "Ambiente ainda não publicado."; exit 0; fi
+          curl -fsS --retry 3 --retry-delay 20 --max-time 15 "${{ vars.API_URL }}/health/ready"
+      - name: Web
+        run: |
+          if [ -z "${{ vars.WEB_URL }}" ]; then exit 0; fi
+          curl -fsS --retry 3 --retry-delay 10 --max-time 15 -o /dev/null "${{ vars.WEB_URL }}"

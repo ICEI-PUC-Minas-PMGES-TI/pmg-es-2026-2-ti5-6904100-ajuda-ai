@@ -24,6 +24,8 @@ export interface MicrosoftIdentity {
 
 @Injectable()
 export class MicrosoftTokenVerifier {
+  private readonly jwksPorTenant = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+
   async verificar(idToken: string): Promise<MicrosoftIdentity> {
     const tenantId = process.env.MICROSOFT_TENANT_ID;
     const clientId = process.env.MICROSOFT_CLIENT_ID;
@@ -35,11 +37,17 @@ export class MicrosoftTokenVerifier {
     }
 
     const issuer = `https://login.microsoftonline.com/${tenantId}/v2.0`;
-    const jwks = createRemoteJWKSet(
-      new URL(
-        `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`,
-      ),
-    );
+    // Um conjunto por tenant, reaproveitado entre logins: a biblioteca guarda
+    // as chaves e só busca de novo quando aparece um `kid` desconhecido.
+    let jwks = this.jwksPorTenant.get(tenantId);
+    if (!jwks) {
+      jwks = createRemoteJWKSet(
+        new URL(
+          `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`,
+        ),
+      );
+      this.jwksPorTenant.set(tenantId, jwks);
+    }
 
     try {
       const { payload } = await jwtVerify(idToken, jwks, {

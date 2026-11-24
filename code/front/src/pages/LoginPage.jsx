@@ -39,10 +39,17 @@ const CONTAS_DEMO = [
   ['Coordenação', [['renata', 'I · Renata Martins — coordenação']]],
 ];
 
+// Homologação publicada: o painel de contas demo aparece, mas a API só aceita
+// com a chave de demonstração. Em produção esta variável fica ausente.
+const DEMO_HOMOLOGACAO = import.meta.env.VITE_DEMO_LOGIN === 'true';
+const DEMO_VISIVEL = import.meta.env.DEV || DEMO_HOMOLOGACAO;
+const CHAVE_DEMO_SESSAO = 'ajudaai.demo.chave';
+
 export default function LoginPage() {
   const navigate = useNavigate(); const {aceitarSessao, logout} = useAuth();
   const [erro, setErro] = useState(''); const [ocupado, setOcupado] = useState(false);
   const [email, setEmail] = useState('ana.beatriz@pucminas.edu.br');
+  const [chaveDemo, setChaveDemo] = useState(() => { try { return sessionStorage.getItem(CHAVE_DEMO_SESSAO) || ''; } catch { return ''; } });
   const callback = useRef(false);
   async function aceitar(resultado) {
     logout(); clearAlunoSession();
@@ -71,15 +78,20 @@ export default function LoginPage() {
     <button className="primary-button" disabled={ocupado} onClick={() => iniciarMicrosoft().catch(e => setErro(e.message))}>
       <img src="/images/microsoft.png" alt="" className="login-ms-icon" />Entrar com Microsoft
     </button>
-    {import.meta.env.DEV && <div className="login-demo">
-      <span className="login-demo-sep">ou, em desenvolvimento</span>
+    {DEMO_VISIVEL && <div className="login-demo">
+      <span className="login-demo-sep">{DEMO_HOMOLOGACAO ? 'ou, na homologação' : 'ou, em desenvolvimento'}</span>
+      {DEMO_HOMOLOGACAO && <>
+        <label className="login-demo-label" htmlFor="login-demo-chave">Chave de demonstração</label>
+        <input id="login-demo-chave" className="login-demo-select" type="password" autoComplete="off" value={chaveDemo}
+          onChange={e => { setChaveDemo(e.target.value); try { sessionStorage.setItem(CHAVE_DEMO_SESSAO, e.target.value); } catch { /* armazenamento indisponível */ } }} />
+      </>}
       <label className="login-demo-label" htmlFor="login-demo-email">Usuário de teste</label>
       <select id="login-demo-email" className="login-demo-select" value={email} onChange={e => setEmail(e.target.value)}>
         {CONTAS_DEMO.map(([grupo, contas]) => <optgroup key={grupo} label={grupo}>
           {contas.map(([local, rotulo]) => <option key={local} value={`${local}@pucminas.edu.br`}>{rotulo}</option>)}
         </optgroup>)}
       </select>
-      <button type="button" className="outline-button" disabled={ocupado} onClick={() => entrar(() => api.loginDemo(email))}>Entrar como usuário de teste</button>
+      <button type="button" className="outline-button" disabled={ocupado} onClick={() => entrar(() => api.loginDemo(email, DEMO_HOMOLOGACAO ? chaveDemo : undefined))}>Entrar como usuário de teste</button>
     </div>}
     {ocupado && <p className="login-hint" role="status">Consultando sua conta…</p>}
     {erro && <p className="error-message login-erro" role="alert">{erro}</p>}

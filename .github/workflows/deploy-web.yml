@@ -1,0 +1,92 @@
+# Publica a web (Vite) como site estático no Azure Storage (Static Web Apps não
+# existe nas regiões que a assinatura Azure for Students permite).
+# - push em Sprint-* → homologação; push em main → produção (com aprovação);
+# - manual: qualquer ambiente. ROLLBACK: rode manualmente a partir do commit
+#   anterior (botão "Run workflow" escolhendo a ref/branch ou tag desejada).
+# As VITE_* entram no bundle e são públicas por natureza: nunca coloque segredo
+# aqui. O token do Mapbox deve ser público (pk.) e restrito por URL no Mapbox.
+name: Deploy Web
+
+on:
+  push:
+    branches: [main, 'Sprint-*']
+    paths:
+      - 'code/front/**'
+      - 'code/mobile/assets/**'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: Ambiente
+        type: choice
+        options: [homologacao, producao]
+        required: true
+
+permissions:
+  contents: read
+  id-token: write   # login no Azure por OIDC, sem senha guardada
+
+concurrency:
+  group: deploy-web-${{ github.event.inputs.ambiente || (github.ref_name == 'main' && 'producao' || 'homologacao') }}
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    if: vars.DEPLOY_ATIVO == 'true'   # trava geral (variável de repositório)
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.ambiente || (github.ref_name == 'main' && 'producao' || 'homologacao') }}
+      url: ${{ vars.WEB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: code/front/package-lock.json
+      - name: Build
+        working-directory: code/front
+        env:
+          VITE_API_URL: ${{ vars.API_URL }}
+          VITE_MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
+          VITE_MAPBOX_STYLE_URI: ${{ vars.MAPBOX_STYLE_URI }}
+          VITE_MICROSOFT_CLIENT_ID: ${{ vars.MICROSOFT_CLIENT_ID }}
+          VITE_MICROSOFT_TENANT_ID: ${{ vars.MICROSOFT_TENANT_ID }}
+          VITE_MICROSOFT_REDIRECT_URI: ${{ vars.WEB_URL }}/auth/callback
+          # 'true' só na homologação (painel de contas demo + campo da chave).
+          VITE_DEMO_LOGIN: ${{ vars.DEMO_LOGIN }}
+        run: |
+          [ -n "$VITE_API_URL" ] || { echo "::error::Variável API_URL ausente no Environment"; exit 1; }
+          npm ci --no-audit --no-fund
+          npm run build
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Publicar no site estático (Storage, container $web)
+        env:
+          CONTA: ${{ vars.WEB_STORAGE_ACCOUNT }}
+        run: |
+          [ -n "$CONTA" ] || { echo "::error::Variável WEB_STORAGE_ACCOUNT ausente no Environment"; exit 1; }
+          dist=code/front/dist
+          publicacao=$(mktemp -d "$RUNNER_TEMP/ajudaai-web.XXXXXX")
+          mv "$dist/index.html" "$dist/assets" "$publicacao/"
+          # Arquivos públicos têm nomes estáveis. Só os bundles do Vite recebem cache longo.
+          az storage blob upload-batch --account-name "$CONTA" --auth-mode login --destination '$web' \
+            --source "$dist" --overwrite true --content-cache-control "no-cache" -o none
+          az storage blob upload-batch --account-name "$CONTA" --auth-mode login --destination '$web' \
+            --source "$publicacao/assets" --destination-path assets --overwrite true \
+            --content-cache-control "public, max-age=31536000, immutable" -o none
+          # Troca o index só depois de enviar os arquivos que ele referencia.
+          az storage blob upload --account-name "$CONTA" --auth-mode login --container '$web' \
+            --file "$publicacao/index.html" --name index.html --overwrite \
+            --content-cache-control "no-cache" --content-type "text/html; charset=utf-8" -o none
+      - name: Verificar (raiz e rota interna do login Microsoft)
+        run: |
+          curl -fsS --max-time 15 -o /dev/null "${{ vars.WEB_URL }}/" && echo "Raiz: 200"
+          # O site estático responde rotas internas com o index.html e status 404
+          # (esperado, o navegador renderiza o app). Conferir o corpo, não o status.
+          corpo=$(curl -sS --max-time 15 "${{ vars.WEB_URL }}/auth/callback")
+          echo "$corpo" | grep -q 'id="root"' || { echo "::error::/auth/callback não devolveu o app (fallback do site estático)"; exit 1; }
+          echo "/auth/callback devolve o app (fallback ok)"
