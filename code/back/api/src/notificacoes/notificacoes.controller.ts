@@ -76,6 +76,10 @@ export class NotificacoesController {
       await this.notificacoes.sincronizarMissoes(
         usuarioId,
         permissoes.programa,
+        {
+          podePublicar: permissoes.podePublicar,
+          temPar: permissoes.vinculoAtivo,
+        },
       );
     }
   }

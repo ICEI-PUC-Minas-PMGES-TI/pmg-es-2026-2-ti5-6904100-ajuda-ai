@@ -7,6 +7,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { DataSource, type EntityManager } from 'typeorm';
+import { SCHEMA_MAPA } from '../../mapa/postgis.js';
 import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
 import { SCHEMA_GAMIFICACAO, schemaUsuarios } from '../gamificacao.js';
 import type {
@@ -15,19 +16,29 @@ import type {
   MissaoAdminDto,
 } from './missoes.dto.js';
 import {
+  CODIGO_MISSAO,
   ID_MISSAO,
+  normalizarCodigo,
+  type RequisitoMissao,
   sqlMissaoVisivel,
   type TipoMissao,
   xpMaximoDe,
 } from './missoes.js';
+import { joinsEvento, sqlLocalEvento } from './requisitos.js';
 
 const g = `"${SCHEMA_GAMIFICACAO}"`;
+const mp = `"${SCHEMA_MAPA}"`;
 
 interface Linha {
   id: string;
   titulo: string;
   descricao: string;
   tipo: TipoMissao;
+  requisito: RequisitoMissao | null;
+  quantidade: number;
+  alvo_id: string | null;
+  alvo_nome: string | null;
+  codigo: string | null;
   xp: number;
   ativa: boolean;
   inicio: Date | null;
@@ -42,11 +53,14 @@ interface Linha {
 }
 
 const SELECT =
-  `SELECT m."id", m."titulo", m."descricao", m."tipo", m."xp", m."ativa", m."inicio", m."fim", m."ciclo", ` +
+  `SELECT m."id", m."titulo", m."descricao", m."tipo", m."requisito", m."quantidade", m."alvo_id", m."codigo", ` +
+  `COALESCE(ps."nome", ev."titulo") AS alvo_nome, m."xp", m."ativa", m."inicio", m."fim", m."ciclo", ` +
   `(${sqlMissaoVisivel('m')}) AS vigente_agora, ` +
   `(SELECT count(*)::int FROM ${g}."missoes_conclusoes" c WHERE c."missao_id" = m."id") AS conclusoes, ` +
   `(SELECT COALESCE(sum(c."xp_creditado"), 0)::int FROM ${g}."missoes_conclusoes" c WHERE c."missao_id" = m."id") AS xp_creditado_total, ` +
-  `m."criado_por", m."criado_em", m."atualizado_em" FROM ${g}."missoes" m`;
+  `m."criado_por", m."criado_em", m."atualizado_em" FROM ${g}."missoes" m ` +
+  `LEFT JOIN ${mp}."pucstops" ps ON m."requisito" = 'PUCSTOPS' AND ps."id" = m."alvo_id" ` +
+  `LEFT JOIN ${mp}."eventos" ev ON m."requisito" = 'EVENTO' AND ev."id" = m."alvo_id"`;
 
 function paraDto(l: Linha): MissaoAdminDto {
   return {
@@ -54,6 +68,11 @@ function paraDto(l: Linha): MissaoAdminDto {
     titulo: l.titulo,
     descricao: l.descricao,
     tipo: l.tipo,
+    requisito: l.requisito,
+    quantidade: l.quantidade,
+    alvoId: l.alvo_id,
+    alvoNome: l.alvo_nome,
+    codigo: l.codigo,
     xp: l.xp,
     ativa: l.ativa,
     inicio: l.inicio?.toISOString() ?? null,
@@ -95,6 +114,21 @@ function exigirRegras(
   }
 }
 
+interface Requisito {
+  requisito: RequisitoMissao;
+  quantidade: number;
+  alvoId: string | null;
+  codigo: string | null;
+}
+
+function alvoInvalido(message: string): UnprocessableEntityException {
+  return new UnprocessableEntityException({
+    statusCode: 422,
+    message,
+    motivo: 'alvo-invalido',
+  });
+}
+
 @Injectable()
 export class MissoesAdminService {
   private readonly logger = new Logger('MissoesAdmin');
@@ -126,10 +160,21 @@ export class MissoesAdminService {
     exigirRegras(dados.tipo, dados.xp, inicio, fim, true, agora);
     const ciclo = ParticipacoesService.programaAtual(agora);
     await this.exigirPrograma(ciclo);
+    const r = await this.validarRequisito(
+      this.dataSource.manager,
+      dados.tipo,
+      {
+        requisito: dados.requisito,
+        quantidade: dados.quantidade ?? 1,
+        alvoId: dados.alvoId ?? null,
+        codigo: dados.codigo ?? null,
+      },
+      true,
+    );
     const ativar = dados.ativar === true;
     const [{ id }] = (await this.dataSource.query(
-      `INSERT INTO ${g}."missoes" ("titulo", "descricao", "tipo", "xp", "ativa", "inicio", "fim", "ciclo", "criado_por") ` +
-        `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING "id"`,
+      `INSERT INTO ${g}."missoes" ("titulo", "descricao", "tipo", "xp", "ativa", "inicio", "fim", "ciclo", "criado_por", "requisito", "quantidade", "alvo_id", "codigo") ` +
+        `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING "id"`,
       [
         dados.titulo.trim(),
         dados.descricao.trim(),
@@ -140,9 +185,15 @@ export class MissoesAdminService {
         fim,
         ciclo,
         criadoPor,
+        r.requisito,
+        r.quantidade,
+        r.alvoId,
+        r.codigo,
       ],
     )) as Array<{ id: string }>;
-    this.logger.log(`missao criada id=${id} ativa=${ativar}`);
+    this.logger.log(
+      `missao criada id=${id} requisito=${r.requisito} ativa=${ativar}`,
+    );
     return this.detalhe(id);
   }
 
@@ -166,15 +217,33 @@ export class MissoesAdminService {
           atualizadoEm: atual.atualizadoEm,
         });
       }
+      const comConclusoes = atual.conclusoes > 0;
       if (
+        comConclusoes &&
         dados.tipo !== undefined &&
-        dados.tipo !== atual.tipo &&
-        atual.conclusoes > 0
+        dados.tipo !== atual.tipo
       ) {
         throw new ConflictException({
           statusCode: 409,
           message:
             'Esta missão já foi concluída por alunos; o tipo não pode mudar.',
+          motivo: 'missao-com-conclusoes',
+        });
+      }
+      const requisito = dados.requisito ?? atual.requisito;
+      const quantidade = dados.quantidade ?? atual.quantidade;
+      const alvoId = dados.alvoId === undefined ? atual.alvoId : dados.alvoId;
+      if (
+        comConclusoes &&
+        atual.requisito !== null &&
+        (requisito !== atual.requisito ||
+          quantidade !== atual.quantidade ||
+          alvoId !== atual.alvoId)
+      ) {
+        throw new ConflictException({
+          statusCode: 409,
+          message:
+            'Esta missão já foi concluída por alunos; o requisito não pode mudar. Crie outra missão.',
           motivo: 'missao-com-conclusoes',
         });
       }
@@ -184,9 +253,27 @@ export class MissoesAdminService {
         dados.inicio === undefined ? data(atual.inicio) : data(dados.inicio);
       const fim = dados.fim === undefined ? data(atual.fim) : data(dados.fim);
       exigirRegras(tipo, xp, inicio, fim, dados.fim != null, agora);
+      const r = requisito
+        ? await this.validarRequisito(
+            m,
+            tipo,
+            {
+              requisito,
+              quantidade,
+              alvoId,
+              codigo:
+                dados.codigo === undefined
+                  ? requisito === atual.requisito
+                    ? atual.codigo
+                    : null
+                  : dados.codigo,
+            },
+            alvoId !== atual.alvoId || requisito !== atual.requisito,
+          )
+        : null;
       await m.query(
         `UPDATE ${g}."missoes" SET "titulo" = $2, "descricao" = $3, "tipo" = $4, "xp" = $5, "inicio" = $6, "fim" = $7, ` +
-          `"atualizado_em" = now() WHERE "id" = $1`,
+          `"requisito" = $8, "quantidade" = $9, "alvo_id" = $10, "codigo" = $11, "atualizado_em" = now() WHERE "id" = $1`,
         [
           id,
           dados.titulo?.trim() ?? atual.titulo,
@@ -195,6 +282,10 @@ export class MissoesAdminService {
           xp,
           inicio,
           fim,
+          r?.requisito ?? null,
+          r?.quantidade ?? 1,
+          r?.alvoId ?? null,
+          r?.codigo ?? null,
         ],
       );
     });
@@ -208,6 +299,14 @@ export class MissoesAdminService {
     await this.dataSource.transaction(async (m) => {
       const atual = await this.buscar(m, id, true);
       if (atual.ativa === ativa) return;
+      if (ativa && !atual.requisito) {
+        throw new UnprocessableEntityException({
+          statusCode: 422,
+          message:
+            'Escolha como o aluno comprova esta missão (requisito) antes de ativar.',
+          motivo: 'sem-requisito',
+        });
+      }
       if (ativa && atual.fim && new Date(atual.fim) <= new Date()) {
         throw new UnprocessableEntityException({
           statusCode: 422,
@@ -224,6 +323,95 @@ export class MissoesAdminService {
     });
     this.logger.log(`missao ${ativa ? 'ativada' : 'desativada'} id=${id}`);
     return this.detalhe(id);
+  }
+
+  private async validarRequisito(
+    m: EntityManager,
+    tipo: TipoMissao,
+    r: Requisito,
+    alvoNovo: boolean,
+  ): Promise<Requisito> {
+    const { requisito, quantidade } = r;
+    if (r.alvoId && requisito !== 'PUCSTOPS' && requisito !== 'EVENTO') {
+      throw new BadRequestException('alvoId só vale para PucStop ou evento.');
+    }
+    if (r.codigo && requisito !== 'CODIGO') {
+      throw new BadRequestException('codigo só vale para missão com código.');
+    }
+    if (
+      (requisito === 'EVENTO' ||
+        requisito === 'CODIGO' ||
+        (requisito === 'PUCSTOPS' && r.alvoId)) &&
+      quantidade !== 1
+    ) {
+      throw new BadRequestException(
+        'Este requisito é cumprido uma vez só: quantidade deve ser 1.',
+      );
+    }
+
+    if (requisito === 'CODIGO') {
+      const codigo = r.codigo ? normalizarCodigo(r.codigo) : '';
+      if (!CODIGO_MISSAO.test(codigo)) {
+        throw new BadRequestException(
+          'Código: de 4 a 20 letras, números ou hífen (ex.: CALOURO26).',
+        );
+      }
+      return { requisito, quantidade, alvoId: null, codigo };
+    }
+
+    if (requisito === 'EVENTO') {
+      if (tipo !== 'UNICA') {
+        throw new BadRequestException(
+          'Missão de evento é única: o evento acontece uma vez.',
+        );
+      }
+      if (!r.alvoId) {
+        throw new BadRequestException('Escolha o evento da missão (alvoId).');
+      }
+      const [evento] = (await m.query(
+        `SELECT e."ativo", e."fim" > now() AS futuro, ${sqlLocalEvento('e')} IS NOT NULL AS tem_local ` +
+          `FROM ${mp}."eventos" e ${joinsEvento('e')} WHERE e."id" = $1`,
+        [r.alvoId],
+      )) as Array<{ ativo: boolean; futuro: boolean; tem_local: boolean }>;
+      if (!evento || !evento.ativo) {
+        throw alvoInvalido('Evento não encontrado ou desativado.');
+      }
+      if (!evento.tem_local) {
+        throw alvoInvalido(
+          'O evento precisa de um local no mapa para o check-in.',
+        );
+      }
+      if (alvoNovo && !evento.futuro) {
+        throw alvoInvalido('Este evento já terminou.');
+      }
+      return { requisito, quantidade, alvoId: r.alvoId, codigo: null };
+    }
+
+    if (requisito === 'PUCSTOPS') {
+      if (r.alvoId) {
+        const [ps] = (await m.query(
+          `SELECT "ativo" FROM ${mp}."pucstops" WHERE "id" = $1`,
+          [r.alvoId],
+        )) as Array<{ ativo: boolean }>;
+        if (!ps || !ps.ativo) {
+          throw alvoInvalido('PucStop não encontrado ou desativado.');
+        }
+      } else {
+        const [{ total }] = (await m.query(
+          `SELECT count(*)::int AS total FROM ${mp}."pucstops" WHERE "ativo"`,
+        )) as Array<{ total: number }>;
+        if (quantidade > total) {
+          throw alvoInvalido(
+            total === 1
+              ? 'Só existe 1 PucStop ativo no campus.'
+              : `Só existem ${total} PucStops ativos no campus.`,
+          );
+        }
+      }
+      return { requisito, quantidade, alvoId: r.alvoId, codigo: null };
+    }
+
+    return { requisito, quantidade, alvoId: null, codigo: null };
   }
 
   private async exigirPrograma(ciclo: string): Promise<void> {

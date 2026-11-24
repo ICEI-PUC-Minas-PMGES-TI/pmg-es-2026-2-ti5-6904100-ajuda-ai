@@ -2,6 +2,7 @@ import {
   IsBoolean,
   IsDefined,
   IsIn,
+  IsNumber,
   IsInt,
   IsISO8601,
   IsOptional,
@@ -17,12 +18,18 @@ import { LIMITES, type NivelDto } from '../economia.js';
 import type { GanhoCreditado } from '../ganhos.js';
 import {
   DESCRICAO_MISSAO_MAX,
+  QUANTIDADE_MISSAO_MAX,
+  REQUISITOS_MISSAO,
+  type RequisitoMissao,
   TIPOS_MISSAO,
   type TipoMissao,
   TITULO_MISSAO_MAX,
 } from './missoes.js';
 
 const NAO_VAZIO = /\S/;
+const UUID_ALVO =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CODIGO_DIGITADO = /^[\p{L}\p{N}\s-]{1,40}$/u;
 const COM_FUSO = {
   message: 'use data/hora ISO 8601 com fuso, ex. 2026-11-17T08:00:00-03:00',
 };
@@ -38,17 +45,58 @@ export interface ConclusaoResumoDto {
   concluidaEm: string;
 }
 
+export interface AlvoMissaoDto {
+  tipo: 'pucstop' | 'evento';
+  id: string;
+  nome: string;
+  checkinAbre: string | null;
+  inicio: string | null;
+  fim: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  local: string | null;
+}
+
 export interface MissaoAlunoDto {
   id: string;
   titulo: string;
   descricao: string;
   tipo: TipoMissao;
+  requisito: RequisitoMissao;
   xp: number;
   moedas: number;
   fim: string | null;
   status: StatusMissaoAluno;
   xpPrevisto: number;
+  progresso: { atual: number; meta: number } | null;
+  pronta: boolean;
+  alvo: AlvoMissaoDto | null;
   conclusao: ConclusaoResumoDto | null;
+}
+
+export class ConcluirMissaoDto {
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
+
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  @Max(10_000)
+  accuracy?: number;
+
+  @IsOptional()
+  @IsString()
+  @Matches(CODIGO_DIGITADO, { message: 'codigo inválido' })
+  codigo?: string;
 }
 
 export interface MissoesAlunoDto {
@@ -115,6 +163,28 @@ export class CriarMissaoDto {
   @IsOptional()
   @IsBoolean()
   ativar?: boolean;
+
+  @IsDefined()
+  @IsIn(REQUISITOS_MISSAO)
+  requisito!: RequisitoMissao;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(QUANTIDADE_MISSAO_MAX)
+  quantidade?: number;
+
+  @IsOptional()
+  @IsString()
+  @Matches(UUID_ALVO, {
+    message: 'alvoId deve ser o id do PucStop ou do evento',
+  })
+  alvoId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @Matches(CODIGO_DIGITADO, { message: 'codigo: letras, números e hífen' })
+  codigo?: string | null;
 }
 
 export class AtualizarMissaoDto {
@@ -152,6 +222,28 @@ export class AtualizarMissaoDto {
   @IsISO8601({ strict: true })
   fim?: string | null;
 
+  @ValidateIf((o: AtualizarMissaoDto) => o.requisito !== undefined)
+  @IsIn(REQUISITOS_MISSAO)
+  requisito?: RequisitoMissao;
+
+  @ValidateIf((o: AtualizarMissaoDto) => o.quantidade !== undefined)
+  @IsInt()
+  @Min(1)
+  @Max(QUANTIDADE_MISSAO_MAX)
+  quantidade?: number;
+
+  @IsOptional()
+  @IsString()
+  @Matches(UUID_ALVO, {
+    message: 'alvoId deve ser o id do PucStop ou do evento',
+  })
+  alvoId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @Matches(CODIGO_DIGITADO, { message: 'codigo: letras, números e hífen' })
+  codigo?: string | null;
+
   @IsDefined()
   @IsString()
   @IsISO8601({ strict: true })
@@ -174,6 +266,11 @@ export interface MissaoAdminDto {
   titulo: string;
   descricao: string;
   tipo: TipoMissao;
+  requisito: RequisitoMissao | null;
+  quantidade: number;
+  alvoId: string | null;
+  alvoNome: string | null;
+  codigo: string | null;
   xp: number;
   ativa: boolean;
   inicio: string | null;

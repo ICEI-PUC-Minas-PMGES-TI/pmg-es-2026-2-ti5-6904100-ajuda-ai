@@ -4,7 +4,11 @@ import {
   SCHEMA_GAMIFICACAO,
   schemaUsuarios,
 } from '../gamificacao/gamificacao.js';
-import { sqlMissaoVisivel } from '../gamificacao/missoes/missoes.js';
+import {
+  type AcessoMissoes,
+  sqlMissaoAlcancavel,
+  sqlMissaoVisivel,
+} from '../gamificacao/missoes/missoes.js';
 import {
   CHAVE_MISSAO_NOVA,
   ID_NOTIFICACAO,
@@ -149,11 +153,15 @@ export class NotificacoesService {
     }
   }
 
-  async sincronizarMissoes(usuarioId: number, ciclo: string): Promise<void> {
+  async sincronizarMissoes(
+    usuarioId: number,
+    ciclo: string,
+    acesso: AcessoMissoes = { podePublicar: false, temPar: false },
+  ): Promise<void> {
     try {
       const missoes = (await this.dataSource.query(
         `SELECT m."id", m."titulo", m."xp" FROM "${SCHEMA_GAMIFICACAO}"."missoes" m ` +
-          `WHERE m."ciclo" = $2 AND ${sqlMissaoVisivel('m')} ` +
+          `WHERE m."ciclo" = $2 AND ${sqlMissaoVisivel('m')} AND ${sqlMissaoAlcancavel('m', acesso)} ` +
           `AND NOT EXISTS (SELECT 1 FROM ${this.tabela} n WHERE n."usuario_id" = $1 AND n."chave" = $3 || m."id"::text) ` +
           `ORDER BY m."criado_em", m."id"`,
         [usuarioId, ciclo, CHAVE_MISSAO_NOVA],

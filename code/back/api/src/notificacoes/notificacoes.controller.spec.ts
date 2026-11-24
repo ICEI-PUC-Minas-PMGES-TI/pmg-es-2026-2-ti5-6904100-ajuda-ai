@@ -29,10 +29,15 @@ describe('NotificacoesController', () => {
   it('participante recebe os avisos de missão do ciclo antes da lista', async () => {
     const { controller, service } = montar(async () => ({
       podeColetarTotens: true,
+      podePublicar: true,
+      vinculoAtivo: true,
       programa: '2026/2',
     }));
     await controller.listar(req, {});
-    expect(service.sincronizarMissoes).toHaveBeenCalledWith(1, '2026/2');
+    expect(service.sincronizarMissoes).toHaveBeenCalledWith(1, '2026/2', {
+      podePublicar: true,
+      temPar: true,
+    });
     expect(service.listar).toHaveBeenCalledWith(1, undefined, undefined);
     expect(service.sincronizarMissoes.mock.invocationCallOrder[0]).toBeLessThan(
       service.listar.mock.invocationCallOrder[0],

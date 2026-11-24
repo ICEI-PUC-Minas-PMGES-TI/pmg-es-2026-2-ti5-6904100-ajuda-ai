@@ -17,6 +17,11 @@ function banco(linha: Record<string, unknown> = {}, programa = true) {
     titulo: 'Missão',
     descricao: 'Descrição',
     tipo: 'UNICA',
+    requisito: 'CODIGO',
+    quantidade: 1,
+    alvo_id: null,
+    alvo_nome: null,
+    codigo: 'BIBLIO-26',
     xp: 80,
     ativa: false,
     inicio: null,
@@ -58,6 +63,8 @@ const base = {
   descricao: 'Tire uma foto',
   tipo: 'UNICA' as const,
   xp: 80,
+  requisito: 'CODIGO' as const,
+  codigo: ' biblio-26 ',
 };
 
 describe('MissoesAdminService', () => {
@@ -76,6 +83,10 @@ describe('MissoesAdminService', () => {
       null,
       '2026/2',
       3,
+      'CODIGO',
+      1,
+      null,
+      'BIBLIO-26',
     ]);
   });
 
@@ -148,6 +159,10 @@ describe('MissoesAdminService', () => {
       60,
       null,
       null,
+      'CODIGO',
+      1,
+      null,
+      'BIBLIO-26',
     ]);
   });
 
@@ -181,6 +196,64 @@ describe('MissoesAdminService', () => {
     await service.definirAtiva(ID, true);
     const [, params] = comandos.find(([sql]) => sql.startsWith('UPDATE'))!;
     expect(params).toEqual([ID, true]);
+  });
+
+  it('ativar missão sem requisito: 422 sem-requisito', async () => {
+    const { service, comandos } = banco({ requisito: null, codigo: null });
+    const erro = await service.definirAtiva(ID, true).catch((e) => e);
+    expect(erro).toBeInstanceOf(UnprocessableEntityException);
+    expect(erro.getResponse()).toMatchObject({ motivo: 'sem-requisito' });
+    expect(gravou(comandos)).toBe(false);
+  });
+
+  it('requisito já concluído por alunos não muda; o código pode trocar', async () => {
+    const { service } = banco({ conclusoes: 2 });
+    const erro = await service
+      .atualizar(ID, {
+        requisito: 'FEED_COMENTARIOS',
+        atualizadoEm: ATUALIZADO.toISOString(),
+      })
+      .catch((e) => e);
+    expect(erro.getResponse()).toMatchObject({
+      motivo: 'missao-com-conclusoes',
+    });
+    const outro = banco({ conclusoes: 2 });
+    await outro.service.atualizar(
+      ID,
+      { codigo: 'biblio-27', atualizadoEm: ATUALIZADO.toISOString() },
+      AGORA,
+    );
+    const [, params] = outro.comandos.find(([sql]) =>
+      sql.startsWith('UPDATE'),
+    )!;
+    expect(params.at(-1)).toBe('BIBLIO-27');
+  });
+
+  it.each([
+    [{ requisito: 'CODIGO' as const, codigo: 'ab' }, /4 a 20/],
+    [{ requisito: 'CODIGO' as const, codigo: undefined }, /4 a 20/],
+    [
+      { requisito: 'FEED_CURTIDAS' as const, codigo: 'SEGREDO' },
+      /codigo só vale/,
+    ],
+    [{ requisito: 'CODIGO' as const, quantidade: 3 }, /quantidade deve ser 1/],
+    [
+      {
+        requisito: 'FEED_COMENTARIOS' as const,
+        codigo: undefined,
+        alvoId: '8c1f3a2e-4b5d-4e6f-9a7b-1c2d3e4f5a6b',
+      },
+      /alvoId só vale/,
+    ],
+    [{ requisito: 'EVENTO' as const, codigo: undefined }, /Escolha o evento/],
+  ])('recusa requisito incoerente (%#)', async (mudanca, mensagem) => {
+    const { service, comandos } = banco();
+    const erro = await service
+      .criar({ ...base, ...mudanca }, null, AGORA)
+      .catch((e) => e);
+    expect(erro).toBeInstanceOf(BadRequestException);
+    expect(erro.message).toMatch(mensagem);
+    expect(gravou(comandos)).toBe(false);
   });
 
   it('criar exige o ciclo aberto em Programas', async () => {

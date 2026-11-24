@@ -11,8 +11,51 @@ export function xpMaximoDe(tipo: TipoMissao): number {
   return tipo === 'SEMANAL' ? LIMITES.missoesSemanais : LIMITES.porMissao;
 }
 
+export const REQUISITOS_MISSAO = [
+  'PUCSTOPS',
+  'EVENTO',
+  'FEED_PUBLICACOES',
+  'FEED_COMENTARIOS',
+  'FEED_CURTIDAS',
+  'CHAT_MENSAGENS',
+  'CODIGO',
+] as const;
+export type RequisitoMissao = (typeof REQUISITOS_MISSAO)[number];
+
+export const REQUISITOS_CONTADOS: readonly RequisitoMissao[] = [
+  'PUCSTOPS',
+  'FEED_PUBLICACOES',
+  'FEED_COMENTARIOS',
+  'FEED_CURTIDAS',
+  'CHAT_MENSAGENS',
+];
+
+export const QUANTIDADE_MISSAO_MAX = 20;
+export const COMENTARIO_MISSAO_MIN = 10;
+export const MENSAGEM_MISSAO_MIN = 2;
+export const CHECKIN_ANTECEDENCIA_MIN = 30;
+export const RAIO_EVENTO_METROS = 60;
+export const CODIGO_MISSAO = /^[A-Z0-9-]{4,20}$/;
+export const TENTATIVAS_CODIGO_POR_HORA = 5;
+
+export function normalizarCodigo(codigo: string): string {
+  return codigo.normalize('NFKC').replace(/\s+/g, '').toUpperCase();
+}
+
 export function sqlMissaoVisivel(m: string): string {
-  return `${m}."ativa" AND (${m}."inicio" IS NULL OR ${m}."inicio" <= now()) AND (${m}."fim" IS NULL OR ${m}."fim" > now())`;
+  return `${m}."ativa" AND ${m}."requisito" IS NOT NULL AND (${m}."inicio" IS NULL OR ${m}."inicio" <= now()) AND (${m}."fim" IS NULL OR ${m}."fim" > now())`;
+}
+
+export interface AcessoMissoes {
+  podePublicar: boolean;
+  temPar: boolean;
+}
+
+export function sqlMissaoAlcancavel(m: string, acesso: AcessoMissoes): string {
+  const fora: string[] = [];
+  if (!acesso.podePublicar) fora.push(`'FEED_PUBLICACOES'`);
+  if (!acesso.temPar) fora.push(`'CHAT_MENSAGENS'`);
+  return fora.length ? `${m}."requisito" NOT IN (${fora.join(', ')})` : 'TRUE';
 }
 
 export const ID_MISSAO =

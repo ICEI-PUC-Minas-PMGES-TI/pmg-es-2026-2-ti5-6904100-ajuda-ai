@@ -90,9 +90,18 @@ describe('Permissões das missões', () => {
   it('participante do ciclo lista e conclui com o id do token', async () => {
     const { controller, service } = montarAluno();
     await controller.listar(req({ ...aluno, perfil: 'nenhuma' }));
-    await controller.concluir(req({ ...aluno, perfil: 'nenhuma' }), ID);
-    expect(service.listar).toHaveBeenCalledWith(1);
-    expect(service.concluir).toHaveBeenCalledWith(1, ID);
+    await controller.concluir(req({ ...aluno, perfil: 'nenhuma' }), ID, {
+      codigo: 'CALOURO26',
+    });
+    const acesso = { podePublicar: false, temPar: true };
+    expect(service.listar).toHaveBeenCalledWith(1, expect.any(Date), acesso);
+    expect(service.concluir).toHaveBeenCalledWith(
+      1,
+      ID,
+      expect.any(Date),
+      { codigo: 'CALOURO26' },
+      acesso,
+    );
   });
 
   it.each([
@@ -110,7 +119,7 @@ describe('Permissões das missões', () => {
     await expect(controller.listar(req(usuario))).rejects.toThrow(
       ForbiddenException,
     );
-    await expect(controller.concluir(req(usuario), ID)).rejects.toThrow(
+    await expect(controller.concluir(req(usuario), ID, {})).rejects.toThrow(
       ForbiddenException,
     );
     expect(service.listar).not.toHaveBeenCalled();

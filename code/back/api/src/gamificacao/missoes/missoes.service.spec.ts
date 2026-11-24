@@ -13,6 +13,7 @@ const ID = '6f1c2b0e-3d7a-4c61-9a52-1b8e0f4d2a77';
 const USUARIO = 7;
 const AGORA = new Date('2026-11-18T15:00:00-03:00');
 const CICLO = ParticipacoesService.programaAtual(AGORA);
+const LEITURA = { codigo: 'biblio-26' };
 
 function notificacoesFalsas() {
   const enviadas: Array<[number, { tipo: string; chave: string }]> = [];
@@ -37,6 +38,9 @@ interface Cenario {
   semana?: number;
   xpAcumulado?: number;
   corrida?: boolean;
+  requisito?: string | null;
+  alcancavel?: boolean;
+  tentativas?: number;
 }
 
 function banco(c: Cenario = {}) {
@@ -53,6 +57,9 @@ function banco(c: Cenario = {}) {
     semana = 0,
     xpAcumulado = 420,
     corrida = false,
+    requisito = 'CODIGO',
+    alcancavel = true,
+    tentativas = 0,
   } = c;
   const comandos: Array<[string, unknown[]]> = [];
   let xpMovimentado = 0;
@@ -85,9 +92,16 @@ function banco(c: Cenario = {}) {
                 fim: aberta ? null : new Date('2026-11-01T00:00:00Z'),
                 iniciou,
                 aberta,
+                requisito,
+                quantidade: 1,
+                alvo_id: null,
+                codigo: 'BIBLIO-26',
+                alcancavel,
               },
             ]
           : [];
+      if (sql.includes('"missoes_tentativas_codigo"'))
+        return [{ erros: tentativas }];
       if (sql.includes('SELECT "saldo" FROM')) return [{ saldo: 230 }];
       if (sql.includes('FROM "gamificacao"."missoes_conclusoes" WHERE'))
         return anterior
@@ -168,7 +182,7 @@ describe('xpPrevisto', () => {
 describe('MissoesService.concluir', () => {
   it('subir de nível gera a notificação NIVEL_SUBIU depois do commit', async () => {
     const { service, enviadas, comandos } = banco();
-    await service.concluir(USUARIO, ID, AGORA);
+    await service.concluir(USUARIO, ID, AGORA, LEITURA);
     expect(enviadas).toEqual([
       [
         USUARIO,
@@ -180,13 +194,13 @@ describe('MissoesService.concluir', () => {
 
   it('sem subir de nível não notifica', async () => {
     const { service, enviadas } = banco({ geral: 1500 });
-    await service.concluir(USUARIO, ID, AGORA);
+    await service.concluir(USUARIO, ID, AGORA, LEITURA);
     expect(enviadas).toEqual([]);
   });
 
   it('credita XP e moedas pelo ledger com a chave da missão no ciclo', async () => {
     const { service, comandos } = banco();
-    const r = await service.concluir(USUARIO, ID, AGORA);
+    const r = await service.concluir(USUARIO, ID, AGORA, LEITURA);
     expect(r).toMatchObject({
       missaoId: ID,
       conclusaoId: 'conclusao',
@@ -223,6 +237,7 @@ describe('MissoesService.concluir', () => {
       80,
       80,
       '99',
+      JSON.stringify({ requisito: 'CODIGO', codigo: true }),
     ]);
     expect(comandos.at(-1)![0]).toBe('COMMIT');
   });
@@ -233,7 +248,7 @@ describe('MissoesService.concluir', () => {
       xp: 30,
       semana: 40,
     });
-    const r = await service.concluir(USUARIO, ID, AGORA);
+    const r = await service.concluir(USUARIO, ID, AGORA, LEITURA);
     expect(r).toMatchObject({
       xpConfigurado: 30,
       xp: 20,
@@ -250,7 +265,7 @@ describe('MissoesService.concluir', () => {
 
   it('teto do ciclo cheio: grava a conclusão sem movimentação', async () => {
     const { service, comandos } = banco({ geral: 1500 });
-    const r = await service.concluir(USUARIO, ID, AGORA);
+    const r = await service.concluir(USUARIO, ID, AGORA, LEITURA);
     expect(r).toMatchObject({
       xp: 0,
       moedas: 0,
@@ -261,18 +276,20 @@ describe('MissoesService.concluir', () => {
       subiuDeNivel: false,
     });
     expect(ledger(comandos)).toBeUndefined();
-    expect(conclusao(comandos)![1].slice(4)).toEqual([80, 0, null]);
+    expect(conclusao(comandos)![1].slice(4, 7)).toEqual([80, 0, null]);
   });
 
   it('teto do ciclo parcial', async () => {
     const { service } = banco({ geral: 1470 });
-    const r = await service.concluir(USUARIO, ID, AGORA);
+    const r = await service.concluir(USUARIO, ID, AGORA, LEITURA);
     expect(r).toMatchObject({ xp: 30, limitado: true, teto: 'ciclo' });
   });
 
   it('conclusão duplicada: 409 ja-concluida sem crédito', async () => {
     const { service, comandos } = banco({ anterior: true });
-    const erro = await service.concluir(USUARIO, ID, AGORA).catch((e) => e);
+    const erro = await service
+      .concluir(USUARIO, ID, AGORA, LEITURA)
+      .catch((e) => e);
     expect(erro).toBeInstanceOf(ConflictException);
     expect(erro.getResponse()).toMatchObject({
       motivo: 'ja-concluida',
@@ -284,7 +301,9 @@ describe('MissoesService.concluir', () => {
 
   it('corrida barrada pelo índice único vira 409', async () => {
     const { service, comandos } = banco({ corrida: true });
-    const erro = await service.concluir(USUARIO, ID, AGORA).catch((e) => e);
+    const erro = await service
+      .concluir(USUARIO, ID, AGORA, LEITURA)
+      .catch((e) => e);
     expect(erro).toBeInstanceOf(ConflictException);
     expect(erro.getResponse()).toMatchObject({ motivo: 'ja-concluida' });
     expect(comandos.at(-1)![0]).toBe('ROLLBACK');
@@ -296,7 +315,7 @@ describe('MissoesService.concluir', () => {
     ['de outro ciclo', { ciclo: '2020/1' }],
   ])('missão %s: 404', async (_nome, cenario) => {
     const { service, comandos } = banco(cenario);
-    await expect(service.concluir(USUARIO, ID, AGORA)).rejects.toThrow(
+    await expect(service.concluir(USUARIO, ID, AGORA, LEITURA)).rejects.toThrow(
       NotFoundException,
     );
     expect(ledger(comandos)).toBeUndefined();
@@ -307,17 +326,63 @@ describe('MissoesService.concluir', () => {
     ['ainda não iniciada', { iniciou: false }],
   ])('missão %s: 422 fora-do-periodo', async (_nome, cenario) => {
     const { service, comandos } = banco(cenario);
-    const erro = await service.concluir(USUARIO, ID, AGORA).catch((e) => e);
+    const erro = await service
+      .concluir(USUARIO, ID, AGORA, LEITURA)
+      .catch((e) => e);
     expect(erro).toBeInstanceOf(UnprocessableEntityException);
     expect(erro.getResponse()).toMatchObject({ motivo: 'fora-do-periodo' });
     expect(ledger(comandos)).toBeUndefined();
   });
 
-  it('id malformado: 404 sem abrir transação', async () => {
-    const { service, comandos } = banco();
-    await expect(service.concluir(USUARIO, 'abc', AGORA)).rejects.toThrow(
+  it.each([
+    ['sem requisito (missão antiga)', { requisito: null }],
+    ['fora do alcance do aluno', { alcancavel: false }],
+  ])('missão %s: 404 sem crédito', async (_nome, cenario) => {
+    const { service, comandos } = banco(cenario);
+    await expect(service.concluir(USUARIO, ID, AGORA, LEITURA)).rejects.toThrow(
       NotFoundException,
     );
+    expect(ledger(comandos)).toBeUndefined();
+  });
+
+  it('código errado: 422, sem crédito, e a tentativa fica gravada', async () => {
+    const { service, comandos } = banco();
+    const erro = await service
+      .concluir(USUARIO, ID, AGORA, { codigo: 'CHUTE' })
+      .catch((e) => e);
+    expect(erro.getResponse()).toMatchObject({ motivo: 'codigo-incorreto' });
+    expect(ledger(comandos)).toBeUndefined();
+    const i = comandos.findIndex(([sql]) => sql === 'ROLLBACK');
+    expect(
+      comandos
+        .slice(i)
+        .some(([sql]) =>
+          sql.startsWith(
+            'INSERT INTO "gamificacao"."missoes_tentativas_codigo"',
+          ),
+        ),
+    ).toBe(true);
+  });
+
+  it('sem código: 400; muitas tentativas: 429 mesmo com o código certo', async () => {
+    const sem = banco();
+    const e1 = await sem.service
+      .concluir(USUARIO, ID, AGORA, {})
+      .catch((e) => e);
+    expect(e1.getStatus()).toBe(400);
+    const bloqueado = banco({ tentativas: 5 });
+    const e2 = await bloqueado.service
+      .concluir(USUARIO, ID, AGORA, LEITURA)
+      .catch((e) => e);
+    expect(e2.getStatus()).toBe(429);
+    expect(ledger(bloqueado.comandos)).toBeUndefined();
+  });
+
+  it('id malformado: 404 sem abrir transação', async () => {
+    const { service, comandos } = banco();
+    await expect(
+      service.concluir(USUARIO, 'abc', AGORA, LEITURA),
+    ).rejects.toThrow(NotFoundException);
     expect(comandos).toEqual([]);
   });
 });
@@ -330,6 +395,9 @@ describe('MissoesService.listar', () => {
         titulo: 'Concluída',
         descricao: 'x',
         tipo: 'UNICA',
+        requisito: 'CODIGO',
+        quantidade: 1,
+        progresso: 0,
         xp: 50,
         fim: null,
         conclusao_id: 'c1',
@@ -342,6 +410,9 @@ describe('MissoesService.listar', () => {
         titulo: 'Semanal',
         descricao: 'x',
         tipo: 'SEMANAL',
+        requisito: 'FEED_COMENTARIOS',
+        quantidade: 3,
+        progresso: 5,
         xp: 30,
         fim: null,
         conclusao_id: null,
@@ -354,6 +425,9 @@ describe('MissoesService.listar', () => {
         titulo: 'Única',
         descricao: 'x',
         tipo: 'UNICA',
+        requisito: 'PUCSTOPS',
+        quantidade: 2,
+        progresso: 1,
         xp: 80,
         fim: new Date('2026-12-05T02:59:59Z'),
         conclusao_id: null,
@@ -363,8 +437,15 @@ describe('MissoesService.listar', () => {
       },
     ];
     const db = {
+      options: { schema: 'feed' },
       query: async (sql: string) =>
-        sql.includes('AS totens') ? [{ totens: 0, geral, semana }] : linhas,
+        sql.includes('AS totens')
+          ? [{ totens: 0, geral, semana }]
+          : sql.includes('pg_extension')
+            ? [{ schema: 'public' }]
+            : sql.includes('lower("email")')
+              ? [{ email: 'camila@pucminas.edu.br' }]
+              : linhas,
     } as unknown as DataSource;
     return new MissoesService(db, notificacoesFalsas().servico);
   }
@@ -383,6 +464,11 @@ describe('MissoesService.listar', () => {
       ['b', 'limitada', 20, 30],
       ['c', 'disponivel', 80, 80],
       ['a', 'concluida', 0, 50],
+    ]);
+    expect(r.missoes.map((m) => [m.id, m.progresso, m.pronta])).toEqual([
+      ['b', { atual: 3, meta: 3 }, true],
+      ['c', { atual: 1, meta: 2 }, false],
+      ['a', null, false],
     ]);
     expect(r.missoes[2].conclusao).toMatchObject({
       id: 'c1',
