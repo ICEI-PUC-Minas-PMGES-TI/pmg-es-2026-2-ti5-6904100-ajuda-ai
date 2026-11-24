@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 
 import '../models/missao.dart';
@@ -30,11 +32,25 @@ class MissoesApi {
     return missoes;
   }
 
-  Future<ConclusaoMissao> concluir(String token, String id) async {
+  Future<ConclusaoMissao> concluir(
+    String token,
+    String id, {
+    double? latitude,
+    double? longitude,
+    double? accuracy,
+    String? codigo,
+  }) async {
+    final corpo = <String, Object>{
+      'latitude': ?latitude,
+      'longitude': ?longitude,
+      'accuracy': ?accuracy,
+      'codigo': ?codigo,
+    };
     final resposta = await executarRequisicao(
       () => _client.post(
         Uri.parse('$baseUrl/me/missoes/${Uri.encodeComponent(id)}/concluir'),
-        headers: _cabecalhos(token),
+        headers: {..._cabecalhos(token), 'content-type': 'application/json'},
+        body: jsonEncode(corpo),
       ),
       erroPadrao: 'Não foi possível concluir a missão',
     );

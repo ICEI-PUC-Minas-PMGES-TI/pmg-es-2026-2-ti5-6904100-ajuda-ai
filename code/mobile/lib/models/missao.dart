@@ -37,6 +37,89 @@ class ConclusaoAnterior {
   }
 }
 
+enum RequisitoMissao {
+  pucstops,
+  evento,
+  feedPublicacoes,
+  feedComentarios,
+  feedCurtidas,
+  chatMensagens,
+  codigo,
+  desconhecido;
+
+  static RequisitoMissao de(Object? valor) => switch (valor) {
+    'PUCSTOPS' => pucstops,
+    'EVENTO' => evento,
+    'FEED_PUBLICACOES' => feedPublicacoes,
+    'FEED_COMENTARIOS' => feedComentarios,
+    'FEED_CURTIDAS' => feedCurtidas,
+    'CHAT_MENSAGENS' => chatMensagens,
+    'CODIGO' => codigo,
+    _ => desconhecido,
+  };
+}
+
+class ProgressoMissao {
+  const ProgressoMissao({required this.atual, required this.meta});
+
+  final int atual;
+  final int meta;
+
+  int get faltam => (meta - atual).clamp(0, meta);
+  double get fracao => meta <= 0 ? 0 : (atual / meta).clamp(0, 1).toDouble();
+
+  static ProgressoMissao? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final atual = json['atual'];
+    final meta = json['meta'];
+    if (atual is! int || meta is! int || meta < 1) return null;
+    return ProgressoMissao(atual: atual.clamp(0, meta), meta: meta);
+  }
+}
+
+class AlvoMissao {
+  const AlvoMissao({
+    required this.evento,
+    required this.id,
+    required this.nome,
+    this.checkinAbre,
+    this.inicio,
+    this.fim,
+    this.latitude,
+    this.longitude,
+    this.local,
+  });
+
+  final bool evento;
+  final String id;
+  final String nome;
+  final DateTime? checkinAbre;
+  final DateTime? inicio;
+  final DateTime? fim;
+  final double? latitude;
+  final double? longitude;
+  final String? local;
+
+  static AlvoMissao? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final id = json['id'];
+    final nome = json['nome'];
+    if (id is! String || nome is! String) return null;
+    double? numero(Object? v) => v is num ? v.toDouble() : null;
+    return AlvoMissao(
+      evento: json['tipo'] == 'evento',
+      id: id,
+      nome: nome,
+      checkinAbre: _data(json['checkinAbre']),
+      inicio: _data(json['inicio']),
+      fim: _data(json['fim']),
+      latitude: numero(json['latitude']),
+      longitude: numero(json['longitude']),
+      local: json['local'] as String?,
+    );
+  }
+}
+
 class Missao {
   const Missao({
     required this.id,
@@ -49,7 +132,17 @@ class Missao {
     required this.status,
     required this.xpPrevisto,
     required this.conclusao,
+    this.requisito = RequisitoMissao.desconhecido,
+    this.progresso,
+    this.pronta = false,
+    this.alvo,
   });
+
+  final RequisitoMissao requisito;
+  final ProgressoMissao? progresso;
+
+  final bool pronta;
+  final AlvoMissao? alvo;
 
   final String id;
   final String titulo;
@@ -80,6 +173,10 @@ class Missao {
       status: _status(json['status']),
       xpPrevisto: _inteiro(json['xpPrevisto']),
       conclusao: ConclusaoAnterior.fromJson(json['conclusao']),
+      requisito: RequisitoMissao.de(json['requisito']),
+      progresso: ProgressoMissao.fromJson(json['progresso']),
+      pronta: json['pronta'] == true,
+      alvo: AlvoMissao.fromJson(json['alvo']),
     );
   }
 }

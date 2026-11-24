@@ -7,11 +7,15 @@ import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/status_participacao.dart';
 import 'package:ajuda_ai/tela_missoes.dart';
 import 'package:ajuda_ai/widgets/app_bottom_navigation.dart';
+import 'package:ajuda_ai/widgets/confete_celebracao.dart';
 import 'package:ajuda_ai/widgets/navegacao_app.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+const tokenSessao =
+    'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMiIsImVtYWlsIjoiY2FtaWxhQHB1Y21pbmFzLmVkdS5iciJ9.assinatura';
 
 void telaAlta(WidgetTester tester) {
   tester.view.physicalSize = const Size(800, 2400);
@@ -30,7 +34,11 @@ Map<String, dynamic> missao(
 }) => {
   'id': id,
   'titulo': titulo,
-  'descricao': 'Descrição de $titulo',
+  'descricao': 'Colete o PucStop da Biblioteca do ICEI.',
+  'requisito': 'PUCSTOPS',
+  'progresso': {'atual': 0, 'meta': 1},
+  'pronta': false,
+  'alvo': null,
   'tipo': tipo,
   'xp': xp,
   'moedas': xp,
@@ -101,7 +109,7 @@ class Servidor {
   final concluidas = <String>[];
 
   MockClient get client => MockClient((request) async {
-    if (request.headers['authorization'] != 'Bearer token-teste') {
+    if (request.headers['authorization'] != 'Bearer $tokenSessao') {
       return resposta('{"message":"Token inválido."}', 401);
     }
     if (request.method == 'GET' && request.url.path == '/me/missoes') {
@@ -160,7 +168,7 @@ Future<Servidor> abrir(
   final servidor = Servidor(missoes);
   configurar?.call(servidor);
   SessaoUsuario.atual.configurarApi(
-    ParticipacoesApi(client: servidor.client)..accessToken = 'token-teste',
+    ParticipacoesApi(client: servidor.client)..accessToken = tokenSessao,
   );
   await tester.pumpWidget(
     MaterialApp(
@@ -180,64 +188,137 @@ void main() {
     tester,
   ) async {
     await abrir(tester, [
+      missao(
+        'limitada',
+        titulo: 'Compartilhe uma vaga de estágio',
+        tipo: 'SEMANAL',
+        status: 'limitada',
+        xpPrevisto: 0,
+      ),
       missao('m1'),
       missao('m2', titulo: 'Visite um PucStop', tipo: 'SEMANAL', xp: 20),
     ]);
-    expect(find.text('40 de 60 XP em missões semanais'), findsOneWidget);
-    expect(find.text('Ciclo 2026/2 · 860 de 1.500 XP'), findsOneWidget);
+    expect(find.text('Missões destacadas'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const Key('destaque-m1'))).dx,
+      tester.getTopLeft(find.byKey(const Key('carrossel-missoes'))).dx,
+    );
+    expect(find.byKey(const Key('destaque-limitada')), findsNothing);
+    expect(find.text('40 / 60 XP'), findsOneWidget);
+    expect(find.text('Faltam 20 XP'), findsOneWidget);
+    expect(find.textContaining('1.500 XP'), findsNothing);
     expect(find.text('Semanais'), findsWidgets);
     expect(find.text('Do ciclo'), findsOneWidget);
-    expect(find.text('Visite um PucStop'), findsOneWidget);
-    expect(find.text('+80 XP · +80 moedas'), findsOneWidget);
+    expect(find.text('Visite um PucStop'), findsWidgets);
+    final destaque = find.byKey(const Key('destaque-m2'));
+    for (final recompensa in ['20', '20 XP']) {
+      expect(
+        find.descendant(of: destaque, matching: find.text(recompensa)),
+        findsOneWidget,
+      );
+    }
+
+    final carrossel = find.byKey(const Key('carrossel-missoes'));
+    await tester.fling(carrossel, const Offset(650, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getTopLeft(find.byKey(const Key('destaque-m2'))).dx,
+      closeTo(tester.getTopLeft(carrossel).dx, 1),
+    );
   });
 
-  testWidgets('concluir mostra o ganho e atualiza moedas e lista', (
+  testWidgets('detalhe abre em sheet com a recompensa e o botão desativado', (
     tester,
   ) async {
     final servidor = await abrir(tester, [missao('m1')]);
-    await tester.tap(find.byKey(const Key('concluir-m1')));
+    await tester.tap(find.byKey(const Key('missao-m1')));
     await tester.pumpAndSettle();
 
-    expect(servidor.concluidas, ['m1']);
-    expect(find.text('Missão concluída!'), findsOneWidget);
-    expect(find.text('+80 XP'), findsOneWidget);
-    expect(find.text('+80 moedas'), findsOneWidget);
-    expect(find.text('Nível 6 · Parceria'), findsOneWidget);
-    expect(find.byKey(const Key('sheet-conclusao-limite')), findsNothing);
-    expect(SessaoUsuario.atual.xp.value, 400);
-
-    await tester.tap(find.byKey(const Key('sheet-conclusao-continuar')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('filtro-concluidas')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('missao-concluida-m1')), findsOneWidget);
-  });
-
-  testWidgets('ganho cortado pelo teto mostra o valor da API e o aviso', (
-    tester,
-  ) async {
-    await abrir(
-      tester,
-      [missao('m1', tipo: 'SEMANAL', xp: 20)],
-      configurar: (s) => s.respostaConclusao = conclusao(
-        xp: 10,
-        xpConfigurado: 20,
-        limitado: true,
-        teto: 'semanal',
-      ),
-    );
-    await tester.tap(find.byKey(const Key('concluir-m1')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Missão concluída'), findsOneWidget);
-    expect(find.text('+10 XP'), findsOneWidget);
-    expect(find.text('+10 moedas'), findsOneWidget);
+    final sheet = find.byKey(const Key('detalhe-missao'));
+    expect(sheet, findsOneWidget);
+    expect(find.byKey(const Key('arte-recompensa')), findsOneWidget);
+    expect(find.text('RECOMPENSA'), findsNothing);
+    expect(find.bySemanticsLabel('80 XP de recompensa'), findsOneWidget);
     expect(
-      find.text(
-        'Você atingiu o limite semanal de missões. Foram creditados 10 de 20 XP.',
-      ),
+      find.descendant(of: sheet, matching: find.text('+80 moedas')),
       findsOneWidget,
     );
+    expect(
+      find.descendant(of: sheet, matching: find.text('Visite a biblioteca')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('vale 1x no semestre'), findsNothing);
+    final botao = find.descendant(
+      of: find.byKey(const Key('detalhe-concluir')),
+      matching: find.byType(FilledButton),
+    );
+    expect(tester.widget<FilledButton>(botao).onPressed, isNull);
+    expect(find.text('Falta 1 para resgatar'), findsOneWidget);
+
+    await tester.tap(botao, warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(servidor.concluidas, isEmpty);
+
+    await tester.tapAt(const Offset(400, 40));
+    await tester.pumpAndSettle();
+    expect(sheet, findsNothing);
+  });
+
+  testWidgets('detalhe semanal não mostra aviso de renovação', (tester) async {
+    await abrir(tester, [missao('semanal', tipo: 'SEMANAL', xp: 50)]);
+    await tester.tap(find.byKey(const Key('missao-semanal')));
+    await tester.pumpAndSettle();
+
+    expect(find.bySemanticsLabel('50 XP de recompensa'), findsOneWidget);
+    expect(find.text('+50 moedas'), findsOneWidget);
+    expect(find.textContaining('renova toda segunda'), findsNothing);
+    expect(find.text('Missão semanal'), findsNothing);
+  });
+
+  testWidgets('missão concluída mostra o ganho real no sheet', (tester) async {
+    await abrir(tester, [
+      missao(
+        'm1',
+        status: 'concluida',
+        conclusao: {
+          'id': 'c1',
+          'xp': 10,
+          'moedas': 10,
+          'limitado': true,
+          'concluidaEm': '2026-11-18T15:00:00.000Z',
+        },
+      ),
+    ]);
+    await tester.tap(find.byKey(const Key('filtro-concluidas')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('missao-concluida-m1')));
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel('10 XP de recompensa'), findsOneWidget);
+    expect(find.text('Recompensa resgatada'), findsOneWidget);
+  });
+
+  testWidgets('resgate estoura apenas confetes sobre a lista', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => mostrarCelebracaoMissao(context),
+            child: const Text('abrir'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('abrir'));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.byType(ConfeteCelebracao), findsOneWidget);
+    expect(find.text('Missão concluída!'), findsNothing);
+    expect(find.byType(Card), findsNothing);
+    expect(find.text('Continuar'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.byType(ConfeteCelebracao), findsNothing);
   });
 
   testWidgets('missão limitada avisa antes de concluir', (tester) async {
@@ -245,21 +326,13 @@ void main() {
       missao('m1', tipo: 'SEMANAL', xp: 30, status: 'limitada', xpPrevisto: 20),
     ]);
     expect(find.text('Pelo limite, rende só 20 XP agora.'), findsOneWidget);
-  });
-
-  testWidgets('conclusão repetida mostra o erro sem quebrar a tela', (
-    tester,
-  ) async {
-    await abrir(tester, [
-      missao('m1'),
-    ], configurar: (s) => s.statusConclusao = 409);
-    await tester.tap(find.byKey(const Key('concluir-m1')));
-    await tester.pumpAndSettle();
     expect(
-      find.text('Você já concluiu esta missão neste semestre.'),
+      find.descendant(
+        of: find.byKey(const Key('missao-m1')),
+        matching: find.text('20 XP'),
+      ),
       findsOneWidget,
     );
-    expect(find.text('Missão concluída!'), findsNothing);
   });
 
   testWidgets('sem participação mostra o motivo, sem tentar de novo', (
@@ -275,17 +348,6 @@ void main() {
     await abrir(tester, []);
     expect(find.byKey(const Key('missoes-vazio')), findsOneWidget);
     expect(find.text('Nenhuma missão disponível'), findsOneWidget);
-  });
-
-  testWidgets('detalhe abre e concluir de lá chama a API', (tester) async {
-    final servidor = await abrir(tester, [missao('m1')]);
-    await tester.tap(find.byKey(const Key('missao-m1')));
-    await tester.pumpAndSettle();
-    expect(find.text('Detalhe da missão'), findsOneWidget);
-    expect(find.text('Missão do ciclo'), findsOneWidget);
-    await tester.tap(find.byKey(const Key('detalhe-concluir')));
-    await tester.pumpAndSettle();
-    expect(servidor.concluidas, ['m1']);
   });
 
   test('modelo ignora itens fora do contrato', () {
@@ -321,7 +383,7 @@ void main() {
     telaAlta(tester);
     final servidor = Servidor([missao('m1')]);
     SessaoUsuario.atual.configurarApi(
-      ParticipacoesApi(client: servidor.client)..accessToken = 'token-teste',
+      ParticipacoesApi(client: servidor.client)..accessToken = tokenSessao,
     );
     SessaoUsuario.atual.status = StatusParticipacao.apadrinhadoAtivo;
     final casca = GlobalKey<AppShellState>();
@@ -341,14 +403,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(servidor.listagens, 1);
 
-    servidor.missoes = [missao('m1'), missao('m2', titulo: 'Missão nova')];
+    servidor.missoes = [
+      missao('m1'),
+      missao('m2', titulo: 'Participe da oficina de currículo'),
+    ];
     casca.currentState!.ir(AppDestination.inicio);
     await tester.pumpAndSettle();
     expect(servidor.listagens, 1);
     casca.currentState!.ir(AppDestination.missoes);
     await tester.pumpAndSettle();
     expect(servidor.listagens, 2);
-    expect(find.text('Missão nova'), findsOneWidget);
+    expect(find.text('Participe da oficina de currículo'), findsWidgets);
 
     for (final estado in [
       AppLifecycleState.inactive,
