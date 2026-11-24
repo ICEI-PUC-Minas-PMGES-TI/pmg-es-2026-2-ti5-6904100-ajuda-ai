@@ -16,6 +16,8 @@ const NAV = [
   { to: '/coordenacao/pucstops', label: 'Gerenciar totens', icon: 'pin' },
   { to: '/coordenacao/mapa', label: 'Mapa do campus', icon: 'map' },
   { to: '/coordenacao/lojinha', label: 'Lojinha', icon: 'star' },
+  { to: '/coordenacao/resgates', label: 'Resgates', icon: 'tag' },
+  { to: '/coordenacao/xp', label: 'XP e moedas', icon: 'trophy' },
   { to: '/coordenacao/missoes', label: 'Missões', icon: 'trophy' },
   { to: '/coordenacao/eventos', label: 'Eventos', icon: 'calendarEvent' },
   { to: '/coordenacao/restaurantes', label: 'Restaurantes', icon: 'restaurant' },
@@ -23,9 +25,9 @@ const NAV = [
 ];
 
 /** Páginas que não dependem do programa/ciclo selecionado. */
-const SEM_PROGRAMA = ['/coordenacao/feed', '/coordenacao/comunicados', '/coordenacao/configuracoes', '/coordenacao/programas', '/coordenacao/pucstops', '/coordenacao/mapa', '/coordenacao/lojinha', '/coordenacao/missoes', '/coordenacao/eventos', '/coordenacao/restaurantes'];
+const SEM_PROGRAMA = ['/coordenacao/feed', '/coordenacao/comunicados', '/coordenacao/configuracoes', '/coordenacao/programas', '/coordenacao/pucstops', '/coordenacao/mapa', '/coordenacao/lojinha', '/coordenacao/resgates', '/coordenacao/xp', '/coordenacao/missoes', '/coordenacao/eventos', '/coordenacao/restaurantes'];
 /** Dentre elas, as que nem usam o seletor de programa (valem para todos os ciclos). */
-const SEM_SELETOR = ['/coordenacao/feed', '/coordenacao/comunicados', '/coordenacao/configuracoes', '/coordenacao/pucstops', '/coordenacao/mapa', '/coordenacao/lojinha', '/coordenacao/missoes', '/coordenacao/eventos', '/coordenacao/restaurantes'];
+const SEM_SELETOR = ['/coordenacao/feed', '/coordenacao/comunicados', '/coordenacao/configuracoes', '/coordenacao/pucstops', '/coordenacao/mapa', '/coordenacao/lojinha', '/coordenacao/resgates', '/coordenacao/xp', '/coordenacao/missoes', '/coordenacao/eventos', '/coordenacao/restaurantes'];
 
 export default function CoordLayout() {
   const { autenticado, ehCoordenador, usuario, logout } = useAuth();

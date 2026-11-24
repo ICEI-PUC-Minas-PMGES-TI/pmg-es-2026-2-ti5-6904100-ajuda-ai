@@ -18,6 +18,8 @@ A documentação acadêmica da disciplina permanece em `docs/1..8.*.md`.
 
 - [Banco e migrations](banco/migrations.md).
 - [Fronteiras de infraestrutura](infraestrutura/evolucao.md).
+- [Hospedagem: arquitetura, custos, CI/CD e procedimento de deploy](infraestrutura/hospedagem.md).
+- [Autenticação, contas demo e ambientes](infraestrutura/autenticacao.md).
 - [Mapa: pontos de entrada](mapa/visao-geral.md).
 - [Setup mobile](mapa/setup-mobile.md).
 - [Renderização 3D e diagnóstico](mapa/renderizacao-3d.md).
@@ -27,6 +29,8 @@ A documentação acadêmica da disciplina permanece em `docs/1..8.*.md`.
 - [API do mapa](mapa/api.md).
 - [Grafo e rotas](mapa/rotas.md), [geração de visualizações](mapa/grafos/README.md).
 - [PucStops](mapa/pucstops.md) e [XP](gamificacao/xp.md).
+- [Lojinha de recompensas](gamificacao/lojinha.md) e
+  [contrato de API de resgates e XP da coordenação](gamificacao/api-coordenacao-lojinha.md).
 - [Missões e notificações](gamificacao/missoes.md).
 - [Eventos, restaurantes e cardápios](mapa/eventos-cantinas.md).
 - [Administração](mapa/administracao.md).

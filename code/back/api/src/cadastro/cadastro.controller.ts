@@ -59,10 +59,10 @@ export class CadastroController {
         'O e-mail do cadastro deve ser o da conta Microsoft autenticada.',
       );
     }
-    return this.cadastroService.cadastrar({
-      ...corpo,
-      email: identidade.email,
-    });
+    return this.cadastroService.cadastrar(
+      { ...corpo, email: identidade.email },
+      identidade.expiraEm,
+    );
   }
 
   /** Completa perfil com token de onboarding ou acesso, sem criar inscrição. */
@@ -79,7 +79,8 @@ export class CadastroController {
       corpo,
       true,
     );
-    return this.authService.emitirSessao(usuario);
+    // Com token de acesso, a sessão devolvida termina junto com ele (SEG-006).
+    return this.authService.emitirSessao(usuario, identidade.expiraEm);
   }
 
   @Get('me')

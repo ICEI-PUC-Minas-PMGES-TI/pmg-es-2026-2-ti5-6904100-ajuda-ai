@@ -36,7 +36,8 @@ const COM_FUSO = {
   message: 'use data/hora ISO 8601 com fuso, ex. 2026-11-10T08:00:00-03:00',
 };
 const HTTPS = { message: 'imagemUrl deve ser um endereço https://' };
-const CODIGO_PROGRAMA = /^[A-Za-z0-9._-]{1,20}$/;
+/** Mesmo formato de `programas.codigo` (ex.: 2026/2). */
+const CODIGO_PROGRAMA = /^[A-Za-z0-9._\/-]{1,20}$/;
 
 /**
  * `POST /coordenacao/recompensas`. Estoque limitado exige `estoqueInicial`;

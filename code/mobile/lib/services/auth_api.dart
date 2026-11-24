@@ -123,7 +123,37 @@ class AuthApi {
     return Map<String, dynamic>.from(corpo);
   }
 
-  Future<SessaoAuth> loginDemo(String email) async {
+  /// Homologação: a API exige a chave de demonstração no login demo. A chave NUNCA
+  /// é embutida no app (seria extraível do binário): quem apresenta a digita na tela
+  /// de login. Este flag (`--dart-define=DEMO_LOGIN_PROTEGIDO=true`) só liga o campo;
+  /// não é segredo. Em desenvolvimento (flag desligado) o login demo não pede chave.
+  static const exigeChaveDemo = bool.fromEnvironment('DEMO_LOGIN_PROTEGIDO');
+
+  /// Tempo máximo de espera do login demo. Na hospedagem (https) o Container App escala a
+  /// zero réplicas: o primeiro acesso depois de ocioso espera a réplica subir (imagem +
+  /// inicialização, medido em ~45 s). Um limite curto daria "servidor indisponível" falso.
+  /// Em desenvolvimento (http local) a falha é rápida e o limite curto continua.
+  @visibleForTesting
+  static Duration limiteLoginDemo(String base) => base.startsWith('https://')
+      ? const Duration(seconds: 90)
+      : const Duration(seconds: 8);
+
+  Duration _limiteLoginDemo(String base) => limiteLoginDemo(base);
+
+  /// A chave vai num cabeçalho HTTP: só ASCII visível, sem espaços nem quebras de linha.
+  /// Texto colado por engano (ex.: uma frase copiada) derruba o envio com `FormatException`
+  /// antes de qualquer rede; isso NÃO é falha de conexão e não deve ser mostrado como tal.
+  @visibleForTesting
+  static bool chaveDemoValida(String chave) =>
+      RegExp(r'^[!-~]{8,200}$').hasMatch(chave);
+
+  Future<SessaoAuth> loginDemo(String email, {String? chave}) async {
+    if (chave != null && chave.isNotEmpty && !chaveDemoValida(chave)) {
+      throw const ApiException(
+        'A chave de demonstração está inválida: cole só a chave, sem espaços, '
+        'quebras de linha ou outro texto.',
+      );
+    }
     Object? ultimoErro;
 
     final override = _baseUrlOverride;
@@ -140,10 +170,12 @@ class AuthApi {
               headers: {
                 'content-type': 'application/json',
                 'accept': 'application/json',
+                // Homologação: a chave digitada pela pessoa (só em memória).
+                if (chave != null && chave.isNotEmpty) 'x-demo-chave': chave,
               },
               body: jsonEncode({'email': email}),
             )
-            .timeout(const Duration(seconds: 8));
+            .timeout(_limiteLoginDemo(base));
 
         if (resposta.statusCode < 200 || resposta.statusCode >= 300) {
           throw ApiException(

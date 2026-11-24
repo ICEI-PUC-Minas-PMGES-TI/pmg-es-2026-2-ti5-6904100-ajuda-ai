@@ -28,6 +28,8 @@ import MissoesPage from './pages/coordenacao/MissoesPage';
 import ProgramasPage from './pages/coordenacao/ProgramasPage';
 import PucStopsPage from './pages/coordenacao/PucStopsPage';
 import RecompensasPage from './pages/coordenacao/RecompensasPage';
+import ResgatesPage from './pages/coordenacao/ResgatesPage';
+import XpPage from './pages/coordenacao/XpPage';
 import RestaurantesPage from './pages/coordenacao/RestaurantesPage';
 import UsuariosPage from './pages/coordenacao/UsuariosPage';
 import CampusMapPage from './pages/CampusMapPage';
@@ -68,6 +70,8 @@ export default function App() {
               <Route path="formularios/respostas" element={<FormularioRespostasPage />} />
               <Route path="pucstops" element={<PucStopsPage />} />
               <Route path="lojinha" element={<RecompensasPage />} />
+              <Route path="resgates" element={<ResgatesPage />} />
+              <Route path="xp" element={<XpPage />} />
               <Route path="missoes" element={<MissoesPage />} />
               <Route path="eventos" element={<EventosPage />} />
               <Route path="restaurantes" element={<RestaurantesPage />} />

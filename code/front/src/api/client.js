@@ -93,8 +93,8 @@ export function clearAlunoSession() {
 }
 
 /** Aluno exige seu próprio JWT; consultas não usam identidade livre por e-mail. */
-async function request(path, { method = 'GET', body, token, aluno, anonimo = false, signal } = {}) {
-  const headers = { Accept: 'application/json' };
+async function request(path, { method = 'GET', body, token, aluno, anonimo = false, signal, cabecalhos } = {}) {
+  const headers = { Accept: 'application/json', ...cabecalhos };
   const multipart = typeof FormData !== 'undefined' && body instanceof FormData;
   if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json';
   if (aluno) {
@@ -210,8 +210,16 @@ export const api = {
   programasAluno() { return request('/participacoes/programas', {aluno: getAlunoSession()?.email || '__sem_sessao__'}); },
 
   /* ===== Autenticação (coordenação) ===== */
-  loginDemo(email) {
-    return request('/auth/login-demo', { method: 'POST', body: { email } });
+  /**
+   * Em homologação a API exige a chave de demonstração (X-Demo-Chave). Ela é
+   * digitada por quem apresenta e nunca vai no bundle publicado.
+   */
+  loginDemo(email, chave) {
+    return request('/auth/login-demo', {
+      method: 'POST',
+      body: { email },
+      cabecalhos: chave ? { 'X-Demo-Chave': chave } : undefined,
+    });
   },
   me(token) {
     return request('/me', { token });
@@ -506,6 +514,42 @@ export const api = {
   /** Só sem transações; com resgates o servidor responde 409 (arquive). */
   excluirRecompensa(id) {
     return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  /* ===== Lojinha: resgates (coordenação; F29) ===== */
+  /**
+   * Uma página da fila: `{ itens, proximoCursor, contagem }`. Todos os
+   * filtros rodam no servidor antes da paginação. `situacao`:
+   * aguardando_entrega | entregue | cancelado; `programa`: ciclo da troca;
+   * `semPrograma: 'true'`: só sem programa identificado; `busca`: nome,
+   * e-mail, código ou recompensa; `cursor`: `proximoCursor` da página anterior.
+   */
+  resgatesCoordenacao({ situacao, programa, semPrograma, recompensaId, busca, limite, cursor } = {}) {
+    return request(`/coordenacao/resgates${query({ situacao, programa, semPrograma, recompensaId, busca, limite, cursor })}`);
+  },
+  resgateCoordenacao(id) {
+    return request(`/coordenacao/resgates/${encodeURIComponent(id)}`);
+  },
+  /** Registra a entrega (responsável e data vêm do token). 409 se já concluído. */
+  entregarResgate(id) {
+    return request(`/coordenacao/resgates/${encodeURIComponent(id)}/entregar`, { method: 'POST' });
+  },
+  /** Cancela antes da entrega, devolvendo as moedas e a unidade. */
+  cancelarResgate(id, motivo) {
+    return request(`/coordenacao/resgates/${encodeURIComponent(id)}/cancelar`, { method: 'POST', body: { motivo } });
+  },
+
+  /* ===== XP e moedas dos participantes (coordenação; F26) ===== */
+  xpParticipantes(busca) {
+    return request(`/coordenacao/xp${query({ busca })}`);
+  },
+  /** Resumo como em `/me/xp`, extrato (`limite`, `antes`) e ajustes. */
+  xpParticipante(usuarioId, { limite, antes } = {}) {
+    return request(`/coordenacao/xp/${encodeURIComponent(usuarioId)}${query({ limite, antes })}`);
+  },
+  /** `{ quantidade, motivo, chaveIdempotencia }`; até ±200, mexe em XP e moedas. */
+  ajustarXp(usuarioId, dados) {
+    return request(`/coordenacao/xp/${encodeURIComponent(usuarioId)}/ajustes`, { method: 'POST', body: dados });
   },
 
   /* ===== Mapa do campus (seletores de local da coordenação) ===== */
