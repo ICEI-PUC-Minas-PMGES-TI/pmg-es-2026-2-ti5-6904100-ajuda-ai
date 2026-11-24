@@ -418,7 +418,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     const requisito = corpo.requisito ?? 'CODIGO';
     const codigo =
       corpo.codigo ??
-      (requisito === 'CODIGO'
+      (requisito === 'CODIGO' || requisito === 'EVENTO'
         ? `ATV-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
         : undefined);
     const r = await http()
@@ -462,10 +462,11 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     http()
       .post(`/me/missoes/${missaoId}/concluir`)
       .set('Authorization', a.auth)
-      .send(
-        corpo ??
-          (codigos.has(missaoId) ? { codigo: codigos.get(missaoId) } : {}),
-      )
+      .send({
+        ...((corpo === undefined || 'latitude' in corpo) &&
+          codigos.has(missaoId) && { codigo: codigos.get(missaoId) }),
+        ...corpo,
+      })
       .timeout(15_000);
 
   const coletar = (
@@ -1704,6 +1705,54 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       expect((await itemDe(a, oficina.id))!.pronta).toBe(false);
     });
 
+    it('o GPS falsificado sozinho não basta: sem o código do evento, nada de XP', async () => {
+      const a = await novoAluno();
+      const semCodigo = await concluir(a, calouro.id, {
+        ...noPredio('P30'),
+        accuracy: 0,
+        codigo: undefined,
+      });
+      expect(semCodigo.status).toBe(400);
+      expect(semCodigo.body.motivo).toBe('codigo-obrigatorio');
+      const chute = await concluir(a, calouro.id, {
+        ...noPredio('P30'),
+        accuracy: 0,
+        codigo: 'CALOURO26',
+      }).expect(422);
+      expect(chute.body.motivo).toBe('codigo-incorreto');
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM gamificacao.missoes_tentativas_codigo WHERE usuario_id = $1`,
+          [a.id],
+        ),
+      ).toBe(1);
+      expect(await carteira(a)).toEqual({ saldo: 0, xp_acumulado: 0 });
+    });
+
+    it('código certo longe do evento não vale nem gasta tentativa', async () => {
+      const a = await novoAluno();
+      const r = await concluir(a, calouro.id, {
+        ...noPredio('P16'),
+        accuracy: 8,
+      }).expect(422);
+      expect(r.body.motivo).toBe('fora-do-local');
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM gamificacao.missoes_tentativas_codigo WHERE usuario_id = $1`,
+          [a.id],
+        ),
+      ).toBe(0);
+      const ok = await concluir(a, calouro.id, {
+        ...noPredio('P30'),
+        accuracy: 8,
+      }).expect(201);
+      const [{ evidencia }] = (await ds.query(
+        `SELECT evidencia FROM gamificacao.missoes_conclusoes WHERE id = $1`,
+        [ok.body.conclusaoId],
+      )) as Array<{ evidencia: Record<string, unknown> }>;
+      expect(evidencia).toMatchObject({ requisito: 'EVENTO', codigo: true });
+    });
+
     it('sem localização 400; GPS impreciso 422; em outro prédio 422 com a distância', async () => {
       const a = await novoAluno();
       const sem = await concluir(a, calouro.id, {}).expect(400);
@@ -2920,6 +2969,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito) VALUES ('x', 'x', 'UNICA', 10, '${CICLO}', 'AUTODECLARADA')`,
         `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito, alvo_id) VALUES ('x', 'x', 'SEMANAL', 10, '${CICLO}', 'EVENTO', '${agenda.SEMANA_CALOURO}')`,
         `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito) VALUES ('x', 'x', 'SEMANAL', 10, '${CICLO}', 'PUCSTOPS')`,
+        `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito, alvo_id) VALUES ('x', 'x', 'UNICA', 10, '${CICLO}', 'EVENTO', '${agenda.SEMANA_CALOURO}')`,
       ]) {
         await expect(ds.query(sql), sql).rejects.toThrow(
           /violates check constraint/,

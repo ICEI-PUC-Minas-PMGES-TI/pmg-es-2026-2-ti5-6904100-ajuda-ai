@@ -347,14 +347,7 @@ export class MissoesService {
       if (anterior) throw jaConcluida(missao.tipo, anterior);
 
       let evidencia: Record<string, unknown>;
-      if (missao.requisito === 'EVENTO') {
-        evidencia = await verificarEvento(
-          qr,
-          await this.geo(),
-          missao,
-          leitura,
-        );
-      } else if (missao.requisito === 'CODIGO') {
+      const conferirCodigo = async () => {
         await exigirTentativasDeCodigo(qr, missao.id, usuarioId);
         try {
           verificarCodigo(missao, leitura);
@@ -368,6 +361,18 @@ export class MissoesService {
           }
           throw erro;
         }
+      };
+      if (missao.requisito === 'EVENTO') {
+        const presenca = await verificarEvento(
+          qr,
+          await this.geo(),
+          missao,
+          leitura,
+        );
+        await conferirCodigo();
+        evidencia = { ...presenca, codigo: true };
+      } else if (missao.requisito === 'CODIGO') {
+        await conferirCodigo();
         evidencia = { codigo: true };
       } else {
         const email = await this.emailDe((s, p) => qr.query(s, p), usuarioId);

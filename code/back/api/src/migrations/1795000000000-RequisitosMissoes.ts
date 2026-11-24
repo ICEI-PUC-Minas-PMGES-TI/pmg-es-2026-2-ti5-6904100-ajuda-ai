@@ -31,8 +31,8 @@ export class RequisitosMissoes1795000000000 implements MigrationInterface {
         `OR ("requisito" = 'PUCSTOPS' AND "tipo" = 'UNICA' AND ("alvo_id" IS NULL OR "quantidade" = 1)) ` +
         `OR ("requisito" IS DISTINCT FROM 'EVENTO' AND "requisito" IS DISTINCT FROM 'PUCSTOPS' AND "alvo_id" IS NULL)), ` +
         `ADD CONSTRAINT "ck_missoes_requisito_codigo" CHECK (` +
-        `("requisito" = 'CODIGO' AND "codigo" IS NOT NULL AND "codigo" ~ '^[A-Z0-9-]{4,20}$' AND "quantidade" = 1) ` +
-        `OR ("requisito" IS DISTINCT FROM 'CODIGO' AND "codigo" IS NULL))`,
+        `("requisito" IN ('CODIGO', 'EVENTO') AND "codigo" IS NOT NULL AND "codigo" ~ '^[A-Z0-9-]{4,20}$' AND "quantidade" = 1) ` +
+        `OR (("requisito" IS NULL OR "requisito" NOT IN ('CODIGO', 'EVENTO')) AND "codigo" IS NULL))`,
     );
     await qr.query(
       `UPDATE ${g}."missoes" SET "ativa" = false, "atualizado_em" = now() WHERE "requisito" IS NULL AND "ativa"`,

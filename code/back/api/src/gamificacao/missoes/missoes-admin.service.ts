@@ -258,7 +258,9 @@ export class MissoesAdminService {
         requisito !== atual.requisito ||
         quantidade !== atual.quantidade ||
         alvoId !== atual.alvoId;
-      const mudouCodigo = requisito === 'CODIGO' && dados.codigo !== undefined;
+      const mudouCodigo =
+        (requisito === 'CODIGO' || requisito === 'EVENTO') &&
+        dados.codigo !== undefined;
       const r = !requisito
         ? null
         : !mudouRegra && !mudouCodigo
@@ -356,8 +358,10 @@ export class MissoesAdminService {
     if (r.alvoId && requisito !== 'PUCSTOPS' && requisito !== 'EVENTO') {
       throw new BadRequestException('alvoId só vale para PucStop ou evento.');
     }
-    if (r.codigo && requisito !== 'CODIGO') {
-      throw new BadRequestException('codigo só vale para missão com código.');
+    if (r.codigo && requisito !== 'CODIGO' && requisito !== 'EVENTO') {
+      throw new BadRequestException(
+        'codigo só vale para missão de código ou de evento.',
+      );
     }
     if (
       (requisito === 'EVENTO' ||
@@ -370,13 +374,15 @@ export class MissoesAdminService {
       );
     }
 
+    const codigo = r.codigo ? normalizarCodigo(r.codigo) : '';
+    const exigirCodigo = (mensagem: string) => {
+      if (!CODIGO_MISSAO.test(codigo)) throw new BadRequestException(mensagem);
+    };
+
     if (requisito === 'CODIGO') {
-      const codigo = r.codigo ? normalizarCodigo(r.codigo) : '';
-      if (!CODIGO_MISSAO.test(codigo)) {
-        throw new BadRequestException(
-          'Código: de 4 a 20 letras, números ou hífen (ex.: CALOURO26).',
-        );
-      }
+      exigirCodigo(
+        'Código: de 4 a 20 letras, números ou hífen (ex.: CALOURO26).',
+      );
       return { requisito, quantidade, alvoId: null, codigo };
     }
 
@@ -405,7 +411,10 @@ export class MissoesAdminService {
       if (alvoNovo && !evento.futuro) {
         throw alvoInvalido('Este evento já terminou.');
       }
-      return { requisito, quantidade, alvoId: r.alvoId, codigo: null };
+      exigirCodigo(
+        'Check-in de evento também exige o código mostrado no evento: de 4 a 20 letras, números ou hífen.',
+      );
+      return { requisito, quantidade, alvoId: r.alvoId, codigo };
     }
 
     if (requisito === 'PUCSTOPS') {
