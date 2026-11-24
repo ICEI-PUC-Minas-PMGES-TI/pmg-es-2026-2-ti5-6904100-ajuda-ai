@@ -12,7 +12,7 @@ export const ROTULO_TIPO = { UNICA: 'Única', SEMANAL: 'Semanal' };
 
 export const REQUISITOS = {
   PUCSTOPS: { rotulo: 'Coletar PucStops', curto: 'PucStops', contado: true, dica: 'Conta totem coletado no local (geofence) neste semestre. Cada totem vale uma vez: a missão é única.' },
-  EVENTO: { rotulo: 'Check-in em evento', curto: 'Evento', dica: 'O aluno faz check-in com o GPS no local do evento, de 30 min antes até o fim.' },
+  EVENTO: { rotulo: 'Check-in em evento', curto: 'Evento', dica: 'O aluno faz check-in no local do evento (GPS), de 30 min antes até o fim, e digita o código que você mostra lá. Sem o código, o GPS não basta.' },
   FEED_COMENTARIOS: { rotulo: 'Comentar no feed', curto: 'Comentários', contado: true, dica: 'Comentários com pelo menos 10 caracteres, no feed do semestre.' },
   FEED_CURTIDAS: { rotulo: 'Curtir posts de colegas', curto: 'Curtidas', contado: true, dica: 'Uma curtida por post; curtir o próprio post não conta.' },
   FEED_PUBLICACOES: { rotulo: 'Publicar no feed', curto: 'Publicações', contado: true, dica: 'Só padrinhos com dupla publicam: os demais nem veem esta missão.' },
@@ -96,7 +96,7 @@ export function validarMissao(form, { agora = new Date(), fimNovo = true } = {})
   if (form.requisito === 'PUCSTOPS' && form.tipo !== 'UNICA') {
     return 'Missão de PucStop é única: cada totem é coletado uma vez por semestre.';
   }
-  if (form.requisito === 'CODIGO' && !CODIGO_VALIDO.test(normalizarCodigo(form.codigo))) {
+  if ((form.requisito === 'CODIGO' || form.requisito === 'EVENTO') && !CODIGO_VALIDO.test(normalizarCodigo(form.codigo))) {
     return 'Código: de 4 a 20 letras, números ou hífen (ex.: CALOURO26).';
   }
   if (usaQuantidade(form)) {
@@ -119,7 +119,7 @@ export function usaQuantidade(form) {
 export function camposRequisito(form) {
   const campos = { requisito: form.requisito, quantidade: usaQuantidade(form) ? Number(form.quantidade) : 1 };
   campos.alvoId = (form.requisito === 'PUCSTOPS' || form.requisito === 'EVENTO') && form.alvoId ? form.alvoId : null;
-  campos.codigo = form.requisito === 'CODIGO' ? normalizarCodigo(form.codigo) : null;
+  campos.codigo = form.requisito === 'CODIGO' || form.requisito === 'EVENTO' ? normalizarCodigo(form.codigo) : null;
   return campos;
 }
 
@@ -732,7 +732,7 @@ export function FormularioMissao({ original, onCancelar, onSalvo }) {
                 <input id={`${base}-quantidade`} type="number" inputMode="numeric" min={1} max={QUANTIDADE_MAX} step={1} value={form.quantidade} disabled={requisitoBloqueado} required onChange={(e) => campo('quantidade', e.target.value)} />
               </label>
             )}
-            {form.requisito === 'CODIGO' && (
+            {(form.requisito === 'CODIGO' || form.requisito === 'EVENTO') && (
               <label className="editor-field" htmlFor={`${base}-codigo`}>
                 <span>Código</span>
                 <input id={`${base}-codigo`} value={form.codigo} maxLength={20} autoComplete="off" spellCheck={false} placeholder="Ex.: CALOURO26" onChange={(e) => campo('codigo', e.target.value.toUpperCase())} />

@@ -144,7 +144,8 @@ test('requisito: obrigatório e coerente, como no servidor', () => {
   assert.equal(m.validarMissao({ ...ok, alvoId: TOTEM, quantidade: '99' }), '');
   assert.match(m.validarMissao({ ...ok, requisito: 'EVENTO' }), /Escolha o evento/);
   assert.match(m.validarMissao({ ...ok, requisito: 'EVENTO', alvoId: EVENTO, tipo: 'SEMANAL' }), /única/);
-  assert.equal(m.validarMissao({ ...ok, requisito: 'EVENTO', alvoId: EVENTO }), '');
+  assert.match(m.validarMissao({ ...ok, requisito: 'EVENTO', alvoId: EVENTO }), /4 a 20/);
+  assert.equal(m.validarMissao({ ...ok, requisito: 'EVENTO', alvoId: EVENTO, codigo: 'calouro-26' }), '');
   assert.match(m.validarMissao({ ...ok, tipo: 'SEMANAL' }), /PucStop é única/);
   assert.equal(m.validarMissao({ ...ok, requisito: 'FEED_COMENTARIOS', tipo: 'SEMANAL' }), '');
   for (const codigo of ['', 'AB', 'CALOURO@26', 'A'.repeat(21)]) {
@@ -162,8 +163,8 @@ test('corpo da criação leva só os campos do requisito escolhido', () => {
   assert.deepEqual(pick(m.corpoCriacaoMissao({ ...form, requisito: 'PUCSTOPS', alvoId: TOTEM, quantidade: '5' })), {
     requisito: 'PUCSTOPS', quantidade: 1, alvoId: TOTEM,
   });
-  assert.deepEqual(pick(m.corpoCriacaoMissao({ ...form, requisito: 'EVENTO', alvoId: EVENTO })), {
-    requisito: 'EVENTO', quantidade: 1, alvoId: EVENTO,
+  assert.deepEqual(pick(m.corpoCriacaoMissao({ ...form, requisito: 'EVENTO', alvoId: EVENTO, codigo: ' calouro 26 ' })), {
+    requisito: 'EVENTO', quantidade: 1, alvoId: EVENTO, codigo: 'CALOURO26',
   });
   assert.deepEqual(pick(m.corpoCriacaoMissao({ ...form, requisito: 'CODIGO', codigo: ' calouro 26 ', quantidade: '4' })), {
     requisito: 'CODIGO', quantidade: 1, codigo: 'CALOURO26',
