@@ -13,10 +13,10 @@ export const ROTULO_TIPO = { UNICA: 'Única', SEMANAL: 'Semanal' };
 export const REQUISITOS = {
   PUCSTOPS: { rotulo: 'Coletar PucStops', curto: 'PucStops', contado: true, dica: 'Conta totem coletado no local (geofence) neste semestre. Cada totem vale uma vez: a missão é única.' },
   EVENTO: { rotulo: 'Check-in em evento', curto: 'Evento', dica: 'O aluno faz check-in no local do evento (GPS), de 30 min antes até o fim, e digita o código que você mostra lá. Sem o código, o GPS não basta.' },
-  FEED_COMENTARIOS: { rotulo: 'Comentar no feed', curto: 'Comentários', contado: true, dica: 'Comentários com pelo menos 10 caracteres, no feed do semestre.' },
+  FEED_COMENTARIOS: { rotulo: 'Comentar no feed', curto: 'Comentários', contado: true, dica: 'Comentários com pelo menos 10 caracteres, no feed do semestre; comentar no próprio post não conta.' },
   FEED_CURTIDAS: { rotulo: 'Curtir posts de colegas', curto: 'Curtidas', contado: true, dica: 'Uma curtida por post; curtir o próprio post não conta.' },
   FEED_PUBLICACOES: { rotulo: 'Publicar no feed', curto: 'Publicações', contado: true, dica: 'Só padrinhos com dupla publicam: os demais nem veem esta missão.' },
-  CHAT_MENSAGENS: { rotulo: 'Mensagens no chat da dupla', curto: 'Chat', contado: true, dica: 'Só quem já tem dupla vê esta missão. Mensagem de 1 caractere não conta.' },
+  CHAT_MENSAGENS: { rotulo: 'Mensagens no chat da dupla', curto: 'Chat', contado: true, dica: 'Só quem já tem dupla vê esta missão. Mensagem com menos de 10 caracteres não conta.' },
   CODIGO: { rotulo: 'Código da atividade presencial', curto: 'Código', dica: 'Mostre o código na atividade (telão, monitor, estande). 5 erros por hora bloqueiam o aluno.' },
 };
 
