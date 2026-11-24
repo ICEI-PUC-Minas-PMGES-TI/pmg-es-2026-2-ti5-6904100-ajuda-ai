@@ -134,18 +134,7 @@ export class NotificacoesService {
 
   async criar(usuarioId: number, nova: NovaNotificacao): Promise<void> {
     try {
-      await this.dataSource.query(
-        `INSERT INTO ${this.tabela} ("usuario_id", "tipo", "titulo", "mensagem", "link", "chave") ` +
-          `VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT ("usuario_id", "chave") DO NOTHING`,
-        [
-          usuarioId,
-          nova.tipo,
-          nova.titulo,
-          nova.mensagem,
-          nova.link,
-          nova.chave,
-        ],
-      );
+      await this.inserir(usuarioId, [nova]);
     } catch (erro) {
       this.logger.warn(
         `falha ao notificar usuario=${usuarioId} chave=${nova.chave}: ${(erro as Error).message}`,
@@ -153,21 +142,49 @@ export class NotificacoesService {
     }
   }
 
+  private async inserir(
+    usuarioId: number,
+    novas: NovaNotificacao[],
+  ): Promise<void> {
+    const valores = novas.map((_, i) => {
+      const p = 2 + i * 5;
+      return `($1, $${p}, $${p + 1}, $${p + 2}, $${p + 3}, $${p + 4})`;
+    });
+    await this.dataSource.query(
+      `INSERT INTO ${this.tabela} ("usuario_id", "tipo", "titulo", "mensagem", "link", "chave") ` +
+        `VALUES ${valores.join(', ')} ON CONFLICT ("usuario_id", "chave") DO NOTHING`,
+      [
+        usuarioId,
+        ...novas.flatMap((n) => [
+          n.tipo,
+          n.titulo,
+          n.mensagem,
+          n.link,
+          n.chave,
+        ]),
+      ],
+    );
+  }
+
   async sincronizarMissoes(
     usuarioId: number,
     ciclo: string,
     acesso: AcessoMissoes = { podePublicar: false, temPar: false },
   ): Promise<void> {
+    const u = schemaUsuarios(this.dataSource);
     try {
       const missoes = (await this.dataSource.query(
         `SELECT m."id", m."titulo", m."xp" FROM "${SCHEMA_GAMIFICACAO}"."missoes" m ` +
           `WHERE m."ciclo" = $2 AND ${sqlMissaoVisivel('m')} AND ${sqlMissaoAlcancavel('m', acesso)} ` +
+          `AND GREATEST(m."criado_em", COALESCE(m."inicio", m."criado_em")) >= (` +
+          `SELECT min(pa."criado_em") FROM ${u}."participacoes" pa JOIN ${u}."usuarios" us ` +
+          `ON lower(pa."usuario_id") = lower(us."email") WHERE us."id" = $1 AND pa."programa" = $2) ` +
           `AND NOT EXISTS (SELECT 1 FROM ${this.tabela} n WHERE n."usuario_id" = $1 AND n."chave" = $3 || m."id"::text) ` +
           `ORDER BY m."criado_em", m."id"`,
         [usuarioId, ciclo, CHAVE_MISSAO_NOVA],
       )) as Array<{ id: string; titulo: string; xp: number }>;
-      for (const missao of missoes) {
-        await this.criar(usuarioId, notificacaoMissaoNova(missao));
+      if (missoes.length > 0) {
+        await this.inserir(usuarioId, missoes.map(notificacaoMissaoNova));
       }
     } catch (erro) {
       this.logger.warn(

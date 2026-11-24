@@ -2738,7 +2738,21 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       }
     }
 
-    it('avisa cada missão visível uma vez só, e nunca uma que o aluno não vê', async () => {
+    it('aluno novo não recebe aviso das missões que já existiam', async () => {
+      const a = await novoAluno();
+      expect((await missoesDe(a)).missoes.length).toBeGreaterThan(0);
+      const r = await http()
+        .get('/me/notificacoes?limite=50')
+        .set('Authorization', a.auth)
+        .expect(200);
+      expect(
+        (r.body as { itens: Array<{ tipo: string }> }).itens.filter(
+          (n) => n.tipo === 'MISSAO_NOVA',
+        ),
+      ).toEqual([]);
+    });
+
+    it('avisa cada missão nova visível uma vez só, e nunca uma que o aluno não vê', async () => {
       const a = await novoAluno();
       const lista = async () =>
         (
@@ -2747,25 +2761,55 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
             .set('Authorization', a.auth)
             .expect(200)
         ).body as {
-          itens: Array<{ tipo: string; link: string | null; titulo: string }>;
+          itens: Array<{ tipo: string; link: string | null; mensagem: string }>;
         };
-      const visiveis = await missoesDe(a);
+      await lista();
+      const nova = await criarMissao({
+        titulo: 'Conheça a biblioteca do Coração Eucarístico',
+        tipo: 'UNICA',
+        xp: 30,
+      });
+      await criarMissao({
+        titulo: 'Converse com sua dupla nesta semana',
+        tipo: 'SEMANAL',
+        xp: 10,
+        requisito: 'CHAT_MENSAGENS',
+        quantidade: 2,
+      });
+      await criarMissao({
+        titulo: 'Publique uma dica para os calouros',
+        tipo: 'UNICA',
+        xp: 10,
+        requisito: 'FEED_PUBLICACOES',
+      });
+      await criarMissao({
+        titulo: 'Visite a feira de estágios',
+        tipo: 'UNICA',
+        xp: 20,
+        inicio: iso(Date.now() + DIA),
+      });
       const primeira = await lista();
-      const missoes = primeira.itens.filter((n) => n.tipo === 'MISSAO_NOVA');
-      expect(missoes.length).toBe(Math.min(visiveis.missoes.length, 50));
+      const avisos = primeira.itens.filter((n) => n.tipo === 'MISSAO_NOVA');
+      expect(avisos).toEqual([
+        expect.objectContaining({
+          link: '/missoes',
+          mensagem: `${nova.titulo} · 30 XP`,
+        }),
+      ]);
       const segunda = await lista();
-      expect(segunda.itens.filter((n) => n.tipo === 'MISSAO_NOVA').length).toBe(
-        missoes.length,
-      );
-      const total = await contar(
-        `SELECT count(*) AS n FROM feed.notificacoes WHERE usuario_id = $1 AND tipo = 'MISSAO_NOVA'`,
-        [a.id],
-      );
-      expect(total).toBe(visiveis.missoes.length);
+      expect(
+        segunda.itens.filter((n) => n.tipo === 'MISSAO_NOVA'),
+      ).toHaveLength(1);
       expect(
         await contar(
-          `SELECT count(*) AS n FROM feed.notificacoes n JOIN gamificacao.missoes m ON n.chave = 'missao:' || m.id::text ` +
-            `WHERE n.usuario_id = $1 AND m.requisito IN ('CHAT_MENSAGENS', 'FEED_PUBLICACOES')`,
+          `SELECT count(*) AS n FROM feed.notificacoes WHERE usuario_id = $1 AND tipo = 'MISSAO_NOVA'`,
+          [a.id],
+        ),
+      ).toBe(1);
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM feed.notificacoes n JOIN gamificacao.missoes m ON n.chave = 'missao-nova:' || m.id::text ` +
+            `WHERE n.usuario_id = $1 AND (m.requisito IN ('CHAT_MENSAGENS', 'FEED_PUBLICACOES') OR m.inicio > now())`,
           [a.id],
         ),
       ).toBe(0);

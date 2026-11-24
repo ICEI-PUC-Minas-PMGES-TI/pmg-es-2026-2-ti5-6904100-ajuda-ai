@@ -72,28 +72,27 @@ function banco(
       return [alvo.map((l) => ({ id: l.id })), alvo.length];
     }
     if (sql.startsWith('INSERT INTO') && sql.includes('VALUES')) {
-      const [usuario_id, tipo, titulo, mensagem, link, chave] = params as [
-        number,
-        string,
-        string,
-        string,
-        string | null,
-        string,
-      ];
-      if (
-        !linhas.some((l) => l.usuario_id === usuario_id && l.chave === chave)
-      ) {
-        linhas.push({
-          id: `n${linhas.length}`,
-          usuario_id,
-          tipo,
-          titulo,
-          mensagem,
-          link,
-          chave,
-          lida_em: null,
-          criado_em: CRIADO,
-        });
+      const [usuario_id, ...colunas] = params as [number, ...unknown[]];
+      for (let i = 0; i < colunas.length; i += 5) {
+        const [tipo, titulo, mensagem, link, chave] = colunas.slice(
+          i,
+          i + 5,
+        ) as [string, string, string, string | null, string];
+        if (
+          !linhas.some((l) => l.usuario_id === usuario_id && l.chave === chave)
+        ) {
+          linhas.push({
+            id: `n${linhas.length}`,
+            usuario_id,
+            tipo,
+            titulo,
+            mensagem,
+            link,
+            chave,
+            lida_em: null,
+            criado_em: CRIADO,
+          });
+        }
       }
       return [];
     }
@@ -244,6 +243,31 @@ describe('NotificacoesService', () => {
       [7, `missao-nova:${MISSAO}`, 'Visite a biblioteca · 80 XP'],
       [7, `missao-nova:${MISSAO_2}`, 'Converse com seu padrinho · 30 XP'],
     ]);
+  });
+
+  it('só avisa missões abertas depois que o aluno entrou no ciclo', async () => {
+    const { service, comandos } = banco();
+    await service.sincronizarMissoes(7, '2026/2');
+    const [sql] = comandos[0];
+    expect(sql).toContain(
+      'GREATEST(m."criado_em", COALESCE(m."inicio", m."criado_em")) >= (',
+    );
+    expect(sql).toContain('min(pa."criado_em") FROM "feed"."participacoes" pa');
+    expect(sql).toContain('pa."programa" = $2');
+    expect(comandos).toHaveLength(1);
+  });
+
+  it('grava os avisos de várias missões num INSERT só', async () => {
+    const { service, comandos } = banco([], false, [
+      { id: MISSAO, titulo: 'Visite a biblioteca', xp: 80 },
+      { id: MISSAO_2, titulo: 'Converse com seu padrinho', xp: 30 },
+    ]);
+    await service.sincronizarMissoes(7, '2026/2');
+    const inserts = comandos.filter(([sql]) => sql.startsWith('INSERT'));
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0][0]).toContain(
+      'VALUES ($1, $2, $3, $4, $5, $6), ($1, $7, $8, $9, $10, $11) ON CONFLICT',
+    );
   });
 
   it('não repete o aviso da mesma missão', async () => {
