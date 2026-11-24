@@ -128,3 +128,94 @@ test('ordenação, status e data da coluna Atualizada', () => {
   assert.equal(m.textoAtualizada(new Date(2026, 10, 21, 23).toISOString(), agora), 'Ontem');
   assert.match(m.textoAtualizada(new Date(2026, 9, 3).toISOString(), agora), /03.*out.*2026/);
 });
+
+const EVENTO = '0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d';
+const TOTEM = 'a593faa9-34b4-495d-9e55-890830f43f17';
+
+test('requisito: obrigatório e coerente, como no servidor', () => {
+  const ok = { ...m.formDaMissao(null), titulo: 'T', descricao: 'D', xp: '30' };
+  assert.equal(ok.requisito, 'PUCSTOPS');
+  assert.equal(m.validarMissao(ok), '');
+  assert.match(m.validarMissao({ ...ok, requisito: '' }), /comprova/);
+  assert.match(m.validarMissao({ ...ok, requisito: 'AUTODECLARADA' }), /comprova/);
+  assert.match(m.validarMissao({ ...ok, quantidade: '0' }), /1 a 20/);
+  assert.match(m.validarMissao({ ...ok, quantidade: '21' }), /1 a 20/);
+  assert.match(m.validarMissao({ ...ok, quantidade: '2.5' }), /1 a 20/);
+  assert.equal(m.validarMissao({ ...ok, alvoId: TOTEM, quantidade: '99' }), '');
+  assert.match(m.validarMissao({ ...ok, requisito: 'EVENTO' }), /Escolha o evento/);
+  assert.match(m.validarMissao({ ...ok, requisito: 'EVENTO', alvoId: EVENTO, tipo: 'SEMANAL' }), /única/);
+  assert.equal(m.validarMissao({ ...ok, requisito: 'EVENTO', alvoId: EVENTO }), '');
+  for (const codigo of ['', 'AB', 'CALOURO@26', 'A'.repeat(21)]) {
+    assert.match(m.validarMissao({ ...ok, requisito: 'CODIGO', codigo }), /4 a 20/, codigo);
+  }
+  assert.equal(m.validarMissao({ ...ok, requisito: 'CODIGO', codigo: ' calouro 26 ' }), '');
+});
+
+test('corpo da criação leva só os campos do requisito escolhido', () => {
+  const form = { ...m.formDaMissao(null), titulo: 'T', descricao: 'D', xp: '30', ativar: true };
+  assert.deepEqual(
+    pick(m.corpoCriacaoMissao({ ...form, requisito: 'FEED_COMENTARIOS', quantidade: '3', alvoId: TOTEM, codigo: 'X' })),
+    { requisito: 'FEED_COMENTARIOS', quantidade: 3 },
+  );
+  assert.deepEqual(pick(m.corpoCriacaoMissao({ ...form, requisito: 'PUCSTOPS', alvoId: TOTEM, quantidade: '5' })), {
+    requisito: 'PUCSTOPS', quantidade: 1, alvoId: TOTEM,
+  });
+  assert.deepEqual(pick(m.corpoCriacaoMissao({ ...form, requisito: 'EVENTO', alvoId: EVENTO })), {
+    requisito: 'EVENTO', quantidade: 1, alvoId: EVENTO,
+  });
+  assert.deepEqual(pick(m.corpoCriacaoMissao({ ...form, requisito: 'CODIGO', codigo: ' calouro 26 ', quantidade: '4' })), {
+    requisito: 'CODIGO', quantidade: 1, codigo: 'CALOURO26',
+  });
+});
+
+function pick(corpo) {
+  const { requisito, quantidade, alvoId, codigo } = corpo;
+  return Object.fromEntries(Object.entries({ requisito, quantidade, alvoId, codigo }).filter(([, v]) => v !== undefined));
+}
+
+test('edição: trocar o requisito manda a regra inteira; trocar só o código manda só ele', () => {
+  const original = { ...base, requisito: 'CODIGO', quantidade: 1, alvoId: null, codigo: 'RODA-1' };
+  const form = m.formDaMissao(original);
+  assert.deepEqual(m.camposAlteradosMissao(original, form), {});
+  assert.deepEqual(m.camposAlteradosMissao(original, { ...form, codigo: 'roda-2' }), { codigo: 'RODA-2' });
+  assert.deepEqual(m.camposAlteradosMissao(original, { ...form, requisito: 'FEED_CURTIDAS', quantidade: '3' }), {
+    requisito: 'FEED_CURTIDAS', quantidade: 3, alvoId: null, codigo: null,
+  });
+  const legado = { ...base, requisito: null, quantidade: 1, alvoId: null, codigo: null };
+  const formLegado = m.formDaMissao(legado);
+  assert.equal(formLegado.requisito, '');
+  assert.match(m.validarMissao({ ...formLegado }), /comprova/);
+  assert.deepEqual(m.camposAlteradosMissao(legado, { ...formLegado, requisito: 'PUCSTOPS', alvoId: TOTEM }), {
+    requisito: 'PUCSTOPS', quantidade: 1, alvoId: TOTEM, codigo: null,
+  });
+});
+
+test('lista mostra o requisito de cada missão e destaca a antiga sem requisito', () => {
+  assert.equal(m.rotuloRequisito({ requisito: 'PUCSTOPS', quantidade: 3 }), 'PucStops ×3');
+  assert.equal(m.rotuloRequisito({ requisito: 'EVENTO', quantidade: 1, alvoNome: 'Abertura da Semana do Calouro' }), 'Evento: Abertura da Semana do Calouro');
+  assert.equal(m.rotuloRequisito({ requisito: 'CODIGO', quantidade: 1 }), 'Código');
+  assert.equal(m.rotuloRequisito({ requisito: null }), 'Sem requisito');
+  const html = renderToStaticMarkup(createElement(m.ListaMissoes, {
+    missoes: [{ ...base, requisito: 'FEED_COMENTARIOS', quantidade: 2 }, { ...base, id: 'b', requisito: null }],
+  }));
+  assert.match(html, /Comentários ×2/);
+  assert.match(html, /missoes-tipo requisito sem">Sem requisito/);
+});
+
+test('formulário mostra só os campos do requisito', () => {
+  const render = (missao) => renderToStaticMarkup(createElement(m.FormularioMissao, { original: missao, onCancelar() {}, onSalvo() {} }));
+  const codigo = render({ ...base, conclusoes: 0, requisito: 'CODIGO', quantidade: 1, alvoId: null, codigo: 'RODA-1' });
+  assert.match(codigo, /Como o aluno comprova/);
+  assert.match(codigo, /value="RODA-1"/);
+  assert.doesNotMatch(codigo, /Quantidade/);
+  const contado = render({ ...base, conclusoes: 0, requisito: 'FEED_COMENTARIOS', quantidade: 2, alvoId: null, codigo: null });
+  assert.match(contado, /Quantidade/);
+  assert.doesNotMatch(contado, /Código<\/span>/);
+  const travado = render({ ...base, conclusoes: 5, requisito: 'PUCSTOPS', quantidade: 3, alvoId: null, codigo: null });
+  assert.match(travado, /o requisito não pode mudar/);
+});
+
+test('formulário não oferece requisito que o app ainda não permite cumprir', () => {
+  assert.equal(m.REQUISITOS_NO_APP.includes('CHAT_MENSAGENS'), false);
+  assert.deepEqual(m.REQUISITOS_NO_APP, ['PUCSTOPS', 'EVENTO', 'FEED_COMENTARIOS', 'FEED_CURTIDAS', 'FEED_PUBLICACOES', 'CODIGO']);
+});

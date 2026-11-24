@@ -10,6 +10,27 @@ export const LIMITES_MISSAO = { tituloMax: 120, descricaoMax: 1000, xpMax: 100, 
 
 export const ROTULO_TIPO = { UNICA: 'Única', SEMANAL: 'Semanal' };
 
+export const REQUISITOS = {
+  PUCSTOPS: { rotulo: 'Coletar PucStops', curto: 'PucStops', contado: true, dica: 'Conta só totem coletado no local (geofence), depois que a missão abriu.' },
+  EVENTO: { rotulo: 'Check-in em evento', curto: 'Evento', dica: 'O aluno faz check-in com o GPS no local do evento, de 30 min antes até o fim.' },
+  FEED_COMENTARIOS: { rotulo: 'Comentar no feed', curto: 'Comentários', contado: true, dica: 'Comentários com pelo menos 10 caracteres, no feed do semestre.' },
+  FEED_CURTIDAS: { rotulo: 'Curtir posts de colegas', curto: 'Curtidas', contado: true, dica: 'Uma curtida por post; curtir o próprio post não conta.' },
+  FEED_PUBLICACOES: { rotulo: 'Publicar no feed', curto: 'Publicações', contado: true, dica: 'Só padrinhos com dupla publicam: os demais nem veem esta missão.' },
+  CHAT_MENSAGENS: { rotulo: 'Mensagens no chat da dupla', curto: 'Chat', contado: true, dica: 'Só quem já tem dupla vê esta missão. Mensagem de 1 caractere não conta.' },
+  CODIGO: { rotulo: 'Código da atividade presencial', curto: 'Código', dica: 'Mostre o código na atividade (telão, monitor, estande). 5 erros por hora bloqueiam o aluno.' },
+};
+
+export const REQUISITOS_NO_APP = Object.keys(REQUISITOS).filter((r) => r !== 'CHAT_MENSAGENS');
+
+const OPCOES_REQUISITO = REQUISITOS_NO_APP.map((valor) => ({ valor, rotulo: REQUISITOS[valor].rotulo }));
+
+export const QUANTIDADE_MAX = 20;
+const CODIGO_VALIDO = /^[A-Z0-9-]{4,20}$/;
+
+export function normalizarCodigo(codigo) {
+  return String(codigo ?? '').normalize('NFKC').replace(/\s+/g, '').toUpperCase();
+}
+
 function doisDigitos(n) {
   return String(n).padStart(2, '0');
 }
@@ -45,6 +66,10 @@ export function formDaMissao(missao) {
     descricao: missao?.descricao ?? '',
     tipo: missao?.tipo ?? 'UNICA',
     xp: missao ? String(missao.xp) : '50',
+    requisito: missao ? missao.requisito ?? '' : 'PUCSTOPS',
+    quantidade: String(missao?.quantidade ?? 1),
+    alvoId: missao?.alvoId ?? '',
+    codigo: missao?.codigo ?? '',
     inicio: paraInputData(missao?.inicio),
     fim: paraInputData(missao?.fim),
     ativar: false,
@@ -62,6 +87,21 @@ export function validarMissao(form, { agora = new Date(), fimNovo = true } = {})
   const xp = Number(form.xp);
   if (!Number.isInteger(xp) || xp < 1 || xp > xpMax) return `A recompensa deve ser de 1 a ${xpMax} XP.`;
   if (form.tipo === 'SEMANAL' && xp > xpSemanalMax) return `Missão semanal limitada a ${xpSemanalMax} XP.`;
+  const requisito = REQUISITOS[form.requisito];
+  if (!requisito) return 'Escolha como o aluno comprova a missão.';
+  if (form.requisito === 'EVENTO') {
+    if (!form.alvoId) return 'Escolha o evento.';
+    if (form.tipo !== 'UNICA') return 'Missão de evento é única: o evento acontece uma vez.';
+  }
+  if (form.requisito === 'CODIGO' && !CODIGO_VALIDO.test(normalizarCodigo(form.codigo))) {
+    return 'Código: de 4 a 20 letras, números ou hífen (ex.: CALOURO26).';
+  }
+  if (usaQuantidade(form)) {
+    const quantidade = Number(form.quantidade);
+    if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > QUANTIDADE_MAX) {
+      return `A quantidade deve ser de 1 a ${QUANTIDADE_MAX}.`;
+    }
+  }
   const inicio = paraIso(form.inicio);
   const fim = paraIso(form.fim);
   if (inicio && fim && new Date(fim) <= new Date(inicio)) return 'O fim precisa ser depois do início.';
@@ -69,14 +109,29 @@ export function validarMissao(form, { agora = new Date(), fimNovo = true } = {})
   return '';
 }
 
+export function usaQuantidade(form) {
+  return Boolean(REQUISITOS[form.requisito]?.contado) && !(form.requisito === 'PUCSTOPS' && form.alvoId);
+}
+
+export function camposRequisito(form) {
+  const campos = { requisito: form.requisito, quantidade: usaQuantidade(form) ? Number(form.quantidade) : 1 };
+  campos.alvoId = (form.requisito === 'PUCSTOPS' || form.requisito === 'EVENTO') && form.alvoId ? form.alvoId : null;
+  campos.codigo = form.requisito === 'CODIGO' ? normalizarCodigo(form.codigo) : null;
+  return campos;
+}
+
 export function corpoCriacaoMissao(form) {
+  const { alvoId, codigo, ...requisito } = camposRequisito(form);
   const corpo = {
     titulo: form.titulo.trim(),
     descricao: form.descricao.trim(),
     tipo: form.tipo,
     xp: Number(form.xp),
     ativar: Boolean(form.ativar),
+    ...requisito,
   };
+  if (alvoId) corpo.alvoId = alvoId;
+  if (codigo) corpo.codigo = codigo;
   const inicio = paraIso(form.inicio);
   const fim = paraIso(form.fim);
   if (inicio) corpo.inicio = inicio;
@@ -92,6 +147,17 @@ export function camposAlteradosMissao(original, form) {
   if (descricao !== original.descricao) alterados.descricao = descricao;
   if (form.tipo !== original.tipo) alterados.tipo = form.tipo;
   if (Number(form.xp) !== original.xp) alterados.xp = Number(form.xp);
+  if (form.requisito) {
+    const novo = camposRequisito(form);
+    const mudouRegra = novo.requisito !== original.requisito
+      || novo.quantidade !== original.quantidade
+      || novo.alvoId !== (original.alvoId ?? null);
+    if (mudouRegra) {
+      Object.assign(alterados, novo);
+    } else if (novo.codigo !== (original.codigo ?? null)) {
+      alterados.codigo = novo.codigo;
+    }
+  }
   const inicio = paraIso(form.inicio);
   const fim = paraIso(form.fim);
   if (inicio !== (original.inicio ? new Date(original.inicio).toISOString() : null)) alterados.inicio = inicio;
@@ -117,6 +183,13 @@ export function filtrarMissoes(missoes, { busca = '', tipo = '', status = '' }) 
 }
 
 const numero = (v) => Number(v ?? 0).toLocaleString('pt-BR');
+
+export function rotuloRequisito(m) {
+  const r = REQUISITOS[m.requisito];
+  if (!r) return 'Sem requisito';
+  if (m.alvoNome) return `${r.curto}: ${m.alvoNome}`;
+  return r.contado && m.quantidade > 1 ? `${r.curto} ×${m.quantidade}` : r.curto;
+}
 
 /*
  * Seletor de lista e calendário no mesmo visual do formulário da lojinha
@@ -436,7 +509,7 @@ export function ListaMissoes({
                 </td>
                 <td data-label="Missão" className="col-titulo">
                   <strong title={m.titulo}>{m.titulo}</strong>
-                  <small title={m.descricao}><span className={`missoes-tipo ${m.tipo === 'SEMANAL' ? 'semanal' : ''}`}>{ROTULO_TIPO[m.tipo] ?? m.tipo}</span>{m.descricao}</small>
+                  <small title={m.descricao}><span className={`missoes-tipo ${m.tipo === 'SEMANAL' ? 'semanal' : ''}`}>{ROTULO_TIPO[m.tipo] ?? m.tipo}</span><span className={`missoes-tipo requisito ${m.requisito ? '' : 'sem'}`}>{rotuloRequisito(m)}</span>{m.descricao}</small>
                 </td>
                 <td data-label="Status"><span className={`missoes-selo ${situacao.chave}`}>{situacao.rotulo}</span></td>
                 <td data-label="Recompensa" className="col-recompensa"><strong>{m.xp} XP</strong><small>+{m.xp} moedas</small></td>
@@ -549,10 +622,48 @@ export function FormularioMissao({ original, onCancelar, onSalvo }) {
   const podeSalvar = !salvando && !erroValidacao && !semAlteracoes;
   const { tituloMax, descricaoMax, xpMax, xpSemanalMax } = LIMITES_MISSAO;
   const tipoBloqueado = !criando && original.conclusoes > 0;
+  const requisitoBloqueado = tipoBloqueado && Boolean(original.requisito);
+  const [alvos, setAlvos] = useState({ pucstops: [], eventos: [], erro: '' });
+
+  useEffect(() => {
+    let vivo = true;
+    Promise.all([api.pucstops(), api.eventos()])
+      .then(([pucstops, eventos]) => {
+        if (!vivo) return;
+        const agora = Date.now();
+        setAlvos({
+          pucstops: (pucstops ?? []).filter((p) => p.ativo),
+          eventos: (eventos ?? []).filter((e) => e.ativo && e.local && new Date(e.fim).getTime() > agora),
+          erro: '',
+        });
+      })
+      .catch(() => vivo && setAlvos((a) => ({ ...a, erro: 'Não foi possível carregar PucStops e eventos.' })));
+    return () => { vivo = false; };
+  }, []);
 
   function campo(chave, valor) {
-    setForm((atual) => ({ ...atual, [chave]: valor }));
+    setForm((atual) => {
+      const proximo = { ...atual, [chave]: valor };
+      if (chave === 'requisito') {
+        proximo.alvoId = '';
+        if (valor === 'EVENTO') proximo.tipo = 'UNICA';
+      }
+      return proximo;
+    });
     setErro('');
+  }
+
+  const requisito = REQUISITOS[form.requisito];
+  const opcoesPucStop = [{ valor: '', rotulo: 'Qualquer PucStop' }, ...alvos.pucstops.map((p) => ({ valor: p.id, rotulo: p.nome }))];
+  const opcoesEvento = [
+    { valor: '', rotulo: alvos.eventos.length ? 'Escolha o evento' : 'Nenhum evento futuro com local no mapa' },
+    ...alvos.eventos.map((e) => ({ valor: e.id, rotulo: `${e.titulo} · ${diaMes(e.inicio)}` })),
+  ];
+  if (form.alvoId && form.requisito === 'EVENTO' && !opcoesEvento.some((o) => o.valor === form.alvoId)) {
+    opcoesEvento.push({ valor: form.alvoId, rotulo: original?.alvoNome ?? 'Evento atual' });
+  }
+  if (form.alvoId && form.requisito === 'PUCSTOPS' && !opcoesPucStop.some((o) => o.valor === form.alvoId)) {
+    opcoesPucStop.push({ valor: form.alvoId, rotulo: original?.alvoNome ?? 'PucStop atual' });
   }
 
   async function salvar(event) {
@@ -599,13 +710,43 @@ export function FormularioMissao({ original, onCancelar, onSalvo }) {
         </label>
         <label className="editor-field" htmlFor={`${base}-descricao`}>
           <span>Descrição</span>
-          <textarea id={`${base}-descricao`} className="detail-textarea" rows={2} value={form.descricao} maxLength={descricaoMax} required placeholder="Como o aluno conclui a missão" onChange={(e) => campo('descricao', e.target.value)} />
+          <textarea id={`${base}-descricao`} className="detail-textarea" rows={2} value={form.descricao} maxLength={descricaoMax} required placeholder="O que o aluno precisa fazer" onChange={(e) => campo('descricao', e.target.value)} />
         </label>
+
+        <fieldset className="recompensa-bloco">
+          <legend>Como o aluno comprova</legend>
+          <div className="editor-grid pucstop-grid">
+            <ListaMissao id={`${base}-requisito`} rotulo="Requisito" valor={form.requisito} opcoes={form.requisito ? OPCOES_REQUISITO : [{ valor: '', rotulo: 'Escolha o requisito' }, ...OPCOES_REQUISITO]} desabilitado={requisitoBloqueado} onChange={(valor) => campo('requisito', valor)} />
+            {form.requisito === 'PUCSTOPS' && (
+              <ListaMissao id={`${base}-pucstop`} rotulo="PucStop" valor={form.alvoId} opcoes={opcoesPucStop} desabilitado={requisitoBloqueado} onChange={(valor) => campo('alvoId', valor)} />
+            )}
+            {form.requisito === 'EVENTO' && (
+              <ListaMissao id={`${base}-evento`} rotulo="Evento" valor={form.alvoId} opcoes={opcoesEvento} desabilitado={requisitoBloqueado} onChange={(valor) => campo('alvoId', valor)} />
+            )}
+            {usaQuantidade(form) && (
+              <label className="editor-field" htmlFor={`${base}-quantidade`}>
+                <span>Quantidade</span>
+                <input id={`${base}-quantidade`} type="number" inputMode="numeric" min={1} max={QUANTIDADE_MAX} step={1} value={form.quantidade} disabled={requisitoBloqueado} required onChange={(e) => campo('quantidade', e.target.value)} />
+              </label>
+            )}
+            {form.requisito === 'CODIGO' && (
+              <label className="editor-field" htmlFor={`${base}-codigo`}>
+                <span>Código</span>
+                <input id={`${base}-codigo`} value={form.codigo} maxLength={20} autoComplete="off" spellCheck={false} placeholder="Ex.: CALOURO26" onChange={(e) => campo('codigo', e.target.value.toUpperCase())} />
+              </label>
+            )}
+          </div>
+          <p className="field-hint">
+            {requisito ? requisito.dica : 'Missão antiga sem requisito: escolha um para poder ativar.'}
+            {requisitoBloqueado && <strong> Já há conclusões: o requisito não pode mudar (o código pode).</strong>}
+            {alvos.erro && <strong> {alvos.erro}</strong>}
+          </p>
+        </fieldset>
 
         <fieldset className="recompensa-bloco">
           <legend>Recompensa</legend>
           <div className="editor-grid pucstop-grid">
-            <ListaMissao id={`${base}-tipo`} rotulo="Tipo" valor={form.tipo} opcoes={OPCOES_TIPO} desabilitado={tipoBloqueado} onChange={(valor) => campo('tipo', valor)} />
+            <ListaMissao id={`${base}-tipo`} rotulo="Tipo" valor={form.tipo} opcoes={OPCOES_TIPO} desabilitado={tipoBloqueado || form.requisito === 'EVENTO'} onChange={(valor) => campo('tipo', valor)} />
             <label className="editor-field" htmlFor={`${base}-xp`}>
               <span>Recompensa (XP)</span>
               <input id={`${base}-xp`} type="number" inputMode="numeric" min={1} max={form.tipo === 'SEMANAL' ? xpSemanalMax : xpMax} step={1} value={form.xp} required onChange={(e) => campo('xp', e.target.value)} />

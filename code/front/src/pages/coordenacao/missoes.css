@@ -59,6 +59,8 @@
 .missoes-lista .col-titulo strong { line-height: 1.3; }
 .missoes-tipo { display: inline-block; margin-right: 8px; padding: 1px 7px; border-radius: 6px; color: #5c5678; background: #efeff6; font-size: .7rem; font-weight: 700; }
 .missoes-tipo.semanal { color: var(--purple); background: var(--lavender); }
+.missoes-tipo.requisito { color: #1f5b52; background: #e3f4ef; }
+.missoes-tipo.requisito.sem { color: #8a3b12; background: #fdeee3; }
 .missoes-lista tbody td { overflow: hidden; text-overflow: ellipsis; }
 .missoes-lista .col-titulo strong { font-weight: 600; }
 .missoes-lista .col-check { padding: 0 0 0 16px; text-align: left; }
