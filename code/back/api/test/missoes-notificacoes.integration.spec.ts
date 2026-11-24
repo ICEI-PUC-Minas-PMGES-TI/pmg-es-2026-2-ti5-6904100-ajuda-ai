@@ -1554,8 +1554,8 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     }, 120_000);
   });
 
-  describe('PUCSTOPS: só conta coleta real, depois que a missão abriu', () => {
-    it('coleta feita antes da missão existir não conta', async () => {
+  describe('PUCSTOPS: só conta coleta real do semestre', () => {
+    it('coleta feita antes da missão existir conta: o totem só se coleta uma vez', async () => {
       const a = await novoAluno();
       await coletar(a, totens.CANTINA).expect(201);
       const m = await criarMissao({
@@ -1565,8 +1565,23 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         requisito: 'PUCSTOPS',
         alvoId: totens.CANTINA.id,
       });
-      expect((await itemDe(a, m.id))!.progresso).toEqual({ atual: 0, meta: 1 });
-      await concluir(a, m.id).expect(422);
+      expect((await itemDe(a, m.id))!.progresso).toEqual({ atual: 1, meta: 1 });
+      await concluir(a, m.id).expect(201);
+    });
+
+    it('missão de PucStop semanal é recusada: os totens acabariam', async () => {
+      const r = await http()
+        .post('/coordenacao/missoes')
+        .set('Authorization', coord())
+        .send({
+          titulo: 'Colete um PucStop por semana',
+          descricao: 'Ande pelo campus toda semana.',
+          tipo: 'SEMANAL',
+          xp: 20,
+          requisito: 'PUCSTOPS',
+        })
+        .expect(400);
+      expect(r.body.message).toContain('única');
     });
 
     it('totem errado não conta para missão de totem específico', async () => {
@@ -1588,8 +1603,8 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
 
     it('coleta de outra pessoa não conta; longe do totem a coleta nem acontece', async () => {
       const m = await criarMissao({
-        titulo: 'Colete dois PucStops nesta semana',
-        tipo: 'SEMANAL',
+        titulo: 'Colete dois PucStops com sua turma',
+        tipo: 'UNICA',
         xp: 20,
         requisito: 'PUCSTOPS',
         quantidade: 2,
@@ -1680,6 +1695,10 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     it('sem localização 400; GPS impreciso 422; em outro prédio 422 com a distância', async () => {
       const a = await novoAluno();
       const sem = await concluir(a, calouro.id, {}).expect(400);
+      const semPrecisao = await concluir(a, calouro.id, noPredio('P30')).expect(
+        400,
+      );
+      expect(semPrecisao.body.motivo).toBe('localizacao-obrigatoria');
       expect(sem.body.motivo).toBe('localizacao-obrigatoria');
       const so = await concluir(a, calouro.id, {
         latitude: noPredio('P30').latitude,
@@ -2090,15 +2109,19 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
           concluir(a, m.id, { codigo: `TESTE${1000 + i}` }),
         ),
       );
-      expect(respostas.every((r) => r.status === 422 || r.status === 429)).toBe(
-        true,
+      const status = respostas.map((r) => r.status);
+      expect(status.filter((s) => s === 422)).toHaveLength(
+        TENTATIVAS_CODIGO_POR_HORA,
+      );
+      expect(status.filter((s) => s === 429)).toHaveLength(
+        30 - TENTATIVAS_CODIGO_POR_HORA,
       );
       expect(
         await contar(
           `SELECT count(*) AS n FROM gamificacao.missoes_tentativas_codigo WHERE usuario_id = $1`,
           [a.id],
         ),
-      ).toBeGreaterThanOrEqual(TENTATIVAS_CODIGO_POR_HORA);
+      ).toBe(TENTATIVAS_CODIGO_POR_HORA);
       await concluir(a, m.id, { codigo: 'PLANTAO-ICEI' }).expect(429);
     });
 
@@ -2277,6 +2300,80 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         .send({ xp: 60, atualizadoEm: m.atualizadoEm })
         .expect(409);
       expect(r.body.motivo).toBe('missao-alterada');
+    });
+
+    it('alvo desativado depois não trava a edição do título nem do prazo', async () => {
+      const posto = await pucstopsAdmin.criar(
+        {
+          nome: 'PucStop da Capela',
+          ...noPredio('P12'),
+          xp: 10,
+          raioMetros: 25,
+        },
+        null,
+      );
+      const m = await criarMissao({
+        titulo: 'Visite a Capela',
+        tipo: 'UNICA',
+        xp: 15,
+        requisito: 'PUCSTOPS',
+        alvoId: posto.id,
+      });
+      await pucstopsAdmin.definirAtivo(posto.id, false);
+      const r = await http()
+        .patch(`/coordenacao/missoes/${m.id}`)
+        .set('Authorization', coord())
+        .send({
+          titulo: 'Visite a Capela do campus',
+          fim: iso(Date.now() + 5 * DIA),
+          atualizadoEm: m.atualizadoEm,
+        })
+        .expect(200);
+      expect(r.body).toMatchObject({
+        titulo: 'Visite a Capela do campus',
+        alvoId: posto.id,
+      });
+      await http()
+        .post(`/coordenacao/missoes/${m.id}/desativar`)
+        .set('Authorization', coord())
+        .expect(200);
+      const reativar = await http()
+        .post(`/coordenacao/missoes/${m.id}/ativar`)
+        .set('Authorization', coord())
+        .expect(422);
+      expect(reativar.body.motivo).toBe('alvo-invalido');
+    });
+
+    it('missão de evento que já acabou não volta a ser ativada', async () => {
+      const palestra = await eventos.criar(
+        {
+          titulo: 'Palestra sobre bolsas de pesquisa',
+          inicio: new Date(Date.now() + HORA).toISOString(),
+          fim: new Date(Date.now() + 2 * HORA).toISOString(),
+          local: { predioId: 'P34' },
+        },
+        null,
+      );
+      const m = await criarMissao({
+        titulo: 'Assista à palestra sobre bolsas',
+        tipo: 'UNICA',
+        xp: 20,
+        requisito: 'EVENTO',
+        alvoId: palestra.id,
+      });
+      await http()
+        .post(`/coordenacao/missoes/${m.id}/desativar`)
+        .set('Authorization', coord())
+        .expect(200);
+      await ds.query(
+        `UPDATE mapa.eventos SET inicio = now() - interval '3 hours', fim = now() - interval '1 hour' WHERE id = $1`,
+        [palestra.id],
+      );
+      const r = await http()
+        .post(`/coordenacao/missoes/${m.id}/ativar`)
+        .set('Authorization', coord())
+        .expect(422);
+      expect(r.body.message).toContain('já terminou');
     });
 
     it('tipo e requisito não mudam depois de concluída', async () => {
@@ -2689,6 +2786,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito, quantidade) VALUES ('x', 'x', 'UNICA', 10, '${CICLO}', 'FEED_CURTIDAS', 21)`,
         `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito) VALUES ('x', 'x', 'UNICA', 10, '${CICLO}', 'AUTODECLARADA')`,
         `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito, alvo_id) VALUES ('x', 'x', 'SEMANAL', 10, '${CICLO}', 'EVENTO', '${agenda.SEMANA_CALOURO}')`,
+        `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito) VALUES ('x', 'x', 'SEMANAL', 10, '${CICLO}', 'PUCSTOPS')`,
       ]) {
         await expect(ds.query(sql), sql).rejects.toThrow(
           /violates check constraint/,

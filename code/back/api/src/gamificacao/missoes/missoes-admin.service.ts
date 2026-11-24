@@ -253,24 +253,31 @@ export class MissoesAdminService {
         dados.inicio === undefined ? data(atual.inicio) : data(dados.inicio);
       const fim = dados.fim === undefined ? data(atual.fim) : data(dados.fim);
       exigirRegras(tipo, xp, inicio, fim, dados.fim != null, agora);
-      const r = requisito
-        ? await this.validarRequisito(
-            m,
-            tipo,
-            {
-              requisito,
-              quantidade,
-              alvoId,
-              codigo:
-                dados.codigo === undefined
-                  ? requisito === atual.requisito
-                    ? atual.codigo
-                    : null
-                  : dados.codigo,
-            },
-            alvoId !== atual.alvoId || requisito !== atual.requisito,
-          )
-        : null;
+      const mudouRegra =
+        requisito !== atual.requisito ||
+        quantidade !== atual.quantidade ||
+        alvoId !== atual.alvoId;
+      const mudouCodigo = requisito === 'CODIGO' && dados.codigo !== undefined;
+      const r = !requisito
+        ? null
+        : !mudouRegra && !mudouCodigo
+          ? { requisito, quantidade, alvoId, codigo: atual.codigo }
+          : await this.validarRequisito(
+              m,
+              tipo,
+              {
+                requisito,
+                quantidade,
+                alvoId,
+                codigo:
+                  dados.codigo === undefined
+                    ? requisito === atual.requisito
+                      ? atual.codigo
+                      : null
+                    : dados.codigo,
+              },
+              alvoId !== atual.alvoId || requisito !== atual.requisito,
+            );
       await m.query(
         `UPDATE ${g}."missoes" SET "titulo" = $2, "descricao" = $3, "tipo" = $4, "xp" = $5, "inicio" = $6, "fim" = $7, ` +
           `"requisito" = $8, "quantidade" = $9, "alvo_id" = $10, "codigo" = $11, "atualizado_em" = now() WHERE "id" = $1`,
@@ -306,6 +313,19 @@ export class MissoesAdminService {
             'Escolha como o aluno comprova esta missão (requisito) antes de ativar.',
           motivo: 'sem-requisito',
         });
+      }
+      if (ativa && atual.requisito) {
+        await this.validarRequisito(
+          m,
+          atual.tipo,
+          {
+            requisito: atual.requisito,
+            quantidade: atual.quantidade,
+            alvoId: atual.alvoId,
+            codigo: atual.codigo,
+          },
+          true,
+        );
       }
       if (ativa && atual.fim && new Date(atual.fim) <= new Date()) {
         throw new UnprocessableEntityException({
@@ -388,6 +408,11 @@ export class MissoesAdminService {
     }
 
     if (requisito === 'PUCSTOPS') {
+      if (tipo !== 'UNICA') {
+        throw new BadRequestException(
+          'Missão de PucStop é única: cada totem é coletado uma vez por semestre.',
+        );
+      }
       if (r.alvoId) {
         const [ps] = (await m.query(
           `SELECT "ativo" FROM ${mp}."pucstops" WHERE "id" = $1`,

@@ -37,7 +37,7 @@ export function sqlProgresso(m: string, u: string): string {
     `CASE ${m}."requisito" ` +
     `WHEN 'PUCSTOPS' THEN (SELECT count(DISTINCT c."pucstop_id") FROM ${g}."pucstop_coletas" c ` +
     `WHERE c."usuario_id" = $1 AND c."ciclo" = ${m}."ciclo" AND (${m}."alvo_id" IS NULL OR c."pucstop_id" = ${m}."alvo_id") ` +
-    `AND ${janela(m, 'c."coletado_em"')}) ` +
+    `) ` +
     `WHEN 'FEED_PUBLICACOES' THEN (SELECT count(*) FROM ${u}."publicacoes" p ` +
     `WHERE lower(p."owner_id") = $2 AND p."programa_codigo" = ${m}."ciclo" AND ${janela(m, 'p."criado_em"')}) ` +
     `WHEN 'FEED_COMENTARIOS' THEN (SELECT count(*) FROM ${u}."comentarios" k JOIN ${u}."publicacoes" p ON p."id" = k."publicacao_id" ` +
@@ -162,10 +162,14 @@ export async function verificarEvento(
       motivo: 'localizacao-obrigatoria',
     });
   }
-  if (
-    leitura.accuracy !== undefined &&
-    leitura.accuracy > PRECISAO_MAXIMA_METROS
-  ) {
+  if (leitura.accuracy === undefined) {
+    throw new BadRequestException({
+      statusCode: 400,
+      message: 'Envie a precisão da localização para fazer o check-in.',
+      motivo: 'localizacao-obrigatoria',
+    });
+  }
+  if (leitura.accuracy > PRECISAO_MAXIMA_METROS) {
     throw recusa(
       'precisao-insuficiente',
       'Localização imprecisa demais. Tente de novo perto de uma janela ou ao ar livre.',

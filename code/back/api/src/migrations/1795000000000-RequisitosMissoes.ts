@@ -28,7 +28,7 @@ export class RequisitosMissoes1795000000000 implements MigrationInterface {
         `ADD CONSTRAINT "ck_missoes_quantidade" CHECK ("quantidade" BETWEEN 1 AND ${QUANTIDADE_MISSAO_MAX}), ` +
         `ADD CONSTRAINT "ck_missoes_requisito_alvo" CHECK (` +
         `("requisito" = 'EVENTO' AND "alvo_id" IS NOT NULL AND "quantidade" = 1 AND "tipo" = 'UNICA') ` +
-        `OR ("requisito" = 'PUCSTOPS' AND ("alvo_id" IS NULL OR "quantidade" = 1)) ` +
+        `OR ("requisito" = 'PUCSTOPS' AND "tipo" = 'UNICA' AND ("alvo_id" IS NULL OR "quantidade" = 1)) ` +
         `OR ("requisito" IS DISTINCT FROM 'EVENTO' AND "requisito" IS DISTINCT FROM 'PUCSTOPS' AND "alvo_id" IS NULL)), ` +
         `ADD CONSTRAINT "ck_missoes_requisito_codigo" CHECK (` +
         `("requisito" = 'CODIGO' AND "codigo" IS NOT NULL AND "codigo" ~ '^[A-Z0-9-]{4,20}$' AND "quantidade" = 1) ` +

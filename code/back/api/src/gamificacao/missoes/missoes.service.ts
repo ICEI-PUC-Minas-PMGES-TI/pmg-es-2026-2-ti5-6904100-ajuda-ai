@@ -258,24 +258,13 @@ export class MissoesService {
     leitura: LeituraConclusao = {},
     acesso: AcessoMissoes = SEM_ACESSO_EXTRA,
   ): Promise<ConclusaoMissaoDto> {
-    let resultado: ConclusaoMissaoDto;
-    try {
-      resultado = await this.concluirNaTransacao(
-        usuarioId,
-        missaoId,
-        agora,
-        leitura,
-        acesso,
-      );
-    } catch (erro) {
-      if (erro instanceof CodigoErrado) {
-        await this.dataSource.query(
-          `INSERT INTO ${g}."missoes_tentativas_codigo" ("missao_id", "usuario_id") VALUES ($1, $2)`,
-          [missaoId, usuarioId],
-        );
-      }
-      throw erro;
-    }
+    const resultado = await this.concluirNaTransacao(
+      usuarioId,
+      missaoId,
+      agora,
+      leitura,
+      acesso,
+    );
     // Só depois de liberar a conexão da transação: pedir outra ao pool
     // segurando esta pode esgotar o pool quando muitos sobem de nível juntos.
     if (resultado.subiuDeNivel) {
@@ -367,7 +356,18 @@ export class MissoesService {
         );
       } else if (missao.requisito === 'CODIGO') {
         await exigirTentativasDeCodigo(qr, missao.id, usuarioId);
-        verificarCodigo(missao, leitura);
+        try {
+          verificarCodigo(missao, leitura);
+        } catch (erro) {
+          if (erro instanceof CodigoErrado) {
+            await qr.query(
+              `INSERT INTO ${g}."missoes_tentativas_codigo" ("missao_id", "usuario_id") VALUES ($1, $2)`,
+              [missao.id, usuarioId],
+            );
+            await qr.commitTransaction();
+          }
+          throw erro;
+        }
         evidencia = { codigo: true };
       } else {
         const email = await this.emailDe((s, p) => qr.query(s, p), usuarioId);
@@ -440,7 +440,7 @@ export class MissoesService {
         concluidaEm: conclusao.criado_em.toISOString(),
       };
     } catch (erro) {
-      await qr.rollbackTransaction();
+      if (qr.isTransactionActive) await qr.rollbackTransaction();
       if (
         ehViolacaoUnica(erro, 'uq_missoes_conclusoes_unica') ||
         ehViolacaoUnica(erro, 'uq_missoes_conclusoes_semanal') ||

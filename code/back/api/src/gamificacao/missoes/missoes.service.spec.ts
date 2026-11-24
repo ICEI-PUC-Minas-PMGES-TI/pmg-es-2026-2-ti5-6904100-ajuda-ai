@@ -63,14 +63,21 @@ function banco(c: Cenario = {}) {
   } = c;
   const comandos: Array<[string, unknown[]]> = [];
   let xpMovimentado = 0;
+  let transacaoAberta = false;
   const qr = {
-    isTransactionActive: true,
+    get isTransactionActive() {
+      return transacaoAberta;
+    },
     connect: async () => {},
-    startTransaction: async () => {},
+    startTransaction: async () => {
+      transacaoAberta = true;
+    },
     commitTransaction: async () => {
+      transacaoAberta = false;
       comandos.push(['COMMIT', []]);
     },
     rollbackTransaction: async () => {
+      transacaoAberta = false;
       comandos.push(['ROLLBACK', []]);
     },
     release: async () => {},
@@ -352,16 +359,12 @@ describe('MissoesService.concluir', () => {
       .catch((e) => e);
     expect(erro.getResponse()).toMatchObject({ motivo: 'codigo-incorreto' });
     expect(ledger(comandos)).toBeUndefined();
-    const i = comandos.findIndex(([sql]) => sql === 'ROLLBACK');
-    expect(
-      comandos
-        .slice(i)
-        .some(([sql]) =>
-          sql.startsWith(
-            'INSERT INTO "gamificacao"."missoes_tentativas_codigo"',
-          ),
-        ),
-    ).toBe(true);
+    const tentativa = comandos.findIndex(([sql]) =>
+      sql.startsWith('INSERT INTO "gamificacao"."missoes_tentativas_codigo"'),
+    );
+    expect(tentativa).toBeGreaterThan(-1);
+    expect(comandos[tentativa + 1][0]).toBe('COMMIT');
+    expect(comandos.some(([sql]) => sql === 'ROLLBACK')).toBe(false);
   });
 
   it('sem código: 400; muitas tentativas: 429 mesmo com o código certo', async () => {
