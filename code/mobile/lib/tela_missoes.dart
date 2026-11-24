@@ -2062,13 +2062,13 @@ String comoConcluirMissao(Missao m) {
                 '${alvo.inicio == null ? '' : ', em ${_dataCurta(alvo.inicio!)} às ${_hora(alvo.inicio!)}'}. '
                 'Precisa estar no local, com a localização ligada, e digitar o código mostrado no evento.',
     RequisitoMissao.feedComentarios =>
-      'Comente ${_vezes(meta, 'vez', 'vezes')} em posts do feed (pelo menos 10 caracteres).',
+      'Comente ${_vezes(meta, 'vez', 'vezes')} em posts de colegas no feed (pelo menos 10 caracteres).',
     RequisitoMissao.feedCurtidas =>
       'Curta ${_vezes(meta, 'post', 'posts')} de colegas no feed.',
     RequisitoMissao.feedPublicacoes =>
       'Faça ${_vezes(meta, 'publicação', 'publicações')} no feed.',
     RequisitoMissao.chatMensagens =>
-      'Envie ${_vezes(meta, 'mensagem', 'mensagens')} para sua dupla no chat.',
+      'Envie ${_vezes(meta, 'mensagem', 'mensagens')} para sua dupla no chat (pelo menos 10 caracteres).',
     RequisitoMissao.codigo =>
       'Digite o código mostrado na atividade pela coordenação.',
     RequisitoMissao.desconhecido =>

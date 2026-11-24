@@ -284,8 +284,7 @@ final casosPendentes = [
       atual: 0,
       meta: 2,
     ),
-    comoConcluir:
-        'Comente 2 vezes em posts do feed (pelo menos 10 caracteres).',
+    comoConcluir: 'Comente 2 vezes em posts de colegas no feed (pelo menos 10 caracteres).',
     atalho: 'Ir para o feed',
     progresso: '0/2',
   ),
@@ -331,7 +330,8 @@ final casosPendentes = [
       atual: 1,
       meta: 3,
     ),
-    comoConcluir: 'Envie 3 mensagens para sua dupla no chat.',
+    comoConcluir:
+        'Envie 3 mensagens para sua dupla no chat (pelo menos 10 caracteres).',
     progresso: '1/3',
   ),
 ];
@@ -727,7 +727,7 @@ void main() {
       servidor.recusa = (
         422,
         {
-          'message': 'Comente mais 1 vez no feed.',
+          'message': 'Comente mais 1 vez em posts de colegas.',
           'motivo': 'requisito-pendente',
           'progresso': {'atual': 0, 'meta': 1},
         },
@@ -735,7 +735,10 @@ void main() {
       await abrirDetalhe(tester, 'conversa');
       await tester.tap(find.byKey(const Key('detalhe-concluir')));
       await tester.pumpAndSettle();
-      expect(find.text('Comente mais 1 vez no feed.'), findsOneWidget);
+      expect(
+        find.text('Comente mais 1 vez em posts de colegas.'),
+        findsOneWidget,
+      );
       expect(find.text('Missão concluída!'), findsNothing);
     },
   );
