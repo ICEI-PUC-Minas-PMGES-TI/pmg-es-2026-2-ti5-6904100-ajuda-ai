@@ -20,7 +20,7 @@ import { GamificacaoNiveisMoedasCiclos1794000000000 } from '../src/migrations/17
 import { ProgramaRecompensasFk1794100000000 } from '../src/migrations/1794100000000-ProgramaRecompensasFk.js';
 import { EntregaResgatesEAjustesXp1794200000000 } from '../src/migrations/1794200000000-EntregaResgatesEAjustesXp.js';
 import { ResgatesProgramaDaTroca1794300000000 } from '../src/migrations/1794300000000-ResgatesProgramaDaTroca.js';
-import { marcaCriadoPor } from '../src/migrations/estrutura.js';
+import { marcaCriadoPor } from '../src/database/estrutura-migrations.js';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
 const BANCO = 'migrations_gamificacao';

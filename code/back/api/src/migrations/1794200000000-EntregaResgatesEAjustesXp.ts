@@ -9,7 +9,7 @@ import {
   marcaCriadoPor,
   migrationRegistrada,
   tabelasExistentes,
-} from './estrutura.js';
+} from '../database/estrutura-migrations.js';
 
 const NOME = 'EntregaResgatesEAjustesXp1794200000000';
 /** Nome anterior, antes da renomeação para depois da Sprint-6. */

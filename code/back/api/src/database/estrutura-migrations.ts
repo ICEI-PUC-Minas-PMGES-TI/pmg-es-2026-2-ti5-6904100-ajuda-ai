@@ -10,6 +10,10 @@ import type { QueryRunner } from 'typeorm';
  * existente pelo catálogo do PostgreSQL: colunas (tipo, nulidade, default),
  * constraints (tipo e definição: PK, UNIQUE, FK com ações, CHECK), índices e
  * gatilhos. Qualquer diferença vira erro antes de registrar a migration.
+ *
+ * Fica fora de `src/migrations/` de propósito: o CLI do TypeORM carrega
+ * `dist/migrations/*.js` e instancia toda função exportada como migration
+ * (`migrationClass is not a constructor`). Lá só entram classes de migration.
  */
 
 const aspas = (nome: string) => `"${nome.replaceAll('"', '""')}"`;

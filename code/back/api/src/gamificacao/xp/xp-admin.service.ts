@@ -25,6 +25,7 @@ import type {
   AjusteXpDto,
   ExtratoXpAdminDto,
   ParticipanteXpDto,
+  ResultadoAjusteXpDto,
 } from './xp-admin.dto.js';
 import { XpService } from './xp.service.js';
 
@@ -41,12 +42,6 @@ interface LinhaAjuste {
   responsavelEmail: string | null;
   saldoApos: number;
   criadoEm: Date;
-}
-
-interface ResultadoAjuste {
-  ajuste: AjusteXpDto;
-  saldo: number;
-  xpAcumulado: number;
 }
 
 const AJUSTE =
@@ -175,7 +170,7 @@ export class XpAdminService {
     usuarioId: number,
     dados: AjustarXpDto,
     responsavel: ResponsavelCoordenacao,
-  ): Promise<ResultadoAjuste> {
+  ): Promise<ResultadoAjusteXpDto> {
     const pedido = {
       usuarioId,
       quantidade: dados.quantidade,
@@ -239,7 +234,7 @@ export class XpAdminService {
     executor: Pick<QueryRunner, 'query'>,
     anterior: LinhaAjuste,
     pedido: { usuarioId: number; quantidade: number; motivo: string },
-  ): Promise<ResultadoAjuste> {
+  ): Promise<ResultadoAjusteXpDto> {
     if (
       anterior.usuarioId !== pedido.usuarioId ||
       anterior.quantidade !== pedido.quantidade ||
@@ -267,7 +262,7 @@ export class XpAdminService {
       chave: string;
     },
     responsavel: ResponsavelCoordenacao,
-  ): Promise<ResultadoAjuste> {
+  ): Promise<ResultadoAjusteXpDto> {
     let movimento;
     try {
       movimento = await registrarMovimentacao(qr, {

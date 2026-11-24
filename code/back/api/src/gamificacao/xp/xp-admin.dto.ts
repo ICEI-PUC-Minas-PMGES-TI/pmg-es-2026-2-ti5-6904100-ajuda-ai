@@ -91,6 +91,13 @@ export interface AjusteXpDto {
   criadoEm: string;
 }
 
+/** `POST /coordenacao/xp/:usuarioId/ajustes`: o ajuste gravado e o saldo resultante. */
+export interface ResultadoAjusteXpDto {
+  ajuste: AjusteXpDto;
+  saldo: number;
+  xpAcumulado: number;
+}
+
 /** `GET /coordenacao/xp/:usuarioId`: o mesmo resumo de `/me/xp`, mais extrato e ajustes. */
 export interface ExtratoXpAdminDto extends XpResumoDto {
   usuario: { id: number; nome: string; email: string };

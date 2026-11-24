@@ -1,6 +1,6 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 import { SCHEMA_GAMIFICACAO } from '../gamificacao/gamificacao.js';
-import { marcaCriadoPor, migrationRegistrada } from './estrutura.js';
+import { marcaCriadoPor, migrationRegistrada } from '../database/estrutura-migrations.js';
 
 const NOME = 'ProgramaRecompensasFk1794100000000';
 /** Nome anterior, antes da renomeação para depois da Sprint-6. */
