@@ -7,6 +7,8 @@ import {
   Optional,
 } from '@nestjs/common';
 import { DataSource, type QueryRunner } from 'typeorm';
+import { notificacaoResgate } from '../../notificacoes/notificacoes.js';
+import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import {
   ehViolacaoCheck,
   ehViolacaoUnica,
@@ -15,8 +17,6 @@ import {
   schemaUsuarios,
   travarCarteira,
 } from '../gamificacao.js';
-import { notificacaoResgate } from '../../notificacoes/notificacoes.js';
-import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { normalizarJustificativa } from '../justificativa.js';
 import type {
   ListarResgatesQuery,
