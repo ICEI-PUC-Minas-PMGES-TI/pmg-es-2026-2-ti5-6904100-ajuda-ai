@@ -254,6 +254,7 @@ export class MissoesAdminService {
       const fim = dados.fim === undefined ? data(atual.fim) : data(dados.fim);
       exigirRegras(tipo, xp, inicio, fim, dados.fim != null, agora);
       const mudouRegra =
+        tipo !== atual.tipo ||
         requisito !== atual.requisito ||
         quantidade !== atual.quantidade ||
         alvoId !== atual.alvoId;

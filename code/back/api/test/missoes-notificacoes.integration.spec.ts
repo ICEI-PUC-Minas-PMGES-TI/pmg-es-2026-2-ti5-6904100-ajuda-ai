@@ -33,6 +33,12 @@ import type { AccessTokenPayload } from '../src/auth/authenticated-request.js';
 import { JwtAuthGuard } from '../src/auth/jwt-auth.guard.js';
 import { RolesGuard } from '../src/auth/roles.guard.js';
 import { EventosService } from '../src/campus/eventos/eventos.service.js';
+import { LojinhaController } from '../src/gamificacao/lojinha/lojinha.controller.js';
+import { LojinhaService } from '../src/gamificacao/lojinha/lojinha.service.js';
+import { RecompensasAdminController } from '../src/gamificacao/recompensas/recompensas-admin.controller.js';
+import { RecompensasAdminService } from '../src/gamificacao/recompensas/recompensas-admin.service.js';
+import { ResgatesAdminController } from '../src/gamificacao/resgates/resgates-admin.controller.js';
+import { ResgatesAdminService } from '../src/gamificacao/resgates/resgates-admin.service.js';
 import { ChatController } from '../src/chat/chat.controller.js';
 import { ChatService } from '../src/chat/chat.service.js';
 import { LIMITES } from '../src/gamificacao/economia.js';
@@ -572,6 +578,9 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         PucStopsController,
         MinhasColetasController,
         ChatController,
+        LojinhaController,
+        RecompensasAdminController,
+        ResgatesAdminController,
       ],
       providers: [
         MissoesService,
@@ -588,6 +597,9 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         UsuariosService,
         FeedMidiasService,
         ChatService,
+        LojinhaService,
+        RecompensasAdminService,
+        ResgatesAdminService,
         JwtAuthGuard,
         RolesGuard,
         {
@@ -2376,6 +2388,29 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       expect(r.body.message).toContain('já terminou');
     });
 
+    it('virar semanal uma missão de evento ou de PucStop: 400 explicando, nunca 500', async () => {
+      for (const corpo of [
+        {
+          titulo: 'Vá à oficina de LinkedIn no ICEI',
+          requisito: 'EVENTO' as const,
+          alvoId: agenda.OFICINA_CURRICULO,
+        },
+        {
+          titulo: 'Colete o PucStop do Teatro',
+          requisito: 'PUCSTOPS' as const,
+          alvoId: totens.TEATRO.id,
+        },
+      ]) {
+        const m = await criarMissao({ ...corpo, tipo: 'UNICA', xp: 30 });
+        const r = await http()
+          .patch(`/coordenacao/missoes/${m.id}`)
+          .set('Authorization', coord())
+          .send({ tipo: 'SEMANAL', atualizadoEm: m.atualizadoEm });
+        expect(r.status, JSON.stringify(r.body)).toBe(400);
+        expect(r.body.message).toContain('única');
+      }
+    });
+
     it('tipo e requisito não mudam depois de concluída', async () => {
       const m = await criarMissao({
         titulo: 'Colete dois PucStops com sua dupla',
@@ -2733,6 +2768,104 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         .set('Authorization', a.auth)
         .expect(200);
       expect(todas.body).toEqual({ atualizadas: 1, naoLidas: 0 });
+    });
+  });
+
+  describe('sino: resgate entregue ou cancelado na lojinha', () => {
+    async function resgatarCaneca(a: Aluno): Promise<string> {
+      const m = await criarMissao({
+        titulo: 'Ajude na recepção dos calouros',
+        tipo: 'UNICA',
+        xp: 100,
+      });
+      await concluir(a, m.id).expect(201);
+      await http()
+        .get('/me/notificacoes')
+        .set('Authorization', a.auth)
+        .expect(200);
+      const recompensa = (
+        await http()
+          .post('/coordenacao/recompensas')
+          .set('Authorization', coord())
+          .send({
+            nome: 'Caneca Ajuda.ai',
+            descricao: 'Caneca de cerâmica personalizada do Ajuda-aí.',
+            custoXp: 50,
+            estoqueIlimitado: false,
+            estoqueInicial: 5,
+            condicoesRetirada:
+              'Apresente o comprovante na sala da coordenação.',
+            publicar: true,
+          })
+          .expect(201)
+      ).body as { id: string; versao: number };
+      const resgate = await http()
+        .post(`/me/lojinha/${recompensa.id}/resgatar`)
+        .set('Authorization', a.auth)
+        .send({
+          chaveIdempotencia: crypto.randomUUID(),
+          versao: recompensa.versao,
+          custoXp: 50,
+        });
+      expect(resgate.status, JSON.stringify(resgate.body)).toBe(201);
+      return (resgate.body as { id: string }).id;
+    }
+
+    async function avisos(a: Aluno, tipo: string) {
+      return (await ds.query(
+        `SELECT titulo, mensagem, link FROM feed.notificacoes WHERE usuario_id = $1 AND tipo = $2`,
+        [a.id, tipo],
+      )) as Array<{ titulo: string; mensagem: string; link: string }>;
+    }
+
+    it('entrega avisa o aluno uma vez, com link para o comprovante', async () => {
+      const a = await novoAluno();
+      const id = await resgatarCaneca(a);
+      expect(await avisos(a, 'RESGATE_ENTREGUE')).toEqual([]);
+      await http()
+        .post(`/coordenacao/resgates/${id}/entregar`)
+        .set('Authorization', coord())
+        .expect(200);
+      expect(await avisos(a, 'RESGATE_ENTREGUE')).toEqual([
+        {
+          titulo: 'Resgate entregue',
+          mensagem: 'Seu resgate de Caneca Ajuda.ai foi entregue.',
+          link: `/lojinha/resgates/${id}`,
+        },
+      ]);
+      await http()
+        .post(`/coordenacao/resgates/${id}/entregar`)
+        .set('Authorization', coord())
+        .expect(409);
+      expect(await avisos(a, 'RESGATE_ENTREGUE')).toHaveLength(1);
+      const sino = await http()
+        .get('/me/notificacoes')
+        .set('Authorization', a.auth)
+        .expect(200);
+      expect(
+        (sino.body as { itens: Array<{ tipo: string }> }).itens.map(
+          (n) => n.tipo,
+        ),
+      ).toContain('RESGATE_ENTREGUE');
+    });
+
+    it('cancelamento avisa que as moedas voltaram; ninguém mais é avisado', async () => {
+      const a = await novoAluno();
+      const colega = await novoAluno();
+      const id = await resgatarCaneca(a);
+      await http()
+        .post(`/coordenacao/resgates/${id}/cancelar`)
+        .set('Authorization', coord())
+        .send({ motivo: 'Caneca chegou quebrada do fornecedor.' })
+        .expect(200);
+      const [aviso] = await avisos(a, 'RESGATE_CANCELADO');
+      expect(aviso).toMatchObject({
+        titulo: 'Resgate cancelado',
+        link: `/lojinha/resgates/${id}`,
+      });
+      expect(aviso.mensagem).toContain('moedas voltaram');
+      expect(await avisos(a, 'RESGATE_ENTREGUE')).toEqual([]);
+      expect(await avisos(colega, 'RESGATE_CANCELADO')).toEqual([]);
     });
   });
 
