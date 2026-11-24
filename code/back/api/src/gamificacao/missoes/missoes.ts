@@ -32,7 +32,7 @@ export const REQUISITOS_CONTADOS: readonly RequisitoMissao[] = [
 
 export const QUANTIDADE_MISSAO_MAX = 20;
 export const COMENTARIO_MISSAO_MIN = 10;
-export const MENSAGEM_MISSAO_MIN = 2;
+export const MENSAGEM_MISSAO_MIN = 10;
 export const CHECKIN_ANTECEDENCIA_MIN = 30;
 export const RAIO_EVENTO_METROS = 60;
 export const CODIGO_MISSAO = /^[A-Z0-9-]{4,20}$/;

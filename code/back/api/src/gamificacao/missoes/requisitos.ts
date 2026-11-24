@@ -41,7 +41,8 @@ export function sqlProgresso(m: string, u: string): string {
     `WHEN 'FEED_PUBLICACOES' THEN (SELECT count(*) FROM ${u}."publicacoes" p ` +
     `WHERE lower(p."owner_id") = $2 AND p."programa_codigo" = ${m}."ciclo" AND ${janela(m, 'p."criado_em"')}) ` +
     `WHEN 'FEED_COMENTARIOS' THEN (SELECT count(*) FROM ${u}."comentarios" k JOIN ${u}."publicacoes" p ON p."id" = k."publicacao_id" ` +
-    `WHERE lower(k."autor_id") = $2 AND p."programa_codigo" = ${m}."ciclo" AND char_length(btrim(k."texto")) >= ${COMENTARIO_MISSAO_MIN} ` +
+    `WHERE lower(k."autor_id") = $2 AND lower(p."owner_id") <> $2 AND p."programa_codigo" = ${m}."ciclo" ` +
+    `AND char_length(btrim(k."texto")) >= ${COMENTARIO_MISSAO_MIN} ` +
     `AND ${janela(m, 'k."criado_em"')}) ` +
     `WHEN 'FEED_CURTIDAS' THEN (SELECT count(DISTINCT k."publicacao_id") FROM ${u}."curtidas" k JOIN ${u}."publicacoes" p ON p."id" = k."publicacao_id" ` +
     `WHERE lower(k."usuario_id") = $2 AND lower(p."owner_id") <> $2 AND p."programa_codigo" = ${m}."ciclo" ` +
@@ -89,8 +90,8 @@ const FALTA: Record<
       : `Faça mais ${n} publicações no feed.`,
   FEED_COMENTARIOS: (n) =>
     n === 1
-      ? 'Comente mais 1 vez no feed.'
-      : `Comente mais ${n} vezes no feed.`,
+      ? 'Comente mais 1 vez em posts de colegas.'
+      : `Comente mais ${n} vezes em posts de colegas.`,
   FEED_CURTIDAS: (n) =>
     n === 1
       ? 'Curta mais 1 publicação de colegas.'

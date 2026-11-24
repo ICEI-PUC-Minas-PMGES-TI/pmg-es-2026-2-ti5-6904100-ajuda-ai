@@ -47,6 +47,7 @@ import { MissoesAdminService } from '../src/gamificacao/missoes/missoes-admin.se
 import { MissoesController } from '../src/gamificacao/missoes/missoes.controller.js';
 import {
   COMENTARIO_MISSAO_MIN,
+  MENSAGEM_MISSAO_MIN,
   RAIO_EVENTO_METROS,
   TENTATIVAS_CODIGO_POR_HORA,
 } from '../src/gamificacao/missoes/missoes.js';
@@ -1519,7 +1520,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
           for (const texto of [
             'Oi, tudo certo?',
             'Bora na monitoria amanhã?',
-            'Fechado!',
+            'Fechado, até amanhã!',
           ]) {
             await mandarMensagem(a, d.chatId, texto);
           }
@@ -1945,6 +1946,32 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       await concluir(a, m.id).expect(201);
     });
 
+    it('comentário no próprio post não conta', async () => {
+      const m = await criarMissao({
+        titulo: 'Converse com os colegas no feed',
+        tipo: 'UNICA',
+        xp: 10,
+        requisito: 'FEED_COMENTARIOS',
+      });
+      const autor = autores[0].padrinho;
+      await comentar(
+        autor,
+        posts[0],
+        'Respondendo aqui quem perguntou no meu post.',
+      );
+      expect((await itemDe(autor, m.id))!.progresso).toEqual({
+        atual: 0,
+        meta: 1,
+      });
+      await concluir(autor, m.id).expect(422);
+      await comentar(
+        autor,
+        posts[1],
+        'Boa lista, vou mandar para minha afilhada.',
+      );
+      await concluir(autor, m.id).expect(201);
+    });
+
     it('comentário de outra pessoa não conta para mim', async () => {
       const m = await criarMissao({
         titulo: 'Responda uma pergunta no feed',
@@ -2060,13 +2087,14 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       await concluir(a, m.id).expect(404);
     });
 
-    it('mensagem de 1 caractere não conta; a do par não conta para mim', async () => {
+    it(`mensagem com menos de ${MENSAGEM_MISSAO_MIN} caracteres não conta; a do par não conta para mim`, async () => {
       const d = await formarDupla();
       await mandarMensagem(d.padrinho, d.chatId, 'Oi! Tudo bem por aí?');
       await mandarMensagem(d.padrinho, d.chatId, 'Me avisa quando chegar.');
       await mandarMensagem(d.padrinho, d.chatId, 'Estou no Prédio 34.');
       await mandarMensagem(d.apadrinhado, d.chatId, 'k');
-      await mandarMensagem(d.apadrinhado, d.chatId, '?');
+      await mandarMensagem(d.apadrinhado, d.chatId, 'Oi, tudo?');
+      await mandarMensagem(d.apadrinhado, d.chatId, 'Valeu! 👍');
       expect((await itemDe(d.apadrinhado, m.id))!.progresso).toEqual({
         atual: 0,
         meta: 3,
