@@ -420,6 +420,7 @@ void main() {
           'latitude': -19.92281,
           'longitude': -43.99352,
           'accuracy': 9.0,
+          'codigo': 'CALOURO26',
         },
         'Fazer check-in e resgatar',
       ),
@@ -428,6 +429,12 @@ void main() {
         final servidor = await abrirTela(tester, [json]);
         final listagens = servidor.listagens;
         await abrirDetalhe(tester, nome);
+        if (nome == 'evento') {
+          await tester.enterText(
+            find.byKey(const Key('detalhe-codigo')),
+            'CALOURO26',
+          );
+        }
         expect(textoDoBotao(tester), botao);
         expect(botaoAtivo(tester), isTrue);
         expect(find.byKey(const Key('detalhe-atalho')), findsNothing);
@@ -555,6 +562,30 @@ void main() {
   });
 
   group('check-in de evento', () {
+    testWidgets('sem o código do evento não lê o GPS nem chama a API', (
+      tester,
+    ) async {
+      final gps = GpsFalso(_noTeatro);
+      final servidor = await abrirTela(tester, [
+        missaoReal(
+          'evento',
+          titulo: 'Participe da Semana do Calouro',
+          descricao: 'Faça o check-in na abertura, no Prédio 30.',
+          requisito: 'EVENTO',
+          xp: 60,
+          pronta: true,
+          alvo: _eventoAgora,
+        ),
+      ], gps: gps);
+      await abrirDetalhe(tester, 'evento');
+      expect(find.byKey(const Key('detalhe-codigo')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('detalhe-concluir')));
+      await tester.pumpAndSettle();
+      expect(find.text('Digite o código da atividade.'), findsOneWidget);
+      expect(gps.leituras, 0);
+      expect(servidor.pedidos, isEmpty);
+    });
+
     Map<String, dynamic> evento({
       required Map<String, dynamic> alvo,
       bool pronta = true,
@@ -598,6 +629,10 @@ void main() {
           find.textContaining('Abertura da Semana do Calouro (Prédio 30)'),
           findsOneWidget,
         );
+        await tester.enterText(
+          find.byKey(const Key('detalhe-codigo')),
+          'CALOURO26',
+        );
         await tester.tap(find.byKey(const Key('detalhe-concluir')));
         await tester.pumpAndSettle();
         expect(gps.leituras, 1);
@@ -619,6 +654,10 @@ void main() {
         },
       );
       await abrirDetalhe(tester, 'evento');
+      await tester.enterText(
+        find.byKey(const Key('detalhe-codigo')),
+        'CALOURO26',
+      );
       await tester.tap(find.byKey(const Key('detalhe-concluir')));
       await tester.pumpAndSettle();
       expect(

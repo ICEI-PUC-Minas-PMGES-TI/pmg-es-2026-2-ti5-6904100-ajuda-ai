@@ -175,6 +175,7 @@ class _MissoesPageState extends State<MissoesPage> with WidgetsBindingObserver {
       latitude: posicao.latitude,
       longitude: posicao.longitude,
       accuracy: posicao.accuracy,
+      codigo: codigo,
     );
   }
 
@@ -1704,9 +1705,10 @@ class _SheetMissaoState extends State<_SheetMissao> {
   Future<void> _resgatar() async {
     final resgatar = widget.onResgatar;
     if (resgatar == null || _enviando) return;
-    final codigo = missao.requisito == RequisitoMissao.codigo
-        ? _codigo.text.trim()
-        : null;
+    final pedeCodigo =
+        missao.requisito == RequisitoMissao.codigo ||
+        missao.requisito == RequisitoMissao.evento;
+    final codigo = pedeCodigo ? _codigo.text.trim() : null;
     if (codigo != null && codigo.isEmpty) {
       setState(() => _erro = 'Digite o código da atividade.');
       return;
@@ -1830,7 +1832,8 @@ class _SheetMissaoState extends State<_SheetMissao> {
                   const SizedBox(height: 28),
                   if (!missao.concluida) ...[
                     _ComoConcluir(missao: missao),
-                    if (missao.requisito == RequisitoMissao.codigo &&
+                    if ((missao.requisito == RequisitoMissao.codigo ||
+                            missao.requisito == RequisitoMissao.evento) &&
                         missao.pronta) ...[
                       const SizedBox(height: 14),
                       TextField(
@@ -2057,7 +2060,7 @@ String comoConcluirMissao(Missao m) {
           ? 'Faça check-in no evento, no local e no horário dele.'
           : 'Faça check-in em ${alvo.nome}${alvo.local == null ? '' : ' (${alvo.local})'}'
                 '${alvo.inicio == null ? '' : ', em ${_dataCurta(alvo.inicio!)} às ${_hora(alvo.inicio!)}'}. '
-                'Precisa estar no local, com a localização ligada.',
+                'Precisa estar no local, com a localização ligada, e digitar o código mostrado no evento.',
     RequisitoMissao.feedComentarios =>
       'Comente ${_vezes(meta, 'vez', 'vezes')} em posts do feed (pelo menos 10 caracteres).',
     RequisitoMissao.feedCurtidas =>
