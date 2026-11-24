@@ -11,7 +11,7 @@
 
   API:  constrói a imagem, envia ao Docker Hub (repositório privado), troca a imagem
         do Container App e espera /health/ready responder com a versão nova.
-        Se não ficar saudável, volta sozinho para a imagem anterior.
+        Se não ficar saudável, restaura a imagem e a versão anteriores.
   Web:  constrói com as variáveis do ambiente e sincroniza com o site estático do
         Storage (autenticação por chave da conta, lida pela CLI, nunca impressa).
 
@@ -82,9 +82,13 @@ if ($Somente -in 'ambos', 'api') {
     }
     Passo 'Enviar a imagem ao Docker Hub (exige docker login feito por você)' { docker push "${repo}:$tag" }
   }
-  Passo 'Guardar a imagem atual (para voltar se falhar)' {
-    $script:anterior = az containerapp show -g $GrupoRecursos -n $app --query 'properties.template.containers[0].image' -o tsv
-    Write-Host "Imagem atual: $script:anterior"
+  Passo 'Guardar a imagem e a versão atuais (para voltar se falhar)' {
+    $consulta = "properties.template.containers[0].{image: image, version: env[?name=='APP_VERSION'] | [0]}"
+    $estado = az containerapp show -g $GrupoRecursos -n $app --query $consulta -o json
+    if ($LASTEXITCODE -ne 0) { throw 'Falha ao consultar a configuração atual da API.' }
+    $script:anterior = $estado | ConvertFrom-Json
+    if (-not $script:anterior.image) { throw 'A imagem atual da API não foi encontrada.' }
+    Write-Host "Imagem atual: $($script:anterior.image)"
   }
   Passo 'Trocar a imagem do Container App' {
     az containerapp update -g $GrupoRecursos -n $app --image "${repo}:$tag" --set-env-vars "APP_VERSION=$tag" `
@@ -98,8 +102,14 @@ if ($Somente -in 'ambos', 'api') {
       if (-not $ok) { Start-Sleep -Seconds 5 }
     }
     if (-not $ok) {
-      Write-Host "API não ficou saudável. Voltando para $script:anterior" -ForegroundColor Red
-      if ($script:anterior) { az containerapp update -g $GrupoRecursos -n $app --image $script:anterior -o none }
+      Write-Host "API não ficou saudável. Voltando para $($script:anterior.image)" -ForegroundColor Red
+      $versao = @('--remove-env-vars', 'APP_VERSION')
+      if ($null -ne $script:anterior.version) {
+        $valor = if ($script:anterior.version.secretRef) { "secretref:$($script:anterior.version.secretRef)" } else { $script:anterior.version.value }
+        $versao = @('--set-env-vars', "APP_VERSION=$valor")
+      }
+      az containerapp update -g $GrupoRecursos -n $app --image $script:anterior.image @versao -o none
+      if ($LASTEXITCODE -ne 0) { throw 'Falha ao reverter o deploy da API.' }
       throw 'Deploy da API revertido.'
     }
     Write-Host "API saudável: $urlApi (versão $tag)"

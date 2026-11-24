@@ -69,13 +69,18 @@ jobs:
           CONTA: ${{ vars.WEB_STORAGE_ACCOUNT }}
         run: |
           [ -n "$CONTA" ] || { echo "::error::Variável WEB_STORAGE_ACCOUNT ausente no Environment"; exit 1; }
-          # Arquivos com hash no nome: cache longo. index.html: sempre revalidar
-          # (é ele que aponta para a versão nova, e é a base do rollback).
-          az storage blob sync --account-name "$CONTA" --auth-mode login --container '$web' \
-            --source code/front/dist --delete-destination true \
+          dist=code/front/dist
+          publicacao=$(mktemp -d "$RUNNER_TEMP/ajudaai-web.XXXXXX")
+          mv "$dist/index.html" "$dist/assets" "$publicacao/"
+          # Arquivos públicos têm nomes estáveis. Só os bundles do Vite recebem cache longo.
+          az storage blob upload-batch --account-name "$CONTA" --auth-mode login --destination '$web' \
+            --source "$dist" --overwrite true --content-cache-control "no-cache" -o none
+          az storage blob upload-batch --account-name "$CONTA" --auth-mode login --destination '$web' \
+            --source "$publicacao/assets" --destination-path assets --overwrite true \
             --content-cache-control "public, max-age=31536000, immutable" -o none
+          # Troca o index só depois de enviar os arquivos que ele referencia.
           az storage blob upload --account-name "$CONTA" --auth-mode login --container '$web' \
-            --file code/front/dist/index.html --name index.html --overwrite \
+            --file "$publicacao/index.html" --name index.html --overwrite \
             --content-cache-control "no-cache" --content-type "text/html; charset=utf-8" -o none
       - name: Verificar (raiz e rota interna do login Microsoft)
         run: |
