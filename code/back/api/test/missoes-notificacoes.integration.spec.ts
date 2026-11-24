@@ -25,9 +25,9 @@ import { HabilitaPostgisESchemaMapa1792263378656 } from '../src/migrations/17922
 import { CriaTabelasMapa1792263378657 } from '../src/migrations/1792263378657-CriaTabelasMapa.js';
 import { PucStopsEXpGlobal1792279161187 } from '../src/migrations/1792279161187-PucStopsEXpGlobal.js';
 import { GamificacaoNiveisMoedasCiclos1794000000000 } from '../src/migrations/1794000000000-GamificacaoNiveisMoedasCiclos.js';
-import { CriaMissoes1794300000000 } from '../src/migrations/1794300000000-CriaMissoes.js';
-import { CriaNotificacoes1794400000000 } from '../src/migrations/1794400000000-CriaNotificacoes.js';
-import { ConclusoesMissaoSemTruncate1794500000000 } from '../src/migrations/1794500000000-ConclusoesMissaoSemTruncate.js';
+import { CriaMissoes1794700000000 } from '../src/migrations/1794700000000-CriaMissoes.js';
+import { CriaNotificacoes1794800000000 } from '../src/migrations/1794800000000-CriaNotificacoes.js';
+import { ConclusoesMissaoSemTruncate1794900000000 } from '../src/migrations/1794900000000-ConclusoesMissaoSemTruncate.js';
 import { NotificacoesController } from '../src/notificacoes/notificacoes.controller.js';
 import { NotificacoesService } from '../src/notificacoes/notificacoes.service.js';
 import { ParticipacoesService } from '../src/participacoes/participacoes.service.js';
@@ -47,9 +47,9 @@ const MIGRATIONS: Array<new () => MigrationInterface> = [
   CriaTabelasMapa1792263378657,
   PucStopsEXpGlobal1792279161187,
   GamificacaoNiveisMoedasCiclos1794000000000,
-  CriaMissoes1794300000000,
-  CriaNotificacoes1794400000000,
-  ConclusoesMissaoSemTruncate1794500000000,
+  CriaMissoes1794700000000,
+  CriaNotificacoes1794800000000,
+  ConclusoesMissaoSemTruncate1794900000000,
 ];
 
 function urlDo(banco: string): string {
@@ -384,7 +384,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       const qr = ds.createQueryRunner();
       try {
         await expect(
-          new CriaNotificacoes1794400000000().down(qr),
+          new CriaNotificacoes1794800000000().down(qr),
         ).rejects.toThrow(/Rollback recusado/);
       } finally {
         await qr.release();

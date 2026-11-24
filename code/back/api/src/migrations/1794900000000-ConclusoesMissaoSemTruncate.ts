@@ -8,8 +8,8 @@ const TRIGGER = 'tg_missoes_conclusoes_sem_truncate';
  * gatilho por linha (UPDATE/DELETE). Este completa a proteção contra
  * `TRUNCATE`, como em `resgates` e no ledger.
  */
-export class ConclusoesMissaoSemTruncate1794500000000 implements MigrationInterface {
-  name = 'ConclusoesMissaoSemTruncate1794500000000';
+export class ConclusoesMissaoSemTruncate1794900000000 implements MigrationInterface {
+  name = 'ConclusoesMissaoSemTruncate1794900000000';
 
   async up(qr: QueryRunner): Promise<void> {
     const g = `"${SCHEMA_GAMIFICACAO}"`;
