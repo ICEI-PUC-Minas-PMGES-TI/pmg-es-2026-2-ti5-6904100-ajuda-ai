@@ -11,7 +11,7 @@ export const LIMITES_MISSAO = { tituloMax: 120, descricaoMax: 1000, xpMax: 100, 
 export const ROTULO_TIPO = { UNICA: 'Única', SEMANAL: 'Semanal' };
 
 export const REQUISITOS = {
-  PUCSTOPS: { rotulo: 'Coletar PucStops', curto: 'PucStops', contado: true, dica: 'Conta só totem coletado no local (geofence), depois que a missão abriu.' },
+  PUCSTOPS: { rotulo: 'Coletar PucStops', curto: 'PucStops', contado: true, dica: 'Conta totem coletado no local (geofence) neste semestre. Cada totem vale uma vez: a missão é única.' },
   EVENTO: { rotulo: 'Check-in em evento', curto: 'Evento', dica: 'O aluno faz check-in com o GPS no local do evento, de 30 min antes até o fim.' },
   FEED_COMENTARIOS: { rotulo: 'Comentar no feed', curto: 'Comentários', contado: true, dica: 'Comentários com pelo menos 10 caracteres, no feed do semestre.' },
   FEED_CURTIDAS: { rotulo: 'Curtir posts de colegas', curto: 'Curtidas', contado: true, dica: 'Uma curtida por post; curtir o próprio post não conta.' },
@@ -92,6 +92,9 @@ export function validarMissao(form, { agora = new Date(), fimNovo = true } = {})
   if (form.requisito === 'EVENTO') {
     if (!form.alvoId) return 'Escolha o evento.';
     if (form.tipo !== 'UNICA') return 'Missão de evento é única: o evento acontece uma vez.';
+  }
+  if (form.requisito === 'PUCSTOPS' && form.tipo !== 'UNICA') {
+    return 'Missão de PucStop é única: cada totem é coletado uma vez por semestre.';
   }
   if (form.requisito === 'CODIGO' && !CODIGO_VALIDO.test(normalizarCodigo(form.codigo))) {
     return 'Código: de 4 a 20 letras, números ou hífen (ex.: CALOURO26).';
@@ -646,7 +649,7 @@ export function FormularioMissao({ original, onCancelar, onSalvo }) {
       const proximo = { ...atual, [chave]: valor };
       if (chave === 'requisito') {
         proximo.alvoId = '';
-        if (valor === 'EVENTO') proximo.tipo = 'UNICA';
+        if (valor === 'EVENTO' || valor === 'PUCSTOPS') proximo.tipo = 'UNICA';
       }
       return proximo;
     });
@@ -746,7 +749,7 @@ export function FormularioMissao({ original, onCancelar, onSalvo }) {
         <fieldset className="recompensa-bloco">
           <legend>Recompensa</legend>
           <div className="editor-grid pucstop-grid">
-            <ListaMissao id={`${base}-tipo`} rotulo="Tipo" valor={form.tipo} opcoes={OPCOES_TIPO} desabilitado={tipoBloqueado || form.requisito === 'EVENTO'} onChange={(valor) => campo('tipo', valor)} />
+            <ListaMissao id={`${base}-tipo`} rotulo="Tipo" valor={form.tipo} opcoes={OPCOES_TIPO} desabilitado={tipoBloqueado || form.requisito === 'EVENTO' || form.requisito === 'PUCSTOPS'} onChange={(valor) => campo('tipo', valor)} />
             <label className="editor-field" htmlFor={`${base}-xp`}>
               <span>Recompensa (XP)</span>
               <input id={`${base}-xp`} type="number" inputMode="numeric" min={1} max={form.tipo === 'SEMANAL' ? xpSemanalMax : xpMax} step={1} value={form.xp} required onChange={(e) => campo('xp', e.target.value)} />

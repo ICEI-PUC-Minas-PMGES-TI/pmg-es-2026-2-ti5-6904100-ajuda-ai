@@ -145,6 +145,8 @@ test('requisito: obrigatório e coerente, como no servidor', () => {
   assert.match(m.validarMissao({ ...ok, requisito: 'EVENTO' }), /Escolha o evento/);
   assert.match(m.validarMissao({ ...ok, requisito: 'EVENTO', alvoId: EVENTO, tipo: 'SEMANAL' }), /única/);
   assert.equal(m.validarMissao({ ...ok, requisito: 'EVENTO', alvoId: EVENTO }), '');
+  assert.match(m.validarMissao({ ...ok, tipo: 'SEMANAL' }), /PucStop é única/);
+  assert.equal(m.validarMissao({ ...ok, requisito: 'FEED_COMENTARIOS', tipo: 'SEMANAL' }), '');
   for (const codigo of ['', 'AB', 'CALOURO@26', 'A'.repeat(21)]) {
     assert.match(m.validarMissao({ ...ok, requisito: 'CODIGO', codigo }), /4 a 20/, codigo);
   }
