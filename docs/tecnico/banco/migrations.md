@@ -71,6 +71,47 @@ Migrations não publicam GLBs nem importam conteúdo administrativo.
   `recompensa_versoes` e `recompensa_estoque_ajustes` (só INSERT) e liga cada
   resgate à versão resgatada. CHECK impede total abaixo do comprometido.
   Rollback só sem histórico novo (versões, ajustes ou status inativa/arquivada).
+- `ProgramaRecompensasFk` (`1794100000000`): FK `recompensas.programa_codigo`
+  → `programas.codigo` (RESTRICT). Recusa se houver recompensas órfãs e lista
+  os códigos.
+- `EntregaResgatesEAjustesXp` (`1794200000000`, F29/F26):
+  `resgate_desfechos` (entrega ou cancelamento, UNIQUE por resgate, estorno
+  ligado ao ledger) e `xp_ajustes` (motivo, responsável e movimentação
+  `AJUSTE_ADMIN`). As duas tabelas são só de inserção. O rollback é
+  recusado se já houver entregas, cancelamentos ou ajustes gravados.
+- `ResgatesProgramaDaTroca` (`1794300000000`, F29): `resgates.programa_codigo`
+  (programa da troca, gravado pela lojinha na inserção e nunca recalculado) e
+  `programa_inferido`. Preenche os resgates antigos com a melhor evidência
+  (programa da recompensa restrita; senão a participação do aluno anterior à
+  troca, preferindo a do semestre dela; senão NULL) e os marca como inferidos.
+  FK para `programas` (RESTRICT) e índices da fila (`criado_em DESC, id DESC`).
+  O rollback é recusado se houver resgates com programa gravado na troca.
+
+`ProgramaRecompensasFk` e `EntregaResgatesEAjustesXp` foram criadas como
+`1793700000000` e `1793600000000`, os mesmos timestamps de
+`RestaurantesOficiaisCampus` e `InformacoesImagensLocais` da Sprint-6. Foram
+renomeadas para rodar depois de `1794000000000-GamificacaoNiveisMoedasCiclos`.
+Num banco que já as aplicou com o nome antigo:
+
+- **Adoção só com estrutura idêntica.** `EntregaResgatesEAjustesXp` recria a
+  estrutura esperada, com a mesma DDL, num schema temporário (desfeito por
+  SAVEPOINT) e compara pelo catálogo colunas (tipo, nulidade, default),
+  constraints (PK/UNIQUE/FK/CHECK com definição e validação), índices e
+  gatilhos (inclusive desabilitados). `ProgramaRecompensasFk` confere a FK
+  atributo por atributo (tabela, colunas, alvo, ON UPDATE/DELETE, MATCH,
+  NOT VALID) e o índice (colunas, unicidade, predicado). Qualquer diferença, ou
+  só uma das duas tabelas, aborta **antes de alterar algo**, listando o que
+  falta ou sobra. O que faltar sem conflito (ex.: só o índice) é criado.
+- **O `down` só remove o que a migration criou.** Objetos criados por ela
+  levam a marca `ajuda-ai: criado por <migration>` no COMMENT. Sem marca, só
+  são removidos se o nome antigo nunca foi registrado; estrutura adotada da
+  versão antiga fica.
+- **Recompensas órfãs** (programa inexistente) impedem a FK: a migration
+  recusa sem mudar nada e lista cada código com as recompensas. Cadastre o
+  programa ou ajuste `programa_codigo` e rode de novo.
+
+Cenários cobertos com fixtures de banco novo, legado completo, legado parcial
+e dados legados em `test/migrations-gamificacao.integration.spec.ts`.
 
 Modelos e regras têm fonte em [dados geoespaciais](../mapa/dados-geo.md),
 [PucStops](../mapa/pucstops.md), [XP](../gamificacao/xp.md) e

@@ -9,7 +9,7 @@ O ledger é a fonte de verdade; a carteira materializa seu saldo.
 Decisões DP-24 (opção B) e DP-25. Regras em `src/gamificacao/economia.ts` (fonte única; os apps só exibem).
 
 - **XP acumulado** (`xp_carteiras.xp_acumulado`): experiência; define o nível. Só sobe com atividades; desce apenas por correção administrativa (`AJUSTE_ADMIN`, ±200, auditável). Mantido pelo gatilho `gamificacao.acumular_xp` a cada INSERT no ledger — vale também para versões antigas do backend.
-- **Moedas** (`xp_carteiras.saldo`, nome histórico; `saldo` na API): saldo da lojinha. Ganham 1:1 com o XP; resgates (`RECOMPENSA` negativo) e estornos (`RECOMPENSA` positivo, formato da branch `Arthur_gv`) mexem **só** nas moedas. Nunca negativas.
+- **Moedas** (`xp_carteiras.saldo`, nome histórico; `saldo` na API): saldo da lojinha. Ganham 1:1 com o XP; resgates (`RECOMPENSA` negativo) e estornos (`RECOMPENSA` positivo, cancelamento da F29) mexem **só** nas moedas. Nunca negativas.
 - **Ledger**: `xp_movimentacoes.quantidade` = efeito nas moedas; `xp_quantidade` = efeito no XP (NULL nas linhas antigas: vale a regra do tipo — `RECOMPENSA` 0, demais = quantidade); `ciclo` = semestre do ganho. Tipos: `PUCSTOP_CLAIM`, `RECOMPENSA`, `AJUSTE_ADMIN`, `MISSAO`.
 - **Níveis** (10): 0, 50, 150, 300, 500, 750, 1050, 1400, 1950, 2600 — Primeiro passo … Lenda da PUC. `GET /gamificacao/niveis` (público). O nível é conquista, não papel.
 - **Totens**: recompensa 10/20/30/40/50 XP (+ moedas 1:1), padrão 30 (CHECK no banco e validação na API). Uma coleta por usuário, totem e **ciclo** (`uq_pucstop_coletas_usuario_pucstop_ciclo`); o mapa mostra como coletadas só as do ciclo atual. `pucstop_coletas.xp` = creditado; `xp_configurado` = valor do totem na hora.
@@ -51,8 +51,10 @@ Editar o XP de um ponto afeta só novas coletas:
 
 ## API e app
 
-- `GET /me/xp`: `{saldo, atualizadoEm}`; sem movimentação, 0/null.
-  Leitura não cria carteira.
+- `GET /me/xp`: resumo do BL-50 (moedas, XP acumulado, nível e tetos; ver
+  acima). Sem movimentação, zeros/null. Leitura não cria carteira. O XP
+  acumulado é o total ganho na trajetória; as moedas são o saldo disponível
+  para troca (F26).
 - `GET /me/xp/movimentacoes?limite=1..100&antes=<id>`: histórico do próprio
   usuário, mais recente primeiro, com paginação por cursor.
 
@@ -70,7 +72,39 @@ idempotência próprias. Os tipos aceitos têm CHECK em migration; ampliar esse
 conjunto exige mudança explícita de estrutura. O ledger admite débitos tipados,
 mas isso não implementa por si só uma loja ou fluxo de recompensa.
 
-A lojinha (cadastro e resgate com XP) está em [lojinha](lojinha.md).
+A lojinha (cadastro, resgate, entrega e cancelamento) está em
+[lojinha](lojinha.md).
+
+## Ajustes da coordenação (F26)
+
+Rotas em `/coordenacao/xp` (perfil `coordenador`), código em
+`src/gamificacao/xp/xp-admin.*`.
+
+- `GET /coordenacao/xp?busca=`: participantes com `moedas`, `xpAcumulado` e
+  `nivel` (até 50).
+- `GET /coordenacao/xp/:usuarioId`: o mesmo resumo de `/me/xp`, o extrato
+  paginado como em `/me/xp/movimentacoes` e os ajustes com motivo e
+  responsável.
+- `POST /coordenacao/xp/:usuarioId/ajustes`: `{ quantidade, motivo,
+  chaveIdempotencia }`. Quantidade inteira diferente de zero, até ±200
+  (`LIMITES.ajusteAdmin`), motivo de 3 a 300 caracteres. Mexe no XP e nas
+  moedas na mesma quantidade. Débito que deixaria as moedas negativas: 422
+  `saldo-insuficiente` (ou `xp-insuficiente` para o XP). Repetir a mesma chave
+  devolve o ajuste já feito; a mesma chave em outro participante dá 409.
+
+O ajuste entra no ledger como `AJUSTE_ADMIN` (chave `ajuste:<chave>`) e em
+`xp_ajustes` (migration `1794200000000-EntregaResgatesEAjustesXp`), com
+motivo, responsável e a movimentação. As duas tabelas são só de inserção:
+corrigir um ajuste é fazer outro.
+
+Tela: painel web da coordenação, "XP e moedas" (`/coordenacao/xp`).
+Contrato detalhado (respostas e erros) para o app da coordenação:
+[api-coordenacao-lojinha](api-coordenacao-lojinha.md).
+
+Encerramento do programa (DP-07): o ex-participante mantém XP, nível e
+moedas, consulta o histórico, mas não resgata (`podeUsarLojinha`). XP e
+moedas não expiram; se o grupo decidir por expiração, ela deve entrar no
+ledger como movimentação própria (nunca apagando linhas).
 
 Concorrência e consistência são verificadas em
 `test/pucstops-xp.integration.spec.ts`; validações unitárias ficam em

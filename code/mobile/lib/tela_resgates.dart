@@ -9,6 +9,52 @@ import 'theme/colors.dart';
 DateTime? _data(Object? valor) =>
     valor is String ? DateTime.tryParse(valor)?.toLocal() : null;
 
+/// Situação de um resgate (F29): `aguardando_entrega`, `entregue` ou
+/// `cancelado`. Respostas antigas, sem o campo, contam como aguardando.
+String situacaoDoResgate(Map<String, dynamic> resgate) {
+  final valor = resgate['situacao'];
+  return valor == 'entregue' || valor == 'cancelado'
+      ? valor as String
+      : 'aguardando_entrega';
+}
+
+const rotulosSituacaoResgate = {
+  'aguardando_entrega': 'Aguardando retirada',
+  'entregue': 'Entregue',
+  'cancelado': 'Cancelado',
+};
+
+class SeloSituacaoResgate extends StatelessWidget {
+  const SeloSituacaoResgate({super.key, required this.situacao});
+
+  final String situacao;
+
+  @override
+  Widget build(BuildContext context) {
+    final (Color fundo, Color texto) = switch (situacao) {
+      'entregue' => (AppAccents.successBg, AppAccents.success),
+      'cancelado' => (CoresLojinha.perigoFundo, CoresLojinha.perigo),
+      _ => (AppAccents.tileLaranja, const Color(0xFF9A6B00)),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: fundo,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        rotulosSituacaoResgate[situacao] ?? situacao,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          color: texto,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
 class _ParInfo extends StatelessWidget {
   const _ParInfo({
     required this.icone,
@@ -83,6 +129,47 @@ class TelaComprovante extends StatelessWidget {
     final criadoEm = _data(resgate['criadoEm']);
     final codigo = '${resgate['codigo'] ?? resgate['id']}';
     final saldo = resgate['saldoAtual'] ?? resgate['saldoApos'];
+    // Logo após a troca a API devolve `saldoAtual`; no histórico, a situação.
+    final recemFeito = resgate['saldoAtual'] is int;
+    final situacao = situacaoDoResgate(resgate);
+    final entregueEm = _data(resgate['entregueEm']);
+    final canceladoEm = _data(resgate['canceladoEm']);
+    final (IconData icone, Color corIcone, Color fundoIcone) = switch (situacao) {
+      'cancelado' => (
+        Icons.close_rounded,
+        CoresLojinha.perigo,
+        CoresLojinha.perigoFundo,
+      ),
+      'entregue' => (
+        Icons.check_rounded,
+        AppAccents.success,
+        AppAccents.successBg,
+      ),
+      _ => recemFeito
+          ? (Icons.check_rounded, AppAccents.success, AppAccents.successBg)
+          : (
+              Icons.schedule_rounded,
+              AppAccents.iconeLaranja,
+              AppAccents.tileLaranja,
+            ),
+    };
+    final titulo = switch (situacao) {
+      'cancelado' => 'Resgate cancelado',
+      'entregue' => 'Recompensa entregue',
+      _ => recemFeito ? 'Resgate realizado com sucesso!' : 'Aguardando retirada',
+    };
+    final subtitulo = switch (situacao) {
+      'cancelado' =>
+        'A coordenação cancelou este resgate'
+            '${canceladoEm == null ? '' : ' em ${formatarDataHora(canceladoEm)}'}. '
+            'As moedas voltaram para o seu saldo.',
+      'entregue' =>
+        'Você retirou esta recompensa'
+            '${entregueEm == null ? '' : ' em ${formatarDataHora(entregueEm)}'}.',
+      _ => recemFeito
+          ? 'Seu resgate foi registrado. Veja os detalhes abaixo.'
+          : 'Apresente o código na coordenação para retirar.',
+    };
     return EstruturaLojinha(
       titulo: 'Comprovante',
       corpo: ListView(
@@ -92,37 +179,53 @@ class TelaComprovante extends StatelessWidget {
             child: Container(
               width: 64,
               height: 64,
-              decoration: const BoxDecoration(
-                color: AppAccents.successBg,
+              decoration: BoxDecoration(
+                color: fundoIcone,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
-                Icons.check_rounded,
-                size: 40,
-                color: AppAccents.success,
-              ),
+              child: Icon(icone, size: 40, color: corIcone),
             ),
           ),
           const SizedBox(height: 12),
-          const Text(
-            'Resgate realizado com sucesso!',
+          Text(
+            titulo,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppColors.ink,
               fontSize: 24,
               fontWeight: FontWeight.w800,
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Seu resgate foi registrado. Veja os detalhes abaixo.',
+          Text(
+            subtitulo,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               fontFamily: 'Inter',
               color: AppColors.ink,
               fontSize: 15,
             ),
           ),
+          if (situacao == 'cancelado' &&
+              (resgate['motivoCancelamento'] as String?)?.isNotEmpty ==
+                  true) ...[
+            const SizedBox(height: 12),
+            CartaoLojinha(
+              cor: CoresLojinha.perigoFundo,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
+              child: Text(
+                'Motivo: ${resgate['motivoCancelamento']}',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  color: AppColors.ink,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           CartaoLojinha(
             cor: CoresLojinha.cartaoForte,
@@ -195,26 +298,28 @@ class TelaComprovante extends StatelessWidget {
             texto: resgate['condicoesRetirada'] as String? ?? '',
             compacto: true,
           ),
-          const SizedBox(height: 12),
-          const CartaoLojinha(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline_rounded, color: AppColors.primary),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Apresente este código na retirada.',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      color: AppColors.ink,
-                      fontSize: 15,
+          if (situacao == 'aguardando_entrega') ...[
+            const SizedBox(height: 12),
+            const CartaoLojinha(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, color: AppColors.primary),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Apresente este código na retirada.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        color: AppColors.ink,
+                        fontSize: 15,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+          ],
         ],
       ),
       rodape: api == null
@@ -351,6 +456,8 @@ class _CartaoResgate extends StatelessWidget {
                       fontSize: 14,
                     ),
                   ),
+                const SizedBox(height: 6),
+                SeloSituacaoResgate(situacao: situacaoDoResgate(resgate)),
               ],
             ),
           ),

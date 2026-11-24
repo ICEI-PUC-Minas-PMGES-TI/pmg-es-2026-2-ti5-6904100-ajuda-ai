@@ -11,6 +11,28 @@ Migrations no schema `gamificacao`:
   (`resgates.versao`; os antigos ficam na v1).
 - `1793500000000-CodigoResgates` (F28): `resgates.codigo`, código curto e
   único do comprovante (10 caracteres hexadecimais em maiúsculas).
+- `1794100000000-ProgramaRecompensasFk`: `recompensas.programa_codigo`
+  passa a ser FK de `programas.codigo` (RESTRICT). Excluir um programa com
+  recompensas restritas a ele dá 409; recompensas órfãs fazem a migration
+  recusar e listar os códigos.
+- `1794200000000-EntregaResgatesEAjustesXp` (F29/F26): `resgate_desfechos`
+  (entrega ou cancelamento, no máximo um por resgate) e `xp_ajustes`.
+- `1794300000000-ResgatesProgramaDaTroca` (F29): `resgates.programa_codigo`,
+  o programa (ciclo) em que a troca foi feita. A lojinha grava na inserção:
+  o programa da recompensa restrita ou, se ela é aberta a todos, o da
+  participação ativa do aluno. "Resgates do programa" na coordenação usa esta
+  coluna, nunca `recompensas.programa_codigo` (que a coordenação pode editar
+  depois). Resgates antigos são preenchidos pela migration e ficam com
+  `programa_inferido = true`; sem evidência, ficam sem programa (filtro
+  `semPrograma=true`).
+
+`ProgramaRecompensasFk` e `EntregaResgatesEAjustesXp` eram `1793700000000` e
+`1793600000000` na branch `Arthur_gv`, os mesmos timestamps de duas
+migrations da Sprint-6, e foram renomeadas para rodar depois de
+`1794000000000-GamificacaoNiveisMoedasCiclos`. Num banco que já as aplicou
+com o nome antigo, só adotam a estrutura depois de conferi-la por inteiro e
+recusam, sem alterar nada, um schema incompleto ou divergente (detalhes em
+[migrations](../banco/migrations.md)).
 
 Execute as migrations da API antes de usar os endpoints.
 
@@ -84,7 +106,85 @@ lista atualizada. `tela_resgates.dart`: comprovante com o código, "Meus
 resgates" e extrato de XP paginado. Condições de retirada com várias linhas
 aparecem em tópicos.
 
+Com a F29, o comprovante e "Meus resgates" mostram a situação: **aguardando
+retirada** (com o aviso para apresentar o código), **entregue** (com a data)
+ou **cancelado** (com o motivo e a devolução das moedas). Resposta antiga sem
+`situacao` conta como aguardando. Testes em `test/resgate_situacao_test.dart`.
+
+## Entrega e cancelamento (F29)
+
+Rotas em `/coordenacao/resgates` (perfil `coordenador`). Código em
+`src/gamificacao/resgates/`.
+
+- `GET /`: até 200 resgates, mais recentes primeiro, com participante,
+  recompensa (e programa), custo, data, situação, datas de entrega ou
+  cancelamento, motivo e responsável. Filtros: `situacao`
+  (`aguardando_entrega`, `entregue`, `cancelado`), `programa`,
+  `recompensaId` e `busca` (nome, e-mail ou código do comprovante).
+- `GET /:id`: o mesmo item.
+- `POST /:id/entregar`: grava a entrega com o responsável do token e a data.
+  A unidade continua comprometida (saiu do estoque).
+- `POST /:id/cancelar`: `{ motivo }` (3 a 300 caracteres). Na mesma
+  transação: devolve as moedas (movimentação `RECOMPENSA` positiva, chave
+  `estorno:<id>`, referência `RESGATE`), devolve a unidade
+  (`estoque_comprometido - 1`) e grava o desfecho com motivo e responsável.
+
+Resgate já entregue ou cancelado: 409 (`resgate-entregue` ou
+`resgate-cancelado`). O UNIQUE de `resgate_desfechos.resgate_id` e a chave
+do estorno impedem dupla entrega, duplo estorno e dupla devolução mesmo sob
+concorrência (o cancelamento trava carteira, resgate e recompensa nessa
+ordem, a mesma do resgate do aluno). Desfechos são só de inserção; o resgate
+original nunca muda.
+
+O aluno vê `situacao`, `entregueEm`, `canceladoEm` e `motivoCancelamento` no
+histórico e no comprovante (`/me/lojinha/resgates`), só dos próprios
+resgates. Testes em `test/resgates-xp.integration.spec.ts`.
+
+Contrato completo das rotas (parâmetros, respostas e erros), para o app da
+coordenação: [api-coordenacao-lojinha](api-coordenacao-lojinha.md).
+
+## Telas da coordenação (web)
+
+- **Resgates** (`/coordenacao/resgates`, `ResgatesPage.jsx`): lista com
+  filtro por programa (na API) e por situação e busca (nome, e-mail ou
+  código, na própria tela). Ações "Entregar" e "Cancelar"; o cancelamento pede
+  o motivo e avisa que as moedas e a unidade voltam e que o XP não muda. Em
+  409, a tela recarrega o item. O filtro `recompensaId` da API não é usado
+  na web.
+- **XP e moedas** (`/coordenacao/xp`, `XpPage.jsx`): busca de participantes
+  com moedas, XP acumulado e nível; extrato paginado; histórico de ajustes e
+  formulário de ajuste (±200, motivo obrigatório). A chave de idempotência é
+  gerada com o formulário e só é trocada depois de um ajuste gravado, então
+  um reenvio após erro de rede não lança duas vezes.
+
+Testes em `code/front/test/resgates-xp.test.mjs`.
+
+## Moedas, XP e estorno
+
+- O resgate debita **moedas** (`custoXp` é o nome histórico do custo); o XP
+  acumulado e o nível não caem.
+- O estorno (cancelamento pela coordenação) devolve as mesmas moedas, como
+  movimentação `RECOMPENSA` positiva com `xp = 0`, e a unidade volta ao
+  estoque. É lançamento novo no ledger: o débito original continua lá.
+- A entrega não mexe em saldo nem em estoque (a unidade já estava
+  comprometida desde o resgate).
+- Um resgate cancelado **continua contando** no `limitePorAluno` (decisão em
+  aberto, abaixo).
+
+## Encerramento do programa (DP-07)
+
+Quando a participação termina, o ex-participante mantém XP, nível e moedas e
+continua consultando o histórico e os comprovantes, mas não lista nem
+resgata recompensas (`podeUsarLojinha = false` → 403 `sem-participacao`).
+Resgates aguardando retirada continuam válidos para a coordenação entregar
+ou cancelar. XP e moedas não expiram. Se o grupo decidir por expiração, ela
+deve entrar no ledger como movimentação própria, sem apagar linhas.
+
 ## Ainda pendente
 
-Entrega e cancelamento de resgates (F29): devolver XP e unidade
-comprometida. Upload de imagem (hoje é URL https).
+- Decisões do grupo (F29): prazo de retirada, cancelamento pelo próprio aluno,
+  recompensas digitais e se um resgate cancelado volta a liberar o
+  `limitePorAluno` (hoje continua contando).
+- Telas de entrega/cancelamento e ajustes no app mobile da coordenação
+  (contrato pronto em [api-coordenacao-lojinha](api-coordenacao-lojinha.md)).
+- Upload de imagem (hoje é URL https).

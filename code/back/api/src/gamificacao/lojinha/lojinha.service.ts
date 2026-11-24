@@ -13,6 +13,10 @@ import {
   schemaUsuarios,
   travarCarteira,
 } from '../gamificacao.js';
+import {
+  COLUNAS_SITUACAO,
+  type SituacaoResgate,
+} from '../resgates/resgates.js';
 
 const g = '"gamificacao"';
 
@@ -58,6 +62,11 @@ export interface Resgate {
   criadoEm: Date;
   saldoApos: number;
   imagemUrl: string | null;
+  /** F29: aguardando entrega, entregue ou cancelado (com XP devolvido). */
+  situacao: SituacaoResgate;
+  entregueEm: Date | null;
+  canceladoEm: Date | null;
+  motivoCancelamento: string | null;
 }
 
 function participacaoAtiva(schemaFeed: string, extra = ''): string {
@@ -95,9 +104,11 @@ const COLUNAS =
 const RESGATE =
   `SELECT r."id", r."codigo", r."recompensa_id" AS "recompensaId", r."versao", r."nome", r."descricao", ` +
   `r."custo_xp" AS "custoXp", r."condicoes_retirada" AS "condicoesRetirada", ` +
-  `r."criado_em" AS "criadoEm", m."saldo_apos" AS "saldoApos", c."imagem_url" AS "imagemUrl" ` +
+  `r."criado_em" AS "criadoEm", m."saldo_apos" AS "saldoApos", v."imagem_url" AS "imagemUrl", ` +
+  `${COLUNAS_SITUACAO} ` +
   `FROM ${g}."resgates" r JOIN ${g}."xp_movimentacoes" m ON m."id" = r."movimentacao_id" ` +
-  `JOIN ${g}."recompensas" c ON c."id" = r."recompensa_id" `;
+  `JOIN ${g}."recompensa_versoes" v ON v."recompensa_id" = r."recompensa_id" AND v."versao" = r."versao" ` +
+  `LEFT JOIN ${g}."resgate_desfechos" d ON d."resgate_id" = r."id" `;
 
 /**
  * Consulta e resgate da lojinha pelo aluno. O cadastro (F27) fica em
@@ -123,6 +134,34 @@ export class LojinhaService {
         motivo: 'sem-participacao',
       });
     }
+  }
+
+  /**
+   * Programa (ciclo) da troca, gravado no resgate e nunca recalculado (F29):
+   * - recompensa restrita: o programa dela NESTE momento;
+   * - recompensa aberta a todos: o programa da participação ativa que deu
+   *   acesso à lojinha (a mais recente, se houver mais de uma), desde que
+   *   o programa exista em `programas` (a coluna tem FK).
+   * Editar a recompensa depois não muda em qual programa a troca aparece.
+   */
+  private async programaDaTroca(
+    qr: QueryRunner,
+    aluno: Aluno,
+    recompensaId: string,
+  ): Promise<string | null> {
+    const s = schemaUsuarios(this.db);
+    const [linha] = (await qr.query(
+      `SELECT COALESCE(r."programa_codigo", (` +
+        `SELECT p."programa" FROM ${s}."participacoes" p ` +
+        `JOIN ${s}."programas" pr ON pr."codigo" = p."programa" ` +
+        `WHERE p."usuario_id" IN ($2::text, $3) ` +
+        `AND (p."papel" = $1 OR ($1 = 'padrinho' AND p."papel" = 'candidato')) ` +
+        `AND p."status" IN ('aprovado', 'em_andamento') ` +
+        `ORDER BY p."criado_em" DESC, p."id" DESC LIMIT 1` +
+        `)) AS "codigo" FROM ${g}."recompensas" r WHERE r."id" = $4`,
+      [aluno.perfil, aluno.id, aluno.email, recompensaId],
+    )) as Array<{ codigo: string | null }>;
+    return linha?.codigo ?? null;
   }
 
   async listar(aluno: Aluno): Promise<Recompensa[]> {
@@ -251,10 +290,11 @@ export class LojinhaService {
         `UPDATE ${g}."recompensas" SET "estoque_comprometido" = "estoque_comprometido" + 1 WHERE "id" = $1`,
         [recompensaId],
       );
+      const programa = await this.programaDaTroca(qr, aluno, recompensaId);
       const [resgate] = (await qr.query(
         `INSERT INTO ${g}."resgates" ` +
-          `("id", "usuario_id", "recompensa_id", "versao", "movimentacao_id", "chave_idempotencia", "nome", "descricao", "custo_xp", "condicoes_retirada") ` +
-          `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ` +
+          `("id", "usuario_id", "recompensa_id", "versao", "movimentacao_id", "chave_idempotencia", "nome", "descricao", "custo_xp", "condicoes_retirada", "programa_codigo") ` +
+          `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ` +
           `RETURNING "id", "codigo", "recompensa_id" AS "recompensaId", "versao", "nome", "descricao", "custo_xp" AS "custoXp", ` +
           `"condicoes_retirada" AS "condicoesRetirada", "criado_em" AS "criadoEm"`,
         [
@@ -268,11 +308,16 @@ export class LojinhaService {
           item.descricao,
           item.custoXp,
           item.condicoesRetirada,
+          programa,
         ],
       )) as Resgate[];
       await qr.commitTransaction();
       return {
         ...resgate,
+        situacao: 'aguardando_entrega',
+        entregueEm: null,
+        canceladoEm: null,
+        motivoCancelamento: null,
         imagemUrl: item.imagemUrl,
         saldoApos: movimento.saldo,
         saldoAtual: movimento.saldo,
