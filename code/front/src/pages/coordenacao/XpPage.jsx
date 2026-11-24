@@ -5,11 +5,11 @@ import Modal from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { dataCurta } from './comum';
 import {
+  ajusteDoPendente,
   formularioDoPendente,
   gravarPendente,
   lerPendente,
   limparPendente,
-  pendenteConfirmado,
   respostaIncerta,
 } from './ajustePendente';
 
@@ -53,6 +53,11 @@ export function corpoAjusteXp({ sentido, quantidade, motivo }, chave) {
 }
 
 const sinal = (n) => (n > 0 ? `+${n.toLocaleString('pt-BR')}` : n.toLocaleString('pt-BR'));
+
+/** Aviso ao reabrir: descreve o ajuste que o extrato mostra gravado com a chave pendente. */
+export function avisoAjusteJaRegistrado(gravado) {
+  return `O ajuste enviado antes (${sinal(gravado.quantidade)}: ${gravado.motivo}) já estava registrado. Nada foi lançado de novo.`;
+}
 
 export function ListaParticipantesXp({ participantes, onAbrir }) {
   return (
@@ -127,12 +132,15 @@ export function ExtratoXp({ participante, onFechar, onAjustado }) {
   /** Confere no extrato se a intenção pendente já foi gravada. */
   const reconciliar = useCallback((dados, atual) => {
     if (!dados || !atual) return;
-    if (pendenteConfirmado(atual, dados.ajustes)) {
+    // O aviso descreve o ajuste que o servidor gravou com a chave, não os
+    // dados guardados no navegador (um reenvio pode ter sido editado).
+    const gravado = ajusteDoPendente(atual, dados.ajustes);
+    if (gravado) {
       limparPendente(id);
       setPendente(null);
       chave.current = novaChave();
       setForm({ sentido: 'credito', quantidade: '', motivo: '' });
-      setAviso(`O ajuste enviado antes (${sinal(atual.corpo.quantidade)}: ${atual.corpo.motivo}) já estava registrado. Nada foi lançado de novo.`);
+      setAviso(avisoAjusteJaRegistrado(gravado));
     } else {
       setForm(formularioDoPendente(atual));
       setAviso('');
@@ -180,6 +188,7 @@ export function ExtratoXp({ participante, onFechar, onAjustado }) {
     setAviso('');
     // Enquanto houver intenção pendente, o reenvio usa a mesma chave: se os
     // dados mudaram e a anterior entrou, o servidor responde 409 e nada dobra.
+    // `gravarPendente` preserva o envio pendente e guarda este só como `ultimo`.
     const corpo = corpoAjusteXp(form, chave.current);
     // Havia um envio anterior sem resposta? Um erro que não prova nada sobre
     // ele (400, 401, 403…) não pode apagá-lo.

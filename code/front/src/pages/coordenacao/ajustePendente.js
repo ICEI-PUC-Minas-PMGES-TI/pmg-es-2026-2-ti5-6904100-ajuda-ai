@@ -10,6 +10,12 @@
  *
  * Ao reabrir, a tela procura a chave pendente nos ajustes do extrato: se já
  * entrou, avisa e descarta; se não, restaura o formulário para reenviar.
+ *
+ * Reenviar com a mesma chave e dados editados NÃO substitui o envio pendente
+ * (`corpo`): se o primeiro envio entrou, é ele que vale para o servidor, que
+ * recusa os dados novos com 409. Os dados do último reenvio ficam em `ultimo`,
+ * só para restaurar o formulário. O aviso de "já registrado" usa o ajuste que
+ * o extrato devolve, nunca o que o navegador guardou.
  */
 
 const PREFIXO = 'ajuda-ai:ajuste-xp-pendente:';
@@ -24,16 +30,20 @@ function armazenamentoPadrao() {
   }
 }
 
-/** `{ chave, corpo, em }` do participante, ou `null`. */
+const corpoValido = (corpo, chave) => Boolean(corpo)
+  && corpo.chaveIdempotencia === chave
+  && Number.isInteger(corpo.quantidade) && typeof corpo.motivo === 'string';
+
+/** `{ chave, corpo, ultimo?, em }` do participante, ou `null`. */
 export function lerPendente(usuarioId, armazenamento = armazenamentoPadrao(), agora = Date.now()) {
   if (!armazenamento) return null;
   try {
     const bruto = armazenamento.getItem(PREFIXO + usuarioId);
     if (!bruto) return null;
     const p = JSON.parse(bruto);
-    const valido = p && typeof p.chave === 'string' && p.corpo
-      && p.corpo.chaveIdempotencia === p.chave
-      && Number.isInteger(p.corpo.quantidade) && typeof p.corpo.motivo === 'string'
+    const valido = p && typeof p.chave === 'string'
+      && corpoValido(p.corpo, p.chave)
+      && (p.ultimo === undefined || corpoValido(p.ultimo, p.chave))
       && agora - Number(p.em) < VALIDADE_MS;
     if (!valido) {
       armazenamento.removeItem(PREFIXO + usuarioId);
@@ -45,10 +55,17 @@ export function lerPendente(usuarioId, armazenamento = armazenamentoPadrao(), ag
   }
 }
 
-/** Grava a intenção antes do envio. */
+/**
+ * Grava a intenção antes do envio. Se já há um envio pendente com a mesma
+ * chave, ele é preservado e este reenvio só atualiza `ultimo`.
+ */
 export function gravarPendente(usuarioId, corpo, armazenamento = armazenamentoPadrao(), agora = Date.now()) {
   try {
-    armazenamento?.setItem(PREFIXO + usuarioId, JSON.stringify({ chave: corpo.chaveIdempotencia, corpo, em: agora }));
+    const anterior = lerPendente(usuarioId, armazenamento, agora);
+    const registro = anterior?.chave === corpo.chaveIdempotencia
+      ? { chave: anterior.chave, corpo: anterior.corpo, ultimo: corpo, em: agora }
+      : { chave: corpo.chaveIdempotencia, corpo, em: agora };
+    armazenamento?.setItem(PREFIXO + usuarioId, JSON.stringify(registro));
   } catch {
     // Sem storage: ainda vale a chave em memória enquanto o formulário estiver aberto.
   }
@@ -62,9 +79,13 @@ export function limparPendente(usuarioId, armazenamento = armazenamentoPadrao())
   }
 }
 
-/** A intenção pendente já está entre os ajustes gravados? */
-export function pendenteConfirmado(pendente, ajustes) {
-  return Boolean(pendente) && (ajustes || []).some((a) => a.chaveIdempotencia === pendente.chave);
+/**
+ * O ajuste do extrato gravado com a chave pendente, ou `null` se ainda não
+ * entrou. É dele (o que o servidor gravou) que sai o aviso, não do navegador.
+ */
+export function ajusteDoPendente(pendente, ajustes) {
+  if (!pendente) return null;
+  return (ajustes || []).find((a) => a.chaveIdempotencia === pendente.chave) ?? null;
 }
 
 /**
@@ -76,8 +97,8 @@ export function respostaIncerta(error) {
   return !Number.isFinite(status) || status === 0 || status >= 500;
 }
 
-/** Formulário (sentido/quantidade/motivo) a partir do corpo pendente. */
+/** Formulário (sentido/quantidade/motivo) a partir do último envio pendente. */
 export function formularioDoPendente(pendente) {
-  const q = pendente.corpo.quantidade;
-  return { sentido: q < 0 ? 'debito' : 'credito', quantidade: String(Math.abs(q)), motivo: pendente.corpo.motivo };
+  const { quantidade: q, motivo } = pendente.ultimo ?? pendente.corpo;
+  return { sentido: q < 0 ? 'debito' : 'credito', quantidade: String(Math.abs(q)), motivo };
 }
