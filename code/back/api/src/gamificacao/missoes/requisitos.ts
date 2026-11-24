@@ -12,6 +12,7 @@ import { PRECISAO_MAXIMA_METROS } from '../pucstops/pucstops.service.js';
 import {
   CHECKIN_ANTECEDENCIA_MIN,
   COMENTARIO_MISSAO_MIN,
+  JANELA_TENTATIVAS_CODIGO,
   MENSAGEM_MISSAO_MIN,
   normalizarCodigo,
   RAIO_EVENTO_METROS,
@@ -232,7 +233,7 @@ export async function exigirTentativasDeCodigo(
 ): Promise<void> {
   const [{ erros }] = (await qr.query(
     `SELECT count(*)::int AS erros FROM ${g}."missoes_tentativas_codigo" ` +
-      `WHERE "missao_id" = $1 AND "usuario_id" = $2 AND "criado_em" > now() - interval '1 hour'`,
+      `WHERE "missao_id" = $1 AND "usuario_id" = $2 AND "criado_em" > now() - interval '${JANELA_TENTATIVAS_CODIGO}'`,
     [missaoId, usuarioId],
   )) as Array<{ erros: number }>;
   if (erros >= TENTATIVAS_CODIGO_POR_HORA) {

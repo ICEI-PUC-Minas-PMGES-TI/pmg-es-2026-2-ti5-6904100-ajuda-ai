@@ -37,6 +37,7 @@ export const CHECKIN_ANTECEDENCIA_MIN = 30;
 export const RAIO_EVENTO_METROS = 60;
 export const CODIGO_MISSAO = /^[A-Z0-9-]{4,20}$/;
 export const TENTATIVAS_CODIGO_POR_HORA = 5;
+export const JANELA_TENTATIVAS_CODIGO = '1 hour';
 
 export function normalizarCodigo(codigo: string): string {
   return codigo.normalize('NFKC').replace(/\s+/g, '').toUpperCase();

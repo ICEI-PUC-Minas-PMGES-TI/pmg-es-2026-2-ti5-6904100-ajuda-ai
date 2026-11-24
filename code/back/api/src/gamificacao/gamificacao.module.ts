@@ -4,6 +4,7 @@ import { NotificacoesModule } from '../notificacoes/notificacoes.module.js';
 import { ParticipacoesModule } from '../participacoes/participacoes.module.js';
 import { LojinhaController } from './lojinha/lojinha.controller.js';
 import { LojinhaService } from './lojinha/lojinha.service.js';
+import { LimpezaTentativasService } from './missoes/limpeza-tentativas.service.js';
 import { MissoesAdminController } from './missoes/missoes-admin.controller.js';
 import { MissoesAdminService } from './missoes/missoes-admin.service.js';
 import { MissoesController } from './missoes/missoes.controller.js';
@@ -59,6 +60,7 @@ import { XpService } from './xp/xp.service.js';
     XpAdminService,
     MissoesService,
     MissoesAdminService,
+    LimpezaTentativasService,
   ],
 })
 export class GamificacaoModule {}
