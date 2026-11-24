@@ -8,6 +8,8 @@ import type {
   AccessTokenPayload,
   AuthenticatedRequest,
 } from '../auth/authenticated-request.js';
+import type { EntityManager } from 'typeorm';
+import { createHash } from 'node:crypto';
 import { PermissoesAlunoService } from '../participacoes/permissoes-aluno.service.js';
 
 /**
@@ -20,12 +22,25 @@ export class FeedPolicy {
 
   /** Resumo para `GET /publicacoes/permissoes` com uma única consulta. */
   async resumo(usuario: AccessTokenPayload) {
-    const p = await this.permissoes.doUsuario(usuario);
+    const { permissoes: p, apadrinhados } =
+      await this.permissoes.contexto(usuario);
     return {
+      programa: p.programa,
+      revisao: createHash('sha256')
+        .update(JSON.stringify([p, [...apadrinhados].sort()]))
+        .digest('hex'),
       podeLer: p.podeLerFeed,
       podePublicar: p.podePublicar,
       podeAdministrar: this.podeAdministrar(usuario),
       podeInteragir: p.podeInteragir,
+    };
+  }
+
+  async contexto(usuario: AccessTokenPayload, manager?: EntityManager) {
+    const c = await this.permissoes.contexto(usuario, manager);
+    return {
+      podeInteragir: c.permissoes.podeInteragir,
+      apadrinhados: c.apadrinhados,
     };
   }
 
@@ -51,8 +66,11 @@ export class FeedPolicy {
   }
 
   /** Apadrinhados do padrinho, carregados uma vez por requisição. */
-  apadrinhadosDe(usuario: AccessTokenPayload): Promise<Set<string>> {
-    return this.permissoes.apadrinhadosDe(usuario);
+  async apadrinhadosDe(
+    usuario: AccessTokenPayload,
+    manager?: EntityManager,
+  ): Promise<Set<string>> {
+    return (await this.permissoes.contexto(usuario, manager)).apadrinhados;
   }
 
   /**
@@ -78,27 +96,39 @@ export class FeedPolicy {
       );
   }
 
-  async exigirLeitura(usuario: AccessTokenPayload): Promise<void> {
+  async exigirLeitura(
+    usuario: AccessTokenPayload,
+    manager?: EntityManager,
+  ): Promise<void> {
     await this.permissoes.exigir(
       usuario,
       'podeLerFeed',
       'O feed é dos participantes do apadrinhamento deste semestre.',
+      manager,
     );
   }
 
-  async exigirInteracao(usuario: AccessTokenPayload): Promise<void> {
+  async exigirInteracao(
+    usuario: AccessTokenPayload,
+    manager?: EntityManager,
+  ): Promise<void> {
     await this.permissoes.exigir(
       usuario,
       'podeInteragir',
       'Só participantes do apadrinhamento deste semestre interagem no feed.',
+      manager,
     );
   }
 
-  async exigirPublicacao(usuario: AccessTokenPayload): Promise<void> {
+  async exigirPublicacao(
+    usuario: AccessTokenPayload,
+    manager?: EntityManager,
+  ): Promise<void> {
     await this.permissoes.exigir(
       usuario,
       'podePublicar',
       'Você não tem permissão para publicar no feed.',
+      manager,
     );
   }
 }

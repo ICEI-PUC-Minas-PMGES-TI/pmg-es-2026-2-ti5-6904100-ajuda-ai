@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../sessao_usuario.dart';
@@ -7,13 +6,12 @@ import '../tela_home.dart';
 import '../tela_mapa.dart';
 import '../tela_perfil.dart';
 import 'app_bottom_navigation.dart';
+import 'revalidar_participacao.dart';
 
 /// Diagnóstico de navegação, só em debug: mostra quando uma página nasce ou
 /// morre e quando a participação é consultada. Cada página deve aparecer UMA
 /// vez por sessão; repetição indica recriação indevida.
-void diagNav(String mensagem) {
-  if (kDebugMode) debugPrint('[nav] $mensagem');
-}
+export '../services/diagnostico_navegacao.dart';
 
 /// Casca do app logado: a barra de baixo fica fixa e só o conteúdo acima dela
 /// muda. As abas já visitadas continuam vivas (mapa e feed não recarregam).
@@ -106,7 +104,9 @@ class AppShellState extends State<AppShell>
   /// nem perde estado, mesmo quando a ordem das camadas muda.
   Widget _camada(AppDestination d, AppDestination atual) {
     return KeyedSubtree(
-      key: ValueKey(d),
+      key: ValueKey(
+        '${SessaoUsuario.atual.identidade?.email}:${SessaoUsuario.atual.accessToken}:$d',
+      ),
       child: AnimatedBuilder(
         animation: _fade,
         // As páginas são o `child`: o fade não reconstrói nenhuma delas.
@@ -167,33 +167,36 @@ class AppShellState extends State<AppShell>
     // As abas vêm da situação confirmada do usuário. A casca ouve a sessão:
     // mudança real de participação atualiza a barra, e uma consulta em
     // andamento ou falha não (a sessão guarda o último valor confirmado).
-    return ListenableBuilder(
-      listenable: SessaoUsuario.atual.mudancas,
-      builder: (context, _) {
-        final destinos = SessaoUsuario.atual.destinos;
-        // A aba atual é a fonte de verdade; se a participação realmente
-        // acabou e ela saiu da lista, cai na primeira permitida.
-        final atual = destinos.contains(_atual) ? _atual : destinos.first;
-        return _EscopoCasca(
-          estado: this,
-          atual: atual,
-          child: Scaffold(
-            backgroundColor: Colors.white,
-            // Páginas vivas, uma camada cada. A atual fica por último (por cima)
-            // e entra em fade sobre a que sai; a barra anima à parte.
-            body: Stack(
-              fit: StackFit.expand,
-              children: [for (final d in _ordem(atual)) _camada(d, atual)],
+    return RevalidarParticipacao(
+      atualizar: () => SessaoUsuario.atual.sincronizarSituacao(),
+      child: ListenableBuilder(
+        listenable: SessaoUsuario.atual.mudancas,
+        builder: (context, _) {
+          final destinos = SessaoUsuario.atual.destinos;
+          // A aba atual é a fonte de verdade; se a participação realmente
+          // acabou e ela saiu da lista, cai na primeira permitida.
+          final atual = destinos.contains(_atual) ? _atual : destinos.first;
+          return _EscopoCasca(
+            estado: this,
+            atual: atual,
+            child: Scaffold(
+              backgroundColor: Colors.white,
+              // Páginas vivas, uma camada cada. A atual fica por último (por cima)
+              // e entra em fade sobre a que sai; a barra anima à parte.
+              body: Stack(
+                fit: StackFit.expand,
+                children: [for (final d in _ordem(atual)) _camada(d, atual)],
+              ),
+              bottomNavigationBar: AppBottomNavigation(
+                daCasca: true,
+                selected: atual,
+                destinations: destinos,
+                onSelected: ir,
+              ),
             ),
-            bottomNavigationBar: AppBottomNavigation(
-              daCasca: true,
-              selected: atual,
-              destinations: destinos,
-              onSelected: ir,
-            ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

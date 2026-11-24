@@ -1,3 +1,4 @@
+import { MatchingGrupoEntity } from './grupo.entity.js';
 import {
   Column,
   CreateDateColumn,
@@ -12,8 +13,14 @@ import {
 } from 'typeorm';
 import { ParticipacaoEntity } from '../../participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../../programas/entities/programa.entity.js';
+import type { CampoCadastroMatching } from '../criterios-cadastro.js';
 
-export type OperacaoCriterio = 'intersecao' | 'igualdade' | 'diferenca';
+export type OperacaoCriterio =
+  | 'intersecao'
+  | 'igualdade'
+  | 'diferenca'
+  | 'preferencia_genero'
+  | 'vivencia_compartilhada';
 /**
  * Critério habilitado na configuração do programa.
  * Compara respostas do mesmo ou de critérios distintos (configuração explícita).
@@ -21,8 +28,10 @@ export type OperacaoCriterio = 'intersecao' | 'igualdade' | 'diferenca';
  * históricos e não entram em novas execuções sem migração.
  */
 export interface CriterioMatching {
-  criterioPadrinhoId: number;
-  criterioApadrinhadoId: number;
+  obrigatorio?: boolean;
+  campoCadastro?: CampoCadastroMatching;
+  criterioPadrinhoId?: number;
+  criterioApadrinhadoId?: number;
   operacao: OperacaoCriterio;
   peso: number;
   /** Legado (pré-catálogo). */
@@ -268,6 +277,16 @@ export class MatchingVinculoEntity {
 
   @Column({ type: 'boolean', default: true })
   ativo!: boolean;
+
+  @Column({ name: 'grupo_id', type: 'int', nullable: true })
+  grupoId!: number | null;
+
+  @ManyToOne(() => MatchingGrupoEntity, {
+    nullable: true,
+    onDelete: 'RESTRICT',
+  })
+  @JoinColumn({ name: 'grupo_id' })
+  grupo!: MatchingGrupoEntity | null;
 
   @Column({ name: 'origem', type: 'varchar', length: 20, default: 'matching' })
   origem!: 'matching' | 'manual' | 'legado';

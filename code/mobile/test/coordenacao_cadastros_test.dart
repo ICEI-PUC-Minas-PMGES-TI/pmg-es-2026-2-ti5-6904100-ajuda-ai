@@ -170,7 +170,7 @@ void main() {
     );
     expect(find.text('Quero ajudar os calouros.'), findsOneWidget);
 
-    await tester.tap(find.text('Aprovar cadastro'));
+    await tester.tap(find.text('Aprovar'));
     await tester.pumpAndSettle();
 
     expect(
@@ -178,7 +178,7 @@ void main() {
       '/coordenacao/cadastros/1/aprovar',
     );
     expect(find.text('Aprovado'), findsOneWidget);
-    expect(find.text('Aprovar cadastro'), findsNothing);
+    expect(find.text('Aprovar'), findsNothing);
   });
 
   testWidgets('rejeita apadrinhado informando o motivo', (tester) async {
@@ -191,13 +191,16 @@ void main() {
     expect(find.text('Dicas da rotina.'), findsOneWidget);
     expect(find.textContaining('Requisitos do ciclo'), findsNothing);
 
-    await tester.tap(find.text('Rejeitar cadastro'));
+    await tester.tap(find.text('Rejeitar').last);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Documentação incompleta.');
-    await tester.tap(find.text('Rejeitar'));
+    await tester.pump();
+    await tester.tap(find.text('Rejeitar').last);
     await tester.pumpAndSettle();
 
-    final envio = falsos.requisicoes.last;
+    final envio = falsos.requisicoes.singleWhere(
+      (r) => r.method == 'POST' && r.url.path.endsWith('/rejeitar'),
+    );
     expect(envio.url.path, '/coordenacao/cadastros/2/rejeitar');
     expect(jsonDecode(envio.body), {'motivo': 'Documentação incompleta.'});
     expect(find.text('Documentação incompleta.'), findsOneWidget);

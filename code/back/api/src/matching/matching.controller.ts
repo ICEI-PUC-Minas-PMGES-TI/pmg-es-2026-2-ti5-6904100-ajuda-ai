@@ -1,4 +1,7 @@
+import { VinculosService } from './vinculos.service.js';
+import { TransferirApadrinhadoDto } from './dto/matching.dto.js';
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -25,6 +28,7 @@ import {
   LiberarMatchingDto,
   ProgramaMatchingDto,
   RecusarSugestaoDto,
+  ReconsiderarParDto,
   SalvarConfiguracaoMatchingDto,
 } from './dto/matching.dto.js';
 import { MatchingService } from './matching.service.js';
@@ -36,6 +40,7 @@ export class MatchingController {
   constructor(
     private readonly matching: MatchingService,
     private readonly catalogo: CriterioCatalogoService,
+    private readonly vinculos: VinculosService,
   ) {}
 
   @Get()
@@ -99,6 +104,47 @@ export class MatchingController {
   @Delete('criterios/:id')
   excluirCriterio(@Param('id', ParseIntPipe) id: number) {
     return this.catalogo.excluir(id);
+  }
+
+  @Get('pares/recusados')
+  paresRecusados(@Query('programa') programa: string) {
+    return this.matching.listarParesRecusados(programa);
+  }
+
+  @Get('grupos')
+  grupos(@Query('programa') programa: string) {
+    return this.vinculos.grupos(programa);
+  }
+
+  @Get('destinos')
+  destinos(
+    @Query('apadrinhadoId', ParseIntPipe) apadrinhadoId: number,
+    @Query('vinculoOrigemId') origem?: string,
+  ) {
+    if (origem !== undefined && !/^[1-9]\d*$/.test(origem))
+      throw new BadRequestException('Vínculo de origem inválido.');
+    return this.vinculos.destinos(
+      apadrinhadoId,
+      origem ? Number(origem) : undefined,
+    );
+  }
+
+  @Post('vinculos/:id/transferir')
+  transferir(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: TransferirApadrinhadoDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.vinculos.transferir(id, dto, req.user.email);
+  }
+
+  @Post('pares/:id/reconsiderar')
+  reconsiderarPar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReconsiderarParDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.matching.reconsiderarPar(id, req.user.email, dto.justificativa);
   }
 
   @Get('config')

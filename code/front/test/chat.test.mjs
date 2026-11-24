@@ -1,25 +1,246 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
-import { criarConversasMock } from '../src/pages/aluno/chatMock.js';
+import assert from "node:assert/strict";
+import { after, test } from "node:test";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createServer } from "vite";
+import { consumirEventosChat } from "../src/api/chatStream.js";
+import {
+  mesclarMensagens,
+  tituloConversa,
+} from "../src/pages/aluno/chatDados.js";
 
-test('conversas mock demonstram estados enviada, entregue e lida', () => {
-  const conversas = criarConversasMock();
-  const estados = new Set(
-    conversas
-      .flatMap((conversa) => conversa.mensagens)
-      .map((mensagem) => mensagem.estado)
-      .filter(Boolean),
+const server = await createServer({
+  server: { middlewareMode: true, hmr: false },
+  optimizeDeps: { noDiscovery: true, include: [] },
+  appType: "custom",
+});
+after(() => server.close());
+const { ListaConversas, MensagensChat, EstadoMensagem } =
+  await server.ssrLoadModule("/src/pages/aluno/ChatPage.jsx");
+const cliente = await server.ssrLoadModule("/src/api/client.js");
+
+test("lista distingue grupo, privado, não lidas e histórico", () => {
+  const chats = [
+    {
+      id: 1,
+      tipo: "coletivo",
+      titulo: "Grupo de Ana",
+      programa: "2026/2",
+      podeEnviar: true,
+      naoLidas: 2,
+    },
+    {
+      id: 2,
+      tipo: "privado",
+      programa: "2026/2",
+      podeEnviar: false,
+      minhaParticipacaoId: 100,
+      participantes: [{ participacaoId: 1, nome: "Ana" }],
+    },
+  ];
+  const html = renderToStaticMarkup(
+    React.createElement(ListaConversas, {
+      conversas: chats,
+      onSelecionar() {},
+    }),
   );
-  assert.deepEqual(estados, new Set(['lida', 'entregue', 'enviada']));
+  for (const texto of ["Grupo de Ana", "Ana", "2 não lida(s)", "Histórico"])
+    assert.ok(html.includes(texto));
+  assert.equal(tituloConversa(chats[1]), "Ana");
+});
+test("mensagens usam a identidade da participação e os recibos reais", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(MensagensChat, {
+      mensagens: [
+        {
+          id: 1,
+          remetenteParticipacaoId: 100,
+          texto: "Minha",
+          estado: "entregue",
+          recibos: { total: 2, lidas: 1 },
+        },
+        {
+          id: 2,
+          remetenteParticipacaoId: 1,
+          remetenteNome: "Ana",
+          texto: "Resposta",
+        },
+      ],
+      meusIds: [100],
+    }),
+  );
+  assert.match(html, /outgoing/);
+  assert.match(html, /incoming/);
+  assert.match(html, /1\/2 leitura/);
+  assert.ok(html.includes("Ana"));
+  assert.doesNotMatch(html, /Lida por todos/);
+});
+test("confirmação de leitura do grupo indica todos os destinatários", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(EstadoMensagem, {
+      estado: "lida",
+      recibos: { total: 2, lidas: 2 },
+    }),
+  );
+  assert.match(html, /Lida por todos os destinatários/);
+});
+test("mescla páginas e respostas atrasadas sem duplicar nem regredir leitura", () => {
+  const m = mesclarMensagens(
+    [
+      {
+        id: 2,
+        texto: "Mensagem",
+        estado: "lida",
+        recibos: { total: 2, lidas: 2, entregues: 2 },
+      },
+    ],
+    [
+      { id: 1, texto: "Anterior", estado: "enviada" },
+      {
+        id: 2,
+        texto: "Mensagem",
+        estado: "enviada",
+        recibos: { total: 2, lidas: 0, entregues: 0 },
+      },
+    ],
+  );
+  assert.deepEqual(
+    m.map((m) => m.id),
+    [1, 2],
+  );
+  assert.equal(m[1].estado, "lida");
+  assert.equal(m[1].recibos.lidas, 2);
+});
+test("parser preserva UTF-8 e frames SSE divididos em chunks", async () => {
+  const bytes = new TextEncoder().encode(
+    'event: chat.changed\r\ndata: {"aviso":"Conexão"}\r\n\r\n',
+  );
+  const stream = new ReadableStream({
+    start(c) {
+      for (const b of bytes) c.enqueue(new Uint8Array([b]));
+      c.close();
+    },
+  });
+  const eventos = [];
+  await consumirEventosChat(new Response(stream), (e) => eventos.push(e));
+  assert.deepEqual(eventos, [
+    { tipo: "chat.changed", id: undefined, dados: { aviso: "Conexão" } },
+  ]);
+});
+test("fechar a tela cancela o leitor e a conexão de eventos", async () => {
+  let cancelou = false;
+  const controller = new AbortController();
+  const stream = new ReadableStream({
+    start(c) {
+      c.enqueue(
+        new TextEncoder().encode('event: chat.ready\ndata: {"revisao":1}\n\n'),
+      );
+    },
+    cancel() {
+      cancelou = true;
+    },
+  });
+  await consumirEventosChat(
+    new Response(stream),
+    () => controller.abort(),
+    controller.signal,
+  );
+  assert.equal(cancelou, true);
+});
+test("JSON de evento inválido encerra o leitor em vez de manter conexão vazando", async () => {
+  let cancelou = false;
+  const stream = new ReadableStream({
+    start(c) {
+      c.enqueue(
+        new TextEncoder().encode("event: chat.changed\ndata: {invalido}\n\n"),
+      );
+    },
+    cancel() {
+      cancelou = true;
+    },
+  });
+  await assert.rejects(consumirEventosChat(new Response(stream), () => {}));
+  assert.equal(cancelou, true);
+});
+test("API usa JWT do aluno, cursor e UUID de envio sem publicar autoria fornecida pelo cliente", async () => {
+  const anterior = globalThis.fetch,
+    pedidos = [];
+  cliente.persistAlunoSession({
+    accessToken: "jwt-aluno",
+    usuario: { email: "bia@pucminas.edu.br" },
+  });
+  globalThis.fetch = async (url, options = {}) => {
+    pedidos.push({ url, ...options });
+    return new Response(
+      JSON.stringify(url.includes("/mensagens") ? { id: 1 } : []),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  try {
+    await cliente.api.chats("bia@pucminas.edu.br", "2026/2");
+    await cliente.api.mensagensChat(7, "bia@pucminas.edu.br", { depoisDe: 0 });
+    const id = "63be4551-9576-48ef-9dd8-d0ede2e7ab8e";
+    await cliente.api.enviarMensagemChat(7, "Olá", "bia@pucminas.edu.br", id);
+    await cliente.api.enviarMensagemChat(7, "Olá", "bia@pucminas.edu.br", id);
+    assert.ok(pedidos[0].url.includes("programa=2026%2F2"));
+    assert.ok(pedidos[1].url.includes("depoisDe=0"));
+    assert.ok(
+      pedidos.every((p) => p.headers.Authorization === "Bearer jwt-aluno"),
+    );
+    assert.equal(pedidos[2].body, pedidos[3].body);
+    assert.deepEqual(JSON.parse(pedidos[2].body), {
+      texto: "Olá",
+      clientId: id,
+    });
+    await assert.rejects(cliente.api.chats("outra@pucminas.edu.br"), {
+      status: 401,
+    });
+  } finally {
+    globalThis.fetch = anterior;
+    cliente.clearAlunoSession();
+  }
 });
 
-test('cada tela recebe uma cópia independente das conversas de demonstração', () => {
-  const primeira = criarConversasMock();
-  const segunda = criarConversasMock();
-  primeira[0].mensagens.push({
-    id: 'local',
-    remetente: 'eu',
-    texto: 'Mensagem de teste',
+test("conexão SSE usa token no header e encerra ao sair da tela", async () => {
+  const anterior = globalThis.fetch;
+  let cancelou = false;
+  let pedido;
+  cliente.persistAlunoSession({
+    accessToken: "jwt-sse",
+    usuario: { email: "bia@pucminas.edu.br" },
   });
-  assert.equal(segunda[0].mensagens.length, 5);
+  globalThis.fetch = async (url, options) => {
+    pedido = { url, options };
+    return new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(
+            new TextEncoder().encode(
+              'event: chat.ready\ndata: {"revisao":1}\n\n',
+            ),
+          );
+        },
+        cancel() {
+          cancelou = true;
+        },
+      }),
+      { status: 200 },
+    );
+  };
+  try {
+    const controller = new AbortController();
+    await cliente.streamChatMessages(
+      7,
+      "bia@pucminas.edu.br",
+      () => controller.abort(),
+      controller.signal,
+    );
+    assert.ok(pedido.url.endsWith("/chats/7/events"));
+    assert.ok(!pedido.url.includes("jwt-sse"));
+    assert.equal(pedido.options.headers.Authorization, "Bearer jwt-sse");
+    assert.equal(cancelou, true);
+  } finally {
+    globalThis.fetch = anterior;
+    cliente.clearAlunoSession();
+  }
 });

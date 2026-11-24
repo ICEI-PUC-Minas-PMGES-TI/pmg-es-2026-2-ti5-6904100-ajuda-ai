@@ -139,7 +139,11 @@ void main() {
     final backend = _Backend();
     final client = MockClient(backend.responder);
     addTearDown(client.close);
-    await tester.pumpWidget(MaterialApp(home: FeedPage(client: client)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FeedPage(client: client, accessToken: 'jwt-aluno-teste'),
+      ),
+    );
     await tester.pumpAndSettle();
     return backend;
   }

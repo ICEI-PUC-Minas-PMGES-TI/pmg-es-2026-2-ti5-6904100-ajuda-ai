@@ -8,6 +8,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ProgramasService } from '../programas/programas.service.js';
+import {
+  MatchingCriterioEntity,
+  MatchingCriterioVersaoEntity,
+} from '../matching/entities/criterio-catalogo.entity.js';
 import { CAMPOS_FIXOS } from './campos-fixos.js';
 import {
   FormularioEntity,
@@ -286,6 +290,7 @@ export class FormulariosService {
         this.novoRegistro(repo, programa, tipo);
       const estavaPublicado = registro.publicado;
       const perguntasAnteriores = registro.perguntas;
+      await this.validarCatalogo(manager, perguntas, perguntasAnteriores ?? []);
       registro.perguntas = perguntas;
       if (corpo.publicado === true) {
         this.exigirCicloAberto(ciclo);
@@ -343,9 +348,70 @@ export class FormulariosService {
           'O programa de destino já tem formulário salvo. Exclua o rascunho antes de duplicar.',
         );
       const registro = this.novoRegistro(repo, destino, tipo);
+      await this.validarCatalogo(manager, perguntas, []);
       registro.perguntas = perguntas;
       return this.serializar(await repo.save(registro));
     });
+  }
+
+  private async validarCatalogo(
+    manager: EntityManager,
+    perguntas: PerguntaFormulario[],
+    anteriores: PerguntaFormulario[],
+  ) {
+    for (const pergunta of perguntas.filter((q) =>
+      tipoPerguntaMatching(q.tipo),
+    )) {
+      const criterio = await manager
+        .getRepository(MatchingCriterioEntity)
+        .findOne({
+          where: { id: pergunta.criterioId },
+          lock: { mode: 'pessimistic_read' },
+        });
+      const versao = await manager
+        .getRepository(MatchingCriterioVersaoEntity)
+        .findOne({
+          where: {
+            criterioId: pergunta.criterioId,
+            versao: pergunta.criterioVersao,
+          },
+        });
+      if (!criterio || !versao)
+        throw new BadRequestException(
+          'Critério ou versão inexistente no catálogo.',
+        );
+      const retido = anteriores.some(
+        (q) =>
+          q.id === pergunta.id &&
+          q.criterioId === pergunta.criterioId &&
+          q.criterioVersao === pergunta.criterioVersao,
+      );
+      if (
+        !retido &&
+        (!criterio.ativo || criterio.versaoAtual !== pergunta.criterioVersao)
+      )
+        throw new BadRequestException(
+          'Novas perguntas devem usar a versão atual de um critério ativo.',
+        );
+      if (pergunta.tipo !== versao.tipo)
+        throw new BadRequestException(
+          'O tipo da pergunta deve ser o tipo do critério.',
+        );
+      const alternativas = pergunta.alternativas ?? [];
+      if (new Set(alternativas.map((a) => a.id)).size !== alternativas.length)
+        throw new BadRequestException('Alternativas repetidas no critério.');
+      // Sim/não usa booleanos; as opções, quando fornecidas, também são conferidas.
+      if (
+        (versao.tipo !== 'sim_nao' || alternativas.length > 0) &&
+        !isDeepStrictEqual(
+          [...alternativas].sort((a, b) => a.id.localeCompare(b.id)),
+          [...versao.alternativas].sort((a, b) => a.id.localeCompare(b.id)),
+        )
+      )
+        throw new BadRequestException(
+          'As alternativas devem corresponder à versão do catálogo.',
+        );
+    }
   }
 
   private novoRegistro(

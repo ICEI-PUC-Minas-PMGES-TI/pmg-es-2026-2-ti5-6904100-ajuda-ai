@@ -16,6 +16,7 @@ class FeedCommentsSheet extends StatefulWidget {
     required this.onLike,
     required this.onDelete,
     required this.podeInteragir,
+    this.podeInteragirAtual,
     this.onVerCurtidas,
   });
   final List<FeedComment> Function() comentarios;
@@ -24,6 +25,7 @@ class FeedCommentsSheet extends StatefulWidget {
   final Future<bool> Function(FeedComment, int) onLike;
   final Future<bool> Function(FeedComment) onDelete;
   final bool podeInteragir;
+  final bool Function()? podeInteragirAtual;
 
   /// Abre a lista de quem curtiu o comentário.
   final void Function(FeedComment)? onVerCurtidas;
@@ -32,6 +34,8 @@ class FeedCommentsSheet extends StatefulWidget {
 }
 
 class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
+  bool get _podeInteragir =>
+      widget.podeInteragirAtual?.call() ?? widget.podeInteragir;
   final _controller = TextEditingController();
   final _foco = FocusNode();
   final _ocupados = <int>{};
@@ -46,6 +50,10 @@ class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
   void _atualizar() {
     if (!mounted) return;
     setState(() {
+      if (!_podeInteragir) {
+        _controller.clear();
+        _respondendo = null;
+      }
       if (_respondendo != null &&
           !widget.comentarios().any((c) => c.id == _respondendo!.id)) {
         _respondendo = null;
@@ -62,7 +70,7 @@ class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
   }
 
   void _responder(FeedComment comentario) {
-    if (_enviando || !widget.podeInteragir) return;
+    if (_enviando || !_podeInteragir) return;
     setState(() => _respondendo = comentario);
     if (comentario.paiId != null && _controller.text.isEmpty) {
       _controller.text = '@${comentario.nome} ';
@@ -80,7 +88,7 @@ class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
 
   Future<void> _enviar() async {
     final texto = _controller.text.trim();
-    if (texto.isEmpty || _enviando || !widget.podeInteragir) return;
+    if (texto.isEmpty || _enviando || !_podeInteragir) return;
     setState(() => _enviando = true);
     final salvo = await widget.onSubmit(
       texto,
@@ -104,7 +112,7 @@ class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
   }
 
   Future<void> _curtir(FeedComment c) async {
-    if (!widget.podeInteragir || !_ocupados.add(c.id)) return;
+    if (!_podeInteragir || !_ocupados.add(c.id)) return;
     setState(() {});
     final salvo = await widget.onLike(c, c.curtidoPorMim ? -1 : 1);
     if (!mounted) return;
@@ -217,7 +225,7 @@ class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
                         itemBuilder: (_, i) => _linha(ordenados[i]),
                       ),
               ),
-              if (widget.podeInteragir)
+              if (_podeInteragir)
                 ColoredBox(
                   color: Colors.white,
                   child: SafeArea(
@@ -394,9 +402,9 @@ class _FeedCommentsSheetState extends State<FeedCommentsSheet> {
                   const SizedBox(height: 2),
                   Row(
                     children: [
-                      if (widget.podeInteragir) _botaoCurtir(c, ocupado),
-                      if (widget.podeInteragir) const SizedBox(width: 6),
-                      if (widget.podeInteragir)
+                      if (_podeInteragir) _botaoCurtir(c, ocupado),
+                      if (_podeInteragir) const SizedBox(width: 6),
+                      if (_podeInteragir)
                         TextButton(
                           onPressed: _enviando ? null : () => _responder(c),
                           style: TextButton.styleFrom(

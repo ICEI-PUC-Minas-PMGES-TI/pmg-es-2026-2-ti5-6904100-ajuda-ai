@@ -12,11 +12,15 @@ class FeedEvents {
     required this.onEvento,
     required this.onEstado,
     this.baseUrl = apiBaseUrl,
+    this.programa,
+    this.onSemAcesso,
     http.Client Function()? clientFactory,
   }) : _clientFactory = clientFactory ?? http.Client.new;
 
   final String? Function() token;
   final String baseUrl;
+  final String? Function()? programa;
+  final void Function()? onSemAcesso;
   final void Function(String tipo, Map<String, dynamic> dados) onEvento;
   final void Function(String mensagem) onEstado;
   final http.Client Function() _clientFactory;
@@ -26,6 +30,7 @@ class FeedEvents {
   int _geracao = 0;
 
   void iniciar() {
+    fechar();
     final geracao = ++_geracao;
     unawaited(_conectar(geracao));
   }
@@ -36,13 +41,21 @@ class FeedEvents {
       final jwt = token();
       if (jwt == null || jwt.isEmpty) {
         onEstado('Entre novamente para acessar o feed.');
+        onSemAcesso?.call();
         return;
       }
       final client = _clientFactory();
       _client = client;
       try {
         final request =
-            http.Request('GET', Uri.parse('$baseUrl/publicacoes/events'))
+            http.Request(
+                'GET',
+                Uri.parse('$baseUrl/publicacoes/events').replace(
+                  queryParameters: (programa?.call()?.isNotEmpty ?? false)
+                      ? {'programa': programa!()!}
+                      : null,
+                ),
+              )
               ..headers.addAll({
                 'Authorization': 'Bearer $jwt',
                 'Accept': 'text/event-stream',
@@ -53,6 +66,7 @@ class FeedEvents {
         if (geracao != _geracao) return;
         if (response.statusCode == 401 || response.statusCode == 403) {
           onEstado('Sessão expirada. Entre novamente.');
+          onSemAcesso?.call();
           return;
         }
         if (response.statusCode != 200 ||
@@ -79,6 +93,10 @@ class FeedEvents {
             if (dados.isNotEmpty) {
               final evento = jsonDecode(dados.join('\n'));
               if (evento is Map<String, dynamic>) {
+                if (tipo == 'feed.access') {
+                  onSemAcesso?.call();
+                  return;
+                }
                 if (tipo == 'feed.ready' || tipo == 'feed.heartbeat') {
                   onEstado(
                     evento['conectado'] == true

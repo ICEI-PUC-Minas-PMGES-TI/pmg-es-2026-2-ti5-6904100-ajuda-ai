@@ -440,7 +440,7 @@ Future<_ClienteImagem> _abrirFeed(
         };
     final post = {'podeInteragir': true, ...dados};
     final corpo = request.url.path == '/publicacoes/permissoes'
-        ? {'podePublicar': false}
+        ? {'podeLer': true, 'podeInteragir': true, 'podePublicar': false}
         : request.url.path == '/publicacoes/6'
         ? post
         : [post];
@@ -455,7 +455,7 @@ Future<_ClienteImagem> _abrirFeed(
     MaterialApp(
       home: FeedPage(
         client: api,
-        accessToken: eventos == null ? null : 'teste',
+        accessToken: 'jwt-aluno-teste',
         eventsClientFactory: eventos == null ? null : () => eventos,
       ),
     ),

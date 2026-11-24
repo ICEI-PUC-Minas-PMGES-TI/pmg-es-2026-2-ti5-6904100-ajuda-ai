@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import { api } from '../../api/client';
+import { textoPreferenciaGenero } from '../../components/PreferenciaGenero';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import { textoResposta } from '../../components/PerguntasAdicionais';
@@ -245,6 +246,7 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
         <Bloco icon="person" titulo="Perfil">
           <dl className="detail-facts">
             <div><dt>Gênero</dt><dd>{r.genero || 'Não informado'}</dd></div>
+            <div><dt>Preferência de gênero</dt><dd>{textoPreferenciaGenero(r.preferenciaGenero)}</dd></div>
             <div><dt>Bolsista ProUni</dt><dd>{simNao(r.bolsistaProuni)}</dd></div>
             <div><dt>De outra cidade</dt><dd>{simNao(r.deOutraCidade)}</dd></div>
           </dl>
