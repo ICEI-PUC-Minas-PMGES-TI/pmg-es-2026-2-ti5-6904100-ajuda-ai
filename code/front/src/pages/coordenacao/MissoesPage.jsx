@@ -24,6 +24,14 @@ export const REQUISITOS_NO_APP = Object.keys(REQUISITOS).filter((r) => r !== 'CH
 
 const OPCOES_REQUISITO = REQUISITOS_NO_APP.map((valor) => ({ valor, rotulo: REQUISITOS[valor].rotulo }));
 
+export function opcoesRequisito(atual) {
+  if (!atual) return [{ valor: '', rotulo: 'Escolha o requisito' }, ...OPCOES_REQUISITO];
+  if (REQUISITOS[atual] && !REQUISITOS_NO_APP.includes(atual)) {
+    return [...OPCOES_REQUISITO, { valor: atual, rotulo: REQUISITOS[atual].rotulo }];
+  }
+  return OPCOES_REQUISITO;
+}
+
 export const QUANTIDADE_MAX = 20;
 const CODIGO_VALIDO = /^[A-Z0-9-]{4,20}$/;
 
@@ -719,7 +727,7 @@ export function FormularioMissao({ original, onCancelar, onSalvo }) {
         <fieldset className="recompensa-bloco">
           <legend>Como o aluno comprova</legend>
           <div className="editor-grid pucstop-grid">
-            <ListaMissao id={`${base}-requisito`} rotulo="Requisito" valor={form.requisito} opcoes={form.requisito ? OPCOES_REQUISITO : [{ valor: '', rotulo: 'Escolha o requisito' }, ...OPCOES_REQUISITO]} desabilitado={requisitoBloqueado} onChange={(valor) => campo('requisito', valor)} />
+            <ListaMissao id={`${base}-requisito`} rotulo="Requisito" valor={form.requisito} opcoes={opcoesRequisito(form.requisito)} desabilitado={requisitoBloqueado} onChange={(valor) => campo('requisito', valor)} />
             {form.requisito === 'PUCSTOPS' && (
               <ListaMissao id={`${base}-pucstop`} rotulo="PucStop" valor={form.alvoId} opcoes={opcoesPucStop} desabilitado={requisitoBloqueado} onChange={(valor) => campo('alvoId', valor)} />
             )}

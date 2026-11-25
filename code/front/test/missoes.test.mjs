@@ -222,3 +222,13 @@ test('formulário não oferece requisito que o app ainda não permite cumprir', 
   assert.equal(m.REQUISITOS_NO_APP.includes('CHAT_MENSAGENS'), false);
   assert.deepEqual(m.REQUISITOS_NO_APP, ['PUCSTOPS', 'EVENTO', 'FEED_COMENTARIOS', 'FEED_CURTIDAS', 'FEED_PUBLICACOES', 'CODIGO']);
 });
+
+test('editar missão de requisito fora do painel mostra o requisito real', () => {
+  const html = renderToStaticMarkup(createElement(m.FormularioMissao, {
+    original: { ...base, conclusoes: 0, requisito: 'CHAT_MENSAGENS', quantidade: 3, alvoId: null, codigo: null },
+    onCancelar() {},
+    onSalvo() {},
+  }));
+  assert.match(html, /Mensagens no chat da dupla/);
+  assert.doesNotMatch(html, /Coletar PucStops/);
+});
