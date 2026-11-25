@@ -62,6 +62,7 @@ import { importarSnapshot } from '../src/mapa/importacao/importar-snapshot.js';
 import { validarSnapshot } from '../src/mapa/importacao/snapshot.js';
 import { schemaPostgis } from '../src/mapa/postgis.js';
 import { CriaNotificacoes1794800000000 } from '../src/migrations/1794800000000-CriaNotificacoes.js';
+import { RequisitosMissoes1795000000000 } from '../src/migrations/1795000000000-RequisitosMissoes.js';
 import { NotificacoesController } from '../src/notificacoes/notificacoes.controller.js';
 import { NotificacoesService } from '../src/notificacoes/notificacoes.service.js';
 import { ParticipacaoEntity } from '../src/participacoes/entities/participacao.entity.js';
@@ -323,6 +324,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
   let jwt: JwtService;
   let geo: string;
   let servicoMissoes: MissoesService;
+  let notificacoesServico: NotificacoesService;
   let feed: PublicacoesService;
   let chats: ChatService;
   let eventos: EventosService;
@@ -632,6 +634,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     endereco = await app.getUrl();
     jwt = modulo.get(JwtService);
     servicoMissoes = modulo.get(MissoesService);
+    notificacoesServico = modulo.get(NotificacoesService);
     feed = modulo.get(PublicacoesService);
     chats = modulo.get(ChatService);
     eventos = modulo.get(EventosService);
@@ -987,8 +990,8 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
   describe('fim do auto-claim', () => {
     it('missão antiga sem requisito não aparece, não conclui e não ativa', async () => {
       const [{ id }] = (await ds.query(
-        `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ativa, ciclo) ` +
-          `VALUES ('Visite a biblioteca central', 'Passe na biblioteca.', 'UNICA', 40, true, $1) RETURNING id`,
+        `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ativa, ciclo, publicada_em) ` +
+          `VALUES ('Visite a biblioteca central', 'Passe na biblioteca.', 'UNICA', 40, true, $1, now()) RETURNING id`,
         [CICLO],
       )) as Array<{ id: string }>;
       const a = await novoAluno();
@@ -1754,6 +1757,57 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       expect(evidencia).toMatchObject({ requisito: 'EVENTO', codigo: true });
     });
 
+    it('localização nula ou fora do formato: 400, nunca vira 0 m', async () => {
+      const a = await novoAluno();
+      for (const corpo of [
+        { latitude: null, longitude: null, accuracy: null },
+        { latitude: null, longitude: noPredio('P30').longitude, accuracy: 5 },
+        { ...noPredio('P30'), accuracy: null },
+        { latitude: '-19.92', longitude: '-43.99', accuracy: '5' },
+        { latitude: {}, longitude: [], accuracy: 5 },
+      ]) {
+        const r = await concluir(a, calouro.id, {
+          ...corpo,
+          codigo: codigos.get(calouro.id),
+        });
+        expect(r.status, JSON.stringify(corpo)).toBe(400);
+      }
+      expect(await carteira(a)).toEqual({ saldo: 0, xp_acumulado: 0 });
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM gamificacao.missoes_conclusoes WHERE usuario_id = $1`,
+          [a.id],
+        ),
+      ).toBe(0);
+    });
+
+    it(`API recém-reiniciada: mais check-ins simultâneos que conexões (${POOL}) não travam o pool`, async () => {
+      const recemIniciado = new MissoesService(ds, notificacoesServico);
+      const publico: Aluno[] = [];
+      for (let i = 0; i < POOL * 4; i++) publico.push(await novoAluno());
+      const tudo = Promise.all(
+        publico.map((a, i) =>
+          recemIniciado
+            .concluir(a.id, calouro.id, new Date(), {
+              ...comRuido(noPredio('P30'), 10, i),
+              accuracy: 10,
+              codigo: codigos.get(calouro.id),
+            })
+            .then(() => 'ok'),
+        ),
+      );
+      let espera: ReturnType<typeof setTimeout> | undefined;
+      const travou = new Promise<string>((resolve) => {
+        espera = setTimeout(() => resolve('travou'), 8000);
+      });
+      const resultado = await Promise.race([
+        tudo.then((r) => r.join()),
+        travou,
+      ]);
+      clearTimeout(espera);
+      expect(resultado).toBe(publico.map(() => 'ok').join());
+    }, 20_000);
+
     it('sem localização 400; GPS impreciso 422; em outro prédio 422 com a distância', async () => {
       const a = await novoAluno();
       const sem = await concluir(a, calouro.id, {}).expect(400);
@@ -2037,6 +2091,34 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       await concluir(autor, m.id).expect(422);
       await curtir(autor, posts[2]);
       await concluir(autor, m.id).expect(201);
+    });
+
+    it('publicação curta não conta; com foto e sem texto conta', async () => {
+      const m = await criarMissao({
+        titulo: 'Publique uma dica sobre o semestre',
+        tipo: 'UNICA',
+        xp: 20,
+        requisito: 'FEED_PUBLICACOES',
+      });
+      const dupla = await formarDupla();
+      const padrinho = dupla.padrinho;
+      await publicar(padrinho, 'ok');
+      await publicar(padrinho, '  boa!!  ');
+      expect((await itemDe(padrinho, m.id))!.progresso).toEqual({
+        atual: 0,
+        meta: 1,
+      });
+      await concluir(padrinho, m.id).expect(422);
+      await ds.query(
+        `INSERT INTO feed.publicacoes (autor, iniciais, descricao_autor, categoria, texto, imagens, owner_id, programa_codigo) ` +
+          `VALUES ($1, 'PD', 'Padrinho do programa', 'Campus', '', ARRAY['feed/publicacoes/abc/0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d.png'], $2, $3)`,
+        [padrinho.nome, padrinho.email, CICLO],
+      );
+      expect((await itemDe(padrinho, m.id))!.progresso).toEqual({
+        atual: 1,
+        meta: 1,
+      });
+      await concluir(padrinho, m.id).expect(201);
     });
 
     it('missão de publicar só existe para quem pode publicar', async () => {
@@ -2752,6 +2834,60 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       ).toEqual([]);
     });
 
+    it('rascunho antigo publicado depois que o aluno entrou: avisa; reativar não avisa de novo', async () => {
+      const rascunho = await criarMissao({
+        titulo: 'Participe da gincana de boas-vindas',
+        tipo: 'UNICA',
+        xp: 25,
+        ativar: false,
+      });
+      const a = await novoAluno();
+      const avisosDa = async (id: string) => {
+        await http()
+          .get('/me/notificacoes?limite=50')
+          .set('Authorization', a.auth)
+          .expect(200);
+        return contar(
+          `SELECT count(*) AS n FROM feed.notificacoes WHERE usuario_id = $1 AND chave = $2`,
+          [a.id, `missao-nova:${id}`],
+        );
+      };
+      expect(await avisosDa(rascunho.id)).toBe(0);
+      await http()
+        .post(`/coordenacao/missoes/${rascunho.id}/ativar`)
+        .set('Authorization', coord())
+        .expect(200);
+      expect(await avisosDa(rascunho.id)).toBe(1);
+
+      const antiga = await criarMissao({
+        titulo: 'Conheça o restaurante universitário',
+        tipo: 'UNICA',
+        xp: 15,
+      });
+      const b = await novoAluno();
+      for (const acao of ['desativar', 'ativar']) {
+        await http()
+          .post(`/coordenacao/missoes/${antiga.id}/${acao}`)
+          .set('Authorization', coord())
+          .expect(200);
+      }
+      await http()
+        .get('/me/notificacoes?limite=50')
+        .set('Authorization', b.auth)
+        .expect(200);
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM feed.notificacoes WHERE usuario_id = $1 AND chave = $2`,
+          [b.id, `missao-nova:${antiga.id}`],
+        ),
+      ).toBe(0);
+      const [{ publicada_em, criado_em }] = (await ds.query(
+        `SELECT publicada_em, criado_em FROM gamificacao.missoes WHERE id = $1`,
+        [rascunho.id],
+      )) as Array<{ publicada_em: Date; criado_em: Date }>;
+      expect(publicada_em.getTime()).toBeGreaterThan(criado_em.getTime());
+    });
+
     it('avisa cada missão nova visível uma vez só, e nunca uma que o aluno não vê', async () => {
       const a = await novoAluno();
       const lista = async () =>
@@ -2856,6 +2992,28 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         .get(`/me/notificacoes?antes=${p1.itens[0].id}`)
         .set('Authorization', outro.auth)
         .expect(404);
+    });
+
+    it('ateId nulo ou fora do formato: 400, nunca 404 nem marcar tudo', async () => {
+      const a = await novoAluno({ programa: CICLO_ANTERIOR });
+      await avisosAntigos(a.id, 2);
+      for (const corpo of [
+        { ateId: null },
+        { ateId: 42 },
+        { ateId: 'ultima' },
+      ]) {
+        const r = await http()
+          .patch('/me/notificacoes/lidas')
+          .set('Authorization', a.auth)
+          .send(corpo);
+        expect(r.status, JSON.stringify(corpo)).toBe(400);
+      }
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM feed.notificacoes WHERE usuario_id = $1 AND lida_em IS NULL`,
+          [a.id],
+        ),
+      ).toBe(2);
     });
 
     it('"marcar todas" com ateId deixa não lido o que chegou depois', async () => {
@@ -3017,6 +3175,27 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
   });
 
   describe('migrations', () => {
+    it('rollback dos requisitos é recusado quando há conclusão com prova', async () => {
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM gamificacao.missoes_conclusoes WHERE evidencia IS NOT NULL`,
+        ),
+      ).toBeGreaterThan(0);
+      const qr = ds.createQueryRunner();
+      try {
+        await expect(
+          new RequisitosMissoes1795000000000().down(qr),
+        ).rejects.toThrow(/Rollback recusado/);
+      } finally {
+        await qr.release();
+      }
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM information_schema.columns WHERE table_schema = 'gamificacao' AND table_name = 'missoes_conclusoes' AND column_name = 'evidencia'`,
+        ),
+      ).toBe(1);
+    });
+
     it('rollback das notificações é recusado quando há dados', async () => {
       const qr = ds.createQueryRunner();
       try {
