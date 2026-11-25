@@ -75,25 +75,25 @@ export interface MissaoAlunoDto {
 }
 
 export class ConcluirMissaoDto {
-  @IsOptional()
+  @ValidateIf((o: ConcluirMissaoDto) => o.latitude !== undefined)
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(-90)
   @Max(90)
   latitude?: number;
 
-  @IsOptional()
+  @ValidateIf((o: ConcluirMissaoDto) => o.longitude !== undefined)
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(-180)
   @Max(180)
   longitude?: number;
 
-  @IsOptional()
+  @ValidateIf((o: ConcluirMissaoDto) => o.accuracy !== undefined)
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(0)
   @Max(10_000)
   accuracy?: number;
 
-  @IsOptional()
+  @ValidateIf((o: ConcluirMissaoDto) => o.codigo !== undefined)
   @IsString()
   @Matches(CODIGO_DIGITADO, { message: 'codigo inválido' })
   codigo?: string;

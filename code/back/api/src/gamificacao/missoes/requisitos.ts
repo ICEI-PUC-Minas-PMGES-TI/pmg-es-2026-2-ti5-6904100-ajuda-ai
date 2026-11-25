@@ -157,14 +157,16 @@ export async function verificarEvento(
   missao: MissaoParaVerificar,
   leitura: LeituraConclusao,
 ): Promise<{ distanciaMetros: number; eventoId: string }> {
-  if (leitura.latitude === undefined || leitura.longitude === undefined) {
+  const numero = (v: unknown): v is number =>
+    typeof v === 'number' && Number.isFinite(v);
+  if (!numero(leitura.latitude) || !numero(leitura.longitude)) {
     throw new BadRequestException({
       statusCode: 400,
       message: 'Envie sua localização para fazer o check-in no evento.',
       motivo: 'localizacao-obrigatoria',
     });
   }
-  if (leitura.accuracy === undefined) {
+  if (!numero(leitura.accuracy)) {
     throw new BadRequestException({
       statusCode: 400,
       message: 'Envie a precisão da localização para fazer o check-in.',
@@ -215,7 +217,14 @@ export async function verificarEvento(
       fim: evento.fim.toISOString(),
     });
   }
-  const distanciaMetros = Math.round(Number(evento.distancia));
+  const distancia = evento.distancia === null ? NaN : Number(evento.distancia);
+  if (!Number.isFinite(distancia)) {
+    throw recusa(
+      'fora-do-local',
+      'Não foi possível medir sua distância até o evento. Tente de novo.',
+    );
+  }
+  const distanciaMetros = Math.round(distancia);
   if (distanciaMetros > RAIO_EVENTO_METROS) {
     throw recusa(
       'fora-do-local',

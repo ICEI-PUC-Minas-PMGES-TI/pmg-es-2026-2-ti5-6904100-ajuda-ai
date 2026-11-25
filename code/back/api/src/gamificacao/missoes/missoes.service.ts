@@ -6,8 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { schemaGeoEmCache } from '../../campus/geo.js';
-import { SCHEMA_MAPA } from '../../mapa/postgis.js';
+import { SCHEMA_MAPA, schemaPostgis } from '../../mapa/postgis.js';
 import { notificacaoNivel } from '../../notificacoes/notificacoes.js';
 import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
@@ -127,13 +126,17 @@ function alvoDe(l: LinhaMissaoAluno): AlvoMissaoDto | null {
 @Injectable()
 export class MissoesService {
   private readonly logger = new Logger('Missoes');
-  private readonly geo: () => Promise<string>;
+  private schemaGeo?: string;
 
   constructor(
     private readonly dataSource: DataSource,
     private readonly notificacoes: NotificacoesService,
-  ) {
-    this.geo = schemaGeoEmCache(dataSource);
+  ) {}
+
+  private async geo(
+    consultar: (sql: string, p?: unknown[]) => Promise<unknown>,
+  ): Promise<string> {
+    return (this.schemaGeo ??= await schemaPostgis(consultar));
   }
 
   private get u(): string {
@@ -163,7 +166,7 @@ export class MissoesService {
       this.dataSource.query(sql, p);
     const [email, geo] = await Promise.all([
       this.emailDe(consultar, usuarioId),
-      this.geo(),
+      this.geo((sql, p) => this.dataSource.query(sql, p)),
     ]);
     const centro = (c: 'X' | 'Y') =>
       `CASE WHEN m."requisito" = 'PUCSTOPS' THEN ${geo}.ST_${c}(ps."localizacao") ` +
@@ -365,7 +368,7 @@ export class MissoesService {
       if (missao.requisito === 'EVENTO') {
         const presenca = await verificarEvento(
           qr,
-          await this.geo(),
+          await this.geo((sql, p) => qr.query(sql, p)),
           missao,
           leitura,
         );
