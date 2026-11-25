@@ -59,6 +59,15 @@ export class RequisitosMissoes1795000000000 implements MigrationInterface {
 
   async down(qr: QueryRunner): Promise<void> {
     const g = `"${SCHEMA_GAMIFICACAO}"`;
+    const [{ missoes, provas }] = (await qr.query(
+      `SELECT (SELECT count(*)::int FROM ${g}."missoes" WHERE "requisito" IS NOT NULL) AS missoes, ` +
+        `(SELECT count(*)::int FROM ${g}."missoes_conclusoes" WHERE "evidencia" IS NOT NULL) AS provas`,
+    )) as Array<{ missoes: number; provas: number }>;
+    if (Number(missoes) > 0 || Number(provas) > 0) {
+      throw new Error(
+        `Rollback recusado: ${missoes} missão(ões) com requisito e ${provas} conclusão(ões) com prova seriam perdidas.`,
+      );
+    }
     await qr.query(`DROP TABLE ${g}."missoes_tentativas_codigo"`);
     await qr.query(
       `ALTER TABLE ${g}."missoes_conclusoes" DROP COLUMN "evidencia"`,
