@@ -11,6 +11,12 @@ export function rotaDaNotificacao(link) {
   return (link && ROTAS_WEB[link]) || null;
 }
 
+export function destinoNoApp(link) {
+  if (link === '/missoes') return 'Abra no app Ajuda-aí para ver a missão.';
+  if (link?.startsWith('/lojinha/')) return 'Abra no app Ajuda-aí para ver o resgate.';
+  return null;
+}
+
 export function tempoRelativo(iso, agora = new Date()) {
   const data = new Date(iso);
   if (Number.isNaN(data.getTime())) return '';

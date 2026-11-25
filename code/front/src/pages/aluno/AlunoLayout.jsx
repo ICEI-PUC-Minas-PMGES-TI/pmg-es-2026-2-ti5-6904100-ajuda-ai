@@ -15,6 +15,7 @@ import {
   marcarLidaLocal,
   marcarTodasLocal,
   NOTIFICACOES_VAZIAS,
+  destinoNoApp,
   rotaDaNotificacao,
   tempoRelativo,
 } from './notificacoes';
@@ -436,6 +437,7 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, 
                         <span className="notif-copy">
                           <strong>{n.titulo}</strong>
                           <span>{n.mensagem}</span>
+                          {destinoNoApp(n.link) && <small>{destinoNoApp(n.link)}</small>}
                           <small>{tempoRelativo(n.criadoEm)}</small>
                         </span>
                         {!n.lida && <span className="notif-dot" aria-hidden="true" />}

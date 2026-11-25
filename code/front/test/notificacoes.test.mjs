@@ -65,6 +65,10 @@ test('tempo relativo e rotas da web', () => {
   assert.equal(n.tempoRelativo(new Date(2026, 10, 16, 20).toISOString(), new Date(2026, 10, 18, 8)), '16/11');
   assert.equal(n.rotaDaNotificacao('/perfil'), '/aluno/perfil');
   assert.equal(n.rotaDaNotificacao('/missoes'), null);
+  assert.equal(n.destinoNoApp('/missoes'), 'Abra no app Ajuda-aí para ver a missão.');
+  assert.equal(n.destinoNoApp('/lojinha/resgates/8c1f3a2e-4b5d-4e6f-9a7b-1c2d3e4f5a6b'), 'Abra no app Ajuda-aí para ver o resgate.');
+  assert.equal(n.destinoNoApp('/perfil'), null);
+  assert.equal(n.destinoNoApp(null), null);
   assert.equal(n.ICONE_NOTIFICACAO.MISSAO_NOVA, 'trophy');
 });
 
