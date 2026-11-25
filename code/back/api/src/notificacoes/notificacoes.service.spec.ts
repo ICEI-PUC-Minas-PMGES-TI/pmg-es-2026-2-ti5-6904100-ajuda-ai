@@ -250,7 +250,7 @@ describe('NotificacoesService', () => {
     await service.sincronizarMissoes(7, '2026/2');
     const [sql] = comandos[0];
     expect(sql).toContain(
-      'GREATEST(m."criado_em", COALESCE(m."inicio", m."criado_em")) >= (',
+      'GREATEST(m."publicada_em", COALESCE(m."inicio", m."publicada_em")) >= (',
     );
     expect(sql).toContain('min(pa."criado_em") FROM "feed"."participacoes" pa');
     expect(sql).toContain('pa."programa" = $2');

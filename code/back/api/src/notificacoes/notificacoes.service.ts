@@ -176,11 +176,11 @@ export class NotificacoesService {
       const missoes = (await this.dataSource.query(
         `SELECT m."id", m."titulo", m."xp" FROM "${SCHEMA_GAMIFICACAO}"."missoes" m ` +
           `WHERE m."ciclo" = $2 AND ${sqlMissaoVisivel('m')} AND ${sqlMissaoAlcancavel('m', acesso)} ` +
-          `AND GREATEST(m."criado_em", COALESCE(m."inicio", m."criado_em")) >= (` +
+          `AND GREATEST(m."publicada_em", COALESCE(m."inicio", m."publicada_em")) >= (` +
           `SELECT min(pa."criado_em") FROM ${u}."participacoes" pa JOIN ${u}."usuarios" us ` +
           `ON lower(pa."usuario_id") = lower(us."email") WHERE us."id" = $1 AND pa."programa" = $2) ` +
           `AND NOT EXISTS (SELECT 1 FROM ${this.tabela} n WHERE n."usuario_id" = $1 AND n."chave" = $3 || m."id"::text) ` +
-          `ORDER BY m."criado_em", m."id"`,
+          `ORDER BY m."publicada_em", m."id"`,
         [usuarioId, ciclo, CHAVE_MISSAO_NOVA],
       )) as Array<{ id: string; titulo: string; xp: number }>;
       if (missoes.length > 0) {

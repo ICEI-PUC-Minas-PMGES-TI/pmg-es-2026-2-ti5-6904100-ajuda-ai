@@ -173,8 +173,8 @@ export class MissoesAdminService {
     );
     const ativar = dados.ativar === true;
     const [{ id }] = (await this.dataSource.query(
-      `INSERT INTO ${g}."missoes" ("titulo", "descricao", "tipo", "xp", "ativa", "inicio", "fim", "ciclo", "criado_por", "requisito", "quantidade", "alvo_id", "codigo") ` +
-        `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING "id"`,
+      `INSERT INTO ${g}."missoes" ("titulo", "descricao", "tipo", "xp", "ativa", "inicio", "fim", "ciclo", "criado_por", "requisito", "quantidade", "alvo_id", "codigo", "publicada_em") ` +
+        `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CASE WHEN $5 THEN now() END) RETURNING "id"`,
       [
         dados.titulo.trim(),
         dados.descricao.trim(),
@@ -340,7 +340,8 @@ export class MissoesAdminService {
         });
       }
       await m.query(
-        `UPDATE ${g}."missoes" SET "ativa" = $2, "atualizado_em" = now() WHERE "id" = $1`,
+        `UPDATE ${g}."missoes" SET "ativa" = $2, "atualizado_em" = now(), ` +
+          `"publicada_em" = CASE WHEN $2 THEN COALESCE("publicada_em", now()) ELSE "publicada_em" END WHERE "id" = $1`,
         [id, ativa],
       );
     });
