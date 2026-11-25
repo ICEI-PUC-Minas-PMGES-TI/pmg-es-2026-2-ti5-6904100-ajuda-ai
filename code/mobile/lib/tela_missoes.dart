@@ -2066,7 +2066,7 @@ String comoConcluirMissao(Missao m) {
     RequisitoMissao.feedCurtidas =>
       'Curta ${_vezes(meta, 'post', 'posts')} de colegas no feed.',
     RequisitoMissao.feedPublicacoes =>
-      'Faça ${_vezes(meta, 'publicação', 'publicações')} no feed.',
+      'Faça ${_vezes(meta, 'publicação', 'publicações')} no feed (pelo menos 10 caracteres ou uma foto).',
     RequisitoMissao.chatMensagens =>
       'Envie ${_vezes(meta, 'mensagem', 'mensagens')} para sua dupla no chat (pelo menos 10 caracteres).',
     RequisitoMissao.codigo =>

@@ -314,7 +314,8 @@ final casosPendentes = [
       atual: 0,
       meta: 1,
     ),
-    comoConcluir: 'Faça 1 publicação no feed.',
+    comoConcluir:
+        'Faça 1 publicação no feed (pelo menos 10 caracteres ou uma foto).',
     atalho: 'Ir para o feed',
     progresso: '0/1',
   ),

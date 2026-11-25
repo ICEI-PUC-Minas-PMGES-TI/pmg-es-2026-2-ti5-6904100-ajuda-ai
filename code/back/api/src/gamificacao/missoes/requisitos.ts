@@ -15,6 +15,7 @@ import {
   JANELA_TENTATIVAS_CODIGO,
   MENSAGEM_MISSAO_MIN,
   normalizarCodigo,
+  PUBLICACAO_MISSAO_MIN,
   RAIO_EVENTO_METROS,
   type RequisitoMissao,
   TENTATIVAS_CODIGO_POR_HORA,
@@ -40,7 +41,9 @@ export function sqlProgresso(m: string, u: string): string {
     `WHERE c."usuario_id" = $1 AND c."ciclo" = ${m}."ciclo" AND (${m}."alvo_id" IS NULL OR c."pucstop_id" = ${m}."alvo_id") ` +
     `) ` +
     `WHEN 'FEED_PUBLICACOES' THEN (SELECT count(*) FROM ${u}."publicacoes" p ` +
-    `WHERE lower(p."owner_id") = $2 AND p."programa_codigo" = ${m}."ciclo" AND ${janela(m, 'p."criado_em"')}) ` +
+    `WHERE lower(p."owner_id") = $2 AND p."programa_codigo" = ${m}."ciclo" ` +
+    `AND (char_length(btrim(COALESCE(p."texto", ''))) >= ${PUBLICACAO_MISSAO_MIN} OR COALESCE(cardinality(p."imagens"), 0) > 0) ` +
+    `AND ${janela(m, 'p."criado_em"')}) ` +
     `WHEN 'FEED_COMENTARIOS' THEN (SELECT count(*) FROM ${u}."comentarios" k JOIN ${u}."publicacoes" p ON p."id" = k."publicacao_id" ` +
     `WHERE lower(k."autor_id") = $2 AND lower(p."owner_id") <> $2 AND p."programa_codigo" = ${m}."ciclo" ` +
     `AND char_length(btrim(k."texto")) >= ${COMENTARIO_MISSAO_MIN} ` +
