@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import {
+  IsInt,
+  IsOptional,
+  IsUUID,
+  Max,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 import { LIMITE_NOTIFICACOES } from './notificacoes.js';
 
 export class ListarNotificacoesQuery {
@@ -22,7 +29,7 @@ export class ListarNotificacoesQuery {
  * depois da última leitura continua não lido. Sem `ateId`, marca todas.
  */
 export class MarcarTodasDto {
-  @IsOptional()
+  @ValidateIf((o: MarcarTodasDto) => o.ateId !== undefined)
   @IsUUID()
   ateId?: string;
 }
