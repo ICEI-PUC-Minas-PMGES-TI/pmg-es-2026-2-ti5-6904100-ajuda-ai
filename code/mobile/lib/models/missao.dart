@@ -120,6 +120,44 @@ class AlvoMissao {
   }
 }
 
+/// Ponto do roteiro de uma missão de exploração (a meta é coletar todos).
+class PontoMissao {
+  const PontoMissao({
+    required this.id,
+    required this.nome,
+    required this.coletado,
+    this.ativo = true,
+    this.latitude,
+    this.longitude,
+  });
+
+  final String id;
+  final String nome;
+  final bool coletado;
+
+  /// Desativado pela coordenação depois da publicação: só conta para quem já
+  /// tinha coletado.
+  final bool ativo;
+  final double? latitude;
+  final double? longitude;
+
+  static PontoMissao? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final id = json['id'];
+    final nome = json['nome'];
+    if (id is! String || nome is! String) return null;
+    double? numero(Object? v) => v is num ? v.toDouble() : null;
+    return PontoMissao(
+      id: id,
+      nome: nome,
+      coletado: json['coletado'] == true,
+      ativo: json['ativo'] != false,
+      latitude: numero(json['latitude']),
+      longitude: numero(json['longitude']),
+    );
+  }
+}
+
 class Missao {
   const Missao({
     required this.id,
@@ -136,6 +174,9 @@ class Missao {
     this.progresso,
     this.pronta = false,
     this.alvo,
+    this.instrucoes,
+    this.pontos = const [],
+    this.codigoLiberadoAte,
   });
 
   final RequisitoMissao requisito;
@@ -143,6 +184,16 @@ class Missao {
 
   final bool pronta;
   final AlvoMissao? alvo;
+
+  /// Passo a passo opcional escrito pela coordenação.
+  final String? instrucoes;
+
+  /// Roteiro da exploração, na ordem da coordenação; vazio = qualquer PucStop.
+  final List<PontoMissao> pontos;
+
+  /// Até quando o código da atividade vale (CODIGO e EVENTO). Null: fechado
+  /// quando a lista foi carregada. Quem decide na hora é o servidor.
+  final DateTime? codigoLiberadoAte;
 
   final String id;
   final String titulo;
@@ -177,6 +228,15 @@ class Missao {
       progresso: ProgressoMissao.fromJson(json['progresso']),
       pronta: json['pronta'] == true,
       alvo: AlvoMissao.fromJson(json['alvo']),
+      instrucoes: switch (json['instrucoes']) {
+        final String texto when texto.trim().isNotEmpty => texto.trim(),
+        _ => null,
+      },
+      pontos: [
+        if (json['pontos'] case final List lista)
+          for (final item in lista) ?PontoMissao.fromJson(item),
+      ],
+      codigoLiberadoAte: _data(json['codigoLiberadoAte']),
     );
   }
 }

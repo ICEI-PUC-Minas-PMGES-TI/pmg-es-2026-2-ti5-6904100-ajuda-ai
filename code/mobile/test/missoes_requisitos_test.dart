@@ -284,7 +284,7 @@ final casosPendentes = [
       atual: 0,
       meta: 2,
     ),
-    comoConcluir: 'Comente 2 vezes em posts de colegas no feed (pelo menos 10 caracteres).',
+    comoConcluir: 'Comente em 2 posts diferentes de colegas no feed (pelo menos 10 caracteres).',
     atalho: 'Ir para o feed',
     progresso: '0/2',
   ),
@@ -481,6 +481,12 @@ void main() {
         findsOneWidget,
       );
       expect(textoDoBotao(tester), 'Validar código e resgatar');
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('detalhe-codigo-janela')))
+            .data,
+        'O código só vale na hora da atividade, enquanto a coordenação deixa liberado.',
+      );
       await tester.tap(find.byKey(const Key('detalhe-concluir')));
       await tester.pumpAndSettle();
       expect(servidor.pedidos, isEmpty);
@@ -770,6 +776,246 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('detalhe-missao')), findsNothing);
     expect(find.text('pagina-mapa'), findsOneWidget);
+  });
+
+  group('janela do código', () {
+    test('mostra até quando vale; vencido ou fechado vira o aviso geral', () {
+      final agora = DateTime(2026, 11, 26, 14, 0);
+      Missao comJanela(DateTime? ate) => Missao.fromJson({
+        ...missaoReal(
+          'palestra',
+          titulo: 'Assista à palestra',
+          descricao: 'x',
+          requisito: 'CODIGO',
+          pronta: true,
+        ),
+        'codigoLiberadoAte': ate?.toUtc().toIso8601String(),
+      })!;
+      final aberta = comJanela(agora.add(const Duration(minutes: 10)));
+      expect(aberta.codigoLiberadoAte, agora.add(const Duration(minutes: 10)));
+      expect(
+        textoJanelaCodigo(aberta, agora: agora),
+        'Código liberado até 14:10.',
+      );
+      const geral =
+          'O código só vale na hora da atividade, enquanto a coordenação deixa liberado.';
+      expect(
+        textoJanelaCodigo(
+          comJanela(agora.subtract(const Duration(seconds: 1))),
+          agora: agora,
+        ),
+        geral,
+      );
+      expect(textoJanelaCodigo(comJanela(null), agora: agora), geral);
+    });
+
+    testWidgets('código fechado: a recusa do servidor aparece no detalhe', (
+      tester,
+    ) async {
+      final servidor = await abrirTela(tester, [
+        missaoReal(
+          'palestra',
+          titulo: 'Assista à palestra',
+          descricao: 'Peça o código no fim da palestra.',
+          requisito: 'CODIGO',
+          pronta: true,
+        ),
+      ]);
+      servidor.recusa = (
+        422,
+        {
+          'message': 'O código não está liberado agora. Ele só vale na hora da atividade, enquanto a coordenação deixa liberado.',
+          'motivo': 'codigo-fechado',
+        },
+      );
+      await abrirDetalhe(tester, 'palestra');
+      await tester.enterText(
+        find.byKey(const Key('detalhe-codigo')),
+        'PALESTRA-1',
+      );
+      await tester.tap(find.byKey(const Key('detalhe-concluir')));
+      await tester.pumpAndSettle();
+      expect(servidor.pedidos.single.$2, {'codigo': 'PALESTRA-1'});
+      expect(
+        find.text(
+          'O código não está liberado agora. Ele só vale na hora da atividade, enquanto a coordenação deixa liberado.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Missão concluída!'), findsNothing);
+    });
+  });
+
+  group('roteiro e instruções (F22)', () {
+    final roteiro = {
+      ...missaoReal(
+        'roteiro',
+        titulo: 'Roteiro da Capela',
+        descricao: 'Conheça três pontos do campus.',
+        requisito: 'PUCSTOPS',
+        xp: 60,
+        atual: 1,
+        meta: 3,
+        alvo: {
+          'tipo': 'pucstop',
+          'id': 'p2',
+          'nome': 'Biblioteca ICEI',
+          'latitude': -19.9236,
+          'longitude': -43.9925,
+        },
+      ),
+      'instrucoes': '  Comece pela Capela e siga a ordem.  ',
+      'pontos': [
+        {
+          'id': 'p1',
+          'nome': 'Capela',
+          'coletado': true,
+          'latitude': -19.92,
+          'longitude': -43.99,
+        },
+        {'id': 'p2', 'nome': 'Biblioteca ICEI', 'coletado': false},
+        {'id': 'p3', 'nome': 'Prédio 34', 'coletado': false},
+        {'id': 7, 'nome': 'inválido'},
+      ],
+    };
+
+    test('modelo lê pontos válidos, na ordem, e instruções sem espaços', () {
+      final m = Missao.fromJson(roteiro)!;
+      expect(m.instrucoes, 'Comece pela Capela e siga a ordem.');
+      expect(m.pontos.map((p) => p.id), ['p1', 'p2', 'p3']);
+      expect(m.pontos.first.coletado, isTrue);
+      expect(m.pontos.first.latitude, closeTo(-19.92, 1e-6));
+      expect(m.pontos[1].coletado, isFalse);
+      final semNada = Missao.fromJson({
+        ...roteiro,
+        'instrucoes': '   ',
+        'pontos': null,
+      })!;
+      expect(semNada.instrucoes, isNull);
+      expect(semNada.pontos, isEmpty);
+    });
+
+    test('frase de como concluir fala do roteiro e do próximo ponto', () {
+      expect(
+        comoConcluirMissao(Missao.fromJson(roteiro)!),
+        'Colete os 3 PucStops do roteiro no mapa. Próximo: Biblioteca ICEI.',
+      );
+      final umPonto = Missao.fromJson({
+        ...roteiro,
+        'pontos': [
+          {'id': 'p2', 'nome': 'Biblioteca ICEI', 'coletado': false},
+        ],
+      })!;
+      expect(
+        comoConcluirMissao(umPonto),
+        'Colete o PucStop Biblioteca ICEI no mapa.',
+      );
+    });
+
+    test('ponto desativado sai da meta e a frase explica', () {
+      final m = Missao.fromJson({
+        ...roteiro,
+        'progresso': {'atual': 1, 'meta': 2},
+        'pontos': [
+          {'id': 'p1', 'nome': 'Capela', 'coletado': true},
+          {'id': 'p2', 'nome': 'Biblioteca ICEI', 'coletado': false},
+          {'id': 'p3', 'nome': 'Prédio 34', 'coletado': false, 'ativo': false},
+        ],
+      })!;
+      expect(m.pontos.map((p) => p.ativo), [true, true, false]);
+      expect(
+        comoConcluirMissao(m),
+        'Colete os 2 PucStops do roteiro no mapa (o ponto desativado não conta). Próximo: Biblioteca ICEI.',
+      );
+      final soUm = Missao.fromJson({
+        ...roteiro,
+        'progresso': {'atual': 0, 'meta': 1},
+        'pontos': [
+          {'id': 'p2', 'nome': 'Biblioteca ICEI', 'coletado': false},
+          {'id': 'p3', 'nome': 'Prédio 34', 'coletado': false, 'ativo': false},
+          {'id': 'p4', 'nome': 'Cantina', 'coletado': false, 'ativo': false},
+        ],
+      })!;
+      expect(
+        comoConcluirMissao(soUm),
+        'Colete 1 PucStop do roteiro no mapa (os 2 pontos desativados não contam). Próximo: Biblioteca ICEI.',
+      );
+    });
+
+    testWidgets('detalhe marca o ponto desativado que ainda não foi coletado', (
+      tester,
+    ) async {
+      await abrirTela(tester, [
+        {
+          ...roteiro,
+          'progresso': {'atual': 1, 'meta': 2},
+          'pontos': [
+            {'id': 'p1', 'nome': 'Capela', 'coletado': true, 'ativo': false},
+            {'id': 'p2', 'nome': 'Biblioteca ICEI', 'coletado': false},
+            {
+              'id': 'p3',
+              'nome': 'Prédio 34',
+              'coletado': false,
+              'ativo': false,
+            },
+          ],
+        },
+      ]);
+      await abrirDetalhe(tester, 'roteiro');
+      // Coletado antes de desativar continua valendo.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('detalhe-ponto-p1')),
+          matching: find.byIcon(Icons.check_circle_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('detalhe-ponto-p3')),
+          matching: find.byIcon(Icons.do_not_disturb_on_outlined),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Prédio 34 · desativado'), findsOneWidget);
+      expect(find.text('1/2'), findsOneWidget);
+      expect(textoDoBotao(tester), 'Falta 1 para resgatar');
+    });
+
+    testWidgets('detalhe mostra as instruções e o que falta do roteiro', (
+      tester,
+    ) async {
+      await abrirTela(tester, [roteiro]);
+      await abrirDetalhe(tester, 'roteiro');
+      expect(
+        find.text(
+          'Colete os 3 PucStops do roteiro no mapa. Próximo: Biblioteca ICEI.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('detalhe-instrucoes'))).data,
+        'Comece pela Capela e siga a ordem.',
+      );
+      for (final id in ['p1', 'p2', 'p3']) {
+        expect(find.byKey(Key('detalhe-ponto-$id')), findsOneWidget);
+      }
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('detalhe-ponto-p1')),
+          matching: find.byIcon(Icons.check_circle_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('detalhe-ponto-p3')),
+          matching: find.byIcon(Icons.radio_button_unchecked_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('1/3'), findsOneWidget);
+    });
   });
 
   group('modelo', () {

@@ -1867,6 +1867,18 @@ class _SheetMissaoState extends State<_SheetMissao> {
                         ),
                         onSubmitted: (_) => _resgatar(),
                       ),
+                      const SizedBox(height: 8),
+                      Text(
+                        textoJanelaCodigo(missao),
+                        key: const Key('detalhe-codigo-janela'),
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          color: Colors.white.withValues(alpha: 0.7),
+                          fontSize: 12.5,
+                          height: 1.4,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ],
                     if (_atalho(missao) case (final rotulo, final destino)
                         when !missao.pronta && widget.onAtalho != null) ...[
@@ -2051,6 +2063,7 @@ String comoConcluirMissao(Missao m) {
   final meta = m.progresso?.meta ?? 1;
   final alvo = m.alvo;
   return switch (m.requisito) {
+    RequisitoMissao.pucstops when m.pontos.length > 1 => _comoRoteiro(m),
     RequisitoMissao.pucstops =>
       alvo != null
           ? 'Colete o PucStop ${alvo.nome} no mapa.'
@@ -2062,7 +2075,7 @@ String comoConcluirMissao(Missao m) {
                 '${alvo.inicio == null ? '' : ', em ${_dataCurta(alvo.inicio!)} às ${_hora(alvo.inicio!)}'}. '
                 'Precisa estar no local, com a localização ligada, e digitar o código mostrado no evento.',
     RequisitoMissao.feedComentarios =>
-      'Comente ${_vezes(meta, 'vez', 'vezes')} em posts de colegas no feed (pelo menos 10 caracteres).',
+      'Comente em ${_vezes(meta, 'post', 'posts diferentes')} de colegas no feed (pelo menos 10 caracteres).',
     RequisitoMissao.feedCurtidas =>
       'Curta ${_vezes(meta, 'post', 'posts')} de colegas no feed.',
     RequisitoMissao.feedPublicacoes =>
@@ -2074,6 +2087,32 @@ String comoConcluirMissao(Missao m) {
     RequisitoMissao.desconhecido =>
       'Atualize o app para ver como concluir esta missão.',
   };
+}
+
+/// Roteiro: a meta vem do servidor, que já tira os pontos desativados que o
+/// aluno não coletou.
+String _comoRoteiro(Missao m) {
+  final total = m.progresso?.meta ?? m.pontos.length;
+  final fora = m.pontos.where((p) => !p.ativo && !p.coletado).length;
+  final alvo = m.alvo;
+  final base = total == 1
+      ? 'Colete 1 PucStop do roteiro no mapa'
+      : 'Colete os $total PucStops do roteiro no mapa';
+  final aviso = switch (fora) {
+    0 => '',
+    1 => ' (o ponto desativado não conta)',
+    _ => ' (os $fora pontos desativados não contam)',
+  };
+  return '$base$aviso${alvo == null ? '' : '. Próximo: ${alvo.nome}'}.';
+}
+
+/// O código só vale enquanto a coordenação deixa liberado.
+String textoJanelaCodigo(Missao m, {DateTime? agora}) {
+  final ate = m.codigoLiberadoAte;
+  if (ate != null && ate.isAfter(agora ?? DateTime.now())) {
+    return 'Código liberado até ${_hora(ate.toLocal())}.';
+  }
+  return 'O código só vale na hora da atividade, enquanto a coordenação deixa liberado.';
 }
 
 (String, AppDestination)? _atalho(Missao m) => switch (m.requisito) {
@@ -2149,6 +2188,73 @@ class _ComoConcluir extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
+          if (missao.instrucoes case final instrucoes?) ...[
+            const SizedBox(height: 10),
+            Text(
+              instrucoes,
+              key: const Key('detalhe-instrucoes'),
+              style: TextStyle(
+                fontFamily: 'Inter',
+                color: Colors.white.withValues(alpha: 0.82),
+                fontSize: 13.5,
+                height: 1.45,
+              ),
+            ),
+          ],
+          if (missao.pontos.length > 1) ...[
+            const SizedBox(height: 10),
+            for (final ponto in missao.pontos)
+              Padding(
+                key: Key('detalhe-ponto-${ponto.id}'),
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  children: [
+                    Icon(
+                      ponto.coletado
+                          ? Icons.check_circle_rounded
+                          : !ponto.ativo
+                          ? Icons.do_not_disturb_on_outlined
+                          : Icons.radio_button_unchecked_rounded,
+                      size: 18,
+                      color: ponto.coletado
+                          ? const Color(0xFFFFD45C)
+                          : Colors.white.withValues(
+                              alpha: ponto.ativo ? 0.5 : 0.35,
+                            ),
+                      semanticLabel: ponto.coletado
+                          ? 'Coletado'
+                          : !ponto.ativo
+                          ? 'Desativado, não conta'
+                          : 'Falta coletar',
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        !ponto.coletado && !ponto.ativo
+                            ? '${ponto.nome} · desativado'
+                            : ponto.nome,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          color: Colors.white.withValues(
+                            alpha: ponto.coletado
+                                ? 0.6
+                                : ponto.ativo
+                                ? 0.95
+                                : 0.45,
+                          ),
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          decoration: ponto.coletado
+                              ? TextDecoration.lineThrough
+                              : null,
+                          decorationColor: Colors.white.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
           if (progresso != null) ...[
             const SizedBox(height: 12),
             Row(
