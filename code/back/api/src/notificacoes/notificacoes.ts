@@ -5,6 +5,9 @@ export const TIPOS_NOTIFICACAO = [
   'NIVEL_SUBIU',
   'RESGATE_ENTREGUE',
   'RESGATE_CANCELADO',
+  'CANDIDATURA_APROVADA',
+  'CANDIDATURA_NAO_APROVADA',
+  'VINCULO_CONFIRMADO',
 ] as const;
 export type TipoNotificacao = (typeof TIPOS_NOTIFICACAO)[number];
 
@@ -84,5 +87,85 @@ export function notificacaoResgate(
       : `Seu resgate de ${resgate.nome} foi cancelado e as moedas voltaram para a sua carteira.`,
     link: `/lojinha/resgates/${resgate.id}`,
     chave: `resgate-${desfecho}:${resgate.id}`,
+  };
+}
+
+export function notificacaoCandidatura(
+  resultado: 'aprovado' | 'nao_aprovado' | 'revogado',
+  decisao: { programa: string; em: string },
+): NovaNotificacao {
+  const textos = {
+    aprovado: [
+      'Candidatura aprovada',
+      `Sua candidatura ao apadrinhamento ${decisao.programa} foi aprovada. Avisaremos quando sua dupla for definida.`,
+    ],
+    nao_aprovado: [
+      'Candidatura não aprovada',
+      `Sua candidatura ao apadrinhamento ${decisao.programa} não foi aprovada. Veja a justificativa da coordenação.`,
+    ],
+    // Quem já recebeu "aprovada" não deve ler "não foi aprovada".
+    revogado: [
+      'Aprovação revogada',
+      `A coordenação revogou a aprovação da sua candidatura ao apadrinhamento ${decisao.programa}. Veja a justificativa.`,
+    ],
+  } as const;
+  const [titulo, mensagem] = textos[resultado];
+  return {
+    tipo:
+      resultado === 'aprovado'
+        ? 'CANDIDATURA_APROVADA'
+        : 'CANDIDATURA_NAO_APROVADA',
+    titulo,
+    mensagem,
+    link: '/candidatura',
+    // Um aviso por decisão: revogar ou decidir de novo gera outro.
+    chave: `candidatura:${decisao.programa}:${decisao.em}`,
+  };
+}
+
+/** Prefixo das chaves de vínculo do ciclo; depois dele vem a outra pessoa. */
+export function prefixoVinculo(programa: string): string {
+  return `vinculo:${programa}:`;
+}
+
+/**
+ * Um aviso por pessoa nova na dupla (`parceiroId` é a participação dela):
+ * trocar de padrinho ou ganhar outro apadrinhado no mesmo ciclo avisa de
+ * novo. O primeiro aviso do ciclo dá as boas-vindas; os seguintes dizem
+ * que a dupla mudou.
+ */
+export function notificacaoVinculo(
+  programa: string,
+  papel: 'padrinho' | 'apadrinhado',
+  parceiroId: number,
+  primeiro = true,
+): NovaNotificacao {
+  const textos = {
+    padrinho: primeiro
+      ? [
+          'Seu apadrinhamento começou!',
+          'Veja quem você vai acompanhar neste semestre e mande a primeira mensagem.',
+        ]
+      : [
+          'Você tem um novo apadrinhado!',
+          'Veja quem chegou e mande a primeira mensagem.',
+        ],
+    apadrinhado: primeiro
+      ? [
+          'Seu padrinho foi definido!',
+          'Conheça quem vai te acompanhar neste semestre e mande a primeira mensagem.',
+        ]
+      : [
+          'Você tem um novo padrinho!',
+          'A coordenação mudou quem vai te acompanhar neste semestre. Conheça e mande a primeira mensagem.',
+        ],
+  } as const;
+  const [titulo, mensagem] = textos[papel];
+  return {
+    tipo: 'VINCULO_CONFIRMADO',
+    titulo,
+    mensagem,
+    link: '/dupla',
+    chave: `${prefixoVinculo(programa)}${parceiroId}`,
   };
 }

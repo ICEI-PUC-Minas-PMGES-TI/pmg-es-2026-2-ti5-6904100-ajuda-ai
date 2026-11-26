@@ -17,6 +17,8 @@ import {
   type NotificacoesDto,
   type NovaNotificacao,
   notificacaoMissaoNova,
+  notificacaoVinculo,
+  prefixoVinculo,
   type TipoNotificacao,
 } from './notificacoes.js';
 
@@ -142,6 +144,24 @@ export class NotificacoesService {
     }
   }
 
+  /**
+   * Para quem é conhecido pelo e-mail (participações). Sem conta ainda,
+   * não há sino para avisar. Nunca derruba quem chamou.
+   */
+  async criarParaEmail(email: string, nova: NovaNotificacao): Promise<void> {
+    try {
+      const [usuario] = (await this.dataSource.query(
+        `SELECT "id" FROM ${schemaUsuarios(this.dataSource)}."usuarios" WHERE lower("email") = lower($1)`,
+        [email],
+      )) as Array<{ id: number }>;
+      if (usuario) await this.inserir(usuario.id, [nova]);
+    } catch (erro) {
+      this.logger.warn(
+        `falha ao notificar chave=${nova.chave}: ${(erro as Error).message}`,
+      );
+    }
+  }
+
   private async inserir(
     usuarioId: number,
     novas: NovaNotificacao[],
@@ -189,6 +209,44 @@ export class NotificacoesService {
     } catch (erro) {
       this.logger.warn(
         `falha ao avisar missões usuario=${usuarioId} ciclo=${ciclo}: ${(erro as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Avisa cada pessoa nova na dupla (participações em `parceiros`). Quem já
+   * foi avisado não é avisado de novo; trocar de dupla no mesmo ciclo gera
+   * outro aviso. Nunca derruba a leitura do sino.
+   */
+  async sincronizarVinculo(
+    usuarioId: number,
+    programa: string,
+    papel: 'padrinho' | 'apadrinhado',
+    parceiros: number[],
+  ): Promise<void> {
+    if (parceiros.length === 0) return;
+    const prefixo = prefixoVinculo(programa);
+    try {
+      const avisados = new Set(
+        (
+          (await this.dataSource.query(
+            `SELECT "chave" FROM ${this.tabela} WHERE "usuario_id" = $1 AND starts_with("chave", $2)`,
+            [usuarioId, prefixo],
+          )) as Array<{ chave: string }>
+        ).map((l) => l.chave),
+      );
+      const novos = [...new Set(parceiros)].filter(
+        (id) => !avisados.has(`${prefixo}${id}`),
+      );
+      if (novos.length === 0) return;
+      const primeiro = avisados.size === 0 && novos.length === 1;
+      await this.inserir(
+        usuarioId,
+        novos.map((id) => notificacaoVinculo(programa, papel, id, primeiro)),
+      );
+    } catch (erro) {
+      this.logger.warn(
+        `falha ao avisar vínculo usuario=${usuarioId} ciclo=${programa}: ${(erro as Error).message}`,
       );
     }
   }

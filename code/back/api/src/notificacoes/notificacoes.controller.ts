@@ -13,6 +13,7 @@ import { DataSource } from 'typeorm';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { usuarioDoToken } from '../gamificacao/gamificacao.js';
+import { ParticipacoesService } from '../participacoes/participacoes.service.js';
 import { PermissoesAlunoService } from '../participacoes/permissoes-aluno.service.js';
 import { ListarNotificacoesQuery, MarcarTodasDto } from './notificacoes.dto.js';
 import { NotificacoesService } from './notificacoes.service.js';
@@ -26,6 +27,7 @@ export class NotificacoesController {
     private readonly notificacoes: NotificacoesService,
     private readonly dataSource: DataSource,
     private readonly permissoes: PermissoesAlunoService,
+    private readonly participacoes: ParticipacoesService,
   ) {}
 
   @Get()
@@ -35,7 +37,7 @@ export class NotificacoesController {
   ) {
     const usuarioId = await usuarioDoToken(this.dataSource, req.user);
     // Avisos novos só entram na primeira página.
-    if (consulta.antes === undefined) await this.avisarMissoes(req, usuarioId);
+    if (consulta.antes === undefined) await this.sincronizar(req, usuarioId);
     return this.notificacoes.listar(
       usuarioId,
       consulta.limite === undefined ? undefined : Number(consulta.limite),
@@ -65,22 +67,65 @@ export class NotificacoesController {
     );
   }
 
-  private async avisarMissoes(
+  /**
+   * Avisos derivados do estado (vínculo confirmado, missões novas) nascem
+   * aqui, na leitura do sino. A chave única impede o aviso repetido.
+   */
+  private async sincronizar(
     req: AuthenticatedRequest,
     usuarioId: number,
   ): Promise<void> {
     const permissoes = await this.permissoes
       .doUsuario(req.user)
       .catch(() => null);
-    if (permissoes?.podeColetarTotens) {
-      await this.notificacoes.sincronizarMissoes(
+    if (!permissoes?.podeColetarTotens) return;
+    if (permissoes.vinculoAtivo && permissoes.papel) {
+      const parceiros = await this.parceiros(
+        String(req.user.email ?? ''),
+        permissoes.programa,
+      ).catch(() => []);
+      await this.notificacoes.sincronizarVinculo(
         usuarioId,
         permissoes.programa,
-        {
-          podePublicar: permissoes.podePublicar,
-          temPar: permissoes.vinculoAtivo,
-        },
+        permissoes.papel,
+        parceiros,
       );
     }
+    await this.notificacoes.sincronizarMissoes(usuarioId, permissoes.programa, {
+      podePublicar: permissoes.podePublicar,
+      temPar: permissoes.vinculoAtivo,
+      papel: permissoes.papel,
+    });
+  }
+
+  /**
+   * Participações da dupla atual: o padrinho do apadrinhado ou os
+   * apadrinhados do padrinho. Vínculos do matching e, sem eles, o grupo
+   * legado (o mesmo critério de `vinculoAtivo`).
+   */
+  private async parceiros(email: string, programa: string): Promise<number[]> {
+    const registro = await this.participacoes.registroPrincipal(
+      email,
+      programa,
+    );
+    if (!registro) return [];
+    const vinculados = await this.participacoes.listarVinculados(registro);
+    if (vinculados.length > 0) {
+      return vinculados.map((v) => v.participacao.id);
+    }
+    const grupo = registro.grupo?.trim();
+    if (!grupo) return [];
+    if (registro.papel === 'apadrinhado') {
+      const padrinho = await this.participacoes.buscarPadrinhoDoGrupo(
+        programa,
+        grupo,
+      );
+      return padrinho ? [padrinho.id] : [];
+    }
+    return (
+      await this.participacoes.listarApadrinhadosDoGrupo(programa, grupo)
+    )
+      .filter((a) => a.status === 'em_andamento')
+      .map((a) => a.id);
   }
 }

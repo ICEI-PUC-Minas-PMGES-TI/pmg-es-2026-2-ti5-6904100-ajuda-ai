@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -31,6 +32,8 @@ import { CadastroService } from '../cadastro/cadastro.service.js';
 import { seedDemoHabilitado } from '../config/seguranca.js';
 import { CriterioCatalogoService } from '../matching/criterio-catalogo.service.js';
 import { MatchingService } from '../matching/matching.service.js';
+import { notificacaoCandidatura } from '../notificacoes/notificacoes.js';
+import { NotificacoesService } from '../notificacoes/notificacoes.service.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
 import type { EntradaVerificacao } from '../participacoes/verificacao-academica.js';
 /** "Situação da análise" na listagem: conferência acadêmica registrada ou não. */
@@ -53,7 +56,24 @@ export class CoordenacaoService implements OnModuleInit {
     private readonly criterioCatalogoService: CriterioCatalogoService,
     @InjectRepository(ParticipacaoEntity)
     private readonly participacoes: Repository<ParticipacaoEntity>,
+    @Optional() private readonly notificacoes?: NotificacoesService,
   ) {}
+
+  /** Depois do commit da decisão: o aviso nunca desfaz nem trava a decisão. */
+  private async avisarDecisao(
+    registro: ParticipacaoEntity,
+    resultado: 'aprovado' | 'nao_aprovado' | 'revogado',
+  ): Promise<void> {
+    await this.notificacoes?.criarParaEmail(
+      registro.usuarioId,
+      notificacaoCandidatura(resultado, {
+        programa: registro.programa,
+        em:
+          registro.respostas?._servidor?.decisao?.em ??
+          new Date().toISOString(),
+      }),
+    );
+  }
 
   /** Base demo (ciclos, requisitos, participações): só com SEED_DEMO_DATA=true. */
   async onModuleInit() {
@@ -936,6 +956,7 @@ export class CoordenacaoService implements OnModuleInit {
       'aprovado',
       coordenador,
     );
+    await this.avisarDecisao(registro, 'aprovado');
     return this.detalharCandidatura(id);
   }
 
@@ -963,6 +984,7 @@ export class CoordenacaoService implements OnModuleInit {
       'rejeitado',
       coordenador,
     );
+    await this.avisarDecisao(registro, 'revogado');
     return this.detalharCandidatura(id);
   }
 
@@ -981,6 +1003,7 @@ export class CoordenacaoService implements OnModuleInit {
       'rejeitado',
       coordenador,
     );
+    await this.avisarDecisao(registro, 'nao_aprovado');
     return this.detalharCandidatura(id);
   }
 

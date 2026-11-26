@@ -1,6 +1,10 @@
 import { NotFoundException } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
-import { notificacaoNivel, notificacaoResgate } from './notificacoes.js';
+import {
+  notificacaoNivel,
+  notificacaoResgate,
+  notificacaoVinculo,
+} from './notificacoes.js';
 import { NotificacoesService } from './notificacoes.service.js';
 
 const ID = '4a3b2c1d-0e9f-4876-a5b4-c3d2e1f0a9b8';
@@ -51,6 +55,15 @@ function banco(
               l.usuario_id === params[0] && l.chave === `${params[2]}${m.id}`,
           ),
       );
+    }
+    if (sql.startsWith('SELECT "chave"')) {
+      return linhas
+        .filter(
+          (l) =>
+            l.usuario_id === params[0] &&
+            l.chave.startsWith(String(params[1])),
+        )
+        .map((l) => ({ chave: l.chave }));
     }
     if (sql.startsWith('SELECT "id"')) {
       return linhas
@@ -280,7 +293,98 @@ describe('NotificacoesService', () => {
   });
 });
 
+describe('avisos de vínculo', () => {
+  const avisos = (linhas: Registro[]) =>
+    linhas.map((l) => [l.usuario_id, l.titulo, l.chave]);
+
+  it('primeiro vínculo do ciclo: um aviso de boas-vindas', async () => {
+    const { service, linhas, comandos } = banco();
+    await service.sincronizarVinculo(7, '2026/2', 'apadrinhado', [21]);
+    await service.sincronizarVinculo(7, '2026/2', 'apadrinhado', [21]);
+    expect(avisos(linhas)).toEqual([
+      [7, 'Seu padrinho foi definido!', 'vinculo:2026/2:21'],
+    ]);
+    expect(comandos[0][0]).toContain('starts_with("chave", $2)');
+    expect(comandos[0][1]).toEqual([7, 'vinculo:2026/2:']);
+  });
+
+  it('trocar de padrinho no mesmo ciclo avisa de novo', async () => {
+    const { service, linhas } = banco();
+    await service.sincronizarVinculo(7, '2026/2', 'apadrinhado', [21]);
+    await service.sincronizarVinculo(7, '2026/2', 'apadrinhado', [35]);
+    await service.sincronizarVinculo(7, '2026/2', 'apadrinhado', [35]);
+    expect(avisos(linhas)).toEqual([
+      [7, 'Seu padrinho foi definido!', 'vinculo:2026/2:21'],
+      [7, 'Você tem um novo padrinho!', 'vinculo:2026/2:35'],
+    ]);
+  });
+
+  it('padrinho: novo apadrinhado no ciclo gera outro aviso; vários de uma vez, um para cada', async () => {
+    const um = banco();
+    await um.service.sincronizarVinculo(9, '2026/2', 'padrinho', [21]);
+    await um.service.sincronizarVinculo(9, '2026/2', 'padrinho', [21, 22]);
+    expect(avisos(um.linhas)).toEqual([
+      [9, 'Seu apadrinhamento começou!', 'vinculo:2026/2:21'],
+      [9, 'Você tem um novo apadrinhado!', 'vinculo:2026/2:22'],
+    ]);
+    const dois = banco();
+    await dois.service.sincronizarVinculo(9, '2026/2', 'padrinho', [21, 22]);
+    expect(avisos(dois.linhas)).toEqual([
+      [9, 'Você tem um novo apadrinhado!', 'vinculo:2026/2:21'],
+      [9, 'Você tem um novo apadrinhado!', 'vinculo:2026/2:22'],
+    ]);
+  });
+
+  it('aviso de outro ciclo não conta, e sem dupla não consulta o banco', async () => {
+    const { service, linhas, comandos } = banco([
+      registro({
+        id: 'antigo',
+        usuario_id: 7,
+        tipo: 'VINCULO_CONFIRMADO',
+        chave: 'vinculo:2026/1:21',
+      }),
+    ]);
+    await service.sincronizarVinculo(7, '2026/2', 'apadrinhado', []);
+    expect(comandos).toHaveLength(0);
+    await service.sincronizarVinculo(7, '2026/2', 'apadrinhado', [21]);
+    expect(linhas.at(-1)).toMatchObject({
+      titulo: 'Seu padrinho foi definido!',
+      chave: 'vinculo:2026/2:21',
+    });
+  });
+
+  it('falha ao avisar vínculo não derruba o sino', async () => {
+    const { service } = banco([], true);
+    await expect(
+      service.sincronizarVinculo(7, '2026/2', 'padrinho', [21]),
+    ).resolves.toBeUndefined();
+  });
+});
+
 describe('textos das notificações', () => {
+  it('vínculo: boas-vindas no primeiro, troca de dupla nos seguintes', () => {
+    expect(notificacaoVinculo('2026/2', 'apadrinhado', 21)).toEqual({
+      tipo: 'VINCULO_CONFIRMADO',
+      titulo: 'Seu padrinho foi definido!',
+      mensagem:
+        'Conheça quem vai te acompanhar neste semestre e mande a primeira mensagem.',
+      link: '/dupla',
+      chave: 'vinculo:2026/2:21',
+    });
+    expect(notificacaoVinculo('2026/2', 'apadrinhado', 35, false)).toMatchObject({
+      titulo: 'Você tem um novo padrinho!',
+      mensagem:
+        'A coordenação mudou quem vai te acompanhar neste semestre. Conheça e mande a primeira mensagem.',
+    });
+    expect(notificacaoVinculo('2026/2', 'padrinho', 21)).toMatchObject({
+      titulo: 'Seu apadrinhamento começou!',
+    });
+    expect(notificacaoVinculo('2026/2', 'padrinho', 22, false)).toMatchObject({
+      titulo: 'Você tem um novo apadrinhado!',
+      mensagem: 'Veja quem chegou e mande a primeira mensagem.',
+    });
+  });
+
   it('nível: nome atual e quanto falta para o próximo', () => {
     expect(notificacaoNivel(500)).toEqual({
       tipo: 'NIVEL_SUBIU',
