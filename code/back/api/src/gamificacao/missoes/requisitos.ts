@@ -14,17 +14,18 @@ import {
   CHECKIN_ANTECEDENCIA_MIN,
   COMENTARIO_MISSAO_MIN,
   JANELA_TENTATIVAS_CODIGO,
+  joinsEvento,
   MENSAGEM_MISSAO_MIN,
   normalizarCodigo,
   PUBLICACAO_MISSAO_MIN,
   RAIO_EVENTO_METROS,
   type RequisitoMissao,
+  sqlLocalEvento,
   TENTATIVAS_CODIGO_POR_HORA,
 } from './missoes.js';
 
 const g = `"${SCHEMA_GAMIFICACAO}"`;
 const mp = `"${SCHEMA_MAPA}"`;
-const VERSAO_ATIVA = `(SELECT "id" FROM ${mp}."versoes" WHERE "status" = 'ativa')`;
 
 export const PARAMS_PROGRESSO = 3;
 
@@ -97,17 +98,6 @@ export function metaEfetiva(
 ): number {
   if (requisito !== 'PUCSTOPS') return quantidade;
   return Math.max(1, Math.min(quantidade, atual + disponiveis));
-}
-
-export function sqlLocalEvento(e: string): string {
-  return `COALESCE(lp."poligono", lp."localizacao", la."poligono", la."localizacao", ${e}."localizacao")`;
-}
-
-export function joinsEvento(e: string): string {
-  return (
-    `LEFT JOIN ${mp}."predios" lp ON lp."versao_id" = ${VERSAO_ATIVA} AND lp."id" = ${e}."predio_id" ` +
-    `LEFT JOIN ${mp}."areas" la ON la."versao_id" = ${VERSAO_ATIVA} AND la."id" = ${e}."area_id"`
-  );
 }
 
 export function recusa(

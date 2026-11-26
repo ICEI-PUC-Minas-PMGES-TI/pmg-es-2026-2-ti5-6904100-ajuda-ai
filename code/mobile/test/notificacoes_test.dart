@@ -49,11 +49,13 @@ class Servidor {
   final Duration atraso;
   final bool ativo;
   final chamadas = <String>[];
+  final urls = <Uri>[];
 
   int get naoLidas => itens.where((i) => i['lida'] != true).length;
 
   MockClient get client => MockClient((request) async {
     chamadas.add('${request.method} ${request.url.path}');
+    urls.add(request.url);
     final path = request.url.path;
     if (path == '/me/notificacoes') {
       await Future<void>.delayed(atraso);
@@ -372,7 +374,55 @@ void main() {
     },
   );
 
-  testWidgets('decisão da candidatura abre o acompanhamento', (tester) async {
+  Future<GlobalKey<AppShellState>> abrirNaCasca(WidgetTester tester) async {
+    final casca = GlobalKey<AppShellState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppShell(
+          key: casca,
+          construtorDePagina: (destino) => destino == AppDestination.inicio
+              ? Builder(
+                  builder: (context) => Center(
+                    child: TextButton(
+                      onPressed: () => mostrarNotificacoes(context),
+                      child: const Text('abrir'),
+                    ),
+                  ),
+                )
+              : Center(child: Text('pagina-${destino.name}')),
+        ),
+      ),
+    );
+    await tester.tap(find.text('abrir'));
+    await tester.pumpAndSettle();
+    return casca;
+  }
+
+  testWidgets(
+    'decisão do apadrinhado abre o perfil, onde ficam a decisão e o motivo',
+    (tester) async {
+      final servidor = instalar([
+        item(
+          'c',
+          tipo: 'CANDIDATURA_NAO_APROVADA',
+          titulo: 'Candidatura não aprovada',
+          link: '/candidatura?ciclo=2026%2F2',
+        ),
+      ], ativo: true);
+      await SessaoUsuario.atual.sincronizarSituacao();
+      final casca = await abrirNaCasca(tester);
+      await tester.tap(find.byKey(const Key('notificacao-c')));
+      await tester.pumpAndSettle();
+      expect(find.byType(StatusCandidaturaPage), findsNothing);
+      expect(casca.currentState!.atual, AppDestination.perfil);
+      expect(find.text('pagina-perfil'), findsOneWidget);
+      expect(servidor.chamadas, contains('PATCH /me/notificacoes/c/lida'));
+    },
+  );
+
+  testWidgets('decisão da candidatura a padrinho abre o acompanhamento', (
+    tester,
+  ) async {
     final servidor = instalar([
       item(
         'c',
@@ -380,13 +430,68 @@ void main() {
         titulo: 'Candidatura aprovada',
         link: '/candidatura?ciclo=2026%2F2',
       ),
-    ], ativo: true);
-    await SessaoUsuario.atual.sincronizarSituacao();
+    ]);
     await abrirPainel(tester);
     await tester.tap(find.byKey(const Key('notificacao-c')));
     await tester.pumpAndSettle();
     expect(find.byType(StatusCandidaturaPage), findsOneWidget);
     expect(servidor.chamadas, contains('PATCH /me/notificacoes/c/lida'));
+  });
+
+  testWidgets('aviso de outro semestre troca o ciclo do app antes de abrir', (
+    tester,
+  ) async {
+    final servidor = instalar([
+      item(
+        'c',
+        tipo: 'CANDIDATURA_APROVADA',
+        titulo: 'Candidatura aprovada',
+        link: '/candidatura?ciclo=2026%2F1',
+      ),
+    ], ativo: true);
+    await SessaoUsuario.atual.sincronizarSituacao();
+    SessaoUsuario.atual.programas = [
+      {'codigo': '2026/2'},
+      {'codigo': '2026/1'},
+    ];
+    expect(SessaoUsuario.atual.programaAtual, '2026/2');
+    await abrirNaCasca(tester);
+    await tester.tap(find.byKey(const Key('notificacao-c')));
+    await tester.pumpAndSettle();
+    expect(SessaoUsuario.atual.programaAtual, '2026/1');
+    expect(
+      servidor.urls.any(
+        (u) =>
+            u.path == '/participacoes/situacao' &&
+            u.queryParameters['programa'] == '2026/1',
+      ),
+      isTrue,
+    );
+  });
+
+  testWidgets('aviso de semestre que o aluno não tem não troca o ciclo', (
+    tester,
+  ) async {
+    final servidor = instalar([
+      item(
+        'c',
+        tipo: 'CANDIDATURA_APROVADA',
+        titulo: 'Candidatura aprovada',
+        link: '/candidatura?ciclo=2025%2F2',
+      ),
+    ], ativo: true);
+    await SessaoUsuario.atual.sincronizarSituacao();
+    SessaoUsuario.atual.programas = [
+      {'codigo': '2026/2'},
+    ];
+    await abrirNaCasca(tester);
+    await tester.tap(find.byKey(const Key('notificacao-c')));
+    await tester.pumpAndSettle();
+    expect(SessaoUsuario.atual.programaAtual, '2026/2');
+    expect(
+      servidor.urls.where((u) => u.queryParameters['programa'] == '2025/2'),
+      isEmpty,
+    );
   });
 
   test('link da notificação vira a aba certa', () {

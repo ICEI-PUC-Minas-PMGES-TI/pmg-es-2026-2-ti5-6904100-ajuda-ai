@@ -1117,6 +1117,66 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       expect(depois.body).toMatchObject({ estado: 'rascunho', publicadaEm: null });
     });
 
+    it('evento remarcado para depois do prazo ou desativado: some para quem não fez e não avisa; quem fez continua vendo', async () => {
+      const agora = Date.now();
+      const roda = await eventos.criar(
+        {
+          titulo: 'Roda de conversa com egressos',
+          inicio: new Date(agora + 10 * MIN).toISOString(),
+          fim: new Date(agora + 2 * HORA).toISOString(),
+          local: { predioId: 'P34' },
+        },
+        null,
+      );
+      const fez = await novoAluno();
+      const naoFez = await novoAluno();
+      const m = await criarMissao({
+        titulo: 'Check-in na roda de conversa com egressos',
+        tipo: 'UNICA',
+        xp: 20,
+        requisito: 'EVENTO',
+        alvoId: roda.id,
+        fim: new Date(agora + 3 * HORA).toISOString(),
+      });
+      await concluir(fez, m.id, { ...noPredio('P34'), accuracy: 10 }).expect(201);
+      expect(await itemDe(naoFez, m.id)).toBeDefined();
+
+      await eventos.atualizar(roda.id, {
+        inicio: new Date(agora + 5 * HORA).toISOString(),
+        fim: new Date(agora + 6 * HORA).toISOString(),
+      });
+      expect(await itemDe(naoFez, m.id)).toBeUndefined();
+      expect(await itemDe(fez, m.id)).toMatchObject({ status: 'concluida' });
+      await http()
+        .get('/me/notificacoes')
+        .set('Authorization', naoFez.auth)
+        .expect(200);
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM feed.notificacoes WHERE usuario_id = $1 AND chave = $2`,
+          [naoFez.id, `missao-nova:${m.id}`],
+        ),
+      ).toBe(0);
+
+      const atual = await http()
+        .get(`/coordenacao/missoes/${m.id}`)
+        .set('Authorization', coord())
+        .expect(200);
+      await http()
+        .patch(`/coordenacao/missoes/${m.id}`)
+        .set('Authorization', coord())
+        .send({
+          atualizadoEm: atual.body.atualizadoEm,
+          fim: new Date(agora + 7 * HORA).toISOString(),
+        })
+        .expect(200);
+      expect(await itemDe(naoFez, m.id)).toMatchObject({ pronta: false });
+
+      await eventos.definirAtivo(roda.id, false);
+      expect(await itemDe(naoFez, m.id)).toBeUndefined();
+      expect(await itemDe(fez, m.id)).toMatchObject({ status: 'concluida' });
+    });
+
     it('PucStop desativado não vira alvo', async () => {
       const museu = await pucstopsAdmin.criar(
         {
@@ -2115,7 +2175,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       );
     });
 
-    it('evento que acabou ou foi cancelado: 422', async () => {
+    it('evento que acabou ou foi cancelado: some da lista e o check-in direto dá 422', async () => {
       const curto = await eventos.criar(
         {
           titulo: 'Palestra relâmpago sobre intercâmbio',
@@ -2158,13 +2218,14 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         accuracy: 10,
       }).expect(422);
       expect(fim.body.motivo).toBe('evento-encerrado');
-      expect((await itemDe(a, m1.id))!.pronta).toBe(false);
+      expect(await itemDe(a, m1.id)).toBeUndefined();
       await eventos.definirAtivo(cancelado.id, false);
       const off = await concluir(a, m2.id, {
         ...noPredio('P34'),
         accuracy: 10,
       }).expect(422);
       expect(off.body.motivo).toBe('evento-indisponivel');
+      expect(await itemDe(a, m2.id)).toBeUndefined();
       expect(await carteira(a)).toEqual({ saldo: 0, xp_acumulado: 0 });
     });
 

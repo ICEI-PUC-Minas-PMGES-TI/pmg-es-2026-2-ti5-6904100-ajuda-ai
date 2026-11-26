@@ -20,14 +20,15 @@ import {
   CODIGO_MISSAO,
   estadoDaMissao,
   ID_MISSAO,
+  joinsEvento,
   normalizarCodigo,
   type PublicoMissao,
   type RequisitoMissao,
+  sqlLocalEvento,
   sqlMissaoVisivel,
   type TipoMissao,
   xpMaximoDe,
 } from './missoes.js';
-import { joinsEvento, sqlLocalEvento } from './requisitos.js';
 
 const g = `"${SCHEMA_GAMIFICACAO}"`;
 const mp = `"${SCHEMA_MAPA}"`;

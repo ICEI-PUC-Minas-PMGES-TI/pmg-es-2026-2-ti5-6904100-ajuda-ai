@@ -27,11 +27,21 @@ const avisosOffline = [
   ),
 ];
 
-/// Aba do app para o link da notificação. `/dupla` cai no Início, onde o
-/// padrinho vê os apadrinhados; o apadrinhado abre a tela do padrinho.
 String? caminhoDaNotificacao(String? link) =>
     link == null ? null : Uri.tryParse(link)?.path;
 
+String? cicloDaNotificacao(String? link) =>
+    link == null ? null : Uri.tryParse(link)?.queryParameters['ciclo'];
+
+const _statusDeApadrinhado = {
+  StatusParticipacao.apadrinhadoPendente,
+  StatusParticipacao.apadrinhadoRejeitado,
+  StatusParticipacao.apadrinhadoAguardandoMatch,
+  StatusParticipacao.apadrinhadoAtivo,
+};
+
+/// Aba do app para o link da notificação. `/dupla` cai no Início, onde o
+/// padrinho vê os apadrinhados; o apadrinhado abre a tela do padrinho.
 AppDestination? abaDaNotificacao(String? link) =>
     switch (caminhoDaNotificacao(link)) {
       '/missoes' => AppDestination.missoes,
@@ -125,16 +135,38 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
     ];
   }
 
-  void _abrir(Notificacao notificacao) {
+  Future<void> _abrir(Notificacao notificacao) async {
     CentralNotificacoes.atual.marcarLida(notificacao.id);
     final pai = widget.contextoPai;
+    final sessao = SessaoUsuario.atual;
     final caminho = caminhoDaNotificacao(notificacao.link);
+    final ciclo = cicloDaNotificacao(notificacao.link);
+    if (ciclo != null &&
+        ciclo != sessao.programaAtual &&
+        sessao.programas.any((p) => p['codigo'] == ciclo)) {
+      try {
+        await sessao.selecionarPrograma(ciclo);
+      } on Exception {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Não foi possível abrir o ciclo $ciclo. Tente de novo.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+    }
     if (caminho == '/dupla' &&
-        SessaoUsuario.atual.status == StatusParticipacao.apadrinhadoAtivo) {
+        sessao.status == StatusParticipacao.apadrinhadoAtivo) {
       _abrirPadrinho();
       return;
     }
-    if (caminho == '/candidatura') {
+    final apadrinhado = _statusDeApadrinhado.contains(sessao.status);
+    if (caminho == '/candidatura' && !apadrinhado) {
       Navigator.of(context).pop();
       if (pai.mounted) {
         Navigator.of(pai).push(
@@ -143,8 +175,10 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
       }
       return;
     }
-    final aba = abaDaNotificacao(notificacao.link);
-    if (aba != null && SessaoUsuario.atual.destinos.contains(aba)) {
+    final aba = caminho == '/candidatura'
+        ? AppDestination.perfil
+        : abaDaNotificacao(notificacao.link);
+    if (aba != null && sessao.destinos.contains(aba)) {
       Navigator.of(context).pop();
       if (pai.mounted) {
         navegarDestino(

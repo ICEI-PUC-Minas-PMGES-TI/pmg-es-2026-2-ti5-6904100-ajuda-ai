@@ -73,13 +73,31 @@ export function sqlMissaoVisivel(m: string): string {
   return `${m}."ativa" AND ${m}."requisito" IS NOT NULL AND (${m}."inicio" IS NULL OR ${m}."inicio" <= now()) AND (${m}."fim" IS NULL OR ${m}."fim" > now())`;
 }
 
+const mp = `"${SCHEMA_MAPA}"`;
+const VERSAO_ATIVA = `(SELECT "id" FROM ${mp}."versoes" WHERE "status" = 'ativa')`;
+
+export function sqlLocalEvento(e: string): string {
+  return `COALESCE(lp."poligono", lp."localizacao", la."poligono", la."localizacao", ${e}."localizacao")`;
+}
+
+export function joinsEvento(e: string): string {
+  return (
+    `LEFT JOIN ${mp}."predios" lp ON lp."versao_id" = ${VERSAO_ATIVA} AND lp."id" = ${e}."predio_id" ` +
+    `LEFT JOIN ${mp}."areas" la ON la."versao_id" = ${VERSAO_ATIVA} AND la."id" = ${e}."area_id"`
+  );
+}
+
 export function sqlMissaoCumprivel(m: string): string {
   const doRoteiro = (coluna: string) =>
     `(${m}."pucstops" IS NULL OR ${coluna} = ANY(${m}."pucstops"))`;
   return (
-    `(${m}."requisito" IS DISTINCT FROM 'PUCSTOPS' ` +
-    `OR EXISTS (SELECT 1 FROM "${SCHEMA_GAMIFICACAO}"."pucstop_coletas" col WHERE col."usuario_id" = $1 AND col."ciclo" = ${m}."ciclo" AND ${doRoteiro('col."pucstop_id"')}) ` +
-    `OR EXISTS (SELECT 1 FROM "${SCHEMA_MAPA}"."pucstops" pto WHERE pto."ativo" AND ${doRoteiro('pto."id"')}))`
+    `(CASE ${m}."requisito" ` +
+    `WHEN 'PUCSTOPS' THEN EXISTS (SELECT 1 FROM "${SCHEMA_GAMIFICACAO}"."pucstop_coletas" col WHERE col."usuario_id" = $1 AND col."ciclo" = ${m}."ciclo" AND ${doRoteiro('col."pucstop_id"')}) ` +
+    `OR EXISTS (SELECT 1 FROM ${mp}."pucstops" pto WHERE pto."ativo" AND ${doRoteiro('pto."id"')}) ` +
+    `WHEN 'EVENTO' THEN EXISTS (SELECT 1 FROM ${mp}."eventos" evc ${joinsEvento('evc')} ` +
+    `WHERE evc."id" = ${m}."alvo_id" AND evc."ativo" AND ${sqlLocalEvento('evc')} IS NOT NULL ` +
+    `AND GREATEST(now(), ${m}."inicio", evc."inicio" - interval '${CHECKIN_ANTECEDENCIA_MIN} minutes') < LEAST(${m}."fim", evc."fim")) ` +
+    `ELSE true END)`
   );
 }
 
