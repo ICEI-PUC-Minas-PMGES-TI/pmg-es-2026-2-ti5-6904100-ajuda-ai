@@ -469,6 +469,17 @@ export const api = {
   desativarMissao(id) {
     return request(`/coordenacao/missoes/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
   },
+  /** Libera o código da missão (CODIGO ou EVENTO) por alguns minutos. */
+  liberarCodigoMissao(id, minutos) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/codigo`, { method: 'POST', body: { minutos } });
+  },
+  encerrarCodigoMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/codigo`, { method: 'DELETE' });
+  },
+  /** Só rascunho; a API responde 409 para missão já publicada. */
+  excluirMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
   /** `antes`: id da última notificação carregada, para buscar as mais antigas. */
   notificacoes(limite, antes) {
     return request(`/me/notificacoes${query({ limite, antes })}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });
