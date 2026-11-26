@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module.js';
-import { NotificacoesServicoModule } from '../notificacoes/notificacoes-servico.module.js';
 import { ProgramasModule } from '../programas/programas.module.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import { ParticipacaoEntity } from './entities/participacao.entity.js';
@@ -12,7 +11,6 @@ import { PermissoesAlunoService } from './permissoes-aluno.service.js';
 @Module({
   imports: [
     AuthModule,
-    NotificacoesServicoModule,
     ProgramasModule,
     TypeOrmModule.forFeature([ParticipacaoEntity, ProgramaEntity]),
   ],

@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { ChatService } from '../chat/chat.service.js';
@@ -89,7 +90,7 @@ export class ParticipacoesService {
     @Optional()
     @InjectDataSource()
     private readonly dados?: DataSource,
-    @Optional() private readonly notificacoes?: NotificacoesService,
+    @Optional() private readonly modulos?: ModuleRef,
   ) {}
 
   private repositorioVinculos(): Repository<MatchingVinculoEntity> | null {
@@ -406,7 +407,13 @@ export class ParticipacoesService {
     registro: ParticipacaoEntity,
     resultado: 'aprovado' | 'nao_aprovado' | 'revogado',
   ): Promise<void> {
-    await this.notificacoes?.criarParaEmail(
+    let notificacoes: NotificacoesService | undefined;
+    try {
+      notificacoes = this.modulos?.get(NotificacoesService, { strict: false });
+    } catch {
+      return;
+    }
+    await notificacoes?.criarParaEmail(
       registro.usuarioId,
       notificacaoCandidatura(resultado, {
         programa: registro.programa,
