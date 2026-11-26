@@ -29,9 +29,14 @@ import {
   getMetadataArgsStorage,
   type MigrationInterface,
 } from 'typeorm';
+import { AuthService } from '../src/auth/auth.service.js';
 import type { AccessTokenPayload } from '../src/auth/authenticated-request.js';
 import { JwtAuthGuard } from '../src/auth/jwt-auth.guard.js';
+import { MicrosoftTokenVerifier } from '../src/auth/microsoft-token.verifier.js';
 import { RolesGuard } from '../src/auth/roles.guard.js';
+import { AvisoEntity } from '../src/avisos/entities/aviso.entity.js';
+import { AvisosService } from '../src/avisos/avisos.service.js';
+import { CadastroService } from '../src/cadastro/cadastro.service.js';
 import { EventosService } from '../src/campus/eventos/eventos.service.js';
 import { LojinhaController } from '../src/gamificacao/lojinha/lojinha.controller.js';
 import { LojinhaService } from '../src/gamificacao/lojinha/lojinha.service.js';
@@ -41,6 +46,10 @@ import { ResgatesAdminController } from '../src/gamificacao/resgates/resgates-ad
 import { ResgatesAdminService } from '../src/gamificacao/resgates/resgates-admin.service.js';
 import { ChatController } from '../src/chat/chat.controller.js';
 import { ChatService } from '../src/chat/chat.service.js';
+import { CoordenacaoController } from '../src/coordenacao/coordenacao.controller.js';
+import { CoordenacaoService } from '../src/coordenacao/coordenacao.service.js';
+import { FormularioEntity } from '../src/formularios/entities/formulario.entity.js';
+import { FormulariosService } from '../src/formularios/formularios.service.js';
 import { LIMITES } from '../src/gamificacao/economia.js';
 import { MissoesAdminController } from '../src/gamificacao/missoes/missoes-admin.controller.js';
 import { MissoesAdminService } from '../src/gamificacao/missoes/missoes-admin.service.js';
@@ -61,6 +70,8 @@ import { PucStopsService } from '../src/gamificacao/pucstops/pucstops.service.js
 import { importarSnapshot } from '../src/mapa/importacao/importar-snapshot.js';
 import { validarSnapshot } from '../src/mapa/importacao/snapshot.js';
 import { schemaPostgis } from '../src/mapa/postgis.js';
+import { CriterioCatalogoService } from '../src/matching/criterio-catalogo.service.js';
+import { MatchingService } from '../src/matching/matching.service.js';
 import { CriaNotificacoes1794800000000 } from '../src/migrations/1794800000000-CriaNotificacoes.js';
 import { RequisitosMissoes1795000000000 } from '../src/migrations/1795000000000-RequisitosMissoes.js';
 import { CicloDeVidaMissoes1795200000000 } from '../src/migrations/1795200000000-CicloDeVidaMissoes.js';
@@ -68,6 +79,7 @@ import { notificacaoCandidatura } from '../src/notificacoes/notificacoes.js';
 import { NotificacoesController } from '../src/notificacoes/notificacoes.controller.js';
 import { NotificacoesService } from '../src/notificacoes/notificacoes.service.js';
 import { ParticipacaoEntity } from '../src/participacoes/entities/participacao.entity.js';
+import { ParticipacoesController } from '../src/participacoes/participacoes.controller.js';
 import { ParticipacoesService } from '../src/participacoes/participacoes.service.js';
 import { PermissoesAlunoService } from '../src/participacoes/permissoes-aluno.service.js';
 import { ProgramaEntity } from '../src/programas/entities/programa.entity.js';
@@ -619,6 +631,8 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         LojinhaController,
         RecompensasAdminController,
         ResgatesAdminController,
+        CoordenacaoController,
+        ParticipacoesController,
       ],
       providers: [
         MissoesService,
@@ -638,6 +652,14 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         LojinhaService,
         RecompensasAdminService,
         ResgatesAdminService,
+        CoordenacaoService,
+        CadastroService,
+        AuthService,
+        MicrosoftTokenVerifier,
+        FormulariosService,
+        AvisosService,
+        MatchingService,
+        CriterioCatalogoService,
         JwtAuthGuard,
         RolesGuard,
         {
@@ -653,6 +675,8 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
           ProgramaEntity,
           UsuarioEntity,
           PublicacaoEntity,
+          FormularioEntity,
+          AvisoEntity,
         ].map((entidade) => ({
           provide: getRepositoryToken(entidade),
           useValue: ds.getRepository(entidade),
@@ -1016,6 +1040,81 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         expect(r.status, JSON.stringify(r.body)).toBe(422);
         expect(r.body.message).toContain(trecho);
       }
+    });
+
+    it('evento: o período da missão precisa cruzar o check-in (30 min antes até o fim)', async () => {
+      const inicio = Date.now() + 2 * DIA;
+      const fim = inicio + 2 * HORA;
+      const palestra = await eventos.criar(
+        {
+          titulo: 'Palestra de carreiras na engenharia',
+          inicio: new Date(inicio).toISOString(),
+          fim: new Date(fim).toISOString(),
+          local: { predioId: 'P34' },
+        },
+        null,
+      );
+      const base = {
+        titulo: 'Check-in na palestra de carreiras',
+        tipo: 'UNICA' as const,
+        xp: 20,
+        requisito: 'EVENTO' as const,
+        alvoId: palestra.id,
+      };
+      const criar = (periodo: object) =>
+        http()
+          .post('/coordenacao/missoes')
+          .set('Authorization', coord())
+          .send({
+            descricao: 'Passe no auditório e faça o check-in.',
+            codigo: 'CARREIRA-26',
+            ativar: true,
+            ...base,
+            ...periodo,
+          });
+      for (const periodo of [
+        { inicio: new Date(fim).toISOString() },
+        { inicio: new Date(fim + HORA).toISOString() },
+        { fim: new Date(inicio - 30 * MIN).toISOString() },
+        {
+          inicio: new Date(inicio - 5 * HORA).toISOString(),
+          fim: new Date(inicio - HORA).toISOString(),
+        },
+      ]) {
+        const r = await criar(periodo);
+        expect(r.status, JSON.stringify(periodo)).toBe(400);
+        expect(r.body.message).toContain('check-in do evento');
+      }
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM gamificacao.missoes WHERE alvo_id = $1`,
+          [palestra.id],
+        ),
+      ).toBe(0);
+
+      await criarMissao({ ...base, fim: new Date(inicio - 29 * MIN).toISOString() });
+      await criarMissao({ ...base, inicio: new Date(fim - MIN).toISOString() });
+
+      const rascunho = await criarMissao({ ...base, ativar: false });
+      const editado = await http()
+        .patch(`/coordenacao/missoes/${rascunho.id}`)
+        .set('Authorization', coord())
+        .send({
+          atualizadoEm: rascunho.atualizadoEm,
+          inicio: new Date(fim + DIA).toISOString(),
+        })
+        .expect(200);
+      expect(editado.body.estado).toBe('rascunho');
+      const publicar = await http()
+        .post(`/coordenacao/missoes/${rascunho.id}/ativar`)
+        .set('Authorization', coord());
+      expect(publicar.status, JSON.stringify(publicar.body)).toBe(400);
+      expect(publicar.body.message).toContain('check-in do evento');
+      const depois = await http()
+        .get(`/coordenacao/missoes/${rascunho.id}`)
+        .set('Authorization', coord())
+        .expect(200);
+      expect(depois.body).toMatchObject({ estado: 'rascunho', publicadaEm: null });
     });
 
     it('PucStop desativado não vira alvo', async () => {
@@ -3222,6 +3321,53 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       expect(vazia.body.motivo).toBe('alvo-invalido');
     });
 
+    it('roteiro de um ponto só desativado: some para quem não coletou e não avisa; quem coletou ou concluiu continua', async () => {
+      const nunca = await novoAluno();
+      const coletou = await novoAluno();
+      const concluiu = await novoAluno();
+      const ginasio = {
+        posicao: noPredio('P13'),
+        id: (
+          await pucstopsAdmin.criar(
+            { nome: 'PucStop do Ginásio', ...noPredio('P13'), xp: 10, raioMetros: 30 },
+            null,
+          )
+        ).id,
+      };
+      const m = await criarMissao({
+        titulo: 'Conheça o ginásio poliesportivo',
+        tipo: 'UNICA',
+        xp: 20,
+        requisito: 'PUCSTOPS',
+        alvoIds: [ginasio.id],
+      });
+      await coletar(concluiu, ginasio).expect(201);
+      await concluir(concluiu, m.id).expect(201);
+      await coletar(coletou, ginasio, 2).expect(201);
+      await pucstopsAdmin.definirAtivo(ginasio.id, false);
+
+      expect(await itemDe(nunca, m.id)).toBeUndefined();
+      await concluir(nunca, m.id).expect(404);
+      await http()
+        .get('/me/notificacoes')
+        .set('Authorization', nunca.auth)
+        .expect(200);
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM feed.notificacoes WHERE usuario_id = $1 AND chave = $2`,
+          [nunca.id, `missao-nova:${m.id}`],
+        ),
+      ).toBe(0);
+
+      expect(await itemDe(concluiu, m.id)).toMatchObject({ status: 'concluida' });
+      await concluir(concluiu, m.id).expect(409);
+      expect(await itemDe(coletou, m.id)).toMatchObject({
+        progresso: { atual: 1, meta: 1 },
+        pronta: true,
+      });
+      await concluir(coletou, m.id).expect(201);
+    });
+
     it('PucStop coletado antes da publicação conta: a coleta vale uma vez por semestre', async () => {
       const a = await novoAluno();
       await coletar(a, totens.BIBLIOTECA).expect(201);
@@ -3931,7 +4077,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         expect(await avisosDe(a, 'VINCULO_CONFIRMADO')).toEqual([
           {
             titulo,
-            link: '/dupla',
+            link: `/dupla?ciclo=${encodeURIComponent(CICLO)}`,
             chave: `vinculo:${CICLO}:${await participacaoDe(outro)}`,
           },
         ]);
@@ -3960,12 +4106,12 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       expect(await avisosDe(d.apadrinhado, 'VINCULO_CONFIRMADO')).toEqual([
         {
           titulo: 'Seu padrinho foi definido!',
-          link: '/dupla',
+          link: `/dupla?ciclo=${encodeURIComponent(CICLO)}`,
           chave: `vinculo:${CICLO}:${await participacaoDe(d.padrinho)}`,
         },
         {
           titulo: 'Você tem um novo padrinho!',
-          link: '/dupla',
+          link: `/dupla?ciclo=${encodeURIComponent(CICLO)}`,
           chave: `vinculo:${CICLO}:${await participacaoDe(novo)}`,
         },
       ]);
@@ -3999,7 +4145,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       expect(await avisosDe(a, 'CANDIDATURA_NAO_APROVADA')).toEqual([
         {
           titulo: 'Candidatura não aprovada',
-          link: '/candidatura',
+          link: `/candidatura?ciclo=${encodeURIComponent(CICLO)}`,
           chave: `candidatura:${CICLO}:2026-11-20T15:00:00.000Z`,
         },
       ]);
@@ -4021,10 +4167,105 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       ).toEqual([
         expect.objectContaining({
           tipo: 'CANDIDATURA_APROVADA',
-          link: '/candidatura',
+          link: `/candidatura?ciclo=${encodeURIComponent(CICLO)}`,
           lida: false,
         }),
         expect.objectContaining({ tipo: 'CANDIDATURA_NAO_APROVADA' }),
+      ]);
+    });
+
+    async function conferido(): Promise<Aluno> {
+      const aluno = await novoAluno({ papel: 'apadrinhado', status: 'pendente' });
+      await ds.query(
+        `UPDATE feed.participacoes SET respostas = $3 WHERE usuario_id = $1 AND programa = $2`,
+        [
+          aluno.email,
+          CICLO,
+          JSON.stringify({ nome: aluno.nome, periodo: 1, declaraPrimeiroPeriodo: true }),
+        ],
+      );
+      const r = await http()
+        .put(`/coordenacao/candidaturas/${await participacaoDe(aluno)}/verificacao`)
+        .set('Authorization', coord())
+        .send({
+          itens: [
+            { id: 'matricula_ativa', atende: true },
+            { id: 'primeiro_periodo', atende: true },
+          ],
+        });
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      return aluno;
+    }
+
+    async function decidir(caminho: string, corpo: object = {}): Promise<void> {
+      const r = await http()
+        .post(caminho)
+        .set('Authorization', coord())
+        .send(corpo);
+      expect(r.status, `${caminho} ${JSON.stringify(r.body)}`).toBeLessThan(300);
+    }
+
+    async function decisaoEm(a: Aluno): Promise<string> {
+      const [{ em }] = (await ds.query(
+        `SELECT respostas->'_servidor'->'decisao'->>'em' AS em FROM feed.participacoes WHERE usuario_id = $1 AND programa = $2`,
+        [a.email, CICLO],
+      )) as Array<{ em: string }>;
+      return em;
+    }
+
+    it('decisão pela tela de Cadastros ou pela rejeição manual avisa como a de Candidaturas, uma vez só', async () => {
+      const ciclo = encodeURIComponent(CICLO);
+      const aprovadoCadastros = await conferido();
+      await decidir(`/coordenacao/cadastros/${aprovadoCadastros.id}/aprovar?programa=${ciclo}`);
+      const recusadoCadastros = await novoAluno({ papel: 'apadrinhado', status: 'pendente' });
+      await decidir(`/coordenacao/cadastros/${recusadoCadastros.id}/rejeitar?programa=${ciclo}`, {
+        motivo: 'Matrícula não confirmada no sistema da faculdade.',
+      });
+      const aprovadoCandidaturas = await conferido();
+      await decidir(
+        `/coordenacao/candidaturas/${await participacaoDe(aprovadoCandidaturas)}/aprovar`,
+      );
+      const recusadoManual = await novoAluno({ papel: 'apadrinhado', status: 'pendente' });
+      await decidir('/participacoes/rejeitar-candidatura', {
+        usuarioId: recusadoManual.email,
+        programa: CICLO,
+        justificativa: 'Inscrição duplicada neste ciclo.',
+      });
+
+      for (const [aluno, tipo, titulo] of [
+        [aprovadoCadastros, 'CANDIDATURA_APROVADA', 'Candidatura aprovada'],
+        [recusadoCadastros, 'CANDIDATURA_NAO_APROVADA', 'Candidatura não aprovada'],
+        [aprovadoCandidaturas, 'CANDIDATURA_APROVADA', 'Candidatura aprovada'],
+        [recusadoManual, 'CANDIDATURA_NAO_APROVADA', 'Candidatura não aprovada'],
+      ] as const) {
+        expect(await avisosDe(aluno, tipo), aluno.email).toEqual([
+          {
+            titulo,
+            link: `/candidatura?ciclo=${ciclo}`,
+            chave: `candidatura:${CICLO}:${await decisaoEm(aluno)}`,
+          },
+        ]);
+      }
+    });
+
+    it('revogar a aprovação avisa "Aprovação revogada"; decisão recusada não avisa nada', async () => {
+      const aluno = await conferido();
+      const id = await participacaoDe(aluno);
+      await decidir(`/coordenacao/candidaturas/${id}/aprovar`);
+      await decidir(`/coordenacao/candidaturas/${id}/revogar`, {
+        justificativa: 'Documento de matrícula vencido.',
+      });
+      const repetida = await http()
+        .post(`/coordenacao/candidaturas/${id}/aprovar`)
+        .set('Authorization', coord());
+      expect(repetida.status).toBeGreaterThanOrEqual(400);
+      expect(await avisosDe(aluno, 'CANDIDATURA_APROVADA')).toHaveLength(1);
+      expect(await avisosDe(aluno, 'CANDIDATURA_NAO_APROVADA')).toEqual([
+        {
+          titulo: 'Aprovação revogada',
+          link: `/candidatura?ciclo=${encodeURIComponent(CICLO)}`,
+          chave: `candidatura:${CICLO}:${await decisaoEm(aluno)}`,
+        },
       ]);
     });
   });

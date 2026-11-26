@@ -368,7 +368,7 @@ describe('textos das notificações', () => {
       titulo: 'Seu padrinho foi definido!',
       mensagem:
         'Conheça quem vai te acompanhar neste semestre e mande a primeira mensagem.',
-      link: '/dupla',
+      link: '/dupla?ciclo=2026%2F2',
       chave: 'vinculo:2026/2:21',
     });
     expect(notificacaoVinculo('2026/2', 'apadrinhado', 35, false)).toMatchObject({

@@ -90,6 +90,10 @@ export function notificacaoResgate(
   };
 }
 
+function linkDoCiclo(caminho: string, programa: string): string {
+  return `${caminho}?ciclo=${encodeURIComponent(programa)}`;
+}
+
 export function notificacaoCandidatura(
   resultado: 'aprovado' | 'nao_aprovado' | 'revogado',
   decisao: { programa: string; em: string },
@@ -117,7 +121,7 @@ export function notificacaoCandidatura(
         : 'CANDIDATURA_NAO_APROVADA',
     titulo,
     mensagem,
-    link: '/candidatura',
+    link: linkDoCiclo('/candidatura', decisao.programa),
     // Um aviso por decisão: revogar ou decidir de novo gera outro.
     chave: `candidatura:${decisao.programa}:${decisao.em}`,
   };
@@ -165,7 +169,7 @@ export function notificacaoVinculo(
     tipo: 'VINCULO_CONFIRMADO',
     titulo,
     mensagem,
-    link: '/dupla',
+    link: linkDoCiclo('/dupla', programa),
     chave: `${prefixoVinculo(programa)}${parceiroId}`,
   };
 }

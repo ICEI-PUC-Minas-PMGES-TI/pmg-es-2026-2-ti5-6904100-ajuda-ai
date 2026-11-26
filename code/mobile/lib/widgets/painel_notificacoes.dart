@@ -29,12 +29,16 @@ const avisosOffline = [
 
 /// Aba do app para o link da notificação. `/dupla` cai no Início, onde o
 /// padrinho vê os apadrinhados; o apadrinhado abre a tela do padrinho.
-AppDestination? abaDaNotificacao(String? link) => switch (link) {
-  '/missoes' => AppDestination.missoes,
-  '/perfil' => AppDestination.perfil,
-  '/dupla' => AppDestination.inicio,
-  _ => null,
-};
+String? caminhoDaNotificacao(String? link) =>
+    link == null ? null : Uri.tryParse(link)?.path;
+
+AppDestination? abaDaNotificacao(String? link) =>
+    switch (caminhoDaNotificacao(link)) {
+      '/missoes' => AppDestination.missoes,
+      '/perfil' => AppDestination.perfil,
+      '/dupla' => AppDestination.inicio,
+      _ => null,
+    };
 
 class _Notificacao {
   const _Notificacao({
@@ -124,13 +128,13 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
   void _abrir(Notificacao notificacao) {
     CentralNotificacoes.atual.marcarLida(notificacao.id);
     final pai = widget.contextoPai;
-    final link = notificacao.link;
-    if (link == '/dupla' &&
+    final caminho = caminhoDaNotificacao(notificacao.link);
+    if (caminho == '/dupla' &&
         SessaoUsuario.atual.status == StatusParticipacao.apadrinhadoAtivo) {
       _abrirPadrinho();
       return;
     }
-    if (link == '/candidatura') {
+    if (caminho == '/candidatura') {
       Navigator.of(context).pop();
       if (pai.mounted) {
         Navigator.of(pai).push(
@@ -139,7 +143,7 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
       }
       return;
     }
-    final aba = abaDaNotificacao(link);
+    final aba = abaDaNotificacao(notificacao.link);
     if (aba != null && SessaoUsuario.atual.destinos.contains(aba)) {
       Navigator.of(context).pop();
       if (pai.mounted) {

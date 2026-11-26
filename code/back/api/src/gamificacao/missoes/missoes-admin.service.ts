@@ -16,6 +16,7 @@ import type {
   MissaoAdminDto,
 } from './missoes.dto.js';
 import {
+  CHECKIN_ANTECEDENCIA_MIN,
   CODIGO_MISSAO,
   estadoDaMissao,
   ID_MISSAO,
@@ -167,6 +168,21 @@ function exigirRegras(
   }
 }
 
+interface Periodo {
+  inicio: Date | null;
+  fim: Date | null;
+}
+
+function horario(d: Date): string {
+  return d.toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 interface Requisito {
   requisito: RequisitoMissao;
   quantidade: number;
@@ -243,6 +259,7 @@ export class MissoesAdminService {
       this.dataSource.manager,
       dados.tipo,
       publico,
+      { inicio, fim },
       {
         requisito: dados.requisito,
         quantidade: dados.quantidade ?? pontos?.length ?? 1,
@@ -398,6 +415,7 @@ export class MissoesAdminService {
               m,
               tipo,
               publico,
+              { inicio, fim },
               {
                 requisito,
                 quantidade,
@@ -461,6 +479,7 @@ export class MissoesAdminService {
           m,
           atual.tipo,
           atual.publico,
+          { inicio: data(atual.inicio), fim: data(atual.fim) },
           {
             requisito: atual.requisito,
             quantidade: atual.quantidade,
@@ -566,6 +585,7 @@ export class MissoesAdminService {
     m: EntityManager,
     tipo: TipoMissao,
     publico: PublicoMissao,
+    periodo: Periodo,
     r: Requisito,
     alvoNovo: boolean,
     republicacao = false,
@@ -623,10 +643,17 @@ export class MissoesAdminService {
         throw new BadRequestException('Escolha o evento da missão (alvoId).');
       }
       const [evento] = (await m.query(
-        `SELECT e."ativo", e."fim" > now() AS futuro, ${sqlLocalEvento('e')} IS NOT NULL AS tem_local ` +
+        `SELECT e."ativo", e."fim" > now() AS futuro, ${sqlLocalEvento('e')} IS NOT NULL AS tem_local, ` +
+          `e."inicio" - interval '${CHECKIN_ANTECEDENCIA_MIN} minutes' AS checkin_abre, e."fim" AS checkin_fecha ` +
           `FROM ${mp}."eventos" e ${joinsEvento('e')} WHERE e."id" = $1`,
         [r.alvoId],
-      )) as Array<{ ativo: boolean; futuro: boolean; tem_local: boolean }>;
+      )) as Array<{
+        ativo: boolean;
+        futuro: boolean;
+        tem_local: boolean;
+        checkin_abre: Date;
+        checkin_fecha: Date;
+      }>;
       if (!evento || !evento.ativo) {
         throw alvoInvalido('Evento não encontrado ou desativado.');
       }
@@ -637,6 +664,16 @@ export class MissoesAdminService {
       }
       if (alvoNovo && !evento.futuro) {
         throw alvoInvalido('Este evento já terminou.');
+      }
+      const abre = new Date(evento.checkin_abre);
+      const fecha = new Date(evento.checkin_fecha);
+      if (
+        (periodo.inicio && periodo.inicio >= fecha) ||
+        (periodo.fim && periodo.fim <= abre)
+      ) {
+        throw new BadRequestException(
+          `O check-in do evento vai de ${horario(abre)} a ${horario(fecha)}: o período da missão precisa cruzar esse horário. Ajuste o início ou o fim.`,
+        );
       }
       exigirCodigo(
         'Check-in de evento também exige o código mostrado no evento: de 4 a 20 letras, números ou hífen.',

@@ -7,6 +7,7 @@ import {
 import {
   type AcessoMissoes,
   sqlMissaoAlcancavel,
+  sqlMissaoCumprivel,
   sqlMissaoVisivel,
 } from '../gamificacao/missoes/missoes.js';
 import {
@@ -195,7 +196,7 @@ export class NotificacoesService {
     try {
       const missoes = (await this.dataSource.query(
         `SELECT m."id", m."titulo", m."xp" FROM "${SCHEMA_GAMIFICACAO}"."missoes" m ` +
-          `WHERE m."ciclo" = $2 AND ${sqlMissaoVisivel('m')} AND ${sqlMissaoAlcancavel('m', acesso)} ` +
+          `WHERE m."ciclo" = $2 AND ${sqlMissaoVisivel('m')} AND ${sqlMissaoAlcancavel('m', acesso)} AND ${sqlMissaoCumprivel('m')} ` +
           `AND GREATEST(m."publicada_em", COALESCE(m."inicio", m."publicada_em")) >= (` +
           `SELECT min(pa."criado_em") FROM ${u}."participacoes" pa JOIN ${u}."usuarios" us ` +
           `ON lower(pa."usuario_id") = lower(us."email") WHERE us."id" = $1 AND pa."programa" = $2) ` +

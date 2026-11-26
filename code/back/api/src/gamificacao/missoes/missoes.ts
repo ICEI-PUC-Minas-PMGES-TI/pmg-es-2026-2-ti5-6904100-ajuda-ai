@@ -1,4 +1,6 @@
+import { SCHEMA_MAPA } from '../../mapa/postgis.js';
 import { LIMITES } from '../economia.js';
+import { SCHEMA_GAMIFICACAO } from '../gamificacao.js';
 import type { UsoDoCiclo } from '../ganhos.js';
 
 export const TIPOS_MISSAO = ['UNICA', 'SEMANAL'] as const;
@@ -69,6 +71,16 @@ export function normalizarCodigo(codigo: string): string {
 
 export function sqlMissaoVisivel(m: string): string {
   return `${m}."ativa" AND ${m}."requisito" IS NOT NULL AND (${m}."inicio" IS NULL OR ${m}."inicio" <= now()) AND (${m}."fim" IS NULL OR ${m}."fim" > now())`;
+}
+
+export function sqlMissaoCumprivel(m: string): string {
+  const doRoteiro = (coluna: string) =>
+    `(${m}."pucstops" IS NULL OR ${coluna} = ANY(${m}."pucstops"))`;
+  return (
+    `(${m}."requisito" IS DISTINCT FROM 'PUCSTOPS' ` +
+    `OR EXISTS (SELECT 1 FROM "${SCHEMA_GAMIFICACAO}"."pucstop_coletas" col WHERE col."usuario_id" = $1 AND col."ciclo" = ${m}."ciclo" AND ${doRoteiro('col."pucstop_id"')}) ` +
+    `OR EXISTS (SELECT 1 FROM "${SCHEMA_MAPA}"."pucstops" pto WHERE pto."ativo" AND ${doRoteiro('pto."id"')}))`
+  );
 }
 
 export interface AcessoMissoes {

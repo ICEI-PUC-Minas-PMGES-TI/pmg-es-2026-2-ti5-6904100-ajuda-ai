@@ -2,6 +2,7 @@ import {
   BadRequestException,
   HttpException,
   HttpStatus,
+  NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { timingSafeEqual } from 'node:crypto';
@@ -191,11 +192,15 @@ export async function verificarContagem(
     [usuarioId, email, semana, missao.id],
   )) as Array<{ atual: number; disponiveis: number }>;
   const atual = Number(contagem.atual);
+  const disponiveis = Number(contagem.disponiveis);
+  if (missao.requisito === 'PUCSTOPS' && atual + disponiveis === 0) {
+    throw new NotFoundException('Missão não encontrada.');
+  }
   const meta = metaEfetiva(
     missao.requisito,
     missao.quantidade,
     atual,
-    Number(contagem.disponiveis),
+    disponiveis,
   );
   if (atual < meta) {
     const requisito = missao.requisito as keyof typeof FALTA;

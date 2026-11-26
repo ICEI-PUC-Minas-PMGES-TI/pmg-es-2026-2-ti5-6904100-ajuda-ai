@@ -15,6 +15,7 @@ import {
   marcarLidaLocal,
   marcarTodasLocal,
   NOTIFICACOES_VAZIAS,
+  cicloParaAbrir,
   destinoNoApp,
   rotaDaNotificacao,
   tempoRelativo,
@@ -253,6 +254,8 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, 
     }
     const rota = rotaDaNotificacao(n.link);
     if (rota) {
+      const outroCiclo = cicloParaAbrir(n.link, ciclo, programas);
+      if (outroCiclo) onCiclo?.(outroCiclo);
       setAberto(false);
       navigate(rota);
     }

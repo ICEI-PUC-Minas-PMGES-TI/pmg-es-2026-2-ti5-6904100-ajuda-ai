@@ -35,6 +35,7 @@ import {
   type RequisitoMissao,
   semanaDe,
   sqlMissaoAlcancavel,
+  sqlMissaoCumprivel,
   sqlMissaoVisivel,
   type TipoMissao,
   xpPrevisto,
@@ -215,6 +216,7 @@ export class MissoesService {
           `LEFT JOIN ${mp}."eventos" ev ON m."requisito" = 'EVENTO' AND ev."id" = m."alvo_id" ` +
           `${joinsEvento('ev')} ` +
           `WHERE m."ciclo" = $4 AND ${sqlMissaoVisivel('m')} AND ${sqlMissaoAlcancavel('m', acesso)} ` +
+          `AND (c."id" IS NOT NULL OR ${sqlMissaoCumprivel('m')}) ` +
           `ORDER BY m."fim" ASC NULLS LAST, m."criado_em" DESC`,
         [usuarioId, email, semana, ciclo],
       ) as Promise<LinhaMissaoAluno[]>,

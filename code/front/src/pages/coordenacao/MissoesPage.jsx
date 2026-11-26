@@ -55,6 +55,7 @@ export function opcoesRequisito(atual) {
 
 export const QUANTIDADE_MAX = 20;
 const CODIGO_VALIDO = /^[A-Z0-9-]{4,20}$/;
+const CHECKIN_ANTECEDENCIA_MS = 30 * 60 * 1000;
 
 export function normalizarCodigo(codigo) {
   return String(codigo ?? '').normalize('NFKC').replace(/\s+/g, '').toUpperCase();
@@ -134,7 +135,7 @@ export function formDaMissao(missao) {
  * `prazoAtual`: o `fim` da missão já publicada (`null` se não tinha). Aí o
  * prazo só prorroga ou some; encurtar tira tempo de quem está fazendo.
  */
-export function validarMissao(form, { agora = new Date(), fimNovo = true, prazoAtual } = {}) {
+export function validarMissao(form, { agora = new Date(), fimNovo = true, prazoAtual, evento } = {}) {
   const { tituloMax, descricaoMax, instrucoesMax, xpMax, xpSemanalMax } = LIMITES_MISSAO;
   const titulo = form.titulo.trim();
   const descricao = form.descricao.trim();
@@ -173,6 +174,13 @@ export function validarMissao(form, { agora = new Date(), fimNovo = true, prazoA
   const inicio = paraIso(form.inicio);
   const fim = paraIso(form.fim);
   if (inicio && fim && new Date(fim) <= new Date(inicio)) return 'O fim precisa ser depois do início.';
+  if (form.requisito === 'EVENTO' && evento) {
+    const abre = new Date(evento.inicio).getTime() - CHECKIN_ANTECEDENCIA_MS;
+    const fecha = new Date(evento.fim).getTime();
+    if ((inicio && new Date(inicio).getTime() >= fecha) || (fim && new Date(fim).getTime() <= abre)) {
+      return 'O período da missão precisa cruzar o check-in do evento (de 30 min antes do início até o fim). Ajuste o início ou o fim.';
+    }
+  }
   if (fimNovo && fim && new Date(fim) <= agora) return 'O fim precisa estar no futuro.';
   if (fimNovo && fim && prazoAtual !== undefined && (prazoAtual === null || new Date(fim) < new Date(prazoAtual))) {
     return 'Já publicada: o prazo só pode ser prorrogado. Para encerrar antes, arquive a missão.';
@@ -821,14 +829,15 @@ export function FormularioMissao({ original, onCancelar, onSalvo }) {
   const congelada = estado !== 'rascunho';
   // Exceção: missão antiga sem requisito pode ganhar o primeiro; o resto segue congelado.
   const requisitoBloqueado = congelada && Boolean(original?.requisito);
+  const [alvos, setAlvos] = useState({ pucstops: [], eventos: [], erro: '' });
   const erroValidacao = validarMissao(form, {
     fimNovo: criando || (alterados && 'fim' in alterados),
     prazoAtual: congelada ? (original.fim ?? null) : undefined,
+    evento: form.requisito === 'EVENTO' ? alvos.eventos.find((e) => e.id === form.alvoId) : undefined,
   });
   const semAlteracoes = !criando && Object.keys(alterados).length === 0;
   const podeSalvar = !salvando && !erroValidacao && !semAlteracoes;
   const { tituloMax, descricaoMax, instrucoesMax, xpMax, xpSemanalMax } = LIMITES_MISSAO;
-  const [alvos, setAlvos] = useState({ pucstops: [], eventos: [], erro: '' });
 
   useEffect(() => {
     let vivo = true;

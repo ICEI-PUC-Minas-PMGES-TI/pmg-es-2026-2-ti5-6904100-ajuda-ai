@@ -64,6 +64,14 @@ test('validação segue as regras do servidor', () => {
   assert.match(m.validarMissao({ ...ok, tipo: 'SEMANAL', xp: '61' }), /semanal limitada a 60/);
   assert.match(m.validarMissao({ ...ok, inicio: '2026-12-02T10:00', fim: '2026-12-01T10:00' }), /depois do início/);
   assert.match(m.validarMissao({ ...ok, fim: '2026-01-01T10:00' }, { agora: new Date('2026-11-18T12:00:00Z') }), /futuro/);
+  const evento = { id: 'ev', inicio: '2026-12-10T21:00:00Z', fim: '2026-12-10T23:00:00Z' };
+  const deEvento = { ...ok, requisito: 'EVENTO', alvoId: 'ev', codigo: 'CARREIRA-26', tipo: 'UNICA' };
+  const agoraEvento = { agora: new Date('2026-11-18T12:00:00Z'), evento };
+  assert.match(m.validarMissao({ ...deEvento, inicio: '2026-12-10T23:00:00Z' }, agoraEvento), /cruzar o check-in/);
+  assert.match(m.validarMissao({ ...deEvento, fim: '2026-12-10T20:30:00Z' }, agoraEvento), /cruzar o check-in/);
+  assert.equal(m.validarMissao({ ...deEvento, fim: '2026-12-10T20:31:00Z' }, agoraEvento), '');
+  assert.equal(m.validarMissao({ ...deEvento, inicio: '2026-12-10T22:59:00Z' }, agoraEvento), '');
+  assert.equal(m.validarMissao({ ...deEvento, inicio: '2026-12-10T23:00:00Z' }, { agora: agoraEvento.agora }), '');
   assert.equal(m.validarMissao({ ...ok, fim: '2026-01-01T10:00' }, { agora: new Date('2026-11-18T12:00:00Z'), fimNovo: false }), '');
 });
 

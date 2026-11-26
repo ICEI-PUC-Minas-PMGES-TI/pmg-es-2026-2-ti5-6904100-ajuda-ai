@@ -73,13 +73,25 @@ test('tempo relativo e rotas da web', () => {
 });
 
 test('decisão da candidatura e vínculo abrem a página certa do portal', () => {
+  assert.equal(n.rotaDaNotificacao('/candidatura?ciclo=2026%2F2'), '/aluno/candidatura');
+  assert.equal(n.rotaDaNotificacao('/dupla?ciclo=2026%2F2'), '/aluno/padrinho');
   assert.equal(n.rotaDaNotificacao('/candidatura'), '/aluno/candidatura');
-  assert.equal(n.rotaDaNotificacao('/dupla'), '/aluno/padrinho');
-  assert.equal(n.destinoNoApp('/candidatura'), null);
-  assert.equal(n.destinoNoApp('/dupla'), null);
+  assert.equal(n.destinoNoApp('/candidatura?ciclo=2026%2F2'), null);
+  assert.equal(n.destinoNoApp('/dupla?ciclo=2026%2F2'), null);
   for (const tipo of ['CANDIDATURA_APROVADA', 'CANDIDATURA_NAO_APROVADA', 'VINCULO_CONFIRMADO']) {
     assert.ok(n.ICONE_NOTIFICACAO[tipo], tipo);
   }
+});
+
+test('aviso de outro semestre troca o ciclo do portal antes de abrir', () => {
+  const programas = [{ codigo: '2026/1' }, { codigo: '2026/2' }];
+  assert.equal(n.cicloParaAbrir('/candidatura?ciclo=2026%2F1', '2026/2', programas), '2026/1');
+  assert.equal(n.cicloParaAbrir('/dupla?ciclo=2026%2F1', '2026/2', programas), '2026/1');
+  assert.equal(n.cicloParaAbrir('/candidatura?ciclo=2026%2F2', '2026/2', programas), null);
+  assert.equal(n.cicloParaAbrir('/candidatura?ciclo=2025%2F2', '2026/2', programas), null);
+  assert.equal(n.cicloParaAbrir('/candidatura', '2026/2', programas), null);
+  assert.equal(n.cicloParaAbrir('/perfil', '2026/2', programas), null);
+  assert.equal(n.cicloParaAbrir(null, '2026/2', programas), null);
 });
 
 test('paginação: antes na URL e ateId no corpo do marcar todas', async () => {

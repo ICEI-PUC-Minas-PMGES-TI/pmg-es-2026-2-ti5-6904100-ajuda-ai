@@ -15,13 +15,27 @@ const ROTAS_WEB = {
   '/dupla': '/aluno/padrinho',
 };
 
+function partesDoLink(link) {
+  if (!link) return { caminho: null, ciclo: null };
+  const url = new URL(link, 'https://ajuda-ai.local');
+  return { caminho: url.pathname, ciclo: url.searchParams.get('ciclo') };
+}
+
 export function rotaDaNotificacao(link) {
-  return (link && ROTAS_WEB[link]) || null;
+  const { caminho } = partesDoLink(link);
+  return (caminho && ROTAS_WEB[caminho]) || null;
+}
+
+export function cicloParaAbrir(link, cicloAtual, programas = []) {
+  const { ciclo } = partesDoLink(link);
+  if (!ciclo || ciclo === cicloAtual) return null;
+  return programas.some((p) => p.codigo === ciclo) ? ciclo : null;
 }
 
 export function destinoNoApp(link) {
-  if (link === '/missoes') return 'Abra no app Ajuda-aí para ver a missão.';
-  if (link?.startsWith('/lojinha/')) return 'Abra no app Ajuda-aí para ver o resgate.';
+  const { caminho } = partesDoLink(link);
+  if (caminho === '/missoes') return 'Abra no app Ajuda-aí para ver a missão.';
+  if (caminho?.startsWith('/lojinha/')) return 'Abra no app Ajuda-aí para ver o resgate.';
   return null;
 }
 

@@ -358,7 +358,7 @@ void main() {
           'v',
           tipo: 'VINCULO_CONFIRMADO',
           titulo: 'Seu padrinho foi definido!',
-          link: '/dupla',
+          link: '/dupla?ciclo=2026%2F2',
         ),
       ], ativo: true);
       await SessaoUsuario.atual.sincronizarSituacao();
@@ -378,7 +378,7 @@ void main() {
         'c',
         tipo: 'CANDIDATURA_APROVADA',
         titulo: 'Candidatura aprovada',
-        link: '/candidatura',
+        link: '/candidatura?ciclo=2026%2F2',
       ),
     ], ativo: true);
     await SessaoUsuario.atual.sincronizarSituacao();
@@ -393,7 +393,9 @@ void main() {
     expect(abaDaNotificacao('/missoes'), AppDestination.missoes);
     expect(abaDaNotificacao('/perfil'), AppDestination.perfil);
     expect(abaDaNotificacao('/dupla'), AppDestination.inicio);
+    expect(abaDaNotificacao('/dupla?ciclo=2026%2F2'), AppDestination.inicio);
     expect(abaDaNotificacao('/candidatura'), isNull);
+    expect(abaDaNotificacao('/candidatura?ciclo=2026%2F2'), isNull);
     expect(abaDaNotificacao('/lojinha/resgates/x'), isNull);
     expect(abaDaNotificacao(null), isNull);
   });
