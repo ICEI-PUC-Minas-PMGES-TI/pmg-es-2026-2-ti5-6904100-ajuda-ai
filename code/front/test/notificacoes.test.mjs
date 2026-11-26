@@ -72,6 +72,16 @@ test('tempo relativo e rotas da web', () => {
   assert.equal(n.ICONE_NOTIFICACAO.MISSAO_NOVA, 'trophy');
 });
 
+test('decisão da candidatura e vínculo abrem a página certa do portal', () => {
+  assert.equal(n.rotaDaNotificacao('/candidatura'), '/aluno/candidatura');
+  assert.equal(n.rotaDaNotificacao('/dupla'), '/aluno/padrinho');
+  assert.equal(n.destinoNoApp('/candidatura'), null);
+  assert.equal(n.destinoNoApp('/dupla'), null);
+  for (const tipo of ['CANDIDATURA_APROVADA', 'CANDIDATURA_NAO_APROVADA', 'VINCULO_CONFIRMADO']) {
+    assert.ok(n.ICONE_NOTIFICACAO[tipo], tipo);
+  }
+});
+
 test('paginação: antes na URL e ateId no corpo do marcar todas', async () => {
   client.persistAlunoSession({ accessToken: 'jwt-aluno', expiresIn: 3600, usuario: { email: 'ana@sga.pucminas.br', nome: 'Ana' } });
   let chamadas = capturar({ naoLidas: 0, itens: [], temMais: false });

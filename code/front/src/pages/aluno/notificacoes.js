@@ -3,9 +3,17 @@ export const ICONE_NOTIFICACAO = {
   NIVEL_SUBIU: 'star',
   RESGATE_ENTREGUE: 'checkCircle',
   RESGATE_CANCELADO: 'alert',
+  CANDIDATURA_APROVADA: 'checkCircle',
+  CANDIDATURA_NAO_APROVADA: 'info',
+  VINCULO_CONFIRMADO: 'users',
 };
 
-const ROTAS_WEB = { '/perfil': '/aluno/perfil' };
+/** Link da notificação (o mesmo do app) para a rota do portal. */
+const ROTAS_WEB = {
+  '/perfil': '/aluno/perfil',
+  '/candidatura': '/aluno/candidatura',
+  '/dupla': '/aluno/padrinho',
+};
 
 export function rotaDaNotificacao(link) {
   return (link && ROTAS_WEB[link]) || null;
