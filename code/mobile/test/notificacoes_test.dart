@@ -4,6 +4,8 @@ import 'package:ajuda_ai/models/notificacao.dart';
 import 'package:ajuda_ai/services/notificacoes_api.dart';
 import 'package:ajuda_ai/services/participacoes_api.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
+import 'package:ajuda_ai/tela_padrinho_definido.dart';
+import 'package:ajuda_ai/tela_status_candidatura.dart';
 import 'package:ajuda_ai/widgets/app_bottom_navigation.dart';
 import 'package:ajuda_ai/widgets/navegacao_app.dart';
 import 'package:ajuda_ai/widgets/painel_notificacoes.dart';
@@ -24,12 +26,14 @@ Map<String, dynamic> item(
   String id, {
   bool lida = false,
   String tipo = 'MISSAO_NOVA',
+  String titulo = 'Nova missão disponível',
+  String link = '/missoes',
 }) => {
   'id': id,
   'tipo': tipo,
-  'titulo': 'Nova missão disponível',
+  'titulo': titulo,
   'mensagem': 'Visite a biblioteca · 80 XP',
-  'link': '/missoes',
+  'link': link,
   'lida': lida,
   'lidaEm': lida ? '2026-11-18T10:00:00.000Z' : null,
   'criadoEm': DateTime.now()
@@ -329,9 +333,67 @@ void main() {
     expect(servidor.chamadas, contains('PATCH /me/notificacoes/a/lida'));
   });
 
+  Future<void> abrirPainel(WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: TextButton(
+              onPressed: () => mostrarNotificacoes(context),
+              child: const Text('abrir'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('abrir'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets(
+    'aviso de vínculo da API substitui o cartão local e abre o padrinho',
+    (tester) async {
+      final servidor = instalar([
+        item(
+          'v',
+          tipo: 'VINCULO_CONFIRMADO',
+          titulo: 'Seu padrinho foi definido!',
+          link: '/dupla',
+        ),
+      ], ativo: true);
+      await SessaoUsuario.atual.sincronizarSituacao();
+      await abrirPainel(tester);
+      expect(find.byKey(const Key('notificacao-v')), findsOneWidget);
+      expect(find.text('Seu padrinho foi definido!'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('notificacao-v')));
+      await tester.pumpAndSettle();
+      expect(find.byType(PadrinhoDefinidoPage), findsOneWidget);
+      expect(servidor.chamadas, contains('PATCH /me/notificacoes/v/lida'));
+    },
+  );
+
+  testWidgets('decisão da candidatura abre o acompanhamento', (tester) async {
+    final servidor = instalar([
+      item(
+        'c',
+        tipo: 'CANDIDATURA_APROVADA',
+        titulo: 'Candidatura aprovada',
+        link: '/candidatura',
+      ),
+    ], ativo: true);
+    await SessaoUsuario.atual.sincronizarSituacao();
+    await abrirPainel(tester);
+    await tester.tap(find.byKey(const Key('notificacao-c')));
+    await tester.pumpAndSettle();
+    expect(find.byType(StatusCandidaturaPage), findsOneWidget);
+    expect(servidor.chamadas, contains('PATCH /me/notificacoes/c/lida'));
+  });
+
   test('link da notificação vira a aba certa', () {
     expect(abaDaNotificacao('/missoes'), AppDestination.missoes);
     expect(abaDaNotificacao('/perfil'), AppDestination.perfil);
+    expect(abaDaNotificacao('/dupla'), AppDestination.inicio);
+    expect(abaDaNotificacao('/candidatura'), isNull);
     expect(abaDaNotificacao('/lojinha/resgates/x'), isNull);
     expect(abaDaNotificacao(null), isNull);
   });

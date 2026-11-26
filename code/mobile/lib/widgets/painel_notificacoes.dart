@@ -8,6 +8,7 @@ import '../sessao_usuario.dart';
 import '../status_participacao.dart';
 import '../tela_padrinho_definido.dart';
 import '../tela_resgates.dart';
+import '../tela_status_candidatura.dart';
 import '../theme/colors.dart';
 import 'app_bottom_navigation.dart';
 import 'navegacao_app.dart';
@@ -26,9 +27,12 @@ const avisosOffline = [
   ),
 ];
 
+/// Aba do app para o link da notificação. `/dupla` cai no Início, onde o
+/// padrinho vê os apadrinhados; o apadrinhado abre a tela do padrinho.
 AppDestination? abaDaNotificacao(String? link) => switch (link) {
   '/missoes' => AppDestination.missoes,
   '/perfil' => AppDestination.perfil,
+  '/dupla' => AppDestination.inicio,
   _ => null,
 };
 
@@ -37,12 +41,16 @@ class _Notificacao {
     required this.aviso,
     this.icone = Icons.campaign_outlined,
     this.destaque = false,
+    this.vinculo = false,
     this.onTap,
   });
 
   final Aviso aviso;
   final IconData icone;
   final bool destaque;
+
+  /// Cartão local do padrinho definido; some quando o aviso da API chega.
+  final bool vinculo;
   final VoidCallback? onTap;
 }
 
@@ -106,6 +114,7 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
           ),
           icone: Icons.handshake_outlined,
           destaque: true,
+          vinculo: true,
           onTap: _abrirPadrinho,
         ),
       for (final aviso in avisos) _Notificacao(aviso: aviso),
@@ -115,7 +124,22 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
   void _abrir(Notificacao notificacao) {
     CentralNotificacoes.atual.marcarLida(notificacao.id);
     final pai = widget.contextoPai;
-    final aba = abaDaNotificacao(notificacao.link);
+    final link = notificacao.link;
+    if (link == '/dupla' &&
+        SessaoUsuario.atual.status == StatusParticipacao.apadrinhadoAtivo) {
+      _abrirPadrinho();
+      return;
+    }
+    if (link == '/candidatura') {
+      Navigator.of(context).pop();
+      if (pai.mounted) {
+        Navigator.of(pai).push(
+          MaterialPageRoute(builder: (_) => const StatusCandidaturaPage()),
+        );
+      }
+      return;
+    }
+    final aba = abaDaNotificacao(link);
     if (aba != null && SessaoUsuario.atual.destinos.contains(aba)) {
       Navigator.of(context).pop();
       if (pai.mounted) {
@@ -259,63 +283,80 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
                               ),
                             ),
                           ),
-                        for (final item in itens)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Material(
-                              color: item.destaque
-                                  ? AppAccents.successBg
-                                  : AppAccents.cardBg,
-                              clipBehavior: Clip.antiAlias,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                side: BorderSide(
-                                  color: item.destaque
-                                      ? AppAccents.success.withValues(
-                                          alpha: 0.3,
-                                        )
-                                      : AppAccents.cardBorder,
-                                ),
-                              ),
-                              child: ListTile(
-                                onTap: item.onTap,
-                                leading: Icon(
-                                  item.icone,
-                                  color: item.destaque
-                                      ? AppAccents.success
-                                      : AppColors.primary,
-                                ),
-                                title: Text(
-                                  item.aviso.titulo,
-                                  style: const TextStyle(
-                                    fontFamily: 'Inter',
-                                    color: AppColors.ink,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  [
-                                    item.aviso.descricao,
-                                    if (item.aviso.data != null)
-                                      _data(item.aviso.data!),
-                                  ].join('\n'),
-                                  style: const TextStyle(
-                                    fontFamily: 'Inter',
-                                    color: AppColors.muted,
-                                    fontSize: 12,
-                                    height: 1.35,
-                                  ),
-                                ),
-                                trailing: item.onTap == null
-                                    ? null
-                                    : const Icon(
-                                        Icons.chevron_right,
-                                        color: AppColors.muted,
+                        ValueListenableBuilder<Notificacoes>(
+                          valueListenable: CentralNotificacoes.atual.estado,
+                          builder: (context, dados, _) {
+                            // O aviso do vínculo já veio da API: não repete o cartão local.
+                            final temVinculo = dados.itens.any(
+                              (n) => n.tipo == 'VINCULO_CONFIRMADO',
+                            );
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                for (final item in itens)
+                                  if (!(item.vinculo && temVinculo))
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Material(
+                                        color: item.destaque
+                                            ? AppAccents.successBg
+                                            : AppAccents.cardBg,
+                                        clipBehavior: Clip.antiAlias,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          side: BorderSide(
+                                            color: item.destaque
+                                                ? AppAccents.success.withValues(
+                                                    alpha: 0.3,
+                                                  )
+                                                : AppAccents.cardBorder,
+                                          ),
+                                        ),
+                                        child: ListTile(
+                                          onTap: item.onTap,
+                                          leading: Icon(
+                                            item.icone,
+                                            color: item.destaque
+                                                ? AppAccents.success
+                                                : AppColors.primary,
+                                          ),
+                                          title: Text(
+                                            item.aviso.titulo,
+                                            style: const TextStyle(
+                                              fontFamily: 'Inter',
+                                              color: AppColors.ink,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          subtitle: Text(
+                                            [
+                                              item.aviso.descricao,
+                                              if (item.aviso.data != null)
+                                                _data(item.aviso.data!),
+                                            ].join('\n'),
+                                            style: const TextStyle(
+                                              fontFamily: 'Inter',
+                                              color: AppColors.muted,
+                                              fontSize: 12,
+                                              height: 1.35,
+                                            ),
+                                          ),
+                                          trailing: item.onTap == null
+                                              ? null
+                                              : const Icon(
+                                                  Icons.chevron_right,
+                                                  color: AppColors.muted,
+                                                ),
+                                        ),
                                       ),
-                              ),
-                            ),
-                          ),
+                                    ),
+                              ],
+                            );
+                          },
+                        ),
                       ],
                     );
                   },
@@ -357,6 +398,21 @@ class _ItemNotificacao extends StatelessWidget {
         Icons.undo_rounded,
         AppAccents.tileLaranja,
         AppAccents.iconeLaranja,
+      ),
+      'CANDIDATURA_APROVADA' => (
+        Icons.verified_outlined,
+        AppAccents.tileVerde,
+        AppAccents.iconeVerde,
+      ),
+      'CANDIDATURA_NAO_APROVADA' => (
+        Icons.info_outline_rounded,
+        AppAccents.tileAzul,
+        AppAccents.iconeAzul,
+      ),
+      'VINCULO_CONFIRMADO' => (
+        Icons.handshake_outlined,
+        AppAccents.tileVerde,
+        AppAccents.iconeVerde,
       ),
       _ => (
         Icons.notifications_none_rounded,
