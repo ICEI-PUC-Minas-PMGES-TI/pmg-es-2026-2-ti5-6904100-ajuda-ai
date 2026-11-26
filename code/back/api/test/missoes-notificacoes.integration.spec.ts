@@ -63,6 +63,8 @@ import { validarSnapshot } from '../src/mapa/importacao/snapshot.js';
 import { schemaPostgis } from '../src/mapa/postgis.js';
 import { CriaNotificacoes1794800000000 } from '../src/migrations/1794800000000-CriaNotificacoes.js';
 import { RequisitosMissoes1795000000000 } from '../src/migrations/1795000000000-RequisitosMissoes.js';
+import { CicloDeVidaMissoes1795200000000 } from '../src/migrations/1795200000000-CicloDeVidaMissoes.js';
+import { notificacaoCandidatura } from '../src/notificacoes/notificacoes.js';
 import { NotificacoesController } from '../src/notificacoes/notificacoes.controller.js';
 import { NotificacoesService } from '../src/notificacoes/notificacoes.service.js';
 import { ParticipacaoEntity } from '../src/participacoes/entities/participacao.entity.js';
@@ -248,8 +250,16 @@ interface Missao {
   requisito: Requisito | null;
   quantidade: number;
   alvoId: string | null;
+  pontos: Array<{ id: string; nome: string | null; ativo: boolean }>;
+  publico: 'TODOS' | 'PADRINHOS' | 'APADRINHADOS';
+  instrucoes: string | null;
   codigo: string | null;
+  codigoLiberadoAte: string | null;
+  vigenteAgora: boolean;
   xp: number;
+  ativa: boolean;
+  estado: 'rascunho' | 'publicada' | 'arquivada';
+  publicadaEm: string | null;
   atualizadoEm: string;
 }
 
@@ -261,6 +271,9 @@ interface CorpoMissao {
   requisito?: Requisito;
   quantidade?: number;
   alvoId?: string;
+  alvoIds?: string[];
+  publico?: 'TODOS' | 'PADRINHOS' | 'APADRINHADOS';
+  instrucoes?: string;
   codigo?: string;
   inicio?: string;
   fim?: string;
@@ -279,6 +292,7 @@ interface ItemLista {
   xpPrevisto: number;
   progresso: { atual: number; meta: number } | null;
   pronta: boolean;
+  codigoLiberadoAte: string | null;
   alvo: {
     tipo: string;
     id: string;
@@ -290,6 +304,15 @@ interface ItemLista {
     longitude: number | null;
     local: string | null;
   } | null;
+  pontos: Array<{
+    id: string;
+    nome: string;
+    coletado: boolean;
+    ativo: boolean;
+    latitude: number | null;
+    longitude: number | null;
+  }> | null;
+  instrucoes: string | null;
   conclusao: { id: string; xp: number; limitado: boolean } | null;
 }
 
@@ -437,7 +460,18 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     expect(r.status, JSON.stringify(r.body)).toBe(201);
     const m = r.body as Missao;
     if (m.codigo) codigos.set(m.id, m.codigo);
+    // Na vida real a coordenação libera o código na hora da atividade.
+    if (m.codigo && m.ativa && m.vigenteAgora) return liberarCodigo(m.id);
     return m;
+  }
+
+  async function liberarCodigo(id: string, minutos = 60): Promise<Missao> {
+    const r = await http()
+      .post(`/coordenacao/missoes/${id}/codigo`)
+      .set('Authorization', coord())
+      .send({ minutos });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    return r.body as Missao;
   }
 
   const listar = (a: Aluno) =>
@@ -844,6 +878,43 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         { requisito: 'EVENTO', codigo: undefined, alvoId: 'semana-do-calouro' },
       ],
       ['evento sem alvo', { requisito: 'EVENTO', codigo: undefined }],
+      ['público desconhecido', { publico: 'CALOUROS' }],
+      [
+        'publicação no feed para apadrinhados (só padrinho publica)',
+        {
+          requisito: 'FEED_PUBLICACOES',
+          codigo: undefined,
+          publico: 'APADRINHADOS',
+        },
+      ],
+      ['instruções longas demais', { instrucoes: 'a'.repeat(1001) }],
+      [
+        'lista de PucStops vazia',
+        { requisito: 'PUCSTOPS', codigo: undefined, alvoIds: [] },
+      ],
+      [
+        'PucStop que não é uuid',
+        { requisito: 'PUCSTOPS', codigo: undefined, alvoIds: ['icei'] },
+      ],
+      [
+        'lista de PucStops em missão de feed',
+        {
+          requisito: 'FEED_CURTIDAS',
+          codigo: undefined,
+          alvoIds: ['8c1f3a2e-4b5d-4e6f-9a7b-1c2d3e4f5a6b'],
+        },
+      ],
+      [
+        'mais de 20 PucStops',
+        {
+          requisito: 'PUCSTOPS',
+          codigo: undefined,
+          alvoIds: Array.from(
+            { length: 21 },
+            (_, i) => `8c1f3a2e-4b5d-4e6f-9a7b-${String(i).padStart(12, '0')}`,
+          ),
+        },
+      ],
     ])('recusa %s com 400', async (_caso, mudanca) => {
       const antes = await contar(
         `SELECT count(*) AS n FROM gamificacao.missoes`,
@@ -988,7 +1059,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
   });
 
   describe('fim do auto-claim', () => {
-    it('missão antiga sem requisito não aparece, não conclui e não ativa', async () => {
+    it('missão antiga sem requisito não aparece, não conclui e não ativa; ganha o requisito e segue congelada', async () => {
       const [{ id }] = (await ds.query(
         `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ativa, ciclo, publicada_em) ` +
           `VALUES ('Visite a biblioteca central', 'Passe na biblioteca.', 'UNICA', 40, true, $1, now()) RETURNING id`,
@@ -1016,15 +1087,35 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
           .expect(200)
       ).body as Missao;
       expect(atual.requisito).toBeNull();
-      await http()
+      const comRequisito = (
+        await http()
+          .patch(`/coordenacao/missoes/${id}`)
+          .set('Authorization', coord())
+          .send({
+            requisito: 'PUCSTOPS',
+            alvoId: totens.BIBLIOTECA.id,
+            atualizadoEm: atual.atualizadoEm,
+          })
+          .expect(200)
+      ).body as Missao;
+      // Já tinha sido publicada: ganha a regra, mas XP e o resto ficam.
+      expect(comRequisito).toMatchObject({
+        requisito: 'PUCSTOPS',
+        estado: 'arquivada',
+      });
+      const xp = await http()
         .patch(`/coordenacao/missoes/${id}`)
         .set('Authorization', coord())
-        .send({
-          requisito: 'PUCSTOPS',
-          alvoId: totens.BIBLIOTECA.id,
-          atualizadoEm: atual.atualizadoEm,
-        })
-        .expect(200);
+        .send({ xp: 80, atualizadoEm: comRequisito.atualizadoEm })
+        .expect(409);
+      expect(xp.body).toMatchObject({
+        motivo: 'missao-publicada',
+        campos: ['xp'],
+      });
+      await http()
+        .delete(`/coordenacao/missoes/${id}`)
+        .set('Authorization', coord())
+        .expect(409);
       await http()
         .post(`/coordenacao/missoes/${id}/ativar`)
         .set('Authorization', coord())
@@ -1482,25 +1573,51 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       }
     });
 
-    it('semanal concluída em outra semana libera de novo; única não', async () => {
+    it('semanal concluída em outra semana libera de novo com o código da semana; única não', async () => {
       const a = await novoAluno();
       const outra = outraSemanaDoCiclo();
-      const semanal = ids.get('estudo')!;
+      const semanal = await criarMissao({
+        titulo: 'Vá ao plantão semanal de Cálculo',
+        tipo: 'SEMANAL',
+        xp: 20,
+        codigo: 'PLANTAO-S1',
+      });
       const unica = ids.get('ciclo')!;
 
-      const passada = await servicoMissoes.concluir(a.id, semanal, outra, {
-        codigo: 'MONITORIA-CALC',
+      const passada = await servicoMissoes.concluir(a.id, semanal.id, outra, {
+        codigo: 'PLANTAO-S1',
       });
       expect(passada.semana).not.toBe((await missoesDe(a)).semana);
       await servicoMissoes.concluir(a.id, unica, outra, {
         codigo: 'ENCERRA-2026',
       });
 
-      const r = await concluir(a, semanal, { codigo: 'MONITORIA-CALC' }).expect(
+      // Quem já usou o código numa semana não o reaproveita na seguinte,
+      // e o código certo repetido não conta como tentativa errada.
+      const repetido = await concluir(a, semanal.id, {
+        codigo: 'PLANTAO-S1',
+      }).expect(422);
+      expect(repetido.body.motivo).toBe('codigo-repetido');
+      await concluir(await novoAluno(), semanal.id, {
+        codigo: 'PLANTAO-S1',
+      }).expect(201);
+
+      await http()
+        .patch(`/coordenacao/missoes/${semanal.id}`)
+        .set('Authorization', coord())
+        .send({ codigo: 'PLANTAO-S2', atualizadoEm: semanal.atualizadoEm })
+        .expect(200);
+      const r = await concluir(a, semanal.id, { codigo: 'PLANTAO-S2' }).expect(
         201,
       );
       expect(r.body).toMatchObject({ xp: 20, limitado: false });
       await concluir(a, unica, { codigo: 'ENCERRA-2026' }).expect(409);
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM gamificacao.missoes_tentativas_codigo WHERE usuario_id = $1`,
+          [a.id],
+        ),
+      ).toBe(0);
     });
 
     it(`${NOMES.length} alunos (11 duplas) fazem as ${CATEGORIAS.length} categorias de verdade e resgatam tudo ao mesmo tempo com pool de ${POOL}`, async () => {
@@ -1731,6 +1848,29 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         ),
       ).toBe(1);
       expect(await carteira(a)).toEqual({ saldo: 0, xp_acumulado: 0 });
+    });
+
+    it('código do evento fechado: GPS e código certos não bastam, e não gasta tentativa', async () => {
+      await http()
+        .delete(`/coordenacao/missoes/${calouro.id}/codigo`)
+        .set('Authorization', coord())
+        .expect(200);
+      try {
+        const a = await novoAluno();
+        const r = await concluir(a, calouro.id, {
+          ...noPredio('P30'),
+          accuracy: 0,
+        }).expect(422);
+        expect(r.body.motivo).toBe('codigo-fechado');
+        expect(
+          await contar(
+            `SELECT count(*) AS n FROM gamificacao.missoes_tentativas_codigo WHERE usuario_id = $1`,
+            [a.id],
+          ),
+        ).toBe(0);
+      } finally {
+        await liberarCodigo(calouro.id);
+      }
     });
 
     it('código certo longe do evento não vale nem gasta tentativa', async () => {
@@ -1982,6 +2122,67 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       ];
     });
 
+    it('o que o aluno fez com a missão em rascunho não conta: a contagem começa na publicação', async () => {
+      const m = await criarMissao({
+        titulo: 'Comente em dois posts de colegas',
+        tipo: 'UNICA',
+        xp: 15,
+        requisito: 'FEED_COMENTARIOS',
+        quantidade: 2,
+        ativar: false,
+      });
+      const a = await novoAluno();
+      await comentar(a, posts[0], 'Primeira semana foi corrida, mas valeu!');
+      await comentar(a, posts[1], 'Valeu pela lista, vou entrar no de Cálculo.');
+      await http()
+        .post(`/coordenacao/missoes/${m.id}/ativar`)
+        .set('Authorization', coord())
+        .expect(200);
+      expect((await itemDe(a, m.id))!.progresso).toEqual({
+        atual: 0,
+        meta: 2,
+      });
+      await concluir(a, m.id).expect(422);
+      await comentar(a, posts[2], 'Eu vou! Alguém quer ir junto depois da aula?');
+      await comentar(a, posts[0], 'Segunda semana já está mais tranquila aqui.');
+      expect((await itemDe(a, m.id))!.pronta).toBe(true);
+      await concluir(a, m.id).expect(201);
+    });
+
+    it('curtida semanal só conta post da semana: curtir de novo post antigo não repete a semanal', async () => {
+      const antigo = await publicar(
+        autores[0].padrinho,
+        'Resumo de Cálculo I da semana passada.',
+      );
+      await ds.query(
+        `UPDATE feed.publicacoes SET criado_em = now() - interval '8 days' WHERE id = $1`,
+        [antigo],
+      );
+      const m = await criarMissao({
+        titulo: 'Curta um post de colega nesta semana',
+        tipo: 'SEMANAL',
+        xp: 10,
+        requisito: 'FEED_CURTIDAS',
+        quantidade: 1,
+      });
+      const a = autores[1].apadrinhado;
+      await curtir(a, antigo);
+      expect((await itemDe(a, m.id))!.progresso).toEqual({
+        atual: 0,
+        meta: 1,
+      });
+      const falta = await concluir(a, m.id).expect(422);
+      expect(falta.body.message).toBe(
+        'Curta mais 1 publicação de colegas feita nesta semana.',
+      );
+      const novo = await publicar(
+        autores[0].padrinho,
+        'Alguém tem o link da monitoria de hoje?',
+      );
+      await curtir(a, novo);
+      await concluir(a, m.id).expect(201);
+    });
+
     it(`comentário com menos de ${COMENTARIO_MISSAO_MIN} caracteres não conta`, async () => {
       const m = await criarMissao({
         titulo: 'Deixe um comentário útil no feed',
@@ -2024,6 +2225,29 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         'Boa lista, vou mandar para minha afilhada.',
       );
       await concluir(autor, m.id).expect(201);
+    });
+
+    it('vários comentários no mesmo post contam uma vez: valem posts diferentes', async () => {
+      const m = await criarMissao({
+        titulo: 'Comente em dois posts diferentes',
+        tipo: 'UNICA',
+        xp: 10,
+        requisito: 'FEED_COMENTARIOS',
+        quantidade: 2,
+      });
+      const a = await novoAluno();
+      await comentar(a, posts[0], 'Primeira semana foi puxada demais aqui.');
+      await comentar(a, posts[0], 'E a segunda já começou com prova, socorro.');
+      await comentar(a, posts[0], 'Mas o pessoal da turma é muito gente boa.');
+      expect((await itemDe(a, m.id))!.progresso).toEqual({ atual: 1, meta: 2 });
+      const falta = await concluir(a, m.id).expect(422);
+      expect(falta.body).toMatchObject({
+        motivo: 'requisito-pendente',
+        message: 'Comente em mais 1 post de colegas.',
+        progresso: { atual: 1, meta: 2 },
+      });
+      await comentar(a, posts[1], 'Valeu pela lista, vou entrar no de Cálculo.');
+      await concluir(a, m.id).expect(201);
     });
 
     it('comentário de outra pessoa não conta para mim', async () => {
@@ -2313,6 +2537,115 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       await concluir(a, m.id, { codigo: 'RODA-1' }).expect(422);
       await concluir(a, m.id, { codigo: 'RODA-2' }).expect(201);
     });
+
+    it('o código só vale enquanto a coordenação deixa liberado: fechado, vencido ou encerrado não vale nem gasta tentativa', async () => {
+      const m = await criarMissao({
+        titulo: 'Assista à palestra de boas-vindas',
+        tipo: 'UNICA',
+        xp: 20,
+        codigo: 'PALESTRA-1',
+        ativar: false,
+      });
+      const publicada = (
+        await http()
+          .post(`/coordenacao/missoes/${m.id}/ativar`)
+          .set('Authorization', coord())
+          .expect(200)
+      ).body as Missao;
+      expect(publicada.codigoLiberadoAte).toBeNull();
+      const a = await novoAluno();
+      expect(await itemDe(a, m.id)).toMatchObject({ codigoLiberadoAte: null });
+      for (const codigo of ['PALESTRA-1', 'CHUTE-1']) {
+        // Fechado, nem confere: não revela se o código estava certo.
+        const r = await concluir(a, m.id, { codigo }).expect(422);
+        expect(r.body.motivo).toBe('codigo-fechado');
+      }
+      const tentativas = (aluno: Aluno) =>
+        contar(
+          `SELECT count(*) AS n FROM gamificacao.missoes_tentativas_codigo WHERE usuario_id = $1`,
+          [aluno.id],
+        );
+      expect(await tentativas(a)).toBe(0);
+
+      const liberada = await liberarCodigo(m.id, 10);
+      const restante = Date.parse(liberada.codigoLiberadoAte!) - Date.now();
+      expect(restante).toBeGreaterThan(9 * 60_000);
+      expect(restante).toBeLessThanOrEqual(10 * 60_000 + 5_000);
+      expect(liberada.atualizadoEm).toBe(publicada.atualizadoEm);
+      expect((await itemDe(a, m.id))!.codigoLiberadoAte).toBe(
+        liberada.codigoLiberadoAte,
+      );
+      await concluir(a, m.id, { codigo: 'PALESTRA-1' }).expect(201);
+
+      // Quem recebeu o código depois que o tempo acabou não usa.
+      await ds.query(
+        `UPDATE gamificacao.missoes SET codigo_liberado_ate = now() - interval '1 second' WHERE id = $1`,
+        [m.id],
+      );
+      const atrasado = await novoAluno();
+      expect(await itemDe(atrasado, m.id)).toMatchObject({
+        codigoLiberadoAte: null,
+      });
+      const vencido = await concluir(atrasado, m.id, {
+        codigo: 'PALESTRA-1',
+      }).expect(422);
+      expect(vencido.body.motivo).toBe('codigo-fechado');
+
+      await liberarCodigo(m.id, 5);
+      const encerrada = await http()
+        .delete(`/coordenacao/missoes/${m.id}/codigo`)
+        .set('Authorization', coord())
+        .expect(200);
+      expect(encerrada.body.codigoLiberadoAte).toBeNull();
+      await concluir(atrasado, m.id, { codigo: 'PALESTRA-1' }).expect(422);
+      expect(await tentativas(atrasado)).toBe(0);
+      expect(await carteira(atrasado)).toEqual({ saldo: 0, xp_acumulado: 0 });
+    });
+
+    it('liberar o código: só missão publicada, no período e com código; aluno não libera', async () => {
+      const liberar = (id: string, corpo: object, auth = coord()) =>
+        http()
+          .post(`/coordenacao/missoes/${id}/codigo`)
+          .set('Authorization', auth)
+          .send(corpo);
+      const rascunho = await criarMissao({
+        titulo: 'Oficina de oratória (rascunho)',
+        tipo: 'UNICA',
+        xp: 10,
+        ativar: false,
+      });
+      expect(
+        (await liberar(rascunho.id, { minutos: 10 }).expect(422)).body.motivo,
+      ).toBe('missao-nao-publicada');
+      const curtidas = await criarMissao({
+        titulo: 'Curta um post do feed',
+        tipo: 'UNICA',
+        xp: 10,
+        requisito: 'FEED_CURTIDAS',
+      });
+      expect(
+        (await liberar(curtidas.id, { minutos: 10 }).expect(422)).body.motivo,
+      ).toBe('sem-codigo');
+      const agendada = await criarMissao({
+        titulo: 'Oficina de oratória da semana que vem',
+        tipo: 'UNICA',
+        xp: 10,
+        inicio: iso(Date.now() + DIA),
+      });
+      expect(agendada.codigoLiberadoAte).toBeNull();
+      expect(
+        (await liberar(agendada.id, { minutos: 10 }).expect(422)).body.motivo,
+      ).toBe('fora-do-periodo');
+      for (const corpo of [{}, { minutos: 0 }, { minutos: 121 }, { minutos: 1.5 }]) {
+        await liberar(rascunho.id, corpo).expect(400);
+      }
+      const a = await novoAluno();
+      await liberar(rascunho.id, { minutos: 10 }, a.auth).expect(403);
+      await http()
+        .delete(`/coordenacao/missoes/${rascunho.id}/codigo`)
+        .set('Authorization', a.auth)
+        .expect(403);
+    });
   });
 
   describe('prazo, ativação e ciclo', () => {
@@ -2365,7 +2698,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       expect(reativar.body.motivo).toBe('fora-do-periodo');
     });
 
-    it('desativar tira da lista e bloqueia; reativar devolve', async () => {
+    it('desativar tira da lista, bloqueia e fecha o código; reativar devolve', async () => {
       const m = await criarMissao({
         titulo: 'Doe um livro para a campanha da biblioteca',
         tipo: 'UNICA',
@@ -2383,12 +2716,19 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         .post(`/coordenacao/missoes/${m.id}/ativar`)
         .set('Authorization', coord())
         .expect(200);
-      expect(ativa.body).toMatchObject({ ativa: true, vigenteAgora: true });
+      expect(ativa.body).toMatchObject({
+        ativa: true,
+        vigenteAgora: true,
+        codigoLiberadoAte: null,
+      });
       await http()
         .post(`/coordenacao/missoes/${m.id}/ativar`)
         .set('Authorization', coord())
         .expect(200);
       expect(await itemDe(a, m.id)).toBeDefined();
+      const fechado = await concluir(a, m.id).expect(422);
+      expect(fechado.body.motivo).toBe('codigo-fechado');
+      await liberarCodigo(m.id);
       await concluir(a, m.id).expect(201);
     });
 
@@ -2427,27 +2767,43 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
   });
 
   describe('edição pela coordenação', () => {
-    it('mudança de XP antes de alguém concluir vale para a próxima conclusão', async () => {
+    it('XP muda no rascunho; publicada, o aluno recebe o XP que viu', async () => {
       const m = await criarMissao({
         titulo: 'Visite o Centro de Esportes',
         tipo: 'UNICA',
         xp: 20,
+        ativar: false,
       });
+      expect(m).toMatchObject({ estado: 'rascunho', publicadaEm: null });
       const editada = await http()
         .patch(`/coordenacao/missoes/${m.id}`)
         .set('Authorization', coord())
         .send({ xp: 35, atualizadoEm: m.atualizadoEm })
         .expect(200);
       expect(editada.body.xp).toBe(35);
+      const publicada = (
+        await http()
+          .post(`/coordenacao/missoes/${m.id}/ativar`)
+          .set('Authorization', coord())
+          .expect(200)
+      ).body as Missao;
+      expect(publicada).toMatchObject({ estado: 'publicada', xp: 35 });
+      expect(publicada.publicadaEm).not.toBeNull();
+      await liberarCodigo(m.id);
+
       const a = await novoAluno();
       expect(await itemDe(a, m.id)).toMatchObject({ xp: 35, xpPrevisto: 35 });
-      const r = await concluir(a, m.id).expect(201);
-      expect(r.body).toMatchObject({ xp: 35, xpConfigurado: 35 });
-      await http()
+      const recusada = await http()
         .patch(`/coordenacao/missoes/${m.id}`)
         .set('Authorization', coord())
-        .send({ xp: 50, atualizadoEm: editada.body.atualizadoEm })
-        .expect(200);
+        .send({ xp: 50, atualizadoEm: publicada.atualizadoEm })
+        .expect(409);
+      expect(recusada.body).toMatchObject({
+        motivo: 'missao-publicada',
+        campos: ['xp'],
+      });
+      const r = await concluir(a, m.id).expect(201);
+      expect(r.body).toMatchObject({ xp: 35, xpConfigurado: 35 });
       expect((await itemDe(a, m.id))!.conclusao).toMatchObject({ xp: 35 });
     });
 
@@ -2489,6 +2845,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         xp: 15,
         requisito: 'PUCSTOPS',
         alvoId: posto.id,
+        fim: iso(Date.now() + 2 * DIA),
       });
       await pucstopsAdmin.definirAtivo(posto.id, false);
       const r = await http()
@@ -2502,7 +2859,8 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         .expect(200);
       expect(r.body).toMatchObject({
         titulo: 'Visite a Capela do campus',
-        alvoId: posto.id,
+        alvoId: null,
+        pontos: [{ id: posto.id, nome: 'PucStop da Capela' }],
       });
       await http()
         .post(`/coordenacao/missoes/${m.id}/desativar`)
@@ -2560,49 +2918,411 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
           alvoId: totens.TEATRO.id,
         },
       ]) {
-        const m = await criarMissao({ ...corpo, tipo: 'UNICA', xp: 30 });
+        const m = await criarMissao({
+          ...corpo,
+          tipo: 'UNICA',
+          xp: 30,
+          ativar: false,
+        });
         const r = await http()
           .patch(`/coordenacao/missoes/${m.id}`)
           .set('Authorization', coord())
           .send({ tipo: 'SEMANAL', atualizadoEm: m.atualizadoEm });
         expect(r.status, JSON.stringify(r.body)).toBe(400);
         expect(r.body.message).toContain('única');
+
+        const publicada = (
+          await http()
+            .post(`/coordenacao/missoes/${m.id}/ativar`)
+            .set('Authorization', coord())
+            .expect(200)
+        ).body as Missao;
+        const congelada = await http()
+          .patch(`/coordenacao/missoes/${m.id}`)
+          .set('Authorization', coord())
+          .send({ tipo: 'SEMANAL', atualizadoEm: publicada.atualizadoEm })
+          .expect(409);
+        expect(congelada.body.motivo).toBe('missao-publicada');
       }
     });
 
-    it('tipo e requisito não mudam depois de concluída', async () => {
-      const m = await criarMissao({
+    it('publicada: tipo, objetivo, meta, pontos, público, início e XP ficam; texto e código mudam e o prazo só prorroga', async () => {
+      const rascunho = await criarMissao({
         titulo: 'Colete dois PucStops com sua dupla',
         tipo: 'UNICA',
         xp: 80,
         requisito: 'PUCSTOPS',
         quantidade: 2,
+        fim: iso(Date.now() + 5 * DIA),
+        ativar: false,
       });
       const semTeto = await http()
-        .patch(`/coordenacao/missoes/${m.id}`)
+        .patch(`/coordenacao/missoes/${rascunho.id}`)
         .set('Authorization', coord())
-        .send({ tipo: 'SEMANAL', atualizadoEm: m.atualizadoEm })
+        .send({ tipo: 'SEMANAL', atualizadoEm: rascunho.atualizadoEm })
         .expect(400);
       expect(semTeto.body.message).toBe(
         `Missão semanal limitada a ${LIMITES.missoesSemanais} XP.`,
       );
+      const m = (
+        await http()
+          .post(`/coordenacao/missoes/${rascunho.id}/ativar`)
+          .set('Authorization', coord())
+          .expect(200)
+      ).body as Missao;
       const a = await novoAluno();
       await coletar(a, totens.CANTINA).expect(201);
       await coletar(a, totens.PREDIO24).expect(201);
       await concluir(a, m.id).expect(201);
-      for (const mudanca of [
-        { tipo: 'SEMANAL', xp: 40 },
-        { quantidade: 1 },
-        { requisito: 'CODIGO', codigo: 'FACIL' },
-        { alvoId: totens.ICEI.id, quantidade: 1 },
-      ]) {
+      for (const [mudanca, campos] of [
+        [{ tipo: 'SEMANAL', xp: 40 }, ['tipo', 'xp']],
+        [{ quantidade: 1 }, ['quantidade']],
+        [{ requisito: 'CODIGO', codigo: 'FACIL' }, ['requisito']],
+        [{ alvoId: totens.ICEI.id, quantidade: 1 }, ['quantidade', 'alvoIds']],
+        [{ alvoIds: [totens.ICEI.id, totens.TEATRO.id] }, ['alvoIds']],
+        [{ publico: 'PADRINHOS' }, ['publico']],
+        [{ inicio: iso(Date.now() + DIA) }, ['inicio']],
+        [{ fim: iso(Date.now() + 2 * DIA) }, ['fim']],
+        [{ xp: 40, fim: iso(Date.now() + 2 * DIA) }, ['xp', 'fim']],
+      ] as const) {
         const r = await http()
           .patch(`/coordenacao/missoes/${m.id}`)
           .set('Authorization', coord())
           .send({ ...mudanca, atualizadoEm: m.atualizadoEm })
           .expect(409);
-        expect(r.body.motivo).toBe('missao-com-conclusoes');
+        expect(r.body, JSON.stringify(mudanca)).toMatchObject({
+          motivo: 'missao-publicada',
+          campos,
+        });
       }
+      const fim = iso(Date.now() + 10 * DIA);
+      const editada = await http()
+        .patch(`/coordenacao/missoes/${m.id}`)
+        .set('Authorization', coord())
+        .send({
+          titulo: 'Colete dois PucStops com sua dupla de calouros',
+          instrucoes: 'Os totens ficam na entrada dos prédios.',
+          fim,
+          xp: 80,
+          atualizadoEm: m.atualizadoEm,
+        })
+        .expect(200);
+      expect(editada.body).toMatchObject({
+        titulo: 'Colete dois PucStops com sua dupla de calouros',
+        instrucoes: 'Os totens ficam na entrada dos prédios.',
+        fim: new Date(fim).toISOString(),
+        xp: 80,
+        quantidade: 2,
+        estado: 'publicada',
+      });
+      expect((await itemDe(await novoAluno(), m.id))!.instrucoes).toBe(
+        'Os totens ficam na entrada dos prédios.',
+      );
+      const semPrazo = await http()
+        .patch(`/coordenacao/missoes/${m.id}`)
+        .set('Authorization', coord())
+        .send({ fim: null, atualizadoEm: editada.body.atualizadoEm })
+        .expect(200);
+      expect(semPrazo.body.fim).toBeNull();
+    });
+  });
+
+  describe('ciclo de vida, público e pontos da missão (F22)', () => {
+    it('rascunho: só a coordenação vê e pode excluir; publicada arquiva e volta igual', async () => {
+      const a = await novoAluno();
+      const rascunho = await criarMissao({
+        titulo: 'Conheça a Pastoral Universitária',
+        tipo: 'UNICA',
+        xp: 15,
+        ativar: false,
+      });
+      expect(rascunho).toMatchObject({
+        estado: 'rascunho',
+        ativa: false,
+        publicadaEm: null,
+      });
+      expect(await itemDe(a, rascunho.id)).toBeUndefined();
+      await concluir(a, rascunho.id).expect(404);
+      await http()
+        .delete(`/coordenacao/missoes/${rascunho.id}`)
+        .set('Authorization', a.auth)
+        .expect(403);
+      await http()
+        .delete(`/coordenacao/missoes/${rascunho.id}`)
+        .set('Authorization', coord())
+        .expect(204);
+      await http()
+        .get(`/coordenacao/missoes/${rascunho.id}`)
+        .set('Authorization', coord())
+        .expect(404);
+      await http()
+        .delete(`/coordenacao/missoes/${rascunho.id}`)
+        .set('Authorization', coord())
+        .expect(404);
+
+      const m = await criarMissao({
+        titulo: 'Participe de um ensaio do coral',
+        tipo: 'UNICA',
+        xp: 15,
+      });
+      expect(m.estado).toBe('publicada');
+      const naoExclui = await http()
+        .delete(`/coordenacao/missoes/${m.id}`)
+        .set('Authorization', coord())
+        .expect(409);
+      expect(naoExclui.body.motivo).toBe('missao-publicada');
+      await concluir(a, m.id).expect(201);
+
+      const arquivada = (
+        await http()
+          .post(`/coordenacao/missoes/${m.id}/desativar`)
+          .set('Authorization', coord())
+          .expect(200)
+      ).body as Missao;
+      expect(arquivada).toMatchObject({
+        estado: 'arquivada',
+        ativa: false,
+        publicadaEm: m.publicadaEm,
+      });
+      expect(await itemDe(await novoAluno(), m.id)).toBeUndefined();
+      await http()
+        .delete(`/coordenacao/missoes/${m.id}`)
+        .set('Authorization', coord())
+        .expect(409);
+      const deVolta = (
+        await http()
+          .post(`/coordenacao/missoes/${m.id}/ativar`)
+          .set('Authorization', coord())
+          .expect(200)
+      ).body as Missao;
+      expect(deVolta).toMatchObject({
+        estado: 'publicada',
+        publicadaEm: m.publicadaEm,
+        xp: 15,
+      });
+      expect((await itemDe(a, m.id))!.status).toBe('concluida');
+    });
+
+    it('exploração com vários PucStops: mostra os pontos, aponta o próximo e só conta os escolhidos', async () => {
+      const roteiro = [totens.CANTINA.id, totens.PREDIO24.id, totens.ICEI.id];
+      const m = await criarMissao({
+        titulo: 'Faça o roteiro de três prédios do campus',
+        tipo: 'UNICA',
+        xp: 60,
+        requisito: 'PUCSTOPS',
+        alvoIds: roteiro,
+        instrucoes: 'Os totens ficam na entrada de cada prédio.',
+      });
+      expect(m).toMatchObject({ quantidade: 3, alvoId: null });
+      expect(m.pontos.map((p) => p.id)).toEqual(roteiro);
+
+      const a = await novoAluno();
+      await coletar(a, totens.TEATRO).expect(201);
+      let item = (await itemDe(a, m.id))!;
+      expect(item).toMatchObject({
+        progresso: { atual: 0, meta: 3 },
+        pronta: false,
+        instrucoes: 'Os totens ficam na entrada de cada prédio.',
+        alvo: { tipo: 'pucstop', id: totens.CANTINA.id },
+      });
+      expect(item.pontos!.map((p) => [p.id, p.coletado])).toEqual(
+        roteiro.map((id) => [id, false]),
+      );
+      expect(item.pontos![0].latitude).toEqual(expect.any(Number));
+
+      await coletar(a, totens.CANTINA).expect(201);
+      item = (await itemDe(a, m.id))!;
+      expect(item).toMatchObject({
+        progresso: { atual: 1, meta: 3 },
+        alvo: { id: totens.PREDIO24.id },
+      });
+      expect(item.pontos!.map((p) => p.coletado)).toEqual([true, false, false]);
+      const falta = await concluir(a, m.id).expect(422);
+      expect(falta.body).toMatchObject({
+        motivo: 'requisito-pendente',
+        progresso: { atual: 1, meta: 3 },
+      });
+
+      await coletar(a, totens.ICEI).expect(201);
+      await coletar(a, totens.PREDIO24).expect(201);
+      expect((await itemDe(a, m.id))!.pronta).toBe(true);
+      await concluir(a, m.id).expect(201);
+    });
+
+    it('ponto do roteiro desativado depois da publicação sai da meta; o que o aluno já coletou continua valendo', async () => {
+      const pontos: Array<{ id: string; posicao: Posicao }> = [];
+      for (const predio of ['P41', 'P42', 'P43']) {
+        const posicao = noPredio(predio);
+        const criado = await pucstopsAdmin.criar(
+          { nome: `PucStop do ${predio}`, ...posicao, xp: 10, raioMetros: 30 },
+          null,
+        );
+        pontos.push({ id: criado.id, posicao });
+      }
+      const [p41, p42, p43] = pontos;
+      const m = await criarMissao({
+        titulo: 'Roteiro com um prédio que vai entrar em obra',
+        tipo: 'UNICA',
+        xp: 40,
+        requisito: 'PUCSTOPS',
+        alvoIds: pontos.map((p) => p.id),
+      });
+      const a = await novoAluno();
+      const b = await novoAluno();
+      await coletar(a, p41).expect(201);
+      await coletar(b, p43).expect(201);
+      // O P43 entra em obra: a coordenação desativa o totem.
+      await pucstopsAdmin.definirAtivo(p43.id, false);
+
+      let item = (await itemDe(a, m.id))!;
+      expect(item.progresso).toEqual({ atual: 1, meta: 2 });
+      expect(item.pontos!.map((p) => [p.id, p.coletado, p.ativo])).toEqual([
+        [p41.id, true, true],
+        [p42.id, false, true],
+        [p43.id, false, false],
+      ]);
+      expect(item.alvo).toMatchObject({ id: p42.id });
+      await coletar(a, p42).expect(201);
+      item = (await itemDe(a, m.id))!;
+      expect(item).toMatchObject({
+        progresso: { atual: 2, meta: 2 },
+        pronta: true,
+      });
+      await concluir(a, m.id).expect(201);
+
+      // Quem já tinha coletado o P43 continua com ele: faltam os outros dois.
+      expect((await itemDe(b, m.id))!.progresso).toEqual({ atual: 1, meta: 3 });
+      const falta = await concluir(b, m.id).expect(422);
+      expect(falta.body.progresso).toEqual({ atual: 1, meta: 3 });
+
+      // Arquivada, volta a ser publicada: o ponto desativado não impede.
+      await http()
+        .post(`/coordenacao/missoes/${m.id}/desativar`)
+        .set('Authorization', coord())
+        .expect(200);
+      const deNovo = await http()
+        .post(`/coordenacao/missoes/${m.id}/ativar`)
+        .set('Authorization', coord())
+        .expect(200);
+      expect(deNovo.body.pontos.map((p: { ativo: boolean }) => p.ativo)).toEqual(
+        [true, true, false],
+      );
+
+      // Sem nenhum ponto ativo, nem a republicação passa.
+      await http()
+        .post(`/coordenacao/missoes/${m.id}/desativar`)
+        .set('Authorization', coord())
+        .expect(200);
+      await pucstopsAdmin.definirAtivo(p41.id, false);
+      await pucstopsAdmin.definirAtivo(p42.id, false);
+      const vazia = await http()
+        .post(`/coordenacao/missoes/${m.id}/ativar`)
+        .set('Authorization', coord())
+        .expect(422);
+      expect(vazia.body.motivo).toBe('alvo-invalido');
+    });
+
+    it('PucStop coletado antes da publicação conta: a coleta vale uma vez por semestre', async () => {
+      const a = await novoAluno();
+      await coletar(a, totens.BIBLIOTECA).expect(201);
+      const m = await criarMissao({
+        titulo: 'Passe pela Biblioteca Central',
+        tipo: 'UNICA',
+        xp: 10,
+        requisito: 'PUCSTOPS',
+        alvoIds: [totens.BIBLIOTECA.id],
+      });
+      expect((await itemDe(a, m.id))!.pronta).toBe(true);
+      await concluir(a, m.id).expect(201);
+    });
+
+    it('não publica exploração com PucStop desativado: 422 e segue rascunho', async () => {
+      const fechado = await pucstopsAdmin.criar(
+        {
+          nome: 'PucStop do Auditório',
+          ...noPredio('P40'),
+          xp: 10,
+          raioMetros: 25,
+        },
+        null,
+      );
+      const m = await criarMissao({
+        titulo: 'Roteiro até o auditório',
+        tipo: 'UNICA',
+        xp: 30,
+        requisito: 'PUCSTOPS',
+        alvoIds: [totens.TEATRO.id, fechado.id],
+        ativar: false,
+      });
+      await pucstopsAdmin.definirAtivo(fechado.id, false);
+      const r = await http()
+        .post(`/coordenacao/missoes/${m.id}/ativar`)
+        .set('Authorization', coord())
+        .expect(422);
+      expect(r.body.motivo).toBe('alvo-invalido');
+      const depois = (
+        await http()
+          .get(`/coordenacao/missoes/${m.id}`)
+          .set('Authorization', coord())
+          .expect(200)
+      ).body as Missao;
+      expect(depois).toMatchObject({ estado: 'rascunho', publicadaEm: null });
+    });
+
+    it('público: padrinhos e apadrinhados só veem, concluem e recebem aviso das suas', async () => {
+      const padrinho = await novoAluno({ papel: 'padrinho' });
+      const calouro = await novoAluno({ papel: 'apadrinhado' });
+      const paraPadrinhos = await criarMissao({
+        titulo: 'Prepare a recepção dos calouros',
+        tipo: 'UNICA',
+        xp: 20,
+        publico: 'PADRINHOS',
+      });
+      const paraApadrinhados = await criarMissao({
+        titulo: 'Tire uma dúvida com seu padrinho',
+        tipo: 'UNICA',
+        xp: 20,
+        publico: 'APADRINHADOS',
+      });
+      const paraTodos = await criarMissao({
+        titulo: 'Conheça a central de estágios',
+        tipo: 'UNICA',
+        xp: 20,
+      });
+      expect(paraTodos.publico).toBe('TODOS');
+      const idsDe = async (a: Aluno) =>
+        (await missoesDe(a)).missoes.map((x) => x.id);
+      const doPadrinho = await idsDe(padrinho);
+      expect(doPadrinho).toEqual(
+        expect.arrayContaining([paraPadrinhos.id, paraTodos.id]),
+      );
+      expect(doPadrinho).not.toContain(paraApadrinhados.id);
+      const doCalouro = await idsDe(calouro);
+      expect(doCalouro).toEqual(
+        expect.arrayContaining([paraApadrinhados.id, paraTodos.id]),
+      );
+      expect(doCalouro).not.toContain(paraPadrinhos.id);
+      await concluir(calouro, paraPadrinhos.id).expect(404);
+      await concluir(padrinho, paraApadrinhados.id).expect(404);
+      await concluir(calouro, paraApadrinhados.id).expect(201);
+
+      await http()
+        .get('/me/notificacoes')
+        .set('Authorization', calouro.auth)
+        .expect(200);
+      const avisados = (
+        (await ds.query(
+          `SELECT chave FROM feed.notificacoes WHERE usuario_id = $1 AND tipo = 'MISSAO_NOVA'`,
+          [calouro.id],
+        )) as Array<{ chave: string }>
+      ).map((n) => n.chave);
+      expect(avisados).toEqual(
+        expect.arrayContaining([
+          `missao-nova:${paraApadrinhados.id}`,
+          `missao-nova:${paraTodos.id}`,
+        ]),
+      );
+      expect(avisados).not.toContain(`missao-nova:${paraPadrinhos.id}`);
     });
   });
 
@@ -3174,6 +3894,141 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     });
   });
 
+  describe('avisos de candidatura e vínculo (F34)', () => {
+    async function avisosDe(a: Aluno, tipo: string) {
+      return (await ds.query(
+        `SELECT titulo, link, chave FROM feed.notificacoes WHERE usuario_id = $1 AND tipo = $2 ORDER BY criado_em, chave`,
+        [a.id, tipo],
+      )) as Array<{ titulo: string; link: string; chave: string }>;
+    }
+
+    async function participacaoDe(a: Aluno): Promise<number> {
+      const [{ id }] = (await ds.query(
+        `SELECT id FROM feed.participacoes WHERE usuario_id = $1 AND programa = $2`,
+        [a.email, CICLO],
+      )) as Array<{ id: number }>;
+      return Number(id);
+    }
+
+    async function ligar(padrinho: Aluno, apadrinhado: Aluno): Promise<void> {
+      await ds.query(
+        `INSERT INTO feed.matching_vinculos (programa_id, padrinho_participacao_id, apadrinhado_participacao_id, origem, confirmado_por) ` +
+          `VALUES ((SELECT id FROM feed.programas WHERE codigo = $1), $2, $3, 'manual', 'renata.coordenacao@pucminas.br')`,
+        [CICLO, await participacaoDe(padrinho), await participacaoDe(apadrinhado)],
+      );
+    }
+
+    const sino = (a: Aluno) =>
+      http().get('/me/notificacoes').set('Authorization', a.auth).expect(200);
+
+    it('vínculo confirmado: o sino avisa os dois lados uma vez, com link para a dupla', async () => {
+      const d = await formarDupla();
+      for (const [a, outro, titulo] of [
+        [d.padrinho, d.apadrinhado, 'Seu apadrinhamento começou!'],
+        [d.apadrinhado, d.padrinho, 'Seu padrinho foi definido!'],
+      ] as const) {
+        for (let i = 0; i < 2; i++) await sino(a);
+        expect(await avisosDe(a, 'VINCULO_CONFIRMADO')).toEqual([
+          {
+            titulo,
+            link: '/dupla',
+            chave: `vinculo:${CICLO}:${await participacaoDe(outro)}`,
+          },
+        ]);
+      }
+      const sozinho = await novoAluno();
+      await http()
+        .get('/me/notificacoes')
+        .set('Authorization', sozinho.auth)
+        .expect(200);
+      expect(await avisosDe(sozinho, 'VINCULO_CONFIRMADO')).toEqual([]);
+    });
+
+    it('trocar de padrinho ou ganhar outro apadrinhado no mesmo ciclo avisa de novo', async () => {
+      const d = await formarDupla();
+      await sino(d.apadrinhado);
+      await sino(d.padrinho);
+      // A coordenação desfaz a dupla e escolhe outro padrinho.
+      await ds.query(
+        `UPDATE feed.matching_vinculos SET ativo = false, encerrado_em = now() WHERE id = $1`,
+        [d.vinculoId],
+      );
+      const novo = await novoAluno({ papel: 'padrinho' });
+      await ligar(novo, d.apadrinhado);
+      await sino(d.apadrinhado);
+      await sino(d.apadrinhado);
+      expect(await avisosDe(d.apadrinhado, 'VINCULO_CONFIRMADO')).toEqual([
+        {
+          titulo: 'Seu padrinho foi definido!',
+          link: '/dupla',
+          chave: `vinculo:${CICLO}:${await participacaoDe(d.padrinho)}`,
+        },
+        {
+          titulo: 'Você tem um novo padrinho!',
+          link: '/dupla',
+          chave: `vinculo:${CICLO}:${await participacaoDe(novo)}`,
+        },
+      ]);
+
+      // O novo padrinho ganha um segundo apadrinhado no mesmo ciclo.
+      await sino(novo);
+      const segundo = await novoAluno({ papel: 'apadrinhado' });
+      await ligar(novo, segundo);
+      await sino(novo);
+      await sino(novo);
+      expect(
+        (await avisosDe(novo, 'VINCULO_CONFIRMADO')).map((n) => n.titulo),
+      ).toEqual(['Seu apadrinhamento começou!', 'Você tem um novo apadrinhado!']);
+
+      // O padrinho antigo ficou sem dupla: nada de aviso novo.
+      await sino(d.padrinho);
+      expect(await avisosDe(d.padrinho, 'VINCULO_CONFIRMADO')).toHaveLength(1);
+    });
+
+    it('decisão de candidatura chega no sino pelo e-mail, uma vez por decisão', async () => {
+      const a = await novoAluno({ papel: 'candidato', status: 'pendente' });
+      const reprovada = notificacaoCandidatura('nao_aprovado', {
+        programa: CICLO,
+        em: '2026-11-20T15:00:00.000Z',
+      });
+      await notificacoesServico.criarParaEmail(a.email.toUpperCase(), reprovada);
+      await notificacoesServico.criarParaEmail(a.email, reprovada);
+      await expect(
+        notificacoesServico.criarParaEmail('sem.conta@sga.pucminas.br', reprovada),
+      ).resolves.toBeUndefined();
+      expect(await avisosDe(a, 'CANDIDATURA_NAO_APROVADA')).toEqual([
+        {
+          titulo: 'Candidatura não aprovada',
+          link: '/candidatura',
+          chave: `candidatura:${CICLO}:2026-11-20T15:00:00.000Z`,
+        },
+      ]);
+      await notificacoesServico.criarParaEmail(
+        a.email,
+        notificacaoCandidatura('aprovado', {
+          programa: CICLO,
+          em: '2026-11-22T10:00:00.000Z',
+        }),
+      );
+      const sino = (
+        await http()
+          .get('/me/notificacoes')
+          .set('Authorization', a.auth)
+          .expect(200)
+      ).body as { itens: Array<{ tipo: string; link: string; lida: boolean }> };
+      expect(
+        sino.itens.filter((n) => n.tipo.startsWith('CANDIDATURA_')),
+      ).toEqual([
+        expect.objectContaining({
+          tipo: 'CANDIDATURA_APROVADA',
+          link: '/candidatura',
+          lida: false,
+        }),
+        expect.objectContaining({ tipo: 'CANDIDATURA_NAO_APROVADA' }),
+      ]);
+    });
+  });
+
   describe('migrations', () => {
     it('rollback dos requisitos é recusado quando há conclusão com prova', async () => {
       expect(
@@ -3194,6 +4049,22 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
           `SELECT count(*) AS n FROM information_schema.columns WHERE table_schema = 'gamificacao' AND table_name = 'missoes_conclusoes' AND column_name = 'evidencia'`,
         ),
       ).toBe(1);
+    });
+
+    it('rollback do ciclo de vida é recusado quando perderia público, instruções ou pontos', async () => {
+      const qr = ds.createQueryRunner();
+      try {
+        await expect(
+          new CicloDeVidaMissoes1795200000000().down(qr),
+        ).rejects.toThrow(/Rollback recusado/);
+      } finally {
+        await qr.release();
+      }
+      expect(
+        await contar(
+          `SELECT count(*) AS n FROM gamificacao.missoes WHERE cardinality(pucstops) > 1`,
+        ),
+      ).toBeGreaterThan(0);
     });
 
     it('rollback das notificações é recusado quando há dados', async () => {
@@ -3221,6 +4092,11 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito, alvo_id) VALUES ('x', 'x', 'SEMANAL', 10, '${CICLO}', 'EVENTO', '${agenda.SEMANA_CALOURO}')`,
         `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito) VALUES ('x', 'x', 'SEMANAL', 10, '${CICLO}', 'PUCSTOPS')`,
         `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito, alvo_id) VALUES ('x', 'x', 'UNICA', 10, '${CICLO}', 'EVENTO', '${agenda.SEMANA_CALOURO}')`,
+        `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito, publico) VALUES ('x', 'x', 'UNICA', 10, '${CICLO}', 'FEED_COMENTARIOS', 'CALOUROS')`,
+        `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito, publico) VALUES ('x', 'x', 'UNICA', 10, '${CICLO}', 'FEED_PUBLICACOES', 'APADRINHADOS')`,
+        `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito, quantidade, pucstops) VALUES ('x', 'x', 'UNICA', 10, '${CICLO}', 'PUCSTOPS', 1, ARRAY['${totens.ICEI.id}', '${totens.TEATRO.id}']::uuid[])`,
+        `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito, alvo_id) VALUES ('x', 'x', 'UNICA', 10, '${CICLO}', 'PUCSTOPS', '${totens.ICEI.id}')`,
+        `INSERT INTO gamificacao.missoes (titulo, descricao, tipo, xp, ciclo, requisito, pucstops) VALUES ('x', 'x', 'UNICA', 10, '${CICLO}', 'FEED_CURTIDAS', ARRAY['${totens.ICEI.id}']::uuid[])`,
       ]) {
         await expect(ds.query(sql), sql).rejects.toThrow(
           /violates check constraint/,
