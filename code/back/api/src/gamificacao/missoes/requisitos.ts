@@ -27,9 +27,16 @@ const VERSAO_ATIVA = `(SELECT "id" FROM ${mp}."versoes" WHERE "status" = 'ativa'
 
 export const PARAMS_PROGRESSO = 3;
 
+/**
+ * Período em que a ação conta: da primeira publicação (ou do início, se
+ * for depois) até o fim; nas semanais, só a semana corrente. O que o aluno
+ * fez com a missão ainda em rascunho não conta. GREATEST ignora NULL; sem
+ * publicação (rascunho) o limite é NULL e nada conta. PucStops não usam a
+ * janela: a coleta vale uma vez por ciclo e conta a do ciclo todo.
+ */
 function janela(m: string, coluna: string): string {
   const semana = `($3::date::timestamp AT TIME ZONE 'America/Sao_Paulo')`;
-  const desde = `GREATEST(COALESCE(${m}."inicio", ${m}."criado_em"), CASE WHEN ${m}."tipo" = 'SEMANAL' THEN ${semana} END)`;
+  const desde = `GREATEST(${m}."inicio", ${m}."publicada_em", CASE WHEN ${m}."tipo" = 'SEMANAL' THEN ${semana} END)`;
   const ate = `COALESCE(LEAST(${m}."fim", CASE WHEN ${m}."tipo" = 'SEMANAL' THEN ${semana} + interval '7 days' END), 'infinity'::timestamptz)`;
   return `${coluna} >= ${desde} AND ${coluna} < ${ate}`;
 }
@@ -38,24 +45,57 @@ export function sqlProgresso(m: string, u: string): string {
   return (
     `CASE ${m}."requisito" ` +
     `WHEN 'PUCSTOPS' THEN (SELECT count(DISTINCT c."pucstop_id") FROM ${g}."pucstop_coletas" c ` +
-    `WHERE c."usuario_id" = $1 AND c."ciclo" = ${m}."ciclo" AND (${m}."alvo_id" IS NULL OR c."pucstop_id" = ${m}."alvo_id") ` +
+    `WHERE c."usuario_id" = $1 AND c."ciclo" = ${m}."ciclo" AND (${m}."pucstops" IS NULL OR c."pucstop_id" = ANY(${m}."pucstops")) ` +
     `) ` +
     `WHEN 'FEED_PUBLICACOES' THEN (SELECT count(*) FROM ${u}."publicacoes" p ` +
     `WHERE lower(p."owner_id") = $2 AND p."programa_codigo" = ${m}."ciclo" ` +
     `AND (char_length(btrim(COALESCE(p."texto", ''))) >= ${PUBLICACAO_MISSAO_MIN} OR COALESCE(cardinality(p."imagens"), 0) > 0) ` +
     `AND ${janela(m, 'p."criado_em"')}) ` +
-    `WHEN 'FEED_COMENTARIOS' THEN (SELECT count(*) FROM ${u}."comentarios" k JOIN ${u}."publicacoes" p ON p."id" = k."publicacao_id" ` +
+    // Posts diferentes: vários comentários no mesmo post contam uma vez.
+    `WHEN 'FEED_COMENTARIOS' THEN (SELECT count(DISTINCT k."publicacao_id") FROM ${u}."comentarios" k JOIN ${u}."publicacoes" p ON p."id" = k."publicacao_id" ` +
     `WHERE lower(k."autor_id") = $2 AND lower(p."owner_id") <> $2 AND p."programa_codigo" = ${m}."ciclo" ` +
     `AND char_length(btrim(k."texto")) >= ${COMENTARIO_MISSAO_MIN} ` +
     `AND ${janela(m, 'k."criado_em"')}) ` +
     `WHEN 'FEED_CURTIDAS' THEN (SELECT count(DISTINCT k."publicacao_id") FROM ${u}."curtidas" k JOIN ${u}."publicacoes" p ON p."id" = k."publicacao_id" ` +
     `WHERE lower(k."usuario_id") = $2 AND lower(p."owner_id") <> $2 AND p."programa_codigo" = ${m}."ciclo" ` +
-    `AND ${janela(m, 'k."criado_em"')}) ` +
+    `AND ${janela(m, 'k."criado_em"')} ` +
+    // Descurtir apaga a curtida; sem isto, descurtir e curtir os mesmos
+    // posts toda semana cumpriria a semanal de novo.
+    `AND (${m}."tipo" <> 'SEMANAL' OR (${janela(m, 'p."criado_em"')}))) ` +
     `WHEN 'CHAT_MENSAGENS' THEN (SELECT count(*) FROM ${u}."mensagens_chat" x JOIN ${u}."participacoes" pa ON pa."id" = x."remetente_participacao_id" ` +
     `WHERE lower(pa."usuario_id") = $2 AND pa."programa" = ${m}."ciclo" AND char_length(btrim(x."texto")) >= ${MENSAGEM_MISSAO_MIN} ` +
     `AND ${janela(m, 'x."criada_em"')}) ` +
     `ELSE 0 END`
   );
+}
+
+/**
+ * PucStops ativos que o aluno ainda não coletou (no roteiro, só os dele).
+ * Um ponto desativado não pode mais ser coletado: fica fora da meta.
+ */
+export function sqlPucstopsDisponiveis(m: string): string {
+  return (
+    `(SELECT count(*) FROM ${mp}."pucstops" p WHERE p."ativo" ` +
+    `AND (${m}."pucstops" IS NULL OR p."id" = ANY(${m}."pucstops")) ` +
+    `AND NOT EXISTS (SELECT 1 FROM ${g}."pucstop_coletas" c ` +
+    `WHERE c."usuario_id" = $1 AND c."ciclo" = ${m}."ciclo" AND c."pucstop_id" = p."id"))`
+  );
+}
+
+/**
+ * Meta que o aluno ainda consegue cumprir. Nos PucStops, um ponto
+ * desativado depois da publicação deixa de contar (o que o aluno já
+ * coletou continua valendo), senão a missão ficaria impossível. Pelo menos
+ * 1: sem ponto ativo nem coletado, a missão não se cumpre sozinha.
+ */
+export function metaEfetiva(
+  requisito: RequisitoMissao,
+  quantidade: number,
+  atual: number,
+  disponiveis: number,
+): number {
+  if (requisito !== 'PUCSTOPS') return quantidade;
+  return Math.max(1, Math.min(quantidade, atual + disponiveis));
 }
 
 export function sqlLocalEvento(e: string): string {
@@ -84,7 +124,7 @@ export function recusa(
 
 const FALTA: Record<
   Exclude<RequisitoMissao, 'EVENTO' | 'CODIGO'>,
-  (n: number) => string
+  (n: number, semanal: boolean) => string
 > = {
   PUCSTOPS: (n) =>
     n === 1 ? 'Colete mais 1 PucStop.' : `Colete mais ${n} PucStops.`,
@@ -94,12 +134,14 @@ const FALTA: Record<
       : `Faça mais ${n} publicações no feed.`,
   FEED_COMENTARIOS: (n) =>
     n === 1
-      ? 'Comente mais 1 vez em posts de colegas.'
-      : `Comente mais ${n} vezes em posts de colegas.`,
-  FEED_CURTIDAS: (n) =>
-    n === 1
-      ? 'Curta mais 1 publicação de colegas.'
-      : `Curta mais ${n} publicações de colegas.`,
+      ? 'Comente em mais 1 post de colegas.'
+      : `Comente em mais ${n} posts diferentes de colegas.`,
+  FEED_CURTIDAS: (n, semanal) => {
+    const desta = semanal ? (n === 1 ? ' feita' : ' feitas') + ' nesta semana' : '';
+    return n === 1
+      ? `Curta mais 1 publicação de colegas${desta}.`
+      : `Curta mais ${n} publicações de colegas${desta}.`;
+  },
   CHAT_MENSAGENS: (n) =>
     n === 1
       ? 'Envie mais 1 mensagem no chat do grupo.'
@@ -113,6 +155,8 @@ export interface MissaoParaVerificar {
   quantidade: number;
   alvo_id: string | null;
   codigo: string | null;
+  /** O código está dentro do tempo liberado pela coordenação. */
+  codigo_liberado?: boolean;
 }
 
 export interface LeituraConclusao {
@@ -140,14 +184,23 @@ export async function verificarContagem(
   email: string,
   semana: string,
 ): Promise<{ atual: number; meta: number }> {
-  const [{ atual }] = (await qr.query(
-    `SELECT (${sqlProgresso('m', u)})::int AS atual FROM ${g}."missoes" m WHERE m."id" = $4`,
+  const [contagem] = (await qr.query(
+    `SELECT (${sqlProgresso('m', u)})::int AS atual, ` +
+      `(CASE WHEN m."requisito" = 'PUCSTOPS' THEN ${sqlPucstopsDisponiveis('m')} ELSE 0 END)::int AS disponiveis ` +
+      `FROM ${g}."missoes" m WHERE m."id" = $4`,
     [usuarioId, email, semana, missao.id],
-  )) as Array<{ atual: number }>;
-  const meta = missao.quantidade;
+  )) as Array<{ atual: number; disponiveis: number }>;
+  const atual = Number(contagem.atual);
+  const meta = metaEfetiva(
+    missao.requisito,
+    missao.quantidade,
+    atual,
+    Number(contagem.disponiveis),
+  );
   if (atual < meta) {
     const requisito = missao.requisito as keyof typeof FALTA;
-    throw recusa('requisito-pendente', FALTA[requisito](meta - atual), {
+    const semanal = missao.tipo === 'SEMANAL';
+    throw recusa('requisito-pendente', FALTA[requisito](meta - atual, semanal), {
       progresso: { atual, meta },
     });
   }
@@ -257,6 +310,20 @@ export async function exigirTentativasDeCodigo(
         motivo: 'muitas-tentativas',
       },
       HttpStatus.TOO_MANY_REQUESTS,
+    );
+  }
+}
+
+/**
+ * O código só vale enquanto a coordenação o deixa liberado, na hora da
+ * atividade: repassado depois, não serve. Fechado, nem confere o código
+ * (não gasta tentativa nem revela se estava certo).
+ */
+export function exigirCodigoLiberado(missao: MissaoParaVerificar): void {
+  if (!missao.codigo_liberado) {
+    throw recusa(
+      'codigo-fechado',
+      'O código não está liberado agora. Ele só vale na hora da atividade, enquanto a coordenação deixa liberado.',
     );
   }
 }

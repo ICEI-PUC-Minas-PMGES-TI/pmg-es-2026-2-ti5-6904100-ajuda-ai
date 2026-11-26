@@ -41,6 +41,7 @@ export class MissoesController {
       acesso: {
         podePublicar: permissoes.podePublicar,
         temPar: permissoes.vinculoAtivo,
+        papel: permissoes.papel,
       },
     };
   }

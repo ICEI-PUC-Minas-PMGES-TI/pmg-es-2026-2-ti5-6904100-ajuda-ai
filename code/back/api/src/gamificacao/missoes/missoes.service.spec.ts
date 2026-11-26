@@ -8,6 +8,7 @@ import type { NotificacoesService } from '../../notificacoes/notificacoes.servic
 import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
 import { MissoesService } from './missoes.service.js';
 import { semanaDe, xpPrevisto } from './missoes.js';
+import { metaEfetiva } from './requisitos.js';
 
 const ID = '6f1c2b0e-3d7a-4c61-9a52-1b8e0f4d2a77';
 const USUARIO = 7;
@@ -41,6 +42,7 @@ interface Cenario {
   requisito?: string | null;
   alcancavel?: boolean;
   tentativas?: number;
+  codigoLiberado?: boolean;
 }
 
 function banco(c: Cenario = {}) {
@@ -60,6 +62,7 @@ function banco(c: Cenario = {}) {
     requisito = 'CODIGO',
     alcancavel = true,
     tentativas = 0,
+    codigoLiberado = true,
   } = c;
   const comandos: Array<[string, unknown[]]> = [];
   let xpMovimentado = 0;
@@ -103,6 +106,7 @@ function banco(c: Cenario = {}) {
                 quantidade: 1,
                 alvo_id: null,
                 codigo: 'BIBLIO-26',
+                codigo_liberado: codigoLiberado,
                 alcancavel,
               },
             ]
@@ -236,7 +240,8 @@ describe('MissoesService.concluir', () => {
       `missao:${ID}:${USUARIO}:${CICLO}`,
       310,
     ]);
-    expect(conclusao(comandos)![1]).toEqual([
+    const gravada = conclusao(comandos)![1];
+    expect(gravada.slice(0, 7)).toEqual([
       ID,
       USUARIO,
       CICLO,
@@ -244,8 +249,15 @@ describe('MissoesService.concluir', () => {
       80,
       80,
       '99',
-      JSON.stringify({ requisito: 'CODIGO', codigo: true }),
     ]);
+    // A evidência identifica o código aceito sem guardá-lo.
+    const evidencia = JSON.parse(gravada[7] as string) as Record<string, unknown>;
+    expect(evidencia).toEqual({
+      requisito: 'CODIGO',
+      codigo: true,
+      codigoUsado: expect.stringMatching(/^[0-9a-f]{32}$/),
+    });
+    expect(JSON.stringify(evidencia)).not.toContain('BIBLIO');
     expect(comandos.at(-1)![0]).toBe('COMMIT');
   });
 
@@ -381,6 +393,28 @@ describe('MissoesService.concluir', () => {
     expect(ledger(bloqueado.comandos)).toBeUndefined();
   });
 
+  it('código fechado pela coordenação: 422 sem conferir o código nem gastar tentativa', async () => {
+    const { service, comandos } = banco({ codigoLiberado: false });
+    const erro = await service
+      .concluir(USUARIO, ID, AGORA, LEITURA)
+      .catch((e) => e);
+    expect(erro).toBeInstanceOf(UnprocessableEntityException);
+    expect(erro.getResponse()).toMatchObject({ motivo: 'codigo-fechado' });
+    expect(ledger(comandos)).toBeUndefined();
+    expect(
+      comandos.some(([sql]) => sql.includes('"missoes_tentativas_codigo"')),
+    ).toBe(false);
+    expect(comandos.at(-1)?.[0]).toBe('ROLLBACK');
+  });
+
+  it('a leitura da missão traz se o código está no tempo liberado', async () => {
+    const { service, comandos } = banco();
+    await service.concluir(USUARIO, ID, AGORA, LEITURA);
+    expect(comandos[0][0]).toContain(
+      'COALESCE("codigo_liberado_ate" > now(), false) AS codigo_liberado',
+    );
+  });
+
   it('id malformado: 404 sem abrir transação', async () => {
     const { service, comandos } = banco();
     await expect(
@@ -431,6 +465,7 @@ describe('MissoesService.listar', () => {
         requisito: 'PUCSTOPS',
         quantidade: 2,
         progresso: 1,
+        disponiveis: 1,
         xp: 80,
         fim: new Date('2026-12-05T02:59:59Z'),
         conclusao_id: null,
@@ -478,5 +513,93 @@ describe('MissoesService.listar', () => {
       xp: 50,
       limitado: false,
     });
+  });
+
+  function bancoComLinhas(linhas: Array<Record<string, unknown>>) {
+    const base = {
+      descricao: 'x',
+      tipo: 'UNICA',
+      xp: 40,
+      fim: null,
+      conclusao_id: null,
+      xp_configurado: null,
+      xp_creditado: null,
+      concluida_em: null,
+      disponiveis: 0,
+      codigo_liberado_ate: null,
+    };
+    const comandos: string[] = [];
+    const db = {
+      options: { schema: 'feed' },
+      query: async (sql: string) => {
+        comandos.push(sql);
+        return sql.includes('AS totens')
+          ? [{ totens: 0, geral: 0, semana: 0 }]
+          : sql.includes('pg_extension')
+            ? [{ schema: 'public' }]
+            : sql.includes('lower("email")')
+              ? [{ email: 'camila@pucminas.edu.br' }]
+              : linhas.map((l) => ({ ...base, ...l }));
+      },
+    } as unknown as DataSource;
+    return {
+      service: new MissoesService(db, notificacoesFalsas().servico),
+      comandos,
+    };
+  }
+
+  it('roteiro com ponto desativado: a meta desconta o ponto que o aluno não coletou', async () => {
+    const pontos = [
+      { id: 'p1', nome: 'Biblioteca', coletado: true, ativo: true },
+      { id: 'p2', nome: 'Prédio 34', coletado: false, ativo: false },
+      { id: 'p3', nome: 'Cantina', coletado: false, ativo: true },
+    ];
+    const { service, comandos } = bancoComLinhas([
+      {
+        id: 'r',
+        titulo: 'Roteiro',
+        requisito: 'PUCSTOPS',
+        quantidade: 3,
+        progresso: 1,
+        disponiveis: 1,
+        pontos,
+      },
+    ]);
+    const [m] = (await service.listar(USUARIO, AGORA)).missoes;
+    expect(m.progresso).toEqual({ atual: 1, meta: 2 });
+    expect(m.pronta).toBe(false);
+    expect(m.pontos).toEqual(pontos);
+    const sql = comandos.find((c) => c.includes('AS disponiveis'))!;
+    expect(sql).toContain('p."ativo" AND (m."pucstops" IS NULL');
+    expect(sql).toContain('OR NOT p."ativo"), o."n" LIMIT 1');
+  });
+
+  it('código: mostra até quando vale só se a coordenação liberou e ainda não venceu', async () => {
+    const depois = new Date(AGORA.getTime() + 10 * 60_000);
+    const antes = new Date(AGORA.getTime() - 60_000);
+    const { service } = bancoComLinhas([
+      { id: 'aberto', titulo: 'A', requisito: 'CODIGO', quantidade: 1, progresso: 0, codigo_liberado_ate: depois },
+      { id: 'vencido', titulo: 'B', requisito: 'CODIGO', quantidade: 1, progresso: 0, codigo_liberado_ate: antes },
+      { id: 'fechado', titulo: 'C', requisito: 'CODIGO', quantidade: 1, progresso: 0 },
+    ]);
+    const r = await service.listar(USUARIO, AGORA);
+    expect(r.missoes.map((m) => [m.id, m.codigoLiberadoAte, m.pronta])).toEqual([
+      ['aberto', depois.toISOString(), true],
+      ['vencido', null, true],
+      ['fechado', null, true],
+    ]);
+  });
+});
+
+describe('metaEfetiva', () => {
+  it.each([
+    ['sem ponto desativado, vale a quantidade', 'PUCSTOPS', 3, 1, 5, 3],
+    ['roteiro: ponto desativado e não coletado sai da meta', 'PUCSTOPS', 3, 1, 1, 2],
+    ['ponto já coletado continua contando', 'PUCSTOPS', 3, 2, 0, 2],
+    ['quaisquer: faltam menos totens ativos do que a meta', 'PUCSTOPS', 5, 2, 1, 3],
+    ['nenhum ponto ativo nem coletado: não se cumpre sozinha', 'PUCSTOPS', 3, 0, 0, 1],
+    ['outros requisitos não mudam', 'FEED_COMENTARIOS', 4, 1, 0, 4],
+  ] as const)('%s', (_caso, requisito, quantidade, atual, disponiveis, meta) => {
+    expect(metaEfetiva(requisito, quantidade, atual, disponiveis)).toBe(meta);
   });
 });

@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { SCHEMA_MAPA, schemaPostgis } from '../../mapa/postgis.js';
 import { notificacaoNivel } from '../../notificacoes/notificacoes.js';
@@ -23,6 +24,7 @@ import type {
   ConclusaoMissaoDto,
   MissaoAlunoDto,
   MissoesAlunoDto,
+  PontoMissaoDto,
 } from './missoes.dto.js';
 import {
   type AcessoMissoes,
@@ -39,11 +41,15 @@ import {
 } from './missoes.js';
 import {
   CodigoErrado,
+  exigirCodigoLiberado,
   exigirTentativasDeCodigo,
   joinsEvento,
   type LeituraConclusao,
+  metaEfetiva,
   type MissaoParaVerificar,
+  recusa,
   sqlProgresso,
+  sqlPucstopsDisponiveis,
   verificarCodigo,
   verificarContagem,
   verificarEvento,
@@ -64,6 +70,8 @@ interface LinhaMissaoAluno {
   xp: number;
   fim: Date | null;
   progresso: number;
+  disponiveis: number;
+  codigo_liberado_ate: Date | null;
   conclusao_id: string | null;
   xp_configurado: number | null;
   xp_creditado: number | null;
@@ -76,6 +84,8 @@ interface LinhaMissaoAluno {
   alvo_latitude: number | null;
   alvo_longitude: number | null;
   alvo_local: string | null;
+  instrucoes: string | null;
+  pontos: PontoMissaoDto[] | null;
 }
 
 interface ConclusaoAnterior {
@@ -101,6 +111,14 @@ function jaConcluida(tipo: TipoMissao, anterior?: ConclusaoAnterior) {
       },
     }),
   });
+}
+
+/** Identifica o código aceito sem guardá-lo na evidência. */
+function impressaoDoCodigo(missaoId: string, codigo: string): string {
+  return createHash('sha256')
+    .update(`${missaoId}:${codigo}`)
+    .digest('hex')
+    .slice(0, 32);
 }
 
 function alvoDe(l: LinhaMissaoAluno): AlvoMissaoDto | null {
@@ -171,10 +189,17 @@ export class MissoesService {
     const centro = (c: 'X' | 'Y') =>
       `CASE WHEN m."requisito" = 'PUCSTOPS' THEN ${geo}.ST_${c}(ps."localizacao") ` +
       `ELSE ${geo}.ST_${c}(${geo}.ST_Centroid(COALESCE(lp."poligono", lp."localizacao", la."poligono", la."localizacao", ev."localizacao"))) END`;
+    const coletado = (ponto: string) =>
+      `EXISTS (SELECT 1 FROM ${g}."pucstop_coletas" pc WHERE pc."usuario_id" = $1 AND pc."ciclo" = m."ciclo" AND pc."pucstop_id" = ${ponto})`;
     const [linhas, uso] = await Promise.all([
       this.dataSource.query(
-        `SELECT m."id", m."titulo", m."descricao", m."tipo", m."requisito", m."quantidade", m."xp", m."fim", m."alvo_id", ` +
+        `SELECT m."id", m."titulo", m."descricao", m."instrucoes", m."tipo", m."requisito", m."quantidade", m."xp", m."fim", m."codigo_liberado_ate", ` +
+          `COALESCE(ps."id", m."alvo_id") AS alvo_id, ` +
+          `(SELECT json_agg(json_build_object('id', p."id", 'nome', p."nome", 'coletado', ${coletado('p."id"')}, 'ativo', p."ativo", ` +
+          `'latitude', ${geo}.ST_Y(p."localizacao"), 'longitude', ${geo}.ST_X(p."localizacao")) ORDER BY o."n") ` +
+          `FROM unnest(m."pucstops") WITH ORDINALITY AS o("id", "n") JOIN ${mp}."pucstops" p ON p."id" = o."id") AS pontos, ` +
           `(${sqlProgresso('m', this.u)})::int AS progresso, ` +
+          `(CASE WHEN m."requisito" = 'PUCSTOPS' THEN ${sqlPucstopsDisponiveis('m')} ELSE 0 END)::int AS disponiveis, ` +
           `c."id" AS conclusao_id, c."xp_configurado", c."xp_creditado", c."criado_em" AS concluida_em, ` +
           `COALESCE(ps."nome", ev."titulo") AS alvo_nome, ev."inicio" AS alvo_inicio, ev."fim" AS alvo_fim, ` +
           `COALESCE(ps."ativo", ev."ativo") AS alvo_ativo, ${centro('Y')} AS alvo_latitude, ${centro('X')} AS alvo_longitude, ` +
@@ -182,7 +207,11 @@ export class MissoesService {
           `FROM ${g}."missoes" m ` +
           `LEFT JOIN ${g}."missoes_conclusoes" c ON c."missao_id" = m."id" AND c."usuario_id" = $1 ` +
           `AND ((m."tipo" = 'UNICA' AND c."semana" IS NULL AND c."ciclo" = $4) OR (m."tipo" = 'SEMANAL' AND c."semana" = $3::date)) ` +
-          `LEFT JOIN ${mp}."pucstops" ps ON m."requisito" = 'PUCSTOPS' AND ps."id" = m."alvo_id" ` +
+          // Alvo da exploração: o primeiro ponto que falta, na ordem da
+          // coordenação. Ponto desativado não é coletável: fica por último.
+          `LEFT JOIN LATERAL (SELECT p."id", p."nome", p."ativo", p."localizacao" ` +
+          `FROM unnest(m."pucstops") WITH ORDINALITY AS o("id", "n") JOIN ${mp}."pucstops" p ON p."id" = o."id" ` +
+          `ORDER BY (${coletado('p."id"')} OR NOT p."ativo"), o."n" LIMIT 1) ps ON m."requisito" = 'PUCSTOPS' ` +
           `LEFT JOIN ${mp}."eventos" ev ON m."requisito" = 'EVENTO' AND ev."id" = m."alvo_id" ` +
           `${joinsEvento('ev')} ` +
           `WHERE m."ciclo" = $4 AND ${sqlMissaoVisivel('m')} AND ${sqlMissaoAlcancavel('m', acesso)} ` +
@@ -196,12 +225,19 @@ export class MissoesService {
       const concluida = l.conclusao_id !== null;
       const previsto = concluida ? 0 : xpPrevisto(l.xp, l.tipo, uso);
       const contada = REQUISITOS_CONTADOS.includes(l.requisito);
-      const atual = Math.min(Number(l.progresso), l.quantidade);
+      const meta = metaEfetiva(
+        l.requisito,
+        l.quantidade,
+        Number(l.progresso),
+        Number(l.disponiveis),
+      );
+      const atual = Math.min(Number(l.progresso), meta);
       const alvo = alvoDe(l);
+      const comCodigo = l.requisito === 'CODIGO' || l.requisito === 'EVENTO';
       const pronta =
         !concluida &&
         (contada
-          ? atual >= l.quantidade
+          ? atual >= meta
           : l.requisito === 'EVENTO'
             ? Boolean(
                 l.alvo_ativo &&
@@ -225,9 +261,17 @@ export class MissoesService {
             ? 'limitada'
             : 'disponivel',
         xpPrevisto: previsto,
-        progresso: contada ? { atual, meta: l.quantidade } : null,
+        progresso: contada ? { atual, meta } : null,
         pronta,
+        codigoLiberadoAte:
+          comCodigo &&
+          l.codigo_liberado_ate &&
+          l.codigo_liberado_ate.getTime() > instante
+            ? l.codigo_liberado_ate.toISOString()
+            : null,
         alvo,
+        pontos: l.pontos,
+        instrucoes: l.instrucoes,
         conclusao: concluida
           ? {
               id: l.conclusao_id!,
@@ -298,6 +342,7 @@ export class MissoesService {
       const [missao] = (await qr.query(
         `SELECT "id", "titulo", "tipo", "xp", "ativa", "ciclo", "inicio", "fim", "requisito", "quantidade", "alvo_id", "codigo", ` +
           `("inicio" IS NULL OR "inicio" <= now()) AS iniciou, ("fim" IS NULL OR "fim" > now()) AS aberta, ` +
+          `COALESCE("codigo_liberado_ate" > now(), false) AS codigo_liberado, ` +
           `${sqlMissaoAlcancavel(`${g}."missoes"`, acesso)} AS alcancavel ` +
           `FROM ${g}."missoes" WHERE "id" = $1 FOR SHARE`,
         [missaoId],
@@ -351,6 +396,7 @@ export class MissoesService {
 
       let evidencia: Record<string, unknown>;
       const conferirCodigo = async () => {
+        exigirCodigoLiberado(missao);
         await exigirTentativasDeCodigo(qr, missao.id, usuarioId);
         try {
           verificarCodigo(missao, leitura);
@@ -376,7 +422,22 @@ export class MissoesService {
         evidencia = { ...presenca, codigo: true };
       } else if (missao.requisito === 'CODIGO') {
         await conferirCodigo();
-        evidencia = { codigo: true };
+        const codigoUsado = impressaoDoCodigo(missao.id, missao.codigo!);
+        // Semanal de código: a coordenação troca o código a cada semana. O
+        // mesmo código não vale de novo para quem já o usou.
+        if (semanal) {
+          const [repetido] = (await qr.query(
+            `SELECT 1 FROM ${g}."missoes_conclusoes" WHERE "missao_id" = $1 AND "usuario_id" = $2 AND "evidencia"->>'codigoUsado' = $3 LIMIT 1`,
+            [missao.id, usuarioId, codigoUsado],
+          )) as unknown[];
+          if (repetido) {
+            throw recusa(
+              'codigo-repetido',
+              'Você já usou este código em outra semana. Digite o código desta semana.',
+            );
+          }
+        }
+        evidencia = { codigo: true, codigoUsado };
       } else {
         const email = await this.emailDe((s, p) => qr.query(s, p), usuarioId);
         evidencia = await verificarContagem(

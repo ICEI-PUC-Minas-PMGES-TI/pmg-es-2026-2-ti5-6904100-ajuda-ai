@@ -51,6 +51,9 @@ describe('Permissões das missões', () => {
     'atualizar',
     'ativar',
     'desativar',
+    'excluir',
+    'liberarCodigo',
+    'encerrarCodigo',
   ];
 
   it.each([aluno, padrinho, somenteMapa])(
@@ -93,7 +96,7 @@ describe('Permissões das missões', () => {
     await controller.concluir(req({ ...aluno, perfil: 'nenhuma' }), ID, {
       codigo: 'CALOURO26',
     });
-    const acesso = { podePublicar: false, temPar: true };
+    const acesso = { podePublicar: false, temPar: true, papel: 'apadrinhado' };
     expect(service.listar).toHaveBeenCalledWith(1, expect.any(Date), acesso);
     expect(service.concluir).toHaveBeenCalledWith(
       1,

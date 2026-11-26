@@ -6,6 +6,27 @@ export type TipoMissao = (typeof TIPOS_MISSAO)[number];
 
 export const TITULO_MISSAO_MAX = 120;
 export const DESCRICAO_MISSAO_MAX = 1000;
+export const INSTRUCOES_MISSAO_MAX = 1000;
+
+/** Quem vê a missão. O requisito ainda pode restringir (publicar, chat). */
+export const PUBLICOS_MISSAO = ['TODOS', 'PADRINHOS', 'APADRINHADOS'] as const;
+export type PublicoMissao = (typeof PUBLICOS_MISSAO)[number];
+
+/**
+ * Ciclo de vida, derivado de `ativa` e `publicada_em`:
+ * rascunho (nunca publicada; edita e exclui), publicada (critérios e
+ * recompensa congelados) e arquivada (definitiva; conclusões ficam).
+ */
+export const ESTADOS_MISSAO = ['rascunho', 'publicada', 'arquivada'] as const;
+export type EstadoMissao = (typeof ESTADOS_MISSAO)[number];
+
+export function estadoDaMissao(
+  ativa: boolean,
+  publicadaEm: Date | string | null,
+): EstadoMissao {
+  if (ativa) return 'publicada';
+  return publicadaEm ? 'arquivada' : 'rascunho';
+}
 
 export function xpMaximoDe(tipo: TipoMissao): number {
   return tipo === 'SEMANAL' ? LIMITES.missoesSemanais : LIMITES.porMissao;
@@ -37,6 +58,8 @@ export const MENSAGEM_MISSAO_MIN = 10;
 export const CHECKIN_ANTECEDENCIA_MIN = 30;
 export const RAIO_EVENTO_METROS = 60;
 export const CODIGO_MISSAO = /^[A-Z0-9-]{4,20}$/;
+/** Quanto tempo a coordenação deixa o código valendo de uma vez. */
+export const MINUTOS_CODIGO_MAX = 120;
 export const TENTATIVAS_CODIGO_POR_HORA = 5;
 export const JANELA_TENTATIVAS_CODIGO = '1 hour';
 
@@ -51,13 +74,27 @@ export function sqlMissaoVisivel(m: string): string {
 export interface AcessoMissoes {
   podePublicar: boolean;
   temPar: boolean;
+  /** Papel no ciclo; sem papel, só as missões para todos. */
+  papel?: 'padrinho' | 'apadrinhado' | null;
 }
+
+const PUBLICO_DO_PAPEL = {
+  padrinho: 'PADRINHOS',
+  apadrinhado: 'APADRINHADOS',
+} as const satisfies Record<string, PublicoMissao>;
 
 export function sqlMissaoAlcancavel(m: string, acesso: AcessoMissoes): string {
   const fora: string[] = [];
   if (!acesso.podePublicar) fora.push(`'FEED_PUBLICACOES'`);
   if (!acesso.temPar) fora.push(`'CHAT_MENSAGENS'`);
-  return fora.length ? `${m}."requisito" NOT IN (${fora.join(', ')})` : 'TRUE';
+  // Valores de um mapa fixo, nunca do cliente.
+  const publicos = [`'TODOS'`];
+  if (acesso.papel) publicos.push(`'${PUBLICO_DO_PAPEL[acesso.papel]}'`);
+  const condicoes = [`${m}."publico" IN (${publicos.join(', ')})`];
+  if (fora.length) {
+    condicoes.push(`${m}."requisito" NOT IN (${fora.join(', ')})`);
+  }
+  return `(${condicoes.join(' AND ')})`;
 }
 
 export const ID_MISSAO =

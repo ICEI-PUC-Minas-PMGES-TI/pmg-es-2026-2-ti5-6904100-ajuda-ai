@@ -1,4 +1,7 @@
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsDefined,
   IsIn,
@@ -18,6 +21,11 @@ import { LIMITES, type NivelDto } from '../economia.js';
 import type { GanhoCreditado } from '../ganhos.js';
 import {
   DESCRICAO_MISSAO_MAX,
+  type EstadoMissao,
+  INSTRUCOES_MISSAO_MAX,
+  MINUTOS_CODIGO_MAX,
+  PUBLICOS_MISSAO,
+  type PublicoMissao,
   QUANTIDADE_MISSAO_MAX,
   REQUISITOS_MISSAO,
   type RequisitoMissao,
@@ -34,6 +42,10 @@ const COM_FUSO = {
   message: 'use data/hora ISO 8601 com fuso, ex. 2026-11-17T08:00:00-03:00',
 };
 const CICLO = /^\d{4}\/[12]$/;
+const ALVO_IDS = {
+  each: true,
+  message: 'alvoIds deve ter os ids dos PucStops',
+};
 
 export type StatusMissaoAluno = 'disponivel' | 'limitada' | 'concluida';
 
@@ -68,10 +80,30 @@ export interface MissaoAlunoDto {
   fim: string | null;
   status: StatusMissaoAluno;
   xpPrevisto: number;
+  /** Na de PucStops, a meta já desconta ponto desativado que o aluno não coletou. */
   progresso: { atual: number; meta: number } | null;
   pronta: boolean;
+  /**
+   * CODIGO e EVENTO: até quando o código vale. null = a coordenação não
+   * liberou agora; concluir responde 422 `codigo-fechado`.
+   */
+  codigoLiberadoAte: string | null;
+  /** PucStops: o próximo ponto que falta (ou o último, se todos coletados). */
   alvo: AlvoMissaoDto | null;
+  /** Pontos escolhidos pela coordenação, na ordem dela; null sem pontos. */
+  pontos: PontoMissaoDto[] | null;
+  instrucoes: string | null;
   conclusao: ConclusaoResumoDto | null;
+}
+
+export interface PontoMissaoDto {
+  id: string;
+  nome: string;
+  coletado: boolean;
+  /** Desativado pela coordenação: não dá para coletar e não conta na meta. */
+  ativo: boolean;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export class ConcluirMissaoDto {
@@ -182,9 +214,26 @@ export class CriarMissaoDto {
   alvoId?: string | null;
 
   @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(QUANTIDADE_MISSAO_MAX)
+  @IsString(ALVO_IDS)
+  @Matches(UUID_ALVO, ALVO_IDS)
+  alvoIds?: string[] | null;
+
+  @IsOptional()
   @IsString()
   @Matches(CODIGO_DIGITADO, { message: 'codigo: letras, números e hífen' })
   codigo?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(INSTRUCOES_MISSAO_MAX)
+  instrucoes?: string | null;
+
+  @IsOptional()
+  @IsIn(PUBLICOS_MISSAO)
+  publico?: PublicoMissao;
 }
 
 export class AtualizarMissaoDto {
@@ -240,14 +289,39 @@ export class AtualizarMissaoDto {
   alvoId?: string | null;
 
   @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(QUANTIDADE_MISSAO_MAX)
+  @IsString(ALVO_IDS)
+  @Matches(UUID_ALVO, ALVO_IDS)
+  alvoIds?: string[] | null;
+
+  @IsOptional()
   @IsString()
   @Matches(CODIGO_DIGITADO, { message: 'codigo: letras, números e hífen' })
   codigo?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(INSTRUCOES_MISSAO_MAX)
+  instrucoes?: string | null;
+
+  @ValidateIf((o: AtualizarMissaoDto) => o.publico !== undefined)
+  @IsIn(PUBLICOS_MISSAO)
+  publico?: PublicoMissao;
 
   @IsDefined()
   @IsString()
   @IsISO8601({ strict: true })
   atualizadoEm!: string;
+}
+
+export class LiberarCodigoDto {
+  @IsDefined()
+  @IsInt()
+  @Min(1)
+  @Max(MINUTOS_CODIGO_MAX)
+  minutos!: number;
 }
 
 export class ListarMissoesQuery {
@@ -265,14 +339,23 @@ export interface MissaoAdminDto {
   id: string;
   titulo: string;
   descricao: string;
+  instrucoes: string | null;
   tipo: TipoMissao;
+  publico: PublicoMissao;
   requisito: RequisitoMissao | null;
   quantidade: number;
+  /** Evento do check-in (só `EVENTO`). */
   alvoId: string | null;
   alvoNome: string | null;
+  /** PucStops escolhidos (só `PUCSTOPS`); vazio = quaisquer pontos. */
+  pontos: Array<{ id: string; nome: string | null; ativo: boolean }>;
   codigo: string | null;
+  /** Até quando o código vale para os alunos; null = fechado. */
+  codigoLiberadoAte: string | null;
   xp: number;
   ativa: boolean;
+  estado: EstadoMissao;
+  publicadaEm: string | null;
   inicio: string | null;
   fim: string | null;
   ciclo: string;

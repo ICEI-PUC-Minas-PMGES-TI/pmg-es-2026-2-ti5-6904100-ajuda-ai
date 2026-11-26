@@ -17,8 +17,10 @@ import type {
 } from './missoes.dto.js';
 import {
   CODIGO_MISSAO,
+  estadoDaMissao,
   ID_MISSAO,
   normalizarCodigo,
+  type PublicoMissao,
   type RequisitoMissao,
   sqlMissaoVisivel,
   type TipoMissao,
@@ -33,14 +35,19 @@ interface Linha {
   id: string;
   titulo: string;
   descricao: string;
+  instrucoes?: string | null;
   tipo: TipoMissao;
+  publico?: PublicoMissao;
   requisito: RequisitoMissao | null;
   quantidade: number;
   alvo_id: string | null;
   alvo_nome: string | null;
+  pontos?: Array<{ id: string; nome: string | null; ativo: boolean }> | null;
   codigo: string | null;
+  codigo_liberado_ate?: Date | null;
   xp: number;
   ativa: boolean;
+  publicada_em?: Date | null;
   inicio: Date | null;
   fim: Date | null;
   ciclo: string;
@@ -53,28 +60,38 @@ interface Linha {
 }
 
 const SELECT =
-  `SELECT m."id", m."titulo", m."descricao", m."tipo", m."requisito", m."quantidade", m."alvo_id", m."codigo", ` +
-  `COALESCE(ps."nome", ev."titulo") AS alvo_nome, m."xp", m."ativa", m."inicio", m."fim", m."ciclo", ` +
+  `SELECT m."id", m."titulo", m."descricao", m."instrucoes", m."tipo", m."publico", m."requisito", m."quantidade", m."alvo_id", m."codigo", ` +
+  `CASE WHEN m."codigo_liberado_ate" > now() THEN m."codigo_liberado_ate" END AS codigo_liberado_ate, ` +
+  `ev."titulo" AS alvo_nome, ` +
+  `(SELECT json_agg(json_build_object('id', o."id", 'nome', ps."nome", 'ativo', COALESCE(ps."ativo", false)) ORDER BY o."n") ` +
+  `FROM unnest(m."pucstops") WITH ORDINALITY AS o("id", "n") LEFT JOIN ${mp}."pucstops" ps ON ps."id" = o."id") AS pontos, ` +
+  `m."xp", m."ativa", m."publicada_em", m."inicio", m."fim", m."ciclo", ` +
   `(${sqlMissaoVisivel('m')}) AS vigente_agora, ` +
   `(SELECT count(*)::int FROM ${g}."missoes_conclusoes" c WHERE c."missao_id" = m."id") AS conclusoes, ` +
   `(SELECT COALESCE(sum(c."xp_creditado"), 0)::int FROM ${g}."missoes_conclusoes" c WHERE c."missao_id" = m."id") AS xp_creditado_total, ` +
   `m."criado_por", m."criado_em", m."atualizado_em" FROM ${g}."missoes" m ` +
-  `LEFT JOIN ${mp}."pucstops" ps ON m."requisito" = 'PUCSTOPS' AND ps."id" = m."alvo_id" ` +
   `LEFT JOIN ${mp}."eventos" ev ON m."requisito" = 'EVENTO' AND ev."id" = m."alvo_id"`;
 
 function paraDto(l: Linha): MissaoAdminDto {
+  const publicadaEm = l.publicada_em ?? null;
   return {
     id: l.id,
     titulo: l.titulo,
     descricao: l.descricao,
+    instrucoes: l.instrucoes ?? null,
     tipo: l.tipo,
+    publico: l.publico ?? 'TODOS',
     requisito: l.requisito,
     quantidade: l.quantidade,
     alvoId: l.alvo_id,
     alvoNome: l.alvo_nome,
+    pontos: l.pontos ?? [],
     codigo: l.codigo,
+    codigoLiberadoAte: l.codigo_liberado_ate?.toISOString() ?? null,
     xp: l.xp,
     ativa: l.ativa,
+    estado: estadoDaMissao(l.ativa, publicadaEm),
+    publicadaEm: publicadaEm?.toISOString() ?? null,
     inicio: l.inicio?.toISOString() ?? null,
     fim: l.fim?.toISOString() ?? null,
     ciclo: l.ciclo,
@@ -89,6 +106,42 @@ function paraDto(l: Linha): MissaoAdminDto {
 
 function data(valor: string | null | undefined): Date | null {
   return valor ? new Date(valor) : null;
+}
+
+function texto(valor: string | null | undefined): string | null {
+  return valor?.trim() || null;
+}
+
+function unicos(pontos: string[]): string[] {
+  return [...new Set(pontos.map((p) => p.toLowerCase()))];
+}
+
+function mesmosPontos(a: string[] | null, b: string[] | null): boolean {
+  if (!a || !b) return a === b;
+  const conjunto = new Set(a);
+  return a.length === b.length && b.every((p) => conjunto.has(p));
+}
+
+/**
+ * Antes da F22 a missão de PucStop tinha um ponto só, em `alvoId`. O
+ * cliente antigo continua mandando assim; vira a lista de um ponto.
+ */
+function pontosPedidos(
+  requisito: RequisitoMissao | null,
+  alvoId: string | null | undefined,
+  alvoIds: string[] | null | undefined,
+): { alvoId: string | null | undefined; pontos: string[] | null | undefined } {
+  if (requisito !== 'PUCSTOPS' || alvoId === undefined) {
+    return { alvoId, pontos: alvoIds };
+  }
+  // Cliente novo manda a regra inteira: alvoId nulo e os pontos em alvoIds.
+  if (alvoId === null) return { alvoId: undefined, pontos: alvoIds ?? null };
+  if (alvoIds) {
+    throw new BadRequestException(
+      'Escolha os PucStops só em alvoIds (alvoId é do evento).',
+    );
+  }
+  return { alvoId: undefined, pontos: [alvoId] };
 }
 
 function exigirRegras(
@@ -118,6 +171,7 @@ interface Requisito {
   requisito: RequisitoMissao;
   quantidade: number;
   alvoId: string | null;
+  pontos: string[] | null;
   codigo: string | null;
 }
 
@@ -126,6 +180,28 @@ function alvoInvalido(message: string): UnprocessableEntityException {
     statusCode: 422,
     message,
     motivo: 'alvo-invalido',
+  });
+}
+
+function jaPublicada(campos: string[]): ConflictException {
+  return new ConflictException({
+    statusCode: 409,
+    message:
+      'Esta missão já foi publicada: objetivo, meta, pontos, público, tipo, início e XP ficam como os alunos viram. ' +
+      'Ainda dá para mudar título, descrição, instruções e código, e prorrogar o prazo. Para mudar o resto, arquive e crie outra.',
+    motivo: 'missao-publicada',
+    campos,
+  });
+}
+
+/** Encurtar o prazo (ou criar um onde não havia) tira tempo de quem já está fazendo. */
+function prazoSoProrroga(): ConflictException {
+  return new ConflictException({
+    statusCode: 409,
+    message:
+      'Esta missão já foi publicada: o prazo só pode ser prorrogado. Para encerrar antes, arquive a missão.',
+    motivo: 'missao-publicada',
+    campos: ['fim'],
   });
 }
 
@@ -160,21 +236,26 @@ export class MissoesAdminService {
     exigirRegras(dados.tipo, dados.xp, inicio, fim, true, agora);
     const ciclo = ParticipacoesService.programaAtual(agora);
     await this.exigirPrograma(ciclo);
+    const pedido = pontosPedidos(dados.requisito, dados.alvoId, dados.alvoIds);
+    const pontos = pedido.pontos ? unicos(pedido.pontos) : null;
+    const publico = dados.publico ?? 'TODOS';
     const r = await this.validarRequisito(
       this.dataSource.manager,
       dados.tipo,
+      publico,
       {
         requisito: dados.requisito,
-        quantidade: dados.quantidade ?? 1,
-        alvoId: dados.alvoId ?? null,
+        quantidade: dados.quantidade ?? pontos?.length ?? 1,
+        alvoId: pedido.alvoId ?? null,
+        pontos,
         codigo: dados.codigo ?? null,
       },
       true,
     );
     const ativar = dados.ativar === true;
     const [{ id }] = (await this.dataSource.query(
-      `INSERT INTO ${g}."missoes" ("titulo", "descricao", "tipo", "xp", "ativa", "inicio", "fim", "ciclo", "criado_por", "requisito", "quantidade", "alvo_id", "codigo", "publicada_em") ` +
-        `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CASE WHEN $5 THEN now() END) RETURNING "id"`,
+      `INSERT INTO ${g}."missoes" ("titulo", "descricao", "tipo", "xp", "ativa", "inicio", "fim", "ciclo", "criado_por", "requisito", "quantidade", "alvo_id", "codigo", "instrucoes", "publico", "pucstops", "publicada_em") ` +
+        `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::uuid[], CASE WHEN $5 THEN now() END) RETURNING "id"`,
       [
         dados.titulo.trim(),
         dados.descricao.trim(),
@@ -189,6 +270,9 @@ export class MissoesAdminService {
         r.quantidade,
         r.alvoId,
         r.codigo,
+        texto(dados.instrucoes),
+        publico,
+        r.pontos,
       ],
     )) as Array<{ id: string }>;
     this.logger.log(
@@ -217,73 +301,122 @@ export class MissoesAdminService {
           atualizadoEm: atual.atualizadoEm,
         });
       }
-      const comConclusoes = atual.conclusoes > 0;
-      if (
-        comConclusoes &&
-        dados.tipo !== undefined &&
-        dados.tipo !== atual.tipo
-      ) {
-        throw new ConflictException({
-          statusCode: 409,
-          message:
-            'Esta missão já foi concluída por alunos; o tipo não pode mudar.',
-          motivo: 'missao-com-conclusoes',
-        });
-      }
       const requisito = dados.requisito ?? atual.requisito;
-      const quantidade = dados.quantidade ?? atual.quantidade;
-      const alvoId = dados.alvoId === undefined ? atual.alvoId : dados.alvoId;
-      if (
-        comConclusoes &&
-        atual.requisito !== null &&
-        (requisito !== atual.requisito ||
-          quantidade !== atual.quantidade ||
-          alvoId !== atual.alvoId)
-      ) {
-        throw new ConflictException({
-          statusCode: 409,
-          message:
-            'Esta missão já foi concluída por alunos; o requisito não pode mudar. Crie outra missão.',
-          motivo: 'missao-com-conclusoes',
-        });
-      }
+      const mudouRequisito = requisito !== atual.requisito;
+      const pedido = pontosPedidos(requisito, dados.alvoId, dados.alvoIds);
+      const pontosAtuais = atual.pontos.length
+        ? atual.pontos.map((p) => p.id)
+        : null;
+      const pontos =
+        pedido.pontos !== undefined
+          ? pedido.pontos && unicos(pedido.pontos)
+          : mudouRequisito
+            ? null
+            : pontosAtuais;
+      const alvoId =
+        pedido.alvoId !== undefined
+          ? pedido.alvoId
+          : mudouRequisito
+            ? null
+            : atual.alvoId;
+      const quantidade =
+        dados.quantidade ??
+        (pedido.pontos !== undefined && pontos
+          ? pontos.length
+          : atual.quantidade);
       const tipo = dados.tipo ?? atual.tipo;
       const xp = dados.xp ?? atual.xp;
+      const publico = dados.publico ?? atual.publico;
       const inicio =
         dados.inicio === undefined ? data(atual.inicio) : data(dados.inicio);
-      const fim = dados.fim === undefined ? data(atual.fim) : data(dados.fim);
+      const fimAtual = data(atual.fim);
+      const fim = dados.fim === undefined ? fimAtual : data(dados.fim);
+      const mudouPontos = !mesmosPontos(pontos, pontosAtuais);
+      // Missão do auto-claim (antes dos requisitos) não tem regra que o
+      // aluno tenha visto: pode ganhar o primeiro requisito. Se já foi
+      // publicada, segue publicada (XP, tipo, público e início congelados)
+      // e a janela recomeça agora; se nunca foi, continua rascunho.
+      const legado = atual.requisito === null && requisito !== null;
+
+      // Publicada uma vez, a versão que o aluno viu não muda: nem a regra
+      // nem a recompensa. Vale também para a arquivada, que pode voltar.
+      if (atual.publicadaEm) {
+        const congelados = (
+          [
+            ['tipo', tipo !== atual.tipo],
+            ['xp', xp !== atual.xp],
+            ['publico', publico !== atual.publico],
+            ['requisito', mudouRequisito && !legado],
+            ['quantidade', quantidade !== atual.quantidade && !legado],
+            ['alvoId', alvoId !== atual.alvoId && !legado],
+            ['alvoIds', mudouPontos && !legado],
+            [
+              'inicio',
+              (inicio?.getTime() ?? null) !==
+                (data(atual.inicio)?.getTime() ?? null),
+            ],
+            // Prorrogar (ou tirar o prazo) só dá mais tempo. Encurtar, ou
+            // criar prazo onde não havia, tira tempo de quem está fazendo.
+            [
+              'fim',
+              fim !== null &&
+                (fimAtual === null || fim.getTime() < fimAtual.getTime()),
+            ],
+          ] as const
+        )
+          .filter(([, mudou]) => mudou)
+          .map(([campo]) => campo);
+        if (congelados.length === 1 && congelados[0] === 'fim') {
+          throw prazoSoProrroga();
+        }
+        if (congelados.length) throw jaPublicada(congelados);
+      }
+
       exigirRegras(tipo, xp, inicio, fim, dados.fim != null, agora);
       const mudouRegra =
         tipo !== atual.tipo ||
-        requisito !== atual.requisito ||
+        mudouRequisito ||
         quantidade !== atual.quantidade ||
-        alvoId !== atual.alvoId;
+        alvoId !== atual.alvoId ||
+        mudouPontos ||
+        publico !== atual.publico;
       const mudouCodigo =
         (requisito === 'CODIGO' || requisito === 'EVENTO') &&
         dados.codigo !== undefined;
       const r = !requisito
         ? null
         : !mudouRegra && !mudouCodigo
-          ? { requisito, quantidade, alvoId, codigo: atual.codigo }
+          ? {
+              requisito,
+              quantidade,
+              alvoId,
+              // Mesma lista: mantém a ordem gravada.
+              pontos: pontosAtuais,
+              codigo: atual.codigo,
+            }
           : await this.validarRequisito(
               m,
               tipo,
+              publico,
               {
                 requisito,
                 quantidade,
                 alvoId,
+                pontos: mudouPontos ? pontos : pontosAtuais,
                 codigo:
                   dados.codigo === undefined
-                    ? requisito === atual.requisito
-                      ? atual.codigo
-                      : null
+                    ? mudouRequisito
+                      ? null
+                      : atual.codigo
                     : dados.codigo,
               },
-              alvoId !== atual.alvoId || requisito !== atual.requisito,
+              alvoId !== atual.alvoId || mudouRequisito || mudouPontos,
             );
       await m.query(
         `UPDATE ${g}."missoes" SET "titulo" = $2, "descricao" = $3, "tipo" = $4, "xp" = $5, "inicio" = $6, "fim" = $7, ` +
-          `"requisito" = $8, "quantidade" = $9, "alvo_id" = $10, "codigo" = $11, "atualizado_em" = now() WHERE "id" = $1`,
+          `"requisito" = $8, "quantidade" = $9, "alvo_id" = $10, "codigo" = $11, "instrucoes" = $12, "publico" = $13, ` +
+          `"pucstops" = $14::uuid[], "atualizado_em" = now(), ` +
+          `"publicada_em" = CASE WHEN $15 AND "publicada_em" IS NOT NULL THEN now() ELSE "publicada_em" END WHERE "id" = $1`,
         [
           id,
           dados.titulo?.trim() ?? atual.titulo,
@@ -296,6 +429,12 @@ export class MissoesAdminService {
           r?.quantidade ?? 1,
           r?.alvoId ?? null,
           r?.codigo ?? null,
+          dados.instrucoes === undefined
+            ? atual.instrucoes
+            : texto(dados.instrucoes),
+          publico,
+          r?.pontos ?? null,
+          legado,
         ],
       );
     });
@@ -321,13 +460,16 @@ export class MissoesAdminService {
         await this.validarRequisito(
           m,
           atual.tipo,
+          atual.publico,
           {
             requisito: atual.requisito,
             quantidade: atual.quantidade,
             alvoId: atual.alvoId,
+            pontos: atual.pontos.length ? atual.pontos.map((p) => p.id) : null,
             codigo: atual.codigo,
           },
           true,
+          Boolean(atual.publicadaEm),
         );
       }
       if (ativa && atual.fim && new Date(atual.fim) <= new Date()) {
@@ -339,9 +481,11 @@ export class MissoesAdminService {
           fim: atual.fim,
         });
       }
+      // Arquivar também fecha o código liberado.
       await m.query(
         `UPDATE ${g}."missoes" SET "ativa" = $2, "atualizado_em" = now(), ` +
-          `"publicada_em" = CASE WHEN $2 THEN COALESCE("publicada_em", now()) ELSE "publicada_em" END WHERE "id" = $1`,
+          `"publicada_em" = CASE WHEN $2 THEN COALESCE("publicada_em", now()) ELSE "publicada_em" END, ` +
+          `"codigo_liberado_ate" = CASE WHEN $2 THEN "codigo_liberado_ate" END WHERE "id" = $1`,
         [id, ativa],
       );
     });
@@ -349,27 +493,109 @@ export class MissoesAdminService {
     return this.detalhe(id);
   }
 
+  /**
+   * Libera o código por alguns minutos, na hora da atividade. Fora desse
+   * tempo o aluno recebe 422 `codigo-fechado`: o código repassado depois não
+   * serve. Liberar de novo recomeça a contagem. Não mexe em `atualizado_em`,
+   * para não derrubar quem está editando a missão.
+   */
+  async liberarCodigo(id: string, minutos: number): Promise<MissaoAdminDto> {
+    await this.dataSource.transaction(async (m) => {
+      const atual = await this.buscar(m, id, true);
+      if (atual.requisito !== 'CODIGO' && atual.requisito !== 'EVENTO') {
+        throw new UnprocessableEntityException({
+          statusCode: 422,
+          message: 'Esta missão não usa código.',
+          motivo: 'sem-codigo',
+        });
+      }
+      if (!atual.ativa) {
+        throw new UnprocessableEntityException({
+          statusCode: 422,
+          message: 'Publique a missão antes de liberar o código.',
+          motivo: 'missao-nao-publicada',
+        });
+      }
+      if (!atual.vigenteAgora) {
+        throw new UnprocessableEntityException({
+          statusCode: 422,
+          message:
+            'A missão está fora do período: os alunos não a veem agora. Ajuste o início ou o fim antes de liberar o código.',
+          motivo: 'fora-do-periodo',
+        });
+      }
+      await m.query(
+        `UPDATE ${g}."missoes" SET "codigo_liberado_ate" = now() + make_interval(mins => $2) WHERE "id" = $1`,
+        [id, minutos],
+      );
+    });
+    this.logger.log(`codigo liberado missao=${id} minutos=${minutos}`);
+    return this.detalhe(id);
+  }
+
+  async encerrarCodigo(id: string): Promise<MissaoAdminDto> {
+    await this.dataSource.transaction(async (m) => {
+      await this.buscar(m, id, true);
+      await m.query(
+        `UPDATE ${g}."missoes" SET "codigo_liberado_ate" = NULL WHERE "id" = $1`,
+        [id],
+      );
+    });
+    this.logger.log(`codigo encerrado missao=${id}`);
+    return this.detalhe(id);
+  }
+
+  /** Só rascunho (nunca publicado). A publicada é arquivada, não apagada. */
+  async excluir(id: string): Promise<void> {
+    await this.dataSource.transaction(async (m) => {
+      const atual = await this.buscar(m, id, true);
+      if (atual.publicadaEm || atual.conclusoes > 0) {
+        throw new ConflictException({
+          statusCode: 409,
+          message:
+            'Só rascunhos podem ser excluídos. Esta missão já foi publicada: arquive para tirá-la dos alunos.',
+          motivo: 'missao-publicada',
+        });
+      }
+      await m.query(`DELETE FROM ${g}."missoes" WHERE "id" = $1`, [id]);
+    });
+    this.logger.log(`missao excluida id=${id}`);
+  }
+
   private async validarRequisito(
     m: EntityManager,
     tipo: TipoMissao,
+    publico: PublicoMissao,
     r: Requisito,
     alvoNovo: boolean,
+    republicacao = false,
   ): Promise<Requisito> {
     const { requisito, quantidade } = r;
     if (r.alvoId && requisito !== 'PUCSTOPS' && requisito !== 'EVENTO') {
       throw new BadRequestException('alvoId só vale para PucStop ou evento.');
+    }
+    if (r.pontos && requisito !== 'PUCSTOPS') {
+      throw new BadRequestException(
+        'alvoIds só vale para missão de PucStops.',
+      );
     }
     if (r.codigo && requisito !== 'CODIGO' && requisito !== 'EVENTO') {
       throw new BadRequestException(
         'codigo só vale para missão de código ou de evento.',
       );
     }
-    if (
-      (requisito === 'EVENTO' ||
-        requisito === 'CODIGO' ||
-        (requisito === 'PUCSTOPS' && r.alvoId)) &&
-      quantidade !== 1
-    ) {
+    if (publico === 'APADRINHADOS' && requisito === 'FEED_PUBLICACOES') {
+      throw new BadRequestException(
+        'Só padrinhos com dupla publicam no feed: escolha outro público ou outro objetivo.',
+      );
+    }
+    const pontos = r.pontos ? unicos(r.pontos) : null;
+    if (pontos && quantidade !== pontos.length) {
+      throw new BadRequestException(
+        `Com pontos escolhidos, a meta é visitar todos: quantidade deve ser ${pontos.length}.`,
+      );
+    }
+    if ((requisito === 'EVENTO' || requisito === 'CODIGO') && quantidade !== 1) {
       throw new BadRequestException(
         'Este requisito é cumprido uma vez só: quantidade deve ser 1.',
       );
@@ -384,7 +610,7 @@ export class MissoesAdminService {
       exigirCodigo(
         'Código: de 4 a 20 letras, números ou hífen (ex.: CALOURO26).',
       );
-      return { requisito, quantidade, alvoId: null, codigo };
+      return { requisito, quantidade, alvoId: null, pontos: null, codigo };
     }
 
     if (requisito === 'EVENTO') {
@@ -415,7 +641,7 @@ export class MissoesAdminService {
       exigirCodigo(
         'Check-in de evento também exige o código mostrado no evento: de 4 a 20 letras, números ou hífen.',
       );
-      return { requisito, quantidade, alvoId: r.alvoId, codigo };
+      return { requisito, quantidade, alvoId: r.alvoId, pontos: null, codigo };
     }
 
     if (requisito === 'PUCSTOPS') {
@@ -424,13 +650,31 @@ export class MissoesAdminService {
           'Missão de PucStop é única: cada totem é coletado uma vez por semestre.',
         );
       }
-      if (r.alvoId) {
-        const [ps] = (await m.query(
-          `SELECT "ativo" FROM ${mp}."pucstops" WHERE "id" = $1`,
-          [r.alvoId],
-        )) as Array<{ ativo: boolean }>;
-        if (!ps || !ps.ativo) {
-          throw alvoInvalido('PucStop não encontrado ou desativado.');
+      if (republicacao) {
+        // Ponto desativado depois da publicação não conta para o aluno
+        // (requisitos.ts, metaEfetiva): basta sobrar um ponto ativo.
+        const [{ ativos }] = (await m.query(
+          `SELECT count(*)::int AS ativos FROM ${mp}."pucstops" WHERE "ativo" AND ($1::uuid[] IS NULL OR "id" = ANY($1::uuid[]))`,
+          [pontos],
+        )) as Array<{ ativos: number }>;
+        if (!ativos) {
+          throw alvoInvalido(
+            pontos
+              ? 'Todos os PucStops do roteiro foram desativados. Crie outra missão.'
+              : 'Nenhum PucStop ativo no campus.',
+          );
+        }
+      } else if (pontos) {
+        const ativos = (await m.query(
+          `SELECT "id" FROM ${mp}."pucstops" WHERE "ativo" AND "id" = ANY($1::uuid[])`,
+          [pontos],
+        )) as unknown[];
+        if (ativos.length !== pontos.length) {
+          throw alvoInvalido(
+            pontos.length === 1
+              ? 'PucStop não encontrado ou desativado.'
+              : 'Algum dos PucStops escolhidos não existe ou foi desativado.',
+          );
         }
       } else {
         const [{ total }] = (await m.query(
@@ -444,10 +688,10 @@ export class MissoesAdminService {
           );
         }
       }
-      return { requisito, quantidade, alvoId: r.alvoId, codigo: null };
+      return { requisito, quantidade, alvoId: null, pontos, codigo: null };
     }
 
-    return { requisito, quantidade, alvoId: null, codigo: null };
+    return { requisito, quantidade, alvoId: null, pontos: null, codigo: null };
   }
 
   private async exigirPrograma(ciclo: string): Promise<void> {

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -20,6 +21,7 @@ import { usuarioDoTokenOuNulo } from '../gamificacao.js';
 import {
   AtualizarMissaoDto,
   CriarMissaoDto,
+  LiberarCodigoDto,
   ListarMissoesQuery,
 } from './missoes.dto.js';
 import { MissoesAdminService } from './missoes-admin.service.js';
@@ -67,9 +69,37 @@ export class MissoesAdminController {
     return this.missoes.definirAtiva(id, true);
   }
 
+  /** Arquiva: sai da lista dos alunos; as conclusões ficam. */
   @Post(':id/desativar')
   @HttpCode(200)
   desativar(@Param('id', UUID) id: string) {
     return this.missoes.definirAtiva(id, false);
+  }
+
+  /**
+   * Libera o código (CODIGO e EVENTO) por alguns minutos, na hora da
+   * atividade. Fora disso, o aluno recebe 422 `codigo-fechado`.
+   */
+  @Post(':id/codigo')
+  @HttpCode(200)
+  liberarCodigo(
+    @Param('id', UUID) id: string,
+    @Body() dados: LiberarCodigoDto,
+  ) {
+    return this.missoes.liberarCodigo(id, dados.minutos);
+  }
+
+  /** Fecha o código antes do tempo. */
+  @Delete(':id/codigo')
+  @HttpCode(200)
+  encerrarCodigo(@Param('id', UUID) id: string) {
+    return this.missoes.encerrarCodigo(id);
+  }
+
+  /** Só rascunho; missão publicada responde 409 `missao-publicada`. */
+  @Delete(':id')
+  @HttpCode(204)
+  async excluir(@Param('id', UUID) id: string): Promise<void> {
+    await this.missoes.excluir(id);
   }
 }
