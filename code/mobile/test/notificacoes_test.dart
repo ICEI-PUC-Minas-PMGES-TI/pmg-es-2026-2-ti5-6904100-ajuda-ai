@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'package:ajuda_ai/models/notificacao.dart';
 import 'package:ajuda_ai/services/notificacoes_api.dart';
 import 'package:ajuda_ai/services/participacoes_api.dart';
+import 'package:ajuda_ai/services/pucstops_api.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/tela_padrinho_definido.dart';
+import 'package:ajuda_ai/tela_perfil.dart';
 import 'package:ajuda_ai/tela_status_candidatura.dart';
 import 'package:ajuda_ai/widgets/app_bottom_navigation.dart';
 import 'package:ajuda_ai/widgets/navegacao_app.dart';
@@ -43,11 +45,17 @@ Map<String, dynamic> item(
 };
 
 class Servidor {
-  Servidor(this.itens, {this.atraso = Duration.zero, this.ativo = false});
+  Servidor(
+    this.itens, {
+    this.atraso = Duration.zero,
+    this.ativo = false,
+    this.situacaoAnterior,
+  });
 
   List<Map<String, dynamic>> itens;
   final Duration atraso;
   final bool ativo;
+  final String? situacaoAnterior;
   final chamadas = <String>[];
   final urls = <Uri>[];
 
@@ -62,8 +70,21 @@ class Servidor {
       return resposta({'naoLidas': naoLidas, 'itens': itens}, 200);
     }
     if (path == '/participacoes/situacao' && ativo) {
+      if (request.url.queryParameters['programa'] == '2026/1' &&
+          situacaoAnterior != null) {
+        return resposta({
+          'situacao': situacaoAnterior,
+          'programa': {'codigo': '2026/1', 'titulo': 'Programa 2026/1'},
+          'registro': {
+            'programa': '2026/1',
+            'papel': 'apadrinhado',
+            'decisao': {'justificativa': 'Documentação incompleta'},
+          },
+        }, 200);
+      }
       return resposta(situacaoApadrinhadoAtivo(), 200);
     }
+    if (path == '/me/foto') return resposta({'url': null}, 200);
     if (path == '/me/notificacoes/lidas') {
       itens = [
         for (final i in itens) {...i, 'lida': true},
@@ -93,8 +114,14 @@ Servidor instalar(
   Duration atraso = Duration.zero,
   String token = 'token-teste',
   bool ativo = false,
+  String? situacaoAnterior,
 }) {
-  final servidor = Servidor(itens, atraso: atraso, ativo: ativo);
+  final servidor = Servidor(
+    itens,
+    atraso: atraso,
+    ativo: ativo,
+    situacaoAnterior: situacaoAnterior,
+  );
   SessaoUsuario.atual.configurarApi(
     ParticipacoesApi(client: servidor.client, baseUrl: '')..accessToken = token,
   );
@@ -438,36 +465,97 @@ void main() {
     expect(servidor.chamadas, contains('PATCH /me/notificacoes/c/lida'));
   });
 
-  testWidgets('aviso de outro semestre troca o ciclo do app antes de abrir', (
-    tester,
-  ) async {
-    final servidor = instalar([
-      item(
-        'c',
-        tipo: 'CANDIDATURA_APROVADA',
-        titulo: 'Candidatura aprovada',
-        link: '/candidatura?ciclo=2026%2F1',
-      ),
-    ], ativo: true);
-    await SessaoUsuario.atual.sincronizarSituacao();
-    SessaoUsuario.atual.programas = [
-      {'codigo': '2026/2'},
-      {'codigo': '2026/1'},
-    ];
-    expect(SessaoUsuario.atual.programaAtual, '2026/2');
-    await abrirNaCasca(tester);
-    await tester.tap(find.byKey(const Key('notificacao-c')));
-    await tester.pumpAndSettle();
-    expect(SessaoUsuario.atual.programaAtual, '2026/1');
-    expect(
-      servidor.urls.any(
-        (u) =>
-            u.path == '/participacoes/situacao' &&
-            u.queryParameters['programa'] == '2026/1',
-      ),
-      isTrue,
-    );
-  });
+  for (final (situacao, tipo, titulo, cartao) in [
+    (
+      'apadrinhado_rejeitado',
+      'CANDIDATURA_NAO_APROVADA',
+      'Candidatura não aprovada',
+      'Cadastro não aprovado',
+    ),
+    (
+      'concluido',
+      'CANDIDATURA_APROVADA',
+      'Candidatura aprovada',
+      'Participação concluída',
+    ),
+  ]) {
+    testWidgets('aviso de outro ciclo atualiza o Perfil já visitado: $cartao', (
+      tester,
+    ) async {
+      final servidor = instalar(
+        [
+          item(
+            'c',
+            tipo: tipo,
+            titulo: titulo,
+            link: '/candidatura?ciclo=2026%2F1',
+          ),
+        ],
+        ativo: true,
+        situacaoAnterior: situacao,
+      );
+      final sessao = SessaoUsuario.atual;
+      sessao.configurarXpApi(XpApi(client: servidor.client, baseUrl: ''));
+      await sessao.sincronizarSituacao();
+      sessao.programas = [
+        {'codigo': '2026/2', 'titulo': 'Programa 2026/2'},
+        {'codigo': '2026/1', 'titulo': 'Programa 2026/1'},
+      ];
+      expect(sessao.programaAtual, '2026/2');
+      final casca = GlobalKey<AppShellState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AppShell(
+            key: casca,
+            inicial: AppDestination.perfil,
+            construtorDePagina: (destino) => destino == AppDestination.perfil
+                ? const ProfilePage()
+                : Builder(
+                    builder: (context) => Center(
+                      child: TextButton(
+                        onPressed: () => mostrarNotificacoes(context),
+                        child: const Text('abrir'),
+                      ),
+                    ),
+                  ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final perfil = tester.state(find.byType(ProfilePage));
+      expect(find.text('Apadrinhado ativo'), findsOneWidget);
+      casca.currentState!.ir(AppDestination.inicio);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('abrir'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('notificacao-c')));
+      await tester.pumpAndSettle();
+
+      expect(sessao.programaAtual, '2026/1');
+      expect(
+        servidor.urls.any(
+          (u) =>
+              u.path == '/participacoes/situacao' &&
+              u.queryParameters['programa'] == '2026/1',
+        ),
+        isTrue,
+      );
+      expect(find.byType(StatusCandidaturaPage), findsNothing);
+      expect(casca.currentState!.atual, AppDestination.perfil);
+      expect(tester.state(find.byType(ProfilePage)), same(perfil));
+      expect(
+        tester
+            .widget<DropdownButton<String>>(find.byType(DropdownButton<String>))
+            .value,
+        '2026/1',
+      );
+      expect(find.text('Apadrinhado ativo'), findsNothing);
+      expect(find.text(cartao), findsOneWidget);
+      if (situacao == 'apadrinhado_rejeitado') {
+        expect(find.textContaining('Documentação incompleta'), findsOneWidget);
+      }
+    });
+  }
 
   testWidgets('aviso de semestre que o aluno não tem não troca o ciclo', (
     tester,

@@ -108,6 +108,7 @@ class _ProfilePageState extends State<ProfilePage> {
   void initState() {
     super.initState();
     diagNav('perfil: initState');
+    _sessao.mudancas.addListener(_aoMudarSessao);
     _dados = _dadosDaSessao();
     _nomeController = TextEditingController(text: _dados.nome);
     _cursoController = TextEditingController(text: _dados.curso);
@@ -119,6 +120,12 @@ class _ProfilePageState extends State<ProfilePage> {
     _turnoController = TextEditingController();
     _interessesController = TextEditingController();
     _sincronizar();
+  }
+
+  void _aoMudarSessao() {
+    Future.microtask(() {
+      if (mounted) setState(() {});
+    });
   }
 
   Future<void> _sincronizar() async {
@@ -203,6 +210,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   void dispose() {
+    _sessao.mudancas.removeListener(_aoMudarSessao);
     _nomeController.dispose();
     _cursoController.dispose();
     _periodoController.dispose();

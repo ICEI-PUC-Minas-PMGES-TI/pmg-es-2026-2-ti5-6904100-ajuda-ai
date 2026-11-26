@@ -165,7 +165,10 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
       _abrirPadrinho();
       return;
     }
-    final apadrinhado = _statusDeApadrinhado.contains(sessao.status);
+    final papel = sessao.registro?['papel'];
+    final apadrinhado = papel == null
+        ? _statusDeApadrinhado.contains(sessao.status)
+        : papel == 'apadrinhado';
     if (caminho == '/candidatura' && !apadrinhado) {
       Navigator.of(context).pop();
       if (pai.mounted) {
