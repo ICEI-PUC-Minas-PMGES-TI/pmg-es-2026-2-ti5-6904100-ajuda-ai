@@ -454,6 +454,44 @@ export const api = {
     return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
   },
 
+  missoesCoordenacao(status) {
+    return request(`/coordenacao/missoes${query({ status })}`);
+  },
+  criarMissao(dados) {
+    return request('/coordenacao/missoes', { method: 'POST', body: dados });
+  },
+  atualizarMissao(id, dados) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  ativarMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+  desativarMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  /** Libera o código da missão (CODIGO ou EVENTO) por alguns minutos. */
+  liberarCodigoMissao(id, minutos) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/codigo`, { method: 'POST', body: { minutos } });
+  },
+  encerrarCodigoMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/codigo`, { method: 'DELETE' });
+  },
+  /** Só rascunho; a API responde 409 para missão já publicada. */
+  excluirMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  /** `antes`: id da última notificação carregada, para buscar as mais antigas. */
+  notificacoes(limite, antes) {
+    return request(`/me/notificacoes${query({ limite, antes })}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  marcarNotificacaoLida(id) {
+    return request(`/me/notificacoes/${encodeURIComponent(id)}/lida`, { method: 'PATCH', aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  /** `ateId`: notificação mais recente que a tela mostrava (as criadas depois continuam não lidas). */
+  marcarNotificacoesLidas(ateId) {
+    return request('/me/notificacoes/lidas', { method: 'PATCH', body: ateId ? { ateId } : {}, aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+
   /* ===== Lojinha: recompensas (coordenação; F27) ===== */
   /** Todas as recompensas (`status` opcional: rascunho, publicada, inativa, arquivada). */
   recompensas(status) {

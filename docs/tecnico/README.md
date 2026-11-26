@@ -31,6 +31,7 @@ A documentação acadêmica da disciplina permanece em `docs/1..8.*.md`.
 - [PucStops](mapa/pucstops.md) e [XP](gamificacao/xp.md).
 - [Lojinha de recompensas](gamificacao/lojinha.md) e
   [contrato de API de resgates e XP da coordenação](gamificacao/api-coordenacao-lojinha.md).
+- [Missões e notificações](gamificacao/missoes.md).
 - [Eventos, restaurantes e cardápios](mapa/eventos-cantinas.md).
 - [Administração](mapa/administracao.md).
 

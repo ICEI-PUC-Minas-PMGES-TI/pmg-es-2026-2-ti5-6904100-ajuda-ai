@@ -3,11 +3,14 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { DataSource, QueryFailedError } from 'typeorm';
 import { SCHEMA_MAPA, SRID, schemaPostgis } from '../../mapa/postgis.js';
+import { notificacaoNivel } from '../../notificacoes/notificacoes.js';
+import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
 import { nivelDe } from '../economia.js';
 import {
@@ -69,7 +72,10 @@ export class PucStopsService {
   private readonly logger = new Logger('PucStops');
   private geo?: Promise<string>;
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    @Optional() private readonly notificacoes?: NotificacoesService,
+  ) {}
 
   private schemaGeo(): Promise<string> {
     return (this.geo ??= schemaPostgis((sql, p) =>
@@ -157,6 +163,7 @@ export class PucStopsService {
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
+    let xpParaAviso: number | null = null;
     try {
       const usuario = `${geo}.ST_SetSRID(${geo}.ST_MakePoint($2, $3), ${SRID})::${geo}.geography`;
       const [p] = (await qr
@@ -248,6 +255,8 @@ export class PucStopsService {
       const xpAcumulado = ganho.movimentacao?.xpAcumulado ?? xpAntes;
       const moedas = ganho.movimentacao?.saldo ?? saldoAntes;
       const nivel = nivelDe(xpAcumulado);
+      const subiuDeNivel = nivel.numero > nivelDe(xpAntes).numero;
+      if (subiuDeNivel) xpParaAviso = xpAcumulado;
       return {
         pucstopId: p.id,
         xpGanho: ganho.xp,
@@ -258,7 +267,7 @@ export class PucStopsService {
         moedas,
         xpAcumulado,
         nivel,
-        subiuDeNivel: nivel.numero > nivelDe(xpAntes).numero,
+        subiuDeNivel,
         ciclo,
         claimedAt: (
           ganho.movimentacao?.criadoEm ?? coleta.coletado_em
@@ -278,6 +287,11 @@ export class PucStopsService {
       throw erro;
     } finally {
       await qr.release();
+      // Só depois de liberar a conexão da transação: pedir outra ao pool
+      // segurando esta pode esgotar o pool quando muitos sobem de nível juntos.
+      if (xpParaAviso !== null && this.notificacoes) {
+        await this.notificacoes.criar(usuarioId, notificacaoNivel(xpParaAviso));
+      }
     }
   }
 }

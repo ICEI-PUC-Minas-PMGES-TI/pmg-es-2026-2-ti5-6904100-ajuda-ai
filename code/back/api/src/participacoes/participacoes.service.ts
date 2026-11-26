@@ -5,9 +5,12 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { ChatService } from '../chat/chat.service.js';
+import { notificacaoCandidatura } from '../notificacoes/notificacoes.js';
+import { NotificacoesService } from '../notificacoes/notificacoes.service.js';
 import { matchingLiberado } from '../programas/etapas.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import {
@@ -87,6 +90,7 @@ export class ParticipacoesService {
     @Optional()
     @InjectDataSource()
     private readonly dados?: DataSource,
+    @Optional() private readonly modulos?: ModuleRef,
   ) {}
 
   private repositorioVinculos(): Repository<MatchingVinculoEntity> | null {
@@ -379,7 +383,9 @@ export class ParticipacoesService {
     id: number,
     coordenador?: string,
   ): Promise<ParticipacaoEntity> {
-    return this.decidir(id, 'aprovado', undefined, coordenador);
+    const registro = await this.decidir(id, 'aprovado', undefined, coordenador);
+    await this.avisarDecisao(registro, 'aprovado');
+    return registro;
   }
 
   async rejeitarCandidaturaPorId(
@@ -387,7 +393,35 @@ export class ParticipacoesService {
     justificativa?: string,
     coordenador?: string,
   ): Promise<ParticipacaoEntity> {
-    return this.decidir(id, 'nao_aprovado', justificativa, coordenador);
+    const registro = await this.decidir(
+      id,
+      'nao_aprovado',
+      justificativa,
+      coordenador,
+    );
+    await this.avisarDecisao(registro, 'nao_aprovado');
+    return registro;
+  }
+
+  private async avisarDecisao(
+    registro: ParticipacaoEntity,
+    resultado: 'aprovado' | 'nao_aprovado' | 'revogado',
+  ): Promise<void> {
+    let notificacoes: NotificacoesService | undefined;
+    try {
+      notificacoes = this.modulos?.get(NotificacoesService, { strict: false });
+    } catch {
+      return;
+    }
+    await notificacoes?.criarParaEmail(
+      registro.usuarioId,
+      notificacaoCandidatura(resultado, {
+        programa: registro.programa,
+        em:
+          registro.respostas?._servidor?.decisao?.em ??
+          new Date().toISOString(),
+      }),
+    );
   }
 
   private async decidir(
@@ -817,6 +851,16 @@ export class ParticipacoesService {
    * `desvincular` antes quando houver match.
    */
   async revogarAprovacao(
+    id: number,
+    justificativa: string | undefined,
+    coordenador?: string,
+  ): Promise<ParticipacaoEntity> {
+    const revogado = await this.revogar(id, justificativa, coordenador);
+    await this.avisarDecisao(revogado, 'revogado');
+    return revogado;
+  }
+
+  private async revogar(
     id: number,
     justificativa: string | undefined,
     coordenador?: string,

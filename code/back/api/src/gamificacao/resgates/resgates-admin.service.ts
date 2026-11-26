@@ -4,8 +4,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { DataSource, type QueryRunner } from 'typeorm';
+import { notificacaoResgate } from '../../notificacoes/notificacoes.js';
+import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import {
   ehViolacaoCheck,
   ehViolacaoUnica,
@@ -127,7 +130,23 @@ function paraDto(l: Linha): ResgateAdminDto {
 export class ResgatesAdminService {
   private readonly logger = new Logger(ResgatesAdminService.name);
 
-  constructor(private readonly db: DataSource) {}
+  constructor(
+    private readonly db: DataSource,
+    @Optional() private readonly notificacoes?: NotificacoesService,
+  ) {}
+
+  private async avisarDesfecho(
+    resgate: ResgateAdminDto,
+    desfecho: 'entregue' | 'cancelado',
+  ): Promise<void> {
+    await this.notificacoes?.criar(
+      resgate.participante.id,
+      notificacaoResgate(desfecho, {
+        id: resgate.id,
+        nome: resgate.recompensa.nome,
+      }),
+    );
+  }
 
   /**
    * O resgate é a fonte de tudo o que a coordenação vê: nome, versão, custo e
@@ -240,7 +259,9 @@ export class ResgatesAdminService {
       await this.gravarDesfecho(qr, id, 'entregue', responsavel);
     });
     this.logger.log(`resgate entregue id=${id}`);
-    return this.detalhe(id);
+    const entregue = await this.detalhe(id);
+    await this.avisarDesfecho(entregue, 'entregue');
+    return entregue;
   }
 
   async cancelar(
@@ -290,7 +311,9 @@ export class ResgatesAdminService {
       );
     });
     this.logger.log(`resgate cancelado id=${id}`);
-    return this.detalhe(id);
+    const cancelado = await this.detalhe(id);
+    await this.avisarDesfecho(cancelado, 'cancelado');
+    return cancelado;
   }
 
   /** Trava o resgate e recusa se ele já foi entregue ou cancelado. */
