@@ -26,20 +26,29 @@ function FormularioRegra({ regra, onSalvar, onFechar }) {
     try {
       const salva = regra
         ? await api.editarRegraXp(regra.id, corpo)
-        : await api.criarRegraXp({ acao: dados.get('acao').trim(), ...corpo });
+        : await api.criarRegraXp({
+          acao: dados.get('acao').trim(),
+          programa: dados.get('programa').trim() || null,
+          ...corpo,
+        });
       onSalvar(salva);
     } catch (e) {
-      setErro(e.motivo === 'acao-duplicada' ? 'Já existe uma regra ativa para esta ação.' : e.message);
+      setErro(e.motivo === 'acao-duplicada' ? 'Já existe uma regra ativa para esta ação neste ciclo.' : e.message);
       setOcupado(false);
     }
   }
 
   return (
-    <Modal titulo={regra ? `Editar ${regra.acao}` : 'Nova regra de XP'}
+    <Modal titulo={regra ? `Editar ${regra.acao} · ${regra.programa ?? 'Todos os ciclos'}` : 'Nova regra de XP'}
       descricao={regra ? `Salvar cria a versão ${regra.versaoAtual + 1}.` : 'A regra começa inativa.'}
       onFechar={ocupado ? undefined : onFechar}>
       <form className="pucstop-form" onSubmit={salvar}>
         {!regra && <label>Ação<input name="acao" required maxLength={40} placeholder="ENCONTRO_REALIZADO" /></label>}
+        {!regra && (
+          <label>Ciclo
+            <input name="programa" pattern="\d{4}/[12]" placeholder="Todos os ciclos (ex. 2026/2)" />
+          </label>
+        )}
         <label>Valor em XP<input name="valorXp" type="number" min={1} required defaultValue={versao?.valorXp} /></label>
         <label>Elegibilidade
           <select name="elegibilidade" defaultValue={versao?.elegibilidade ?? 'todos'}>
@@ -108,10 +117,11 @@ export default function RegrasXpPage() {
       {regras?.length > 0 && (
         <div className="users-table-wrap">
           <table className="users-table">
-            <thead><tr><th>Ação</th><th>Versão</th><th>XP</th><th>Elegibilidade</th><th>Status</th><th>Ações</th></tr></thead>
+            <thead><tr><th>Ação</th><th>Ciclo</th><th>Versão</th><th>XP</th><th>Elegibilidade</th><th>Status</th><th>Ações</th></tr></thead>
             <tbody>{regras.map((regra) => (
               <tr key={regra.id}>
                 <td data-label="Ação">{regra.acao}</td>
+                <td data-label="Ciclo">{regra.programa ?? 'Todos'}</td>
                 <td data-label="Versão">{regra.versaoAtual}</td>
                 <td data-label="XP">{regra.versao.valorXp}</td>
                 <td data-label="Elegibilidade">{ELEGIBILIDADE[regra.versao.elegibilidade]}</td>

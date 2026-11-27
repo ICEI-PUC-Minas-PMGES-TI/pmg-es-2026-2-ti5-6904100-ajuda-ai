@@ -18,13 +18,13 @@ test('cria, versiona e altera o status da regra pelos endpoints correspondentes'
 
   await api.regrasXp();
   await api.regraXp(7);
-  await api.criarRegraXp({ acao, ...valores });
+  await api.criarRegraXp({ acao, programa: '2026/2', ...valores });
   await api.editarRegraXp(7, valores);
   await api.definirStatusRegraXp(7, false);
   assert.deepEqual(chamadas, [
     ['GET', '/coordenacao/regras-xp', undefined],
     ['GET', '/coordenacao/regras-xp/7', undefined],
-    ['POST', '/coordenacao/regras-xp', { acao, ...valores }],
+    ['POST', '/coordenacao/regras-xp', { acao, programa: '2026/2', ...valores }],
     ['PATCH', '/coordenacao/regras-xp/7', valores],
     ['PATCH', '/coordenacao/regras-xp/7/status', { ativo: false }],
   ]);
