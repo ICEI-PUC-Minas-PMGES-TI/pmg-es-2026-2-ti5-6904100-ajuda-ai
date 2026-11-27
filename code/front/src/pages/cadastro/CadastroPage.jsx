@@ -118,7 +118,7 @@ export default function CadastroPage() {
         const dados = codigo || ciclos.length === 0 ? await api.situacao(email, codigo) : null;
         if (!ativo) return;
         setExistente(dados);
-        if (!passoUrl && resolverAluno(perfil, dados, ciclos.find(p => p.codigo === codigo)).completo) navigate('/aluno/perfil', {replace: true});
+        if (!passoUrl && resolverAluno(perfil, dados, ciclos.find(p => p.codigo === codigo)).completo) navigate('/aluno/inicio', {replace: true});
         else if (passoUrl === 'escolha') setStep('escolha');
       } catch(e) {if(ativo) setErroEnvio(e.message);}
       finally {if(ativo) setCarregando(false);}
@@ -153,7 +153,7 @@ export default function CadastroPage() {
   function irParaArea() {
     const papel = existente?.registro?.papel;
     salvarSessao(papel === 'apadrinhado' ? 'apadrinhado' : papel ? 'padrinho' : 'explorar', existente?.registro?.respostas);
-    navigate('/aluno/perfil');
+    navigate('/aluno/inicio');
   }
 
   async function nextFromProfile(event) {
@@ -180,7 +180,7 @@ export default function CadastroPage() {
     if (escolha === 'explorar') {
       salvarSessao('explorar');
       mostrarToast('Tudo pronto! Você pode participar do programa quando quiser.');
-      navigate('/aluno/perfil');
+      navigate('/aluno/inicio');
       return;
     }
     const r = resolverAluno(perfilParaSessao(profile), existente, programas.find(p => p.codigo === programa));

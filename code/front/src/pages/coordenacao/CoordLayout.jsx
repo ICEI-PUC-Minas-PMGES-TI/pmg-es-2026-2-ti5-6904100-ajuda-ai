@@ -4,24 +4,37 @@ import { useAuth } from '../../auth/AuthContext';
 import {api} from '../../api/client';
 import Icon from '../../components/Icon';
 
+/**
+ * Menu agrupado por assunto, na mesma ordem do menu do aluno: visão geral,
+ * o ciclo do programa, gamificação e campus. Cada rota aparece uma vez só.
+ */
 const NAV = [
-  { to: '/coordenacao/feed', label: 'Feed', icon: 'megaphone' },
-  { to: '/coordenacao', end: true, label: 'Dashboard', icon: 'home' },
-  { to: '/coordenacao/candidaturas', label: 'Candidaturas', icon: 'clipboard' },
-  { to: '/coordenacao/matching', label: 'Matching', icon: 'spark' },
-  { to: '/coordenacao/usuarios', label: 'Usuários', icon: 'users' },
-  { to: '/coordenacao/programas', label: 'Programas', icon: 'calendar' },
-  { to: '/coordenacao/matching', label: 'Matching', icon: 'link' },
-  { to: '/coordenacao/formularios', label: 'Formulários', icon: 'form' },
-  { to: '/coordenacao/pucstops', label: 'Gerenciar totens', icon: 'pin' },
-  { to: '/coordenacao/mapa', label: 'Mapa do campus', icon: 'map' },
-  { to: '/coordenacao/lojinha', label: 'Lojinha', icon: 'star' },
-  { to: '/coordenacao/resgates', label: 'Resgates', icon: 'tag' },
-  { to: '/coordenacao/xp', label: 'XP e moedas', icon: 'trophy' },
-  { to: '/coordenacao/missoes', label: 'Missões', icon: 'trophy' },
-  { to: '/coordenacao/eventos', label: 'Eventos', icon: 'calendarEvent' },
-  { to: '/coordenacao/restaurantes', label: 'Restaurantes', icon: 'restaurant' },
-  { to: '/coordenacao/configuracoes', label: 'Configurações', icon: 'settings' },
+  { secao: 'Visão geral', itens: [
+    { to: '/coordenacao', end: true, label: 'Dashboard', icon: 'home' },
+    { to: '/coordenacao/feed', label: 'Feed', icon: 'megaphone' },
+  ] },
+  { secao: 'Programa', itens: [
+    { to: '/coordenacao/programas', label: 'Programas', icon: 'calendar' },
+    { to: '/coordenacao/candidaturas', label: 'Candidaturas', icon: 'clipboard' },
+    { to: '/coordenacao/matching', label: 'Matching', icon: 'spark' },
+    { to: '/coordenacao/usuarios', label: 'Usuários', icon: 'users' },
+    { to: '/coordenacao/formularios', label: 'Formulários', icon: 'form' },
+  ] },
+  { secao: 'Gamificação', itens: [
+    { to: '/coordenacao/missoes', label: 'Missões', icon: 'trophy' },
+    { to: '/coordenacao/lojinha', label: 'Lojinha', icon: 'star' },
+    { to: '/coordenacao/resgates', label: 'Resgates', icon: 'tag' },
+    { to: '/coordenacao/xp', label: 'XP e moedas', icon: 'chart' },
+  ] },
+  { secao: 'Campus', itens: [
+    { to: '/coordenacao/mapa', label: 'Mapa do campus', icon: 'map' },
+    { to: '/coordenacao/pucstops', label: 'Gerenciar totens', icon: 'pin' },
+    { to: '/coordenacao/eventos', label: 'Eventos', icon: 'calendarEvent' },
+    { to: '/coordenacao/restaurantes', label: 'Restaurantes', icon: 'restaurant' },
+  ] },
+  { secao: 'Conta', itens: [
+    { to: '/coordenacao/configuracoes', label: 'Configurações', icon: 'settings' },
+  ] },
 ];
 
 /** Páginas que não dependem do programa/ciclo selecionado. */
@@ -140,17 +153,22 @@ export default function CoordLayout() {
 
   const navLinks = (
     <nav className="coord-nav" aria-label="Navegação da coordenação">
-      {NAV.map((item) => (
-        <NavLink
-          key={item.to}
-          to={withPrograma(item.to)}
-          end={item.end}
-          className={({ isActive }) => `coord-nav-link${isActive ? ' active' : ''}`}
-          onClick={() => setMenuAberto(false)}
-        >
-          <Icon name={item.icon} size={18} />
-          <span>{item.label}</span>
-        </NavLink>
+      {NAV.map((grupo) => (
+        <div key={grupo.secao} className="nav-group" role="group" aria-label={grupo.secao}>
+          <span className="nav-group-title" aria-hidden="true">{grupo.secao}</span>
+          {grupo.itens.map((item) => (
+            <NavLink
+              key={item.to}
+              to={withPrograma(item.to)}
+              end={item.end}
+              className={({ isActive }) => `coord-nav-link${isActive ? ' active' : ''}`}
+              onClick={() => setMenuAberto(false)}
+            >
+              <Icon name={item.icon} size={18} />
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </div>
       ))}
     </nav>
   );

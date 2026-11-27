@@ -77,12 +77,25 @@
   font-weight: 800;
 }
 .coord-brand span { color: var(--muted); font-size: 0.8rem; }
-.coord-nav { display: grid; gap: 4px; flex: 1; align-content: start; }
+.coord-nav {
+  display: grid;
+  gap: 14px;
+  flex: 1;
+  align-content: start;
+  /* A lista é maior que a tela em notebooks: rola sozinha, mantendo a marca
+     no topo e o cartão do usuário/"Sair" sempre visíveis no rodapé. */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 -6px;
+  padding: 0 6px 4px;
+  scrollbar-width: thin;
+}
 .coord-nav-link {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 44px;
+  min-height: 40px;
   padding: 0 12px;
   border-radius: 12px;
   color: #5b5878;
@@ -94,6 +107,18 @@
 .coord-nav-link.active {
   background: #ebe4ff;
   color: var(--purple-deep);
+}
+.coord-nav-link:focus-visible { outline: 2px solid var(--purple); outline-offset: -2px; }
+
+/* Grupos dos menus laterais (coordenação e aluno) */
+.nav-group { display: grid; gap: 2px; }
+.nav-group-title {
+  padding: 0 12px 4px;
+  color: #8a86a6;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .coord-sidebar-foot { display: grid; gap: 10px; }
 .coord-user-card {
@@ -713,9 +738,12 @@
     background: rgba(23, 18, 94, 0.28);
     z-index: 35;
   }
+  .coord-drawer .coord-nav { overflow: visible; }
   .coord-drawer {
     width: min(86vw, 300px);
     height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     background: #fff;
     padding: 18px 14px;
     display: grid;

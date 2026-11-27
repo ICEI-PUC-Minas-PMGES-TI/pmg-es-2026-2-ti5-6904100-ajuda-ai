@@ -28,7 +28,7 @@ export function filtrarPublicacoes(itens, categoria) {
 export default function FeedPage({ coordenacao = false }) {
   const contexto = useOutletContext();
   if (!coordenacao && contexto?.resolucao && !contexto.resolucao.participante)
-    return <Navigate to="/aluno/perfil" replace />;
+    return <Navigate to="/aluno/inicio" replace />;
   return <FeedConteudo coordenacao={coordenacao} />;
 }
 

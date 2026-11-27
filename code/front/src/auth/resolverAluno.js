@@ -26,7 +26,7 @@ export function resolverAluno(perfil, situacao, ciclo) {
     justificativa: situacao?.registro?.decisao?.justificativa || situacao?.cadastro?.motivoRejeicao || '',
     podePadrinho: completo && semInscricao && ciclo?.inscricoesDisponiveis === true && Number(perfil.periodo) > 1,
     podeApadrinhado: completo && semInscricao && ciclo?.inscricoesDisponiveis === true && Number(perfil.periodo) === 1,
-    destino: !completo ? '/' : candidatura ? '/aluno/candidatura' : '/aluno/perfil',
+    destino: !completo ? '/' : candidatura ? '/aluno/candidatura' : '/aluno/inicio',
   };
 }
 export function escolherCiclo(programas) {

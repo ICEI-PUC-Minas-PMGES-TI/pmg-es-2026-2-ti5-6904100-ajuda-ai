@@ -1,12 +1,14 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
 import { ToastProvider } from './components/Toast';
+import RolarAoTopo from './components/RolarAoTopo';
 import LoginPage from './pages/LoginPage';
 import FeedPage from './pages/FeedPage';
 import AlunoLayout from './pages/aluno/AlunoLayout';
 import ConfiguracoesAlunoPage from './pages/aluno/ConfiguracoesAlunoPage';
 import EditarCandidaturaPage from './pages/aluno/EditarCandidaturaPage';
 import HistoricoPage from './pages/aluno/HistoricoPage';
+import InicioAlunoPage from './pages/aluno/InicioAlunoPage';
 import LojinhaPage from './pages/aluno/LojinhaPage';
 import PadrinhoPage from './pages/aluno/PadrinhoPage';
 import PerfilEditarPage from './pages/aluno/PerfilEditarPage';
@@ -40,12 +42,14 @@ export default function App() {
     <AuthProvider>
       <ToastProvider>
         <BrowserRouter>
+          <RolarAoTopo />
           <Routes>
             <Route path="/" element={<CadastroPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/auth/callback" element={<LoginPage />} />
             <Route path="/aluno" element={<AlunoLayout />}>
-              <Route index element={<Navigate to="perfil" replace />} />
+              <Route index element={<Navigate to="inicio" replace />} />
+              <Route path="inicio" element={<InicioAlunoPage />} />
               <Route path="perfil" element={<PerfilAlunoPage />} />
               <Route path="feed" element={<FeedPage />} />
               <Route path="perfil/editar" element={<PerfilEditarPage />} />
@@ -66,7 +70,6 @@ export default function App() {
               <Route path="matching" element={<MatchingPage />} />
               <Route path="usuarios" element={<UsuariosPage />} />
               <Route path="programas" element={<ProgramasPage />} />
-              <Route path="matching" element={<MatchingPage />} />
               <Route path="matching/manual" element={<MatchingManualPage />} />
               <Route path="formularios" element={<FormulariosPage />} />
               <Route path="formularios/respostas" element={<FormularioRespostasPage />} />

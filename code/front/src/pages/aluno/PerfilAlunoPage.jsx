@@ -4,12 +4,10 @@ import { api } from '../../api/client';
 import { iniciaisDe, rotuloPeriodo } from '../../auth/sessaoAluno';
 import { EmblemaNivel } from '../../components/EmblemaNivel';
 import Icon from '../../components/Icon';
-import { AVISO_MAPA, useToast } from '../../components/Toast';
 import { EstadoCarregando, EstadoErro, PageHeader } from './partes';
 
 export default function PerfilAlunoPage() {
   const { email, perfil, situacao, carregando, erro, recarregar, resolucao } = useOutletContext();
-  const mostrarToast = useToast();
   const [historico, setHistorico] = useState(null);
   const [foto, setFoto] = useState(null);
   const [erroFoto, setErroFoto] = useState('');
@@ -45,7 +43,7 @@ export default function PerfilAlunoPage() {
     ehPadrinho && { to: '/aluno/padrinho', icon: 'groups', label: 'Meus apadrinhados' },
     ehCandidato && { to: '/aluno/candidatura', icon: 'clipboard', label: 'Status da candidatura' },
     { to: '/aluno/historico', icon: 'history', label: 'Histórico de participação' },
-    { acao: () => mostrarToast(AVISO_MAPA), icon: 'map', label: 'Explorar mapa' },
+    { to: '/aluno/mapa', icon: 'map', label: 'Explorar mapa' },
     { to: '/aluno/configuracoes', icon: 'settings', label: 'Configurações da conta' },
     { to: '/aluno/configuracoes#suporte', icon: 'help', label: 'Ajuda e suporte' },
   ].filter(Boolean);
@@ -102,24 +100,20 @@ export default function PerfilAlunoPage() {
         <ul className="quick-links">
           {acessos.map((item) => (
             <li key={item.label}>
-              {item.to ? (
-                <Link to={item.to}><Icon name={item.icon} size={19} /><span>{item.label}</span><Icon name="chevron" size={16} /></Link>
-              ) : (
-                <button type="button" onClick={item.acao}><Icon name={item.icon} size={19} /><span>{item.label}</span><Icon name="chevron" size={16} /></button>
-              )}
+              <Link to={item.to}><Icon name={item.icon} size={19} /><span>{item.label}</span><Icon name="chevron" size={16} /></Link>
             </li>
           ))}
         </ul>
       </section>
 
-      <button type="button" className="meanwhile-card" onClick={() => mostrarToast(AVISO_MAPA)}>
+      <Link to="/aluno/mapa" className="meanwhile-card">
         <span className="meanwhile-icon" aria-hidden="true"><Icon name="map" size={24} /></span>
         <span>
           <small>ENQUANTO ISSO</small>
           <strong>Conheça as PUC Stops</strong>
         </span>
         <Icon name="chevron" size={20} />
-      </button>
+      </Link>
     </div>
   );
 }
@@ -142,7 +136,8 @@ function Meta({ icon, titulo, sub }) {
   );
 }
 
-function SituacaoCard({ dados, perfil, resolucao }) {
+/** Cartão da situação no ciclo; também usado na tela de Início. */
+export function SituacaoCard({ dados, perfil, resolucao }) {
   const navigate = useNavigate();
   if (!dados) return null;
   const { situacao, programa, padrinho, apadrinhados, grupo } = dados;

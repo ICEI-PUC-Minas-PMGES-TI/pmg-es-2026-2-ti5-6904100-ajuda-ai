@@ -22,7 +22,7 @@ for(const estado of Object.keys(ESTADOS_ALUNO)) test(`estado ${estado} libera so
 });
 test('perfil incompleto, completo, ciclo fechado e estado desconhecido',()=>{
   assert.equal(resolverAluno({...perfil,curso:''},{situacao:'nenhuma'}).destino,'/');
-  assert.equal(resolverAluno(perfil,{situacao:'nenhuma'}).destino,'/aluno/perfil');
+  assert.equal(resolverAluno(perfil,{situacao:'nenhuma'}).destino,'/aluno/inicio');
   assert.equal(resolverAluno(perfil,{situacao:'nenhuma'},{inscricoesDisponiveis:false}).podePadrinho,false);
   assert.equal(resolverAluno(perfil,{situacao:'antigo'}).ativo,false);
   assert.equal(escolherCiclo([{codigo:'2026/1'},{codigo:'2026/2',atual:true}]),'2026/2');

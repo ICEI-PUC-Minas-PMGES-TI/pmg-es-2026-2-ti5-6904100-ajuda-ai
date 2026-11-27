@@ -88,17 +88,27 @@ export default function AlunoLayout() {
   if (sessao.onboardingToken) return <Navigate to="/" replace />;
   if (!carregando && !erro && !resolucao.completo) return <Navigate to="/" replace />;
   const papel = resolucao.candidatura || resolucao.estado === 'padrinho_ativo' ? 'padrinho' : resolucao.estado?.startsWith('apadrinhado') ? 'apadrinhado' : null;
+  // Agrupado como o menu da coordenação; grupos sem itens não aparecem.
   const nav = [
-    ...(resolucao.participante ? [{to: '/aluno/feed', label: 'Feed', icon: 'megaphone'}] : []),
-    ...(resolucao.participante ? [{to: '/aluno/lojinha', label: 'Lojinha', icon: 'tag'}] : []),
-    {to: '/aluno/perfil', label: 'Meu perfil', icon: 'home'},
-    {to: '/aluno/mapa', label: 'Mapa do campus', icon: 'map'},
-    ...(resolucao.candidatura ? [{to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard'}] : []),
-    ...(resolucao.ativo ? [{to: '/aluno/padrinho', label: papel === 'padrinho' ? 'Meus apadrinhados' : 'Meu padrinho', icon: 'users'}] : []),
-    {to: '/aluno/chat', label: 'Conversas', icon: 'chat'},
-    {to: '/aluno/historico', label: 'Histórico', icon: 'history'},
-    {to: '/aluno/configuracoes', label: 'Configurações', icon: 'settings'},
-  ];
+    {secao: 'Início', itens: [
+      {to: '/aluno/inicio', label: 'Início', icon: 'home'},
+      ...(resolucao.participante ? [{to: '/aluno/feed', label: 'Feed', icon: 'megaphone'}] : []),
+    ]},
+    {secao: 'Programa', itens: [
+      ...(resolucao.candidatura ? [{to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard'}] : []),
+      ...(resolucao.ativo ? [{to: '/aluno/padrinho', label: papel === 'padrinho' ? 'Meus apadrinhados' : 'Meu padrinho', icon: 'users'}] : []),
+      {to: '/aluno/chat', label: 'Conversas', icon: 'chat'},
+      {to: '/aluno/historico', label: 'Histórico', icon: 'history'},
+    ]},
+    {secao: 'Campus e recompensas', itens: [
+      {to: '/aluno/mapa', label: 'Mapa do campus', icon: 'map'},
+      ...(resolucao.participante ? [{to: '/aluno/lojinha', label: 'Lojinha', icon: 'tag'}] : []),
+    ]},
+    {secao: 'Conta', itens: [
+      {to: '/aluno/perfil', label: 'Meu perfil', icon: 'person'},
+      {to: '/aluno/configuracoes', label: 'Configurações', icon: 'settings'},
+    ]},
+  ].filter((grupo) => grupo.itens.length > 0);
   const contexto = {email, sessao, perfil, situacao, carregando, erro, recarregar, papel, resolucao, programa: codigo,
     atualizarSessao: parcial => setSessao(atual => ({...atual, ...parcial}))};
   function trocarCiclo(novo) {
@@ -161,11 +171,16 @@ function AvisoCadastro({ cadastro }) {
 function AlunoNav({ itens, onNavegar }) {
   return (
     <nav className="aluno-nav" aria-label="Navegação do aluno">
-      {itens.map((item) => (
-        <NavLink key={item.to} to={item.to} className={({ isActive }) => `aluno-nav-link${isActive ? ' active' : ''}`} onClick={onNavegar}>
-          <Icon name={item.icon} size={19} />
-          <span>{item.label}</span>
-        </NavLink>
+      {itens.map((grupo) => (
+        <div key={grupo.secao} className="nav-group" role="group" aria-label={grupo.secao}>
+          <span className="nav-group-title" aria-hidden="true">{grupo.secao}</span>
+          {grupo.itens.map((item) => (
+            <NavLink key={item.to} to={item.to} className={({ isActive }) => `aluno-nav-link${isActive ? ' active' : ''}`} onClick={onNavegar}>
+              <Icon name={item.icon} size={19} />
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </div>
       ))}
     </nav>
   );
@@ -356,7 +371,7 @@ function AlunoTopbar({ nome, fotoUrl, email, publico, pronto, menuAberto, onMenu
         >
           <Icon name={menuAberto ? 'close' : 'menu'} size={21} />
         </button>
-        <Link to="/aluno/perfil" className="brand-lockup" aria-label="Ajuda-aí — início">
+        <Link to="/aluno/inicio" className="brand-lockup" aria-label="Ajuda-aí — início">
           <img src="/images/logo.png" alt="Ajuda-aí" className="brand-logo" />
           <span className="brand-divider" />
           <img src="/images/puclogo.png" alt="PUC Minas" className="puc-logo" />
