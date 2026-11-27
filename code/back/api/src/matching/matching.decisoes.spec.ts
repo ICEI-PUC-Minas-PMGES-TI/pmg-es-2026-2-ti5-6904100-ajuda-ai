@@ -99,7 +99,7 @@ describe('Validade e decisões do matching', () => {
     );
     const rodada = await c.gerar();
     expect(rodada.totalSugestoes).toBe(0);
-    expect(rodada.relatorio.semSugestao[0].motivo).toBe('pares_recusados');
+    expect(rodada.relatorio!.semSugestao[0].motivo).toBe('pares_recusados');
     expect(c.participantes).toEqual(alunos);
     expect(c.eventos).toHaveLength(1);
     expect((await c.service.listarParesRecusados('2026/2'))[0].motivo).toBe(
@@ -257,7 +257,7 @@ describe('Validade e decisões do matching', () => {
     });
     await expect(c.gerar()).rejects.toThrow(/encerrada ou substituída/);
     expect(c.execucoes.map((e) => e.status)).toEqual(['falha', 'concluida']);
-    expect(c.execucoes[0].erro).toMatch(/timeout/);
+    expect(c.execucoes[0].erro).toMatch(/prazo de processamento excedido/);
     expect(c.sugestoes.every((s) => s.execucaoId === c.execucoes[1].id)).toBe(
       true,
     );

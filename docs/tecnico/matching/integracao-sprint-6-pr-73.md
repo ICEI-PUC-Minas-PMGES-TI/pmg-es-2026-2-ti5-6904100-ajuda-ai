@@ -2,6 +2,8 @@
 
 Validação local em 27/11/2026. Base integrada: `Sprint-6` em `d5820e7`; PR antes da integração: `4d3fd37`. A integração foi feita por merge, preservando o histórico das duas branches.
 
+As correções posteriores sobre identidade/prazo das operações e atualização incremental do chat estão em [revisao-operacoes-chat-pr-73.md](revisao-operacoes-chat-pr-73.md). Os números abaixo registram a validação da integração inicial.
+
 ## Mudanças analisadas
 
 - [PR #70](https://github.com/ICEI-PUC-Minas-PMGES-TI/pmg-es-2026-2-ti5-6904100-ajuda-ai/pull/70): XP, moedas e desfechos de resgate. As permissões passam pela participação e pelos vínculos atuais; a fixture dos testes SQL da lojinha foi adaptada ao contrato `vinculosAtuais`, sem substituir as regras da aplicação.

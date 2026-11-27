@@ -6,6 +6,7 @@ import { createServer } from "vite";
 import { consumirEventosChat } from "../src/api/chatStream.js";
 import {
   mesclarMensagens,
+  buscarPaginasChat,
   tituloConversa,
 } from "../src/pages/aluno/chatDados.js";
 
@@ -243,4 +244,25 @@ test("conexão SSE usa token no header e encerra ao sair da tela", async () => {
     globalThis.fetch = anterior;
     cliente.clearAlunoSession();
   }
+});
+
+test('500 mensagens em memória: uma nova mensagem exige uma única página, a partir da mais recente', async () => {
+ const pedidos=[], recebidas=[];
+ const resultado=await buscarPaginasChat({
+   mensagens:Array.from({length:500},(_,i)=>({id:i+1})),ativo:()=>true,
+   buscar:async cursor=>{pedidos.push(cursor);return {mensagens:[{id:501,texto:'Nova'}],temMais:false};},
+   aplicar:pagina=>recebidas.push(...pagina.mensagens),
+ });
+ assert.deepEqual(pedidos,[{antesDe:undefined,depoisDe:500}]);
+ assert.deepEqual(recebidas.map(m=>m.id),[501]);assert.equal(resultado.inicial,false);
+});
+test('buscar histórico usa a mais antiga; atualizações percorrem somente páginas novas', async () => {
+ const cursores=[];
+ await buscarPaginasChat({mensagens:[{id:100},{id:500}],anteriores:true,ativo:()=>true,
+ buscar:async c=>{cursores.push(c);return {mensagens:[{id:99}],temMais:true};},aplicar:()=>{}});
+ assert.deepEqual(cursores,[{antesDe:100,depoisDe:undefined}]);
+ const novos=[];
+ await buscarPaginasChat({mensagens:[{id:1},{id:500}],ativo:()=>true,
+ buscar:async c=>{novos.push(c.depoisDe);return c.depoisDe===500?{mensagens:[{id:550}],temMais:true}:{mensagens:[{id:551}],temMais:false};},aplicar:()=>{}});
+ assert.deepEqual(novos,[500,550]);
 });

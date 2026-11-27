@@ -6,6 +6,7 @@ import { PageHeader } from "./partes";
 import {
   alvoConversa,
   mesclarMensagens,
+  buscarPaginasChat,
   tituloConversa,
   horarioMensagem,
 } from "./chatDados";
@@ -100,6 +101,7 @@ function Thread({ chat, email, onVoltar, onAtualizarLista }) {
     carregandoRef = useRef(false),
     repetir = useRef(false),
     mensagensRef = useRef([]),
+    recibosRevisao = useRef(0),
     intencao = useRef(null),
     envioRef = useRef(false),
     listaRef = useRef(null);
@@ -125,24 +127,26 @@ function Thread({ chat, email, onVoltar, onAtualizarLista }) {
       carregandoRef.current = true;
       setCarregando(true);
       try {
-        const inicial = !mensagensRef.current.length;
-        const antesDe = anteriores ? mensagensRef.current[0]?.id : undefined;
-        let depoisDe =
-          !anteriores && !inicial ? mensagensRef.current[0].id - 1 : undefined;
-        let pagina;
-        do {
-          pagina = await api.mensagensChat(chat.id, email, {
-            antesDe,
-            depoisDe,
-          });
+        const resultado = await buscarPaginasChat({
+          mensagens: mensagensRef.current, anteriores,
+          buscar: cursores => api.mensagensChat(chat.id, email, cursores),
+          ativo: () => vivo.current,
+          aplicar: pagina => {
+            setAcesso(a => ({ ...a, ...pagina }));
+            atualizarMensagens(pagina.mensagens);
+          },
+        });
+        if (!resultado || !vivo.current) return;
+        if (resultado.inicial || anteriores) setTemMais(resultado.temMais);
+        const ultimaId = mensagensRef.current.at(-1)?.id;
+        if (!anteriores && ultimaId != null) {
+          const estados = await api.recibosChat(chat.id, email, recibosRevisao.current, ultimaId);
           if (!vivo.current) return;
-          setAcesso((a) => ({ ...a, ...pagina }));
-          atualizarMensagens(pagina.mensagens);
-          if (inicial || anteriores) setTemMais(pagina.temMais);
-          if (depoisDe !== undefined && pagina.mensagens.length)
-            depoisDe = pagina.mensagens.at(-1).id;
-          else break;
-        } while (pagina.temMais && !anteriores && vivo.current);
+          const conhecidas = new Set(mensagensRef.current.map(m => m.id));
+          atualizarMensagens((estados.recibos || []).filter(r => conhecidas.has(r.id)));
+          recibosRevisao.current = estados.recibosRevisao ?? recibosRevisao.current;
+          setAcesso(a => ({ ...a, ...estados }));
+        }
         setErro("");
       } catch (error) {
         if (vivo.current) bloquear(error);

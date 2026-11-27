@@ -83,6 +83,10 @@ export type StatusExecucaoMatching = 'executando' | 'concluida' | 'falha';
   unique: true,
   where: `"status" = 'executando'`,
 })
+@Index('uq_matching_execucao_operacao', ['programaId', 'operacaoId'], {
+  unique: true,
+  where: '"operacao_id" IS NOT NULL',
+})
 export class MatchingExecucaoEntity {
   @PrimaryGeneratedColumn()
   id!: number;
@@ -93,6 +97,9 @@ export class MatchingExecucaoEntity {
   @ManyToOne(() => ProgramaEntity, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'programa_id' })
   programa!: ProgramaEntity;
+
+  @Column({ name: 'operacao_id', type: 'uuid', nullable: true })
+  operacaoId!: string | null;
 
   @Column({ name: 'configuracao_id', type: 'int' })
   configuracaoId!: number;

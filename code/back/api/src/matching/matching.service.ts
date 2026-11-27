@@ -1,3 +1,5 @@
+import type { relatorioAlocacao } from './matching.relatorio.js';
+import { randomUUID } from 'node:crypto';
 import {
   criarVinculoNaTransacao,
   validarElegibilidadePar,
@@ -53,6 +55,8 @@ import {
   pontuarPar,
   type MetadadoCriterio,
 } from './matching.pontuacao.js';
+
+export const PRAZO_EXECUCAO_MATCHING_MS = 120_000;
 
 @Injectable()
 export class MatchingService {
@@ -761,9 +765,58 @@ export class MatchingService {
   private pontuar = pontuarPar;
   private valorPorCriterio = valorPorCriterio;
 
-  async executar(codigo: string, responsavel: string) {
+  private async expirarExecucoes(manager: EntityManager, programaId: number) {
+    const repo = manager.getRepository(MatchingExecucaoEntity);
+    const abertas = await repo.find({
+      where: { programaId, status: 'executando' },
+    });
+    for (const rodada of abertas) {
+      if (Date.now() - rodada.criadoEm.getTime() < PRAZO_EXECUCAO_MATCHING_MS)
+        continue;
+      await repo.update(
+        { id: rodada.id, status: 'executando' },
+        {
+          status: 'falha',
+          erro: 'Execução interrompida ou prazo de processamento excedido. Inicie uma nova rodada.',
+          concluidaEm: new Date(),
+        },
+      );
+    }
+  }
+
+  private validarPrazoExecucao(execucao: MatchingExecucaoEntity) {
+    if (Date.now() - execucao.criadoEm.getTime() >= PRAZO_EXECUCAO_MATCHING_MS)
+      throw new ConflictException(
+        'O prazo desta execução expirou. Inicie uma nova rodada.',
+      );
+  }
+
+  async executar(
+    codigo: string,
+    responsavel: string,
+    operacaoId: string = randomUUID(),
+  ) {
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        operacaoId,
+      )
+    )
+      throw new BadRequestException('Identificador de operação inválido.');
+    let repetida = false;
     const execucao = await this.dados.transaction(async (manager) => {
       const programa = await this.programa(manager, codigo, true);
+      await this.expirarExecucoes(manager, programa.id);
+      const anterior = await manager
+        .getRepository(MatchingExecucaoEntity)
+        .findOne({ where: { programaId: programa.id, operacaoId } });
+      if (anterior) {
+        if (anterior.iniciadaPor !== responsavel)
+          throw new ConflictException(
+            'Identificador de operação já utilizado por outro responsável.',
+          );
+        repetida = true;
+        return anterior;
+      }
       this.validarEtapa(programa);
       const config = await this.configuracaoAtual(manager, programa.id, true);
       if (!config)
@@ -776,16 +829,10 @@ export class MatchingService {
           where: { programaId: programa.id, status: 'executando' },
           order: { criadoEm: 'DESC' },
         });
-      if (emAndamento) {
-        if (Date.now() - emAndamento.criadoEm.getTime() < 15 * 60_000)
-          throw new ConflictException(
-            'Já existe uma execução de matching em andamento.',
-          );
-        emAndamento.status = 'falha';
-        emAndamento.erro = 'Execução interrompida e recuperada por timeout.';
-        emAndamento.concluidaEm = new Date();
-        await manager.getRepository(MatchingExecucaoEntity).save(emAndamento);
-      }
+      if (emAndamento)
+        throw new ConflictException(
+          'Já existe uma execução de matching em andamento.',
+        );
       const metadata = await this.metadadosDosFormularios(
         manager,
         programa.codigo,
@@ -796,6 +843,7 @@ export class MatchingService {
           programaId: programa.id,
           configuracaoId: config.id,
           status: 'executando',
+          operacaoId,
           configSnapshot: {
             politica: POLITICA_MATCHING,
             versao: config.versao,
@@ -819,6 +867,16 @@ export class MatchingService {
       );
     });
 
+    if (repetida)
+      return {
+        ...execucao,
+        relatorio: execucao.configSnapshot.relatorio as
+          ReturnType<typeof relatorioAlocacao> | undefined,
+        totalSugestoes: await this.dados
+          .getRepository(MatchingSugestaoEntity)
+          .count({ where: { execucaoId: execucao.id } }),
+      };
+
     try {
       const preparado = await this.dados.transaction(async (manager) => {
         const programa = await this.programaPorId(manager, execucao.programaId);
@@ -838,6 +896,7 @@ export class MatchingService {
           throw new ConflictException(
             'Esta execução foi encerrada ou substituída.',
           );
+        this.validarPrazoExecucao(atual);
         const metadata = await this.metadadosDosFormularios(
           manager,
           programa.codigo,
@@ -974,6 +1033,7 @@ export class MatchingService {
           throw new ConflictException(
             'Esta execução foi encerrada ou substituída.',
           );
+        this.validarPrazoExecucao(atual);
         const vigente = await this.configuracaoAtual(
           manager,
           programa.id,
@@ -1092,6 +1152,7 @@ export class MatchingService {
         });
         if (sugestoes.length)
           await manager.getRepository(MatchingSugestaoEntity).save(sugestoes);
+        this.validarPrazoExecucao(atual);
         atual.status = 'concluida';
         atual.concluidaEm = new Date();
         await manager.getRepository(MatchingExecucaoEntity).save(atual);
@@ -1372,10 +1433,13 @@ export class MatchingService {
   }
 
   async listarExecucoes(codigo: string) {
-    const programa = await this.programa(this.dados.manager, codigo);
-    return this.dados.getRepository(MatchingExecucaoEntity).find({
-      where: { programaId: programa.id },
-      order: { criadoEm: 'DESC' },
+    return this.dados.transaction(async (manager) => {
+      const programa = await this.programa(manager, codigo, true);
+      await this.expirarExecucoes(manager, programa.id);
+      return manager.getRepository(MatchingExecucaoEntity).find({
+        where: { programaId: programa.id },
+        order: { criadoEm: 'DESC' },
+      });
     });
   }
 

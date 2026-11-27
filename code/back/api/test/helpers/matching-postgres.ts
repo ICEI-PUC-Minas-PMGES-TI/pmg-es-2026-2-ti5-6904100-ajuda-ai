@@ -1,3 +1,5 @@
+import { OperacaoExecucaoMatching1795300000000 } from '../../src/migrations/1795300000000-OperacaoExecucaoMatching.js';
+import { RevisaoRecibosChat1795400000000 } from '../../src/migrations/1795400000000-RevisaoRecibosChat.js';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { ENTIDADES_MATCHING } from '../../src/matching/matching.module.js';
@@ -45,44 +47,38 @@ export async function semearCenarioMatching(
   qtdA = 3,
 ) {
   const servicos = servicosMatching(dados);
-  const programa = await dados
-    .getRepository(ProgramaEntity)
-    .save({
-      codigo: ParticipacoesService.programaAtual(),
-      titulo: 'Teste isolado',
-      etapaAtual: 'formacao',
-      inscricoesAbertas: false,
-      formularioPublicado: true,
-      matchingPendente: false,
-      vagasApadrinhados: 20,
-      gruposPrevistos: 3,
-    });
-  const p = await dados
-    .getRepository(ParticipacaoEntity)
-    .save(
-      Array.from({ length: qtdP }, (_, i) => ({
-        usuarioId: `p${i}@teste.local`,
-        programa: programa.codigo,
-        papel: 'candidato' as const,
-        status: 'aprovado' as const,
-        grupo: null,
-        apadrinhados: 0,
-        respostas: { nome: `Padrinho ${i}`, periodo: 4, areas: ['Tecnologia'] },
-      })),
-    );
-  const a = await dados
-    .getRepository(ParticipacaoEntity)
-    .save(
-      Array.from({ length: qtdA }, (_, i) => ({
-        usuarioId: `a${i}@teste.local`,
-        programa: programa.codigo,
-        papel: 'apadrinhado' as const,
-        status: 'em_andamento' as const,
-        grupo: null,
-        apadrinhados: 0,
-        respostas: { nome: `Aluno ${i}`, periodo: 1, areas: ['Tecnologia'] },
-      })),
-    );
+  const programa = await dados.getRepository(ProgramaEntity).save({
+    codigo: ParticipacoesService.programaAtual(),
+    titulo: 'Teste isolado',
+    etapaAtual: 'formacao',
+    inscricoesAbertas: false,
+    formularioPublicado: true,
+    matchingPendente: false,
+    vagasApadrinhados: 20,
+    gruposPrevistos: 3,
+  });
+  const p = await dados.getRepository(ParticipacaoEntity).save(
+    Array.from({ length: qtdP }, (_, i) => ({
+      usuarioId: `p${i}@teste.local`,
+      programa: programa.codigo,
+      papel: 'candidato' as const,
+      status: 'aprovado' as const,
+      grupo: null,
+      apadrinhados: 0,
+      respostas: { nome: `Padrinho ${i}`, periodo: 4, areas: ['Tecnologia'] },
+    })),
+  );
+  const a = await dados.getRepository(ParticipacaoEntity).save(
+    Array.from({ length: qtdA }, (_, i) => ({
+      usuarioId: `a${i}@teste.local`,
+      programa: programa.codigo,
+      papel: 'apadrinhado' as const,
+      status: 'em_andamento' as const,
+      grupo: null,
+      apadrinhados: 0,
+      respostas: { nome: `Aluno ${i}`, periodo: 1, areas: ['Tecnologia'] },
+    })),
+  );
   await servicos.matching.salvarConfiguracao(
     {
       programa: programa.codigo,
@@ -116,6 +112,8 @@ export const MIGRACOES_MATCHING_NOVO = [
   DecisoesParesMatching1794300000000,
   GruposTransferenciasMatching1794400000000,
   ChatGruposAcesso1794500000000,
+  OperacaoExecucaoMatching1795300000000,
+  RevisaoRecibosChat1795400000000,
 ];
 export const ENTIDADES_TESTE_MATCHING = [
   ...new Set([

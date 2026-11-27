@@ -57,6 +57,7 @@ function preparar(
   const sugestoes: MatchingSugestaoEntity[] = [];
   const repo = <T extends { id?: number }>(lista: T[]) => {
     const salvar = (d: T) => {
+      (d as any).criadoEm ??= new Date();
       if (!d.id) {
         d.id = lista.length + 1;
         lista.push(d);
@@ -127,7 +128,7 @@ describe('Execução real do serviço com a política v3', () => {
     const resultado = await cenario.service.executar('2026/2', 'coord');
     expect(resultado.totalSugestoes).toBe(3);
     expect(
-      resultado.relatorio.cargaPadrinhos.map((c) => c.sugeridos).sort(),
+      resultado.relatorio!.cargaPadrinhos.map((c) => c.sugeridos).sort(),
     ).toEqual([1, 2]);
     expect(resultado.configSnapshot.politica).toMatchObject({
       versao: '3.0.0',
@@ -148,7 +149,7 @@ describe('Execução real do serviço com a política v3', () => {
     ]);
     const resultado = await cenario.service.executar('2026/2', 'coord');
     expect(resultado.totalSugestoes).toBe(0);
-    expect(resultado.relatorio.semSugestao.map((a) => a.motivo)).toEqual([
+    expect(resultado.relatorio!.semSugestao.map((a) => a.motivo)).toEqual([
       'sem_afinidade',
       'dados_insuficientes',
     ]);
@@ -161,7 +162,7 @@ describe('Execução real do serviço com a política v3', () => {
       true,
     );
     expect(
-      (await obrigatorio.service.executar('2026/2', 'coord')).relatorio
+      (await obrigatorio.service.executar('2026/2', 'coord')).relatorio!
         .semSugestao[0].motivo,
     ).toBe('condicoes_obrigatorias');
   });
@@ -209,7 +210,7 @@ describe('Execução real do serviço com a política v3', () => {
     );
     const resultado = await cenario.service.executar('2026/2', 'coord');
     expect(resultado.totalSugestoes).toBe(0);
-    expect(resultado.relatorio.semSugestao[0]).toMatchObject({
+    expect(resultado.relatorio!.semSugestao[0]).toMatchObject({
       motivo: 'sem_vagas',
       paresAdequados: 1,
     });
@@ -222,7 +223,7 @@ describe('Execução real do serviço com a política v3', () => {
       ),
     ]);
     expect(
-      (await disputado.service.executar('2026/2', 'coord')).relatorio
+      (await disputado.service.executar('2026/2', 'coord')).relatorio!
         .semSugestao[0].motivo,
     ).toBe('vagas_disputadas');
   });

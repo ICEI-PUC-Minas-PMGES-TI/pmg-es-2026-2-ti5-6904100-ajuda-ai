@@ -97,6 +97,12 @@ export class ProgramaMatchingDto {
   programa!: string;
 }
 
+export class ExecutarMatchingDto extends ProgramaMatchingDto {
+  @IsOptional()
+  @IsUUID()
+  operacaoId?: string;
+}
+
 export class LiberarMatchingDto extends ProgramaMatchingDto {
   @IsBoolean()
   liberado!: boolean;

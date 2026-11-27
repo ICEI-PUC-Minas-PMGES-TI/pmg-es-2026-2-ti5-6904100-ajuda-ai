@@ -858,6 +858,7 @@ function MatchingPorPrograma({ programa }) {
   const ativo = useRef(true);
   const sequencia = useRef(0);
   const retomada = useRef(null);
+  const intencaoOperacao = useRef(null);
 
   const carregar = useCallback(async () => {
     if (!programa || !ativo.current) return;
@@ -895,15 +896,26 @@ function MatchingPorPrograma({ programa }) {
   }, [carregar]);
 
   async function executar() {
-    const anteriorId = execucoes[0]?.id;
+    const operacaoId = intencaoOperacao.current ?? crypto.randomUUID();
+    intencaoOperacao.current = operacaoId;
     const token = getStoredToken();
     const vigente = () => ativo.current && getStoredToken() === token;
     setExecutando(true);
     setConfirmarExecucao(false);
     setErro('');
     try {
-      const resposta = await api.executarMatching(programa);
+      const resposta = await api.executarMatching(programa, operacaoId);
       if (!vigente()) return;
+      if (resposta.status === 'executando') {
+        setAcompanhamento({ operacaoId, execucaoId: resposta.id });
+        return;
+      }
+      intencaoOperacao.current = null;
+      if (resposta.status === 'falha') {
+        await carregar();
+        if (vigente()) setErro(resposta.erro || 'A execução falhou.');
+        return;
+      }
       toast(`Execução concluída: ${resposta.totalSugestoes || 0} sugestão(ões).`, 'sucesso');
       setStatus('pendente');
       if (status === 'pendente') await carregar();
@@ -911,10 +923,11 @@ function MatchingPorPrograma({ programa }) {
       if (!vigente()) return;
       const atuais = await carregar();
       if (!vigente()) return;
-      const emCurso = atuais?.find(r => r.status === 'executando');
-      if (emCurso || e.status === 0 || e.status >= 500) {
-        setAcompanhamento({ anteriorId, execucaoId: emCurso?.id });
+      const minhaRodada = atuais?.find(r => r.operacaoId === operacaoId);
+      if (minhaRodada || e.status === 0 || e.status >= 500) {
+        setAcompanhamento({ operacaoId, execucaoId: minhaRodada?.id });
       } else {
+        intencaoOperacao.current = null;
         setErro(e.message || 'A execução falhou.');
       }
     } finally {
@@ -926,9 +939,9 @@ function MatchingPorPrograma({ programa }) {
   const aguardando = executando || !!acompanhamento || !!emCurso;
 
   useEffect(() => {
-    if (!acompanhamento && emCurso && retomada.current !== emCurso.id) {
+    if (!intencaoOperacao.current && !acompanhamento && emCurso && retomada.current !== emCurso.id) {
       retomada.current = emCurso.id;
-      setAcompanhamento({ execucaoId: emCurso.id });
+      setAcompanhamento({ execucaoId: emCurso.id, operacaoId: emCurso.operacaoId });
     }
   }, [acompanhamento, emCurso]);
 
@@ -949,11 +962,13 @@ function MatchingPorPrograma({ programa }) {
       if (!vigente()) return;
       setStatus('pendente');
       setAcompanhamento(null);
+      if (rodada.operacaoId === intencaoOperacao.current) intencaoOperacao.current = null;
       if (rodada.status === 'falha') setErro(rodada.erro || 'A execução falhou.');
       else toast('Rodada concluída. Sugestões atualizadas.', 'sucesso');
     }).catch(e => {
       if (!vigente()) return;
       retomada.current = acompanhamento.execucaoId;
+      setExecucoes(atuais => atuais.filter(r => r.id !== acompanhamento.execucaoId));
       setAcompanhamento(null);
       setErro(e.message || 'Não foi possível acompanhar a rodada.');
     });

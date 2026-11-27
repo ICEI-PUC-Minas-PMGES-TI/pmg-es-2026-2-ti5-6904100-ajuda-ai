@@ -1,3 +1,4 @@
+import { ExecutarMatchingDto } from './dto/matching.dto.js';
 import { VinculosService } from './vinculos.service.js';
 import { TransferirApadrinhadoDto } from './dto/matching.dto.js';
 import {
@@ -26,7 +27,6 @@ import {
 } from './dto/criterio-catalogo.dto.js';
 import {
   LiberarMatchingDto,
-  ProgramaMatchingDto,
   RecusarSugestaoDto,
   ReconsiderarParDto,
   SalvarConfiguracaoMatchingDto,
@@ -166,8 +166,8 @@ export class MatchingController {
   }
 
   @Post('executar')
-  executar(@Body() dto: ProgramaMatchingDto, @Req() req: AuthenticatedRequest) {
-    return this.matching.executar(dto.programa, req.user.email);
+  executar(@Body() dto: ExecutarMatchingDto, @Req() req: AuthenticatedRequest) {
+    return this.matching.executar(dto.programa, req.user.email, dto.operacaoId);
   }
 
   @Get('execucoes')

@@ -29,6 +29,45 @@ const enviar = (
 afterEach(() => vi.useRealTimers());
 
 describe('Chat integrado ao domínio de vínculos', () => {
+  it('recibos de mensagens antigas avançam por revisão, sem repetir o histórico', async () => {
+    const c = cenario();
+    await c.operacoes.vincular(100, 1, autor);
+    await c.operacoes.vincular(101, 1, autor);
+    const chat = grupo(c).id;
+    const m = await enviar(c, chat, 1, 'Mensagem antiga');
+    await c.servicoChat.listarMensagens(chat, email(c, 100));
+    const a = await c.servicoChat.listarRecibos(chat, email(c, 1), 0, m.id);
+    expect(a.recibos).toEqual([
+      expect.objectContaining({
+        id: m.id,
+        recibos: { total: 2, entregues: 1, lidas: 1 },
+      }),
+    ]);
+    expect(a.recibos[0]).not.toHaveProperty('texto');
+    expect(
+      (
+        await c.servicoChat.listarRecibos(
+          chat,
+          email(c, 1),
+          a.recibosRevisao,
+          m.id,
+        )
+      ).recibos,
+    ).toEqual([]);
+    await c.servicoChat.listarMensagens(chat, email(c, 101));
+    const b = await c.servicoChat.listarRecibos(
+      chat,
+      email(c, 1),
+      a.recibosRevisao,
+      m.id,
+    );
+    expect(b.recibos[0].recibos.lidas).toBe(2);
+    expect(b.recibosRevisao).toBeGreaterThan(a.recibosRevisao);
+    await expect(
+      c.servicoChat.listarRecibos(chat, 'fora@teste.local', 0, m.id),
+    ).rejects.toThrow(/encontrada/);
+  });
+
   it('entrega atrasada não apaga a leitura confirmada em outra sessão', async () => {
     const c = cenario();
     await c.operacoes.vincular(100, 1, autor);

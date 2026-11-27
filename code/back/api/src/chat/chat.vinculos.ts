@@ -79,6 +79,9 @@ export async function avancarRevisao(manager: EntityManager, chatId: number) {
   await manager
     .getRepository(ChatEntity)
     .increment({ id: chatId }, 'revisao', 1);
+  return (await manager
+    .getRepository(ChatEntity)
+    .findOne({ where: { id: chatId } }))!.revisao;
 }
 
 /** Chamado somente na transação que já detém o lock do ciclo. */

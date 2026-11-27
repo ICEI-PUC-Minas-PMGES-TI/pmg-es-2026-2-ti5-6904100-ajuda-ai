@@ -68,3 +68,20 @@ export function alvoConversa(conversas, { vinculo, grupo, pessoa } = {}) {
       )
     : undefined;
 }
+
+/** Busca só o intervalo novo; paginação de histórico segue um caminho separado. */
+export async function buscarPaginasChat({ mensagens, anteriores = false, buscar, aplicar, ativo }) {
+  const inicial = mensagens.length === 0;
+  const antesDe = anteriores ? mensagens[0]?.id : undefined;
+  let depoisDe = !anteriores && !inicial ? mensagens.at(-1).id : undefined;
+  let pagina;
+  do {
+    pagina = await buscar({ antesDe, depoisDe });
+    if (!ativo()) return null;
+    aplicar(pagina);
+    const proximo = pagina.mensagens.at(-1)?.id;
+    if (depoisDe === undefined || proximo == null || proximo <= depoisDe) break;
+    depoisDe = proximo;
+  } while (pagina.temMais && !anteriores && ativo());
+  return { inicial, temMais: pagina.temMais };
+}

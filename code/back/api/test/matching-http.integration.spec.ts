@@ -25,6 +25,58 @@ describe.skipIf(
     await banco?.limpar();
   }, 30_000);
 
+  it('recibos HTTP atualizam mensagem antiga sem trazer o texto ou páginas do histórico', async () => {
+    banco = await bancoMatchingIsolado();
+    const c = await semearCenarioMatching(banco.dados);
+    const v = (
+      await c.operacoes.vincular(c.a[0].id, c.p[0].id, 'coord@teste.local')
+    ).vinculo;
+    const chat = await banco.dados
+      .getRepository(ChatEntity)
+      .findOneByOrFail({ tipo: 'privado', matchingVinculoId: v.id });
+    const api = await apiMatchingIsolada(banco.dados);
+    apis.push(api);
+    const http = request(api.app.getHttpServer());
+    const padrinho = `Bearer ${api.token(c.p[0].usuarioId)}`,
+      aluno = `Bearer ${api.token(c.a[0].usuarioId)}`;
+    const enviada = await http
+      .post(`/chats/${chat.id}/mensagens`)
+      .set('Authorization', padrinho)
+      .send({ texto: 'Mensagem anterior', clientId: randomUUID() })
+      .expect(201);
+    const primeira = await http
+      .get(
+        `/chats/${chat.id}/recibos?depoisDaRevisao=0&ateMensagemId=${enviada.body.id}`,
+      )
+      .set('Authorization', padrinho)
+      .expect(200);
+    await http
+      .get(`/chats/${chat.id}/mensagens`)
+      .set('Authorization', aluno)
+      .expect(200);
+    const atualizada = await http
+      .get(
+        `/chats/${chat.id}/recibos?depoisDaRevisao=${primeira.body.recibosRevisao}&ateMensagemId=${enviada.body.id}`,
+      )
+      .set('Authorization', padrinho)
+      .expect(200);
+    expect(atualizada.body.recibos).toEqual([
+      {
+        id: enviada.body.id,
+        estado: 'lida',
+        recibos: { total: 1, entregues: 1, lidas: 1 },
+      },
+    ]);
+    expect(JSON.stringify(atualizada.body)).not.toContain('Mensagem anterior');
+    const repetida = await http
+      .get(
+        `/chats/${chat.id}/recibos?depoisDaRevisao=${atualizada.body.recibosRevisao}&ateMensagemId=${enviada.body.id}`,
+      )
+      .set('Authorization', padrinho)
+      .expect(200);
+    expect(repetida.body.recibos).toEqual([]);
+  }, 30000);
+
   it('transferência atualiza chat, stream e moderação com os mesmos JWTs; encerramento suspende comandos', async () => {
     banco = await bancoMatchingIsolado();
     const c = await semearCenarioMatching(banco.dados);

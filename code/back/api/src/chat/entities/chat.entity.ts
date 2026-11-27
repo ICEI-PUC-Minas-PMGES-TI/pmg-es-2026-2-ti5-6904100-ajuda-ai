@@ -185,8 +185,10 @@ export class ChatPeriodoEntity {
 @Entity({ name: 'chat_destinatarios' })
 @Unique('uq_chat_destinatario', ['mensagemId', 'participacaoId'])
 @Index('idx_chat_destinatario_pessoa', ['participacaoId', 'mensagemId'])
+@Index('idx_chat_destinatario_revisao', ['chatId', 'revisao'])
 export class ChatDestinatarioEntity {
   @PrimaryGeneratedColumn() id!: number;
+  @Column({ type: 'int', default: 0 }) revisao!: number;
   @Column({ name: 'chat_id', type: 'int' }) chatId!: number;
   @ManyToOne(() => ChatEntity, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'chat_id' })

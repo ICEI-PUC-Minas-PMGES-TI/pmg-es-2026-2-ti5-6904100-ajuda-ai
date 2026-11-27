@@ -44,6 +44,45 @@ describe.skipIf(
     return servicosMatching(banco.outra);
   }
 
+  it('dois POSTs com a mesma operação criam apenas uma execução no PostgreSQL', async () => {
+    const c = await semearCenarioMatching(banco.dados);
+    const outra = await segundaConexao();
+    const operacaoId = randomUUID();
+    const [a, b] = await Promise.all([
+      c.matching.executar(c.programa.codigo, autor, operacaoId),
+      outra.matching.executar(c.programa.codigo, autor, operacaoId),
+    ]);
+    expect(a.id).toBe(b.id);
+    expect(
+      await banco.dados
+        .getRepository(MatchingExecucaoEntity)
+        .countBy({ operacaoId }),
+    ).toBe(1);
+    await expect(
+      outra.matching.executar(
+        c.programa.codigo,
+        'outro@teste.local',
+        operacaoId,
+      ),
+    ).rejects.toThrow(/outro responsável/);
+  }, 30000);
+
+  it('GET recupera uma execução abandonada sem depender de novo POST', async () => {
+    const c = await semearCenarioMatching(banco.dados);
+    const antiga = await c.matching.executar(c.programa.codigo, autor);
+    await banco.dados
+      .getRepository(MatchingExecucaoEntity)
+      .update(antiga.id, {
+        status: 'executando',
+        criadoEm: new Date(Date.now() - 180000),
+      });
+    const estado = await c.matching.listarExecucoes(c.programa.codigo);
+    expect(estado.find((e) => e.id === antiga.id)?.status).toBe('falha');
+    expect((await c.matching.executar(c.programa.codigo, autor)).status).toBe(
+      'concluida',
+    );
+  }, 30000);
+
   it.each(['vinculo', 'configuracao', 'encerramento'] as const)(
     'libera o ciclo durante o cálculo e recusa publicação após mudança de %s',
     async (mudanca) => {
@@ -121,13 +160,13 @@ describe.skipIf(
     30_000,
   );
 
-  it('aplica as 14 migrações em schema vazio e repetir não altera o banco', async () => {
+  it('aplica as 16 migrações em schema vazio e repetir não altera o banco', async () => {
     expect(await banco.dados.showMigrations()).toBe(false);
     expect(await banco.dados.runMigrations()).toEqual([]);
     const [{ total }] = await banco.dados.query(
       `SELECT count(*)::int AS total FROM "${banco.schema}".migrations`,
     );
-    expect(total).toBe(14);
+    expect(total).toBe(16);
     expect(banco.dados.options.synchronize).toBe(false);
   });
   it('aprovação sugerida e vínculo manual disputam a última vaga entre pools', async () => {

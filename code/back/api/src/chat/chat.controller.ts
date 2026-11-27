@@ -52,6 +52,16 @@ export class ChatController {
     );
   }
 
+  @Get(':id/recibos')
+  recibos(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('depoisDaRevisao', ParseIntPipe) revisao: number,
+    @Query('ateMensagemId', ParseIntPipe) ate: number,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.chats.listarRecibos(id, req.user.email, revisao, ate);
+  }
+
   @Sse(':id/events')
   eventos(
     @Param('id', ParseIntPipe) id: number,

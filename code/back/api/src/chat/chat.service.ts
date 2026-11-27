@@ -7,7 +7,14 @@ import {
   type MessageEvent,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { Between, DataSource, EntityManager, In, IsNull } from 'typeorm';
+import {
+  Between,
+  DataSource,
+  EntityManager,
+  In,
+  IsNull,
+  MoreThan,
+} from 'typeorm';
 import { Observable } from 'rxjs';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
@@ -142,6 +149,7 @@ export class ChatService {
 
   private acesso(c: Contexto) {
     return {
+      recibosRevisao: c.chat.revisao ?? 0,
       minhaParticipacaoId: c.minhaParticipacaoId,
       minhasParticipacoesIds: c.ids,
       podeEnviar: c.podeEnviar,
@@ -191,12 +199,19 @@ export class ChatService {
     c: Contexto,
     mensagens?: number[],
   ) {
+    if (mensagens && !mensagens.length) return;
     const repo = manager.getRepository(ChatDestinatarioEntity);
     const recibos = await repo.find({
-      where: { chatId: c.chat.id, participacaoId: In(c.ids) },
+      where: {
+        chatId: c.chat.id,
+        participacaoId: In(c.ids),
+        ...(mensagens
+          ? { mensagemId: In(mensagens), lidaEm: IsNull() }
+          : { entregueEm: IsNull() }),
+      },
       order: { id: 'ASC' },
     });
-    let alterou = false;
+    const alterados: number[] = [];
     for (const recibo of recibos) {
       if (
         !mensagemNoHistorico(recibo.mensagemId, c.intervalos) ||
@@ -216,10 +231,13 @@ export class ChatService {
             )
           : null;
         if ((entrega.affected ?? 0) + (leitura?.affected ?? 0) > 0)
-          alterou = true;
+          alterados.push(recibo.id);
       }
     }
-    if (alterou) await avancarRevisao(manager, c.chat.id);
+    if (alterados.length) {
+      c.chat.revisao = await avancarRevisao(manager, c.chat.id);
+      await repo.update({ id: In(alterados) }, { revisao: c.chat.revisao });
+    }
   }
 
   async listar(email: string, codigo?: string) {
@@ -332,6 +350,56 @@ export class ChatService {
     });
   }
 
+  /** Delta de estado, sem baixar novamente o texto das mensagens já carregadas. */
+  async listarRecibos(
+    chatId: number,
+    email: string,
+    depoisDaRevisao: number,
+    ateMensagemId: number,
+  ) {
+    if (
+      !Number.isSafeInteger(depoisDaRevisao) ||
+      depoisDaRevisao < 0 ||
+      !Number.isSafeInteger(ateMensagemId) ||
+      ateMensagemId < 1
+    )
+      throw new BadRequestException('Cursor de recibos inválido.');
+    return this.comAcesso(chatId, email, false, async (manager, c) => {
+      const revisao = c.chat.revisao ?? 0;
+      const alterados = await manager
+        .getRepository(ChatDestinatarioEntity)
+        .find({
+          where: { chatId, revisao: MoreThan(depoisDaRevisao) },
+        });
+      const ids = [
+        ...new Set(
+          alterados
+            .filter(
+              (r) =>
+                r.revisao <= revisao &&
+                r.mensagemId <= ateMensagemId &&
+                mensagemNoHistorico(r.mensagemId, c.intervalos),
+            )
+            .map((r) => r.mensagemId),
+        ),
+      ];
+      const mensagens = ids.length
+        ? await manager
+            .getRepository(MensagemChatEntity)
+            .find({ where: { chatId, id: In(ids) } })
+        : [];
+      const estados = await this.serializar(manager, mensagens);
+      return {
+        recibos: estados.map(({ id, estado, recibos }) => ({
+          id,
+          estado,
+          recibos,
+        })),
+        ...this.acesso(c),
+      };
+    });
+  }
+
   async enviarMensagem(
     chatId: number,
     email: string,
@@ -405,7 +473,12 @@ export class ChatService {
       await manager
         .getRepository(ChatEntity)
         .update({ id: chatId }, { atualizadoEm: new Date() });
-      await avancarRevisao(manager, chatId);
+      c.chat.revisao = await avancarRevisao(manager, chatId);
+      if (destinatarios.length)
+        await repoRecibos.update(
+          { mensagemId: mensagem.id },
+          { revisao: c.chat.revisao },
+        );
       return (await this.serializar(manager, [mensagem]))[0];
     });
   }

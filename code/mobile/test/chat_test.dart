@@ -63,6 +63,70 @@ class StreamChat extends http.BaseClient {
 }
 
 void main() {
+  testWidgets(
+    '500 mensagens carregadas: evento busca apenas a nova e atualiza recibos antigos separadamente',
+    (tester) async {
+      final stream = StreamChat();
+      final consultas = <Uri>[];
+      final consultasRecibos = <Uri>[];
+      var nova = false;
+      var primeiro = true;
+      final api = ChatApi(
+        token: () => 'jwt',
+        baseUrl: '',
+        streamClientFactory: () => stream,
+        client: MockClient((r) async {
+          if (r.url.path == '/chats') {
+            return json([conversa()]);
+          }
+          if (r.url.path.endsWith('/recibos')) {
+            consultasRecibos.add(r.url);
+            return json({'recibos': [], 'recibosRevisao': nova ? 2 : 1});
+          }
+          consultas.add(r.url);
+          if (primeiro) {
+            primeiro = false;
+            return json({
+              ...conversa(),
+              'mensagens': List.generate(
+                500,
+                (i) => mensagem(i + 1, 'Mensagem ${i + 1}'),
+              ),
+              'temMais': false,
+            });
+          }
+          final cursor =
+              int.tryParse(r.url.queryParameters['depoisDe'] ?? '') ?? 0;
+          return json({
+            ...conversa(),
+            'mensagens': cursor == 500 && nova
+                ? [mensagem(501, 'Única nova')]
+                : [],
+            'temMais': false,
+          });
+        }),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TelaConversaChat(api: api, chat: conversa()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      consultas.clear();
+      consultasRecibos.clear();
+      nova = true;
+      stream.evento('chat.changed', {'revisao': 2});
+      await tester.pumpAndSettle();
+      expect(consultas.length, 1);
+      expect(consultasRecibos.length, 1);
+      expect(consultasRecibos.single.queryParameters['depoisDaRevisao'], '1');
+      expect(consultasRecibos.single.queryParameters['ateMensagemId'], '501');
+      expect(consultas.single.queryParameters['depoisDe'], '500');
+      await tester.pumpWidget(const SizedBox.shrink());
+      api.fechar();
+    },
+  );
+
   for (final coletivo in [true, false]) {
     testWidgets(
       'atalho por ${coletivo ? 'grupo' : 'vínculo'} abre o ID correto sem escolher a primeira conversa',

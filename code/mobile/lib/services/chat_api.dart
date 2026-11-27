@@ -90,6 +90,20 @@ class ChatApi {
       },
     ) as Map,
   );
+  Future<Map<String, dynamic>> recibos(
+    int id,
+    int depoisDaRevisao,
+    int ateMensagemId,
+  ) async => Map<String, dynamic>.from(
+    await _request(
+      '/chats/$id/recibos',
+      query: {
+        'depoisDaRevisao': '$depoisDaRevisao',
+        'ateMensagemId': '$ateMensagemId',
+      },
+    ) as Map,
+  );
+
   Future<Map<String, dynamic>> enviar(
     int id,
     String texto,

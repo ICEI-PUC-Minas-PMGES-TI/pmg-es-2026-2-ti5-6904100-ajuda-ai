@@ -17,14 +17,12 @@ describe.skipIf(
     banco = await bancoMatchingIsolado(false);
     const { dados, schema } = banco,
       s = `"${schema}"`;
-    const programa = await dados
-      .getRepository(ProgramaEntity)
-      .save({
-        codigo: '2026/2',
-        titulo: 'Recusa legada',
-        etapaAtual: 'formacao',
-        inscricoesAbertas: false,
-      });
+    const programa = await dados.getRepository(ProgramaEntity).save({
+      codigo: '2026/2',
+      titulo: 'Recusa legada',
+      etapaAtual: 'formacao',
+      inscricoesAbertas: false,
+    });
     const [p, a] = await dados.getRepository(ParticipacaoEntity).save(
       [
         {
@@ -139,7 +137,7 @@ describe.skipIf(
       [semOrigem, a1.id],
     );
 
-    expect(await banco.aplicarNovas()).toHaveLength(3);
+    expect(await banco.aplicarNovas()).toHaveLength(5);
     expect(await banco.aplicarNovas()).toEqual([]);
     expect(
       (

@@ -357,8 +357,8 @@ export const api = {
   liberarMatching(codigo) {
     return request(`/coordenacao/programas/liberar-matching${query({ codigo })}`, { method: 'POST' });
   },
-  executarMatching(programa) {
-    return request('/coordenacao/matching/executar', { method: 'POST', body: { programa } });
+  executarMatching(programa, operacaoId) {
+    return request('/coordenacao/matching/executar', { method: 'POST', body: { programa, operacaoId } });
   },
   execucoesMatching(programa) {
     return request(`/coordenacao/matching/execucoes${query({ programa })}`);
@@ -383,6 +383,9 @@ export const api = {
   },
   mensagensChat(id, email, { antesDe, depoisDe, signal } = {}) {
     return request(`/chats/${id}/mensagens${query({ antesDe, depoisDe })}`, { aluno: exigirEmailChat(email), signal });
+  },
+  recibosChat(id, email, depoisDaRevisao, ateMensagemId) {
+    return request(`/chats/${id}/recibos${query({ depoisDaRevisao, ateMensagemId })}`, { aluno: exigirEmailChat(email) });
   },
   enviarMensagemChat(id, texto, email, clientId) {
     return request(`/chats/${id}/mensagens`, { method: 'POST', body: { texto, clientId }, aluno: exigirEmailChat(email) });

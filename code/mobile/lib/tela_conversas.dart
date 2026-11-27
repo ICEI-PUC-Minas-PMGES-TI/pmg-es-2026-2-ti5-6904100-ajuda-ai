@@ -343,6 +343,8 @@ class _TelaConversaChatState extends State<TelaConversaChat>
     _erro = '$erro';
   }
 
+  int _recibosRevisao = 0;
+
   Future<void> _carregar({bool anteriores = false}) async {
     if (!mounted || !_valida || !_resumed) return;
     if (_busy) {
@@ -357,7 +359,7 @@ class _TelaConversaChatState extends State<TelaConversaChat>
           ? (_mensagens.first['id'] as num).toInt()
           : null;
       int? depois = !anteriores && !inicial
-          ? (_mensagens.first['id'] as num).toInt() - 1
+          ? (_mensagens.last['id'] as num).toInt()
           : null;
       Map<String, dynamic> pagina;
       do {
@@ -383,6 +385,26 @@ class _TelaConversaChatState extends State<TelaConversaChat>
           break;
         }
       } while (pagina['temMais'] == true && !anteriores && mounted && _valida);
+      if (!anteriores && _mensagens.isNotEmpty) {
+        final estados = await widget.api.recibos(
+          _id,
+          _recibosRevisao,
+          (_mensagens.last['id'] as num).toInt(),
+        );
+        if (!mounted || !_valida) return;
+        final conhecidas = _mensagens.map((m) => m['id']).toSet();
+        final recibos = (estados['recibos'] as List? ?? [])
+            .whereType<Map>()
+            .where((r) => conhecidas.contains(r['id']))
+            .map((r) => Map<String, dynamic>.from(r))
+            .toList();
+        setState(() {
+          _mensagens = mesclarMensagensChat(_mensagens, recibos);
+          _recibosRevisao =
+              (estados['recibosRevisao'] as num?)?.toInt() ?? _recibosRevisao;
+          _acesso = {..._acesso, ...estados};
+        });
+      }
       if (_acesso['podeEnviar'] == true && _resumed && _eventos == null) {
         _conectar();
       }
