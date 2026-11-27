@@ -24,6 +24,9 @@ import { PucStopsEXpGlobal1792279161187 } from '../src/migrations/1792279161187-
 import { LojinhaResgates1792800000000 } from '../src/migrations/1792800000000-LojinhaResgates.js';
 import { LojinhaRecompensas1792900000000 } from '../src/migrations/1792900000000-LojinhaRecompensas.js';
 import { CodigoResgates1793500000000 } from '../src/migrations/1793500000000-CodigoResgates.js';
+import { EntregaResgatesEAjustesXp1794200000000 } from '../src/migrations/1794200000000-EntregaResgatesEAjustesXp.js';
+import { ResgatesProgramaDaTroca1794300000000 } from '../src/migrations/1794300000000-ResgatesProgramaDaTroca.js';
+import { ProgramaRecompensasFk1794100000000 } from '../src/migrations/1794100000000-ProgramaRecompensasFk.js';
 import { LojinhaController } from '../src/gamificacao/lojinha/lojinha.controller.js';
 import { LojinhaService } from '../src/gamificacao/lojinha/lojinha.service.js';
 import { randomUUID } from 'node:crypto';
@@ -41,6 +44,9 @@ const MIGRATIONS: Array<new () => MigrationInterface> = [
   LojinhaRecompensas1792900000000,
   CodigoResgates1793500000000,
   GamificacaoNiveisMoedasCiclos1794000000000,
+  ProgramaRecompensasFk1794100000000,
+  EntregaResgatesEAjustesXp1794200000000,
+  ResgatesProgramaDaTroca1794300000000,
 ];
 
 async function admin(sql: string): Promise<void> {
@@ -266,10 +272,10 @@ describe.skipIf(!URL_TESTE)(
         'coord@pucminas.edu.br',
       );
       await ds.query(
-        `INSERT INTO feed.programas (codigo, titulo, etapa_atual) VALUES ('2026-2', 'Programa 2026/2', 'inscricoes')`,
+        `INSERT INTO feed.programas (codigo, titulo, etapa_atual) VALUES ('2026/2', 'Programa 2026/2', 'inscricoes')`,
       );
       await ds.query(
-        `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ('aluno@pucminas.edu.br', '2026-1', 'apadrinhado', 'em_andamento')`,
+        `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ('aluno@pucminas.edu.br', '2026/1', 'apadrinhado', 'em_andamento')`,
       );
 
       const modulo = await Test.createTestingModule({
@@ -343,7 +349,7 @@ describe.skipIf(!URL_TESTE)(
             condicoesRetirada: 'Retirar em qualquer evento do programa.',
             estoqueIlimitado: true,
             publico: 'padrinhos',
-            programaCodigo: '2026-2',
+            programaCodigo: '2026/2',
             disponivelAte: FUTURO,
             limitePorAluno: 2,
             imagemUrl: 'https://exemplo.com/adesivo.png',
@@ -355,7 +361,7 @@ describe.skipIf(!URL_TESTE)(
           status: 'publicada',
           disponivelAgora: true,
           publico: 'padrinhos',
-          programaCodigo: '2026-2',
+          programaCodigo: '2026/2',
           limitePorAluno: 2,
           criadoPor: coordId,
           estoque: { ilimitado: true, total: null, disponivel: null },
@@ -464,7 +470,7 @@ describe.skipIf(!URL_TESTE)(
         const { body: outro } = await editar(id, {
           publico: 'apadrinhados',
           limitePorAluno: 1,
-          programaCodigo: '2026-2',
+          programaCodigo: '2026/2',
         }).expect(200);
         expect(outro).toMatchObject({
           versao: 2,
@@ -695,7 +701,7 @@ describe.skipIf(!URL_TESTE)(
             `VALUES ('Padrinho', 'padrinho@pucminas.edu.br', 'ES', 5, 'padrinho', 'aprovado') RETURNING id`,
         )) as Array<{ id: number }>;
         await ds.query(
-          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ('padrinho@pucminas.edu.br', '2026-2', 'padrinho', 'aprovado')`,
+          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ('padrinho@pucminas.edu.br', '2026/2', 'padrinho', 'aprovado')`,
         );
       });
 
@@ -706,7 +712,7 @@ describe.skipIf(!URL_TESTE)(
         const padrinhos = await novo({ nome: 'Vis 4', publico: 'padrinhos' });
         const programa = await novo({
           nome: 'Vis 5',
-          programaCodigo: '2026-2',
+          programaCodigo: '2026/2',
         });
         const doAluno = (await vitrine()).map((r) => r.id);
         expect(doAluno).toContain(visivel);
@@ -862,7 +868,7 @@ describe.skipIf(!URL_TESTE)(
             [`Aluno ${i}`, `concorrente${i}@pucminas.edu.br`],
           )) as Array<{ id: number }>;
           await ds.query(
-            `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026-1', 'apadrinhado', 'em_andamento')`,
+            `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026/1', 'apadrinhado', 'em_andamento')`,
             [`concorrente${i}@pucminas.edu.br`],
           );
           await creditar(uid, 50);
@@ -937,6 +943,24 @@ describe.skipIf(!URL_TESTE)(
           codigo: resgate.codigo,
           imagemUrl: 'https://exemplo.com/caderno.png',
         });
+        // Trocar a imagem depois não muda o comprovante já emitido.
+        await editar(id, {
+          imagemUrl: 'https://exemplo.com/caderno-novo.png',
+        }).expect(200);
+        const { body: depois } = await http()
+          .get(`/me/lojinha/resgates/${resgate.id}`)
+          .set('Authorization', aluno())
+          .expect(200);
+        expect(depois.imagemUrl).toBe('https://exemplo.com/caderno.png');
+        const { body: historico } = await http()
+          .get('/me/lojinha/resgates')
+          .set('Authorization', aluno())
+          .expect(200);
+        expect(
+          (historico as Array<{ id: string; imagemUrl: string | null }>).find(
+            (r) => r.id === resgate.id,
+          )?.imagemUrl,
+        ).toBe('https://exemplo.com/caderno.png');
         const outro = await inserirUsuario('curioso@pucminas.edu.br');
         await http()
           .get(`/me/lojinha/resgates/${resgate.id}`)
@@ -949,7 +973,7 @@ describe.skipIf(!URL_TESTE)(
         const email = 'pendente@pucminas.edu.br';
         const uid = await inserirUsuario(email);
         await ds.query(
-          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026-2', 'candidato', 'pendente')`,
+          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026/2', 'candidato', 'pendente')`,
           [email],
         );
         await creditar(uid, 50);
@@ -975,7 +999,7 @@ describe.skipIf(!URL_TESTE)(
         const ativo = 'encerrando@pucminas.edu.br';
         const ativoId = await inserirUsuario(ativo);
         await ds.query(
-          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026-1', 'apadrinhado', 'em_andamento')`,
+          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026/1', 'apadrinhado', 'em_andamento')`,
           [ativo],
         );
         await creditar(ativoId, 50);
@@ -1001,12 +1025,12 @@ describe.skipIf(!URL_TESTE)(
       it('recompensa de programa exige participação ativa naquele programa', async () => {
         const id = await publicada({
           nome: 'Camiseta do ciclo',
-          programaCodigo: '2026-2',
+          programaCodigo: '2026/2',
         });
         const email = 'reprovado@pucminas.edu.br';
         const uid = await inserirUsuario(email);
         await ds.query(
-          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026-1', 'apadrinhado', 'em_andamento'), ($1, '2026-2', 'apadrinhado', 'nao_aprovado')`,
+          `INSERT INTO feed.participacoes (usuario_id, programa, papel, status) VALUES ($1, '2026/1', 'apadrinhado', 'em_andamento'), ($1, '2026/2', 'apadrinhado', 'nao_aprovado')`,
           [email],
         );
         const lista = await http()
@@ -1086,6 +1110,24 @@ describe.skipIf(!URL_TESTE)(
           ),
         ).rejects.toThrow(/somente inserção/);
       });
+    });
+
+    it('programa com recompensa restrita não pode ser excluído (sem órfãs)', async () => {
+      await ds.query(
+        `INSERT INTO feed.programas (codigo, titulo, etapa_atual) VALUES ('2027/1', 'Programa 2027/1', 'inscricoes')`,
+      );
+      const id = (
+        (await criar(base({ programaCodigo: '2027/1' })).expect(201))
+          .body as Recompensa
+      ).id;
+      await expect(
+        ds.query(`DELETE FROM feed.programas WHERE codigo = '2027/1'`),
+      ).rejects.toThrow(/fk_recompensas_programa/);
+      await http()
+        .delete(`/coordenacao/recompensas/${id}`)
+        .set('Authorization', mock())
+        .expect(200);
+      await ds.query(`DELETE FROM feed.programas WHERE codigo = '2027/1'`);
     });
 
     it('rollback recusa descartar recompensas cadastradas', async () => {

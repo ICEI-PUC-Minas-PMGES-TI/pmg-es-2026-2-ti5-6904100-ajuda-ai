@@ -1,10 +1,6 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
-import type { DataSource } from 'typeorm';
+import { cenarioMatching } from '../../test/helpers/matching-cenario.js';
+import { NotFoundException } from '@nestjs/common';
 import { conferirTudo } from '../../test/helpers/conferencia-academica.js';
-import {
-  conectarRepositorios,
-  repositorioEmMemoria,
-} from '../../test/helpers/repositorio-memoria.js';
 import type {
   MatchingSugestaoEntity,
   MatchingVinculoEntity,
@@ -38,23 +34,17 @@ describe('ParticipacoesService — conferência acadêmica e vínculos (F09)', (
     ];
     vinculos = [];
     sugestoes = [];
-    const repos = {
-      ParticipacaoEntity: repositorioEmMemoria(participacoes),
-      ProgramaEntity: repositorioEmMemoria(programas),
-      MatchingVinculoEntity: repositorioEmMemoria(vinculos),
-      MatchingSugestaoEntity: repositorioEmMemoria(sugestoes),
-    };
-    conectarRepositorios(repos);
-    // Banco "conectado": habilita as tabelas do matching (F11/F12).
-    const dados = {
-      isInitialized: true,
-      getRepository: (alvo: { name: string }) =>
-        repos[alvo.name as keyof typeof repos],
-    } as unknown as DataSource;
+    const c = cenarioMatching({
+      participantes: participacoes,
+      programas,
+      vinculos,
+      sugestoes,
+    });
     service = new ParticipacoesService(
-      repos.ParticipacaoEntity,
-      repos.ProgramaEntity,
-      dados,
+      c.repos.ParticipacaoEntity,
+      c.repos.ProgramaEntity,
+      c.dados,
+      c.operacoes,
     );
   });
 
@@ -177,7 +167,7 @@ describe('ParticipacoesService — conferência acadêmica e vínculos (F09)', (
       'em_andamento',
     );
 
-    const { padrinho } = await service.encerrarVinculo(candidatoId, id);
+    const { padrinho } = await service.encerrarVinculo(candidatoId, id, COORD);
     expect(vinculo(id).ativo).toBe(false);
     expect(vinculo(id).encerradoEm).toBeInstanceOf(Date);
     expect(padrinho).toMatchObject({
@@ -200,20 +190,20 @@ describe('ParticipacoesService — conferência acadêmica e vínculos (F09)', (
     const id = await confirmarMatch(candidatoId, apadrinhadoId);
     const outro = await cadastrarCalouro('outro@pucminas.edu.br');
 
-    await expect(service.encerrarVinculo(outro.id, id)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
-    await service.encerrarVinculo(apadrinhadoId, id);
     await expect(
-      service.encerrarVinculo(apadrinhadoId, id),
-    ).rejects.toBeInstanceOf(ConflictException);
+      service.encerrarVinculo(outro.id, id, COORD),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await service.encerrarVinculo(apadrinhadoId, id, COORD);
+    await expect(
+      service.encerrarVinculo(apadrinhadoId, id, COORD),
+    ).resolves.toBeDefined();
   });
 
   it('desfazer vínculo do apadrinhado também encerra o par do matching', async () => {
     const { candidatoId, apadrinhadoId } = await aprovados();
     const id = await confirmarMatch(candidatoId, apadrinhadoId);
 
-    const { padrinho } = await service.desvincular(apadrinhadoId);
+    const { padrinho } = await service.desvincular(apadrinhadoId, COORD);
     expect(vinculo(id).ativo).toBe(false);
     expect(padrinho).toMatchObject({ papel: 'candidato', status: 'aprovado' });
     expect(

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import { api } from '../../api/client';
+import { textoPreferenciaGenero } from '../../components/PreferenciaGenero';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import { textoResposta } from '../../components/PerguntasAdicionais';
@@ -305,6 +306,14 @@ export default function CandidaturaDetalhe({ id, programa, modoApadrinhado, onFe
           </>
         )}
 
+        <Bloco icon="person" titulo="Compatibilidade do cadastro">
+          <dl className="detail-facts">
+            <div><dt>Gênero</dt><dd>{r.genero || 'Não informado'}</dd></div>
+            <div><dt>Preferência de gênero</dt><dd>{textoPreferenciaGenero(r.preferenciaGenero)}</dd></div>
+            <div><dt>Bolsista ProUni</dt><dd>{typeof r.bolsistaProuni === 'boolean' ? r.bolsistaProuni ? 'Sim' : 'Não' : 'Não informado'}</dd></div>
+            <div><dt>De outra cidade</dt><dd>{typeof r.deOutraCidade === 'boolean' ? r.deOutraCidade ? 'Sim' : 'Não' : 'Não informado'}</dd></div>
+          </dl>
+        </Bloco>
         {Object.keys(extras).length > 0 && (
           <Bloco icon="form" titulo="Perguntas adicionais">
             <dl className="detail-extras">

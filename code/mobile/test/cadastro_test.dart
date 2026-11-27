@@ -63,6 +63,7 @@ Future<void> _preencherPasso2(WidgetTester tester) async {
   await _escolher<String>(tester, 'Selecione', 'Feminino');
   await _escolher<bool>(tester, 'Selecione', 'Não');
   await _escolher<bool>(tester, 'Selecione uma opção', 'Sim');
+  await _tocar(tester, find.byType(CheckboxListTile));
 }
 
 void main() {
@@ -165,7 +166,7 @@ void main() {
     expect(find.text('Projetos'), findsOneWidget);
     expect(find.text('Noite'), findsOneWidget);
     expect(find.text('Feminino'), findsOneWidget);
-    expect(find.text('Não informado'), findsOneWidget);
+    expect(find.text('Não informado'), findsNWidgets(2));
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.byTooltip('Editar Gênero'));
@@ -218,6 +219,7 @@ void main() {
       'disponibilidade': ['Noite'],
       'areas': ['Projetos'],
       'expectativa': 'Dicas sobre a rotina',
+      'declaraPrimeiroPeriodo': true,
       'extras': <String, dynamic>{},
     });
     // Cadastro novo nasce PENDENTE e o app guarda o token da sessão.
@@ -341,8 +343,10 @@ void main() {
     expect(find.byType(PadrinhoDefinidoPage), findsOneWidget);
     expect(find.text('Thiago Moreira'), findsOneWidget);
 
-    await _tocar(tester, find.text('Ver perfil do padrinho'));
-    expect(find.text('thiago@pucminas.edu.br'), findsOneWidget);
+    // O cartão de vínculo exibe os dados atuais e abre os chats reais.
+    expect(find.text('Conversar'), findsOneWidget);
+    expect(find.text('Ver conversas e histórico'), findsOneWidget);
+    expect(SessaoUsuario.atual.padrinho?.email, 'thiago@pucminas.edu.br');
     expect(find.text('Grupo 08'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

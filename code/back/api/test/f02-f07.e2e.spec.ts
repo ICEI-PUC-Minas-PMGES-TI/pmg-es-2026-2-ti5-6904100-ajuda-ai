@@ -1,3 +1,4 @@
+import { moduloMatchingMemoria } from './helpers/modulo-matching-memoria.js';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -108,8 +109,9 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
       ProgramaEntity: repositorioEmMemoria(programas),
       FormularioEntity: repositorioEmMemoria(formularios),
     });
+    const matching = moduloMatchingMemoria(repos);
     const modulo = await Test.createTestingModule({
-      imports: [AuthModule, CadastroModule],
+      imports: [matching.modulo, AuthModule, CadastroModule],
     })
       .overrideProvider(getRepositoryToken(UsuarioEntity))
       .useValue(repos.UsuarioEntity)
@@ -143,10 +145,22 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
 
   it('consulta autenticada de ciclos expõe janela efetiva sem alterar regras', async () => {
     await http().get('/participacoes/programas').expect(401);
-    const r = await http().get('/participacoes/programas').set('Authorization', `Bearer ${token()}`).expect(200);
-    expect(r.body).toEqual([expect.objectContaining({codigo: ciclo, atual: true, inscricoesDisponiveis: true})]);
+    const r = await http()
+      .get('/participacoes/programas')
+      .set('Authorization', `Bearer ${token()}`)
+      .expect(200);
+    expect(r.body).toEqual([
+      expect.objectContaining({
+        codigo: ciclo,
+        atual: true,
+        inscricoesDisponiveis: true,
+      }),
+    ]);
     programas[0].inscricoesFim = '2000-01-01';
-    const fechado = await http().get('/participacoes/programas').set('Authorization', `Bearer ${token()}`).expect(200);
+    const fechado = await http()
+      .get('/participacoes/programas')
+      .set('Authorization', `Bearer ${token()}`)
+      .expect(200);
     expect(fechado.body[0].inscricoesDisponiveis).toBe(false);
     expect(participacoes).toHaveLength(0);
   });
@@ -332,13 +346,11 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
   it.each(['texto_curto', 'texto_longo', 'dropdown', 'checklist'])(
     'tipo suportado %s continua publicável e respondível',
     async (tipo) => {
-      await app
-        .get(FormulariosService)
-        .salvar('padrinho', {
-          programa: ciclo,
-          publicado: true,
-          perguntas: [{ ...pergunta, tipo }],
-        });
+      await app.get(FormulariosService).salvar('padrinho', {
+        programa: ciclo,
+        publicado: true,
+        perguntas: [{ ...pergunta, tipo }],
+      });
       const resposta = tipo === 'checklist' ? ['Acadêmico'] : 'Acadêmico';
       await http()
         .get(`/formularios/padrinho?programa=${encodeURIComponent(ciclo)}`)
@@ -368,13 +380,11 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
     ).toBe('upload');
     expect(participacoes).toEqual(historico);
     // Correção explícita da coordenação não reescreve o snapshot antigo.
-    await app
-      .get(FormulariosService)
-      .salvar('padrinho', {
-        programa: ciclo,
-        publicado: true,
-        perguntas: [pergunta],
-      });
+    await app.get(FormulariosService).salvar('padrinho', {
+      programa: ciclo,
+      publicado: true,
+      perguntas: [pergunta],
+    });
     expect(participacoes).toEqual(historico);
   });
 
@@ -615,6 +625,8 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
     });
     await conferirTudo(service, apadrinhado.id);
     await service.aprovarCandidatura(apadrinhado.id);
+    candidato.respostas = { ...candidato.respostas, areas: ['Tecnologia'] };
+    apadrinhado.respostas = { ...apadrinhado.respostas, areas: ['Tecnologia'] };
     return { candidato, apadrinhado };
   }
 
@@ -629,9 +641,9 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
   it('encerrar inscrições não aprova nem vincula; matching fica bloqueado até a liberação', async () => {
     const { candidato, apadrinhado } = await prepararAprovados();
     const programasService = app.get(ProgramasService);
-    await expect(service.vincular(apadrinhado.id, candidato.id)).rejects.toThrow(
-      /não foi liberado/,
-    );
+    await expect(
+      service.vincular(apadrinhado.id, candidato.id, 'coord@pucminas.edu.br'),
+    ).rejects.toThrow(/Ciclo indisponível/);
     const encerrado = await programasService.encerrarInscricoes(ciclo);
     expect(encerrado).toMatchObject({
       inscricoesAbertas: false,
@@ -639,16 +651,20 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
     });
     expect(candidato).toMatchObject({ papel: 'candidato', status: 'aprovado' });
     expect(apadrinhado.grupo).toBeUndefined();
-    await expect(service.vincular(apadrinhado.id, candidato.id)).rejects.toThrow(
-      /não foi liberado/,
-    );
+    await expect(
+      service.vincular(apadrinhado.id, candidato.id, 'coord@pucminas.edu.br'),
+    ).rejects.toThrow(/Ciclo indisponível/);
     await programasService.liberarMatching(ciclo);
     expect(programas[0].etapaAtual).toBe('formacao');
   });
 
   it('matching confirma vínculo e só então ativa padrinho; repetição é idempotente', async () => {
     const { candidato, apadrinhado } = await prepararMatching();
-    const vinculo = await service.vincular(apadrinhado.id, candidato.id);
+    const vinculo = await service.vincular(
+      apadrinhado.id,
+      candidato.id,
+      'coord@pucminas.edu.br',
+    );
     expect(vinculo.padrinho).toMatchObject({
       papel: 'padrinho',
       status: 'em_andamento',
@@ -660,7 +676,11 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
       .get(`/me/vinculos?programa=${encodeURIComponent(ciclo)}`)
       .set('Authorization', `Bearer ${token()}`)
       .expect(200);
-    await service.vincular(apadrinhado.id, candidato.id);
+    await service.vincular(
+      apadrinhado.id,
+      candidato.id,
+      'coord@pucminas.edu.br',
+    );
     expect(participacoes).toHaveLength(2);
     expect(candidato.apadrinhados).toBe(1);
   });
@@ -671,12 +691,17 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
     const salvar = repos.ParticipacaoEntity.save.bind(repos.ParticipacaoEntity);
     vi.spyOn(repos.ParticipacaoEntity, 'save').mockImplementation(
       async (item: any) => {
-        if (item.id === candidato.id) throw new Error('Falha de persistência');
+        if (
+          (Array.isArray(item) ? item : [item]).some(
+            (p) => p.id === candidato.id,
+          )
+        )
+          throw new Error('Falha de persistência');
         return salvar(item);
       },
     );
     await expect(
-      service.vincular(apadrinhado.id, candidato.id),
+      service.vincular(apadrinhado.id, candidato.id, 'coord@pucminas.edu.br'),
     ).rejects.toThrow('Falha de persistência');
     expect(participacoes).toEqual(antes);
     expect((await situacao()).body.situacao).toBe(
@@ -709,21 +734,21 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
     const { candidato, apadrinhado } = await prepararMatching();
     candidato.status = 'em_analise';
     await expect(
-      service.vincular(apadrinhado.id, candidato.id),
+      service.vincular(apadrinhado.id, candidato.id, 'coord@pucminas.edu.br'),
     ).rejects.toThrow();
     participacoes.find((p) => p.id === candidato.id)!.status = 'nao_aprovado';
     await expect(
-      service.vincular(apadrinhado.id, candidato.id),
+      service.vincular(apadrinhado.id, candidato.id, 'coord@pucminas.edu.br'),
     ).rejects.toThrow();
     participacoes.find((p) => p.id === candidato.id)!.status = 'aprovado';
     participacoes.find((p) => p.id === apadrinhado.id)!.programa = '2098/1';
     await expect(
-      service.vincular(apadrinhado.id, candidato.id),
+      service.vincular(apadrinhado.id, candidato.id, 'coord@pucminas.edu.br'),
     ).rejects.toThrow();
     participacoes.find((p) => p.id === apadrinhado.id)!.programa = ciclo;
     programas[0].etapaAtual = 'encerramento';
     await expect(
-      service.vincular(apadrinhado.id, candidato.id),
+      service.vincular(apadrinhado.id, candidato.id, 'coord@pucminas.edu.br'),
     ).rejects.toThrow();
     expect(participacoes.find((p) => p.id === candidato.id)!.papel).toBe(
       'candidato',

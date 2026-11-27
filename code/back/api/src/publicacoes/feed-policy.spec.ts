@@ -14,8 +14,6 @@ describe('Publicação exige participação ativa no ciclo atual', () => {
     ['padrinho rejeitado', { status: 'nao_aprovado' }],
     ['padrinho concluído', { status: 'concluido' }],
     ['apadrinhado com JWT antigo de padrinho', { papel: 'apadrinhado' }],
-    ['sem grupo', { grupo: null }],
-    ['grupo sem vínculo válido', { grupo: 'Outro grupo' }],
     ['participação encerrada', { terminoEm: new Date('2020-01-01') }],
     ['ciclo anterior', { programa: '2020/1' }],
     ['ciclo futuro', { programa: '2099/1' }],
@@ -54,7 +52,7 @@ describe('Publicação exige participação ativa no ciclo atual', () => {
         tabelas.ParticipacaoEntity.length = 0;
         break;
       case 'vínculo removido':
-        tabelas.ParticipacaoEntity[1].grupo = null;
+        tabelas.MatchingVinculoEntity[0].ativo = false;
         break;
     }
     expect(await policy.podePublicar(padrinho)).toBe(false);

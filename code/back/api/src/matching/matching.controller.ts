@@ -1,4 +1,8 @@
+import { ExecutarMatchingDto } from './dto/matching.dto.js';
+import { VinculosService } from './vinculos.service.js';
+import { TransferirApadrinhadoDto } from './dto/matching.dto.js';
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -23,8 +27,8 @@ import {
 } from './dto/criterio-catalogo.dto.js';
 import {
   LiberarMatchingDto,
-  ProgramaMatchingDto,
   RecusarSugestaoDto,
+  ReconsiderarParDto,
   SalvarConfiguracaoMatchingDto,
 } from './dto/matching.dto.js';
 import { MatchingService } from './matching.service.js';
@@ -36,6 +40,7 @@ export class MatchingController {
   constructor(
     private readonly matching: MatchingService,
     private readonly catalogo: CriterioCatalogoService,
+    private readonly vinculos: VinculosService,
   ) {}
 
   @Get()
@@ -101,6 +106,47 @@ export class MatchingController {
     return this.catalogo.excluir(id);
   }
 
+  @Get('pares/recusados')
+  paresRecusados(@Query('programa') programa: string) {
+    return this.matching.listarParesRecusados(programa);
+  }
+
+  @Get('grupos')
+  grupos(@Query('programa') programa: string) {
+    return this.vinculos.grupos(programa);
+  }
+
+  @Get('destinos')
+  destinos(
+    @Query('apadrinhadoId', ParseIntPipe) apadrinhadoId: number,
+    @Query('vinculoOrigemId') origem?: string,
+  ) {
+    if (origem !== undefined && !/^[1-9]\d*$/.test(origem))
+      throw new BadRequestException('Vínculo de origem inválido.');
+    return this.vinculos.destinos(
+      apadrinhadoId,
+      origem ? Number(origem) : undefined,
+    );
+  }
+
+  @Post('vinculos/:id/transferir')
+  transferir(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: TransferirApadrinhadoDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.vinculos.transferir(id, dto, req.user.email);
+  }
+
+  @Post('pares/:id/reconsiderar')
+  reconsiderarPar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReconsiderarParDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.matching.reconsiderarPar(id, req.user.email, dto.justificativa);
+  }
+
   @Get('config')
   configuracao(@Query('programa') programa: string) {
     return this.matching.obterConfiguracao(programa);
@@ -120,8 +166,8 @@ export class MatchingController {
   }
 
   @Post('executar')
-  executar(@Body() dto: ProgramaMatchingDto, @Req() req: AuthenticatedRequest) {
-    return this.matching.executar(dto.programa, req.user.email);
+  executar(@Body() dto: ExecutarMatchingDto, @Req() req: AuthenticatedRequest) {
+    return this.matching.executar(dto.programa, req.user.email, dto.operacaoId);
   }
 
   @Get('execucoes')

@@ -1,7 +1,32 @@
+import { consumirEventosChat } from './chatStream';
+
 const API_BASE =
   import.meta.env.VITE_API_URL?.replace(/\/$/, '') || 'http://localhost:3000';
 
 export const feedEventsUrl = `${API_BASE}/publicacoes/events`;
+export async function streamChatMessages(chatId, email, onEvent, signal) {
+  const token = getAlunoToken(email);
+  if (!token) throw Object.assign(new Error('Sua sessão expirou. Entre novamente.'), { status: 401 });
+  const controller = new AbortController();
+  const cancelar = () => controller.abort();
+  if (signal?.aborted) cancelar();
+  signal?.addEventListener('abort', cancelar, { once: true });
+  const prazo = setTimeout(cancelar,12000);
+  try {
+    const response = await fetch(`${API_BASE}/chats/${chatId}/events`, { headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` }, signal: controller.signal });
+    clearTimeout(prazo);
+    if (!response.ok) throw Object.assign(new Error('Não foi possível atualizar a conversa.'), { status: response.status });
+    await consumirEventosChat(response, onEvent, controller.signal);
+  } finally {
+    clearTimeout(prazo); signal?.removeEventListener('abort',cancelar); controller.abort();
+  }
+}
+
+function exigirEmailChat(email) {
+  const alvo = email || getAlunoSession()?.email;
+  if (!alvo) throw Object.assign(new Error('Entre na sua conta de aluno.'), {status:401});
+  return alvo;
+}
 
 const TOKEN_KEY = 'ajudaai.accessToken';
 const USER_KEY = 'ajudaai.usuario';
@@ -93,8 +118,8 @@ export function clearAlunoSession() {
 }
 
 /** Aluno exige seu próprio JWT; consultas não usam identidade livre por e-mail. */
-async function request(path, { method = 'GET', body, token, aluno, anonimo = false, signal } = {}) {
-  const headers = { Accept: 'application/json' };
+async function request(path, { method = 'GET', body, token, aluno, anonimo = false, signal, cabecalhos } = {}) {
+  const headers = { Accept: 'application/json', ...cabecalhos };
   const multipart = typeof FormData !== 'undefined' && body instanceof FormData;
   if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json';
   if (aluno) {
@@ -210,8 +235,16 @@ export const api = {
   programasAluno() { return request('/participacoes/programas', {aluno: getAlunoSession()?.email || '__sem_sessao__'}); },
 
   /* ===== Autenticação (coordenação) ===== */
-  loginDemo(email) {
-    return request('/auth/login-demo', { method: 'POST', body: { email } });
+  /**
+   * Em homologação a API exige a chave de demonstração (X-Demo-Chave). Ela é
+   * digitada por quem apresenta e nunca vai no bundle publicado.
+   */
+  loginDemo(email, chave) {
+    return request('/auth/login-demo', {
+      method: 'POST',
+      body: { email },
+      cabecalhos: chave ? { 'X-Demo-Chave': chave } : undefined,
+    });
   },
   me(token) {
     return request('/me', { token });
@@ -324,8 +357,8 @@ export const api = {
   liberarMatching(codigo) {
     return request(`/coordenacao/programas/liberar-matching${query({ codigo })}`, { method: 'POST' });
   },
-  executarMatching(programa) {
-    return request('/coordenacao/matching/executar', { method: 'POST', body: { programa } });
+  executarMatching(programa, operacaoId) {
+    return request('/coordenacao/matching/executar', { method: 'POST', body: { programa, operacaoId } });
   },
   execucoesMatching(programa) {
     return request(`/coordenacao/matching/execucoes${query({ programa })}`);
@@ -341,6 +374,33 @@ export const api = {
   },
   recusarSugestaoMatching(id, motivo) {
     return request(`/coordenacao/matching/sugestao/${id}/recusar`, { method: 'POST', body: { motivo } });
+  },
+  paresRecusadosMatching(programa) {
+    return request(`/coordenacao/matching/pares/recusados${query({programa})}`);
+  },
+  chats(email, programa, signal) {
+    return request(`/chats${query({ programa })}`, { aluno: exigirEmailChat(email), signal });
+  },
+  mensagensChat(id, email, { antesDe, depoisDe, signal } = {}) {
+    return request(`/chats/${id}/mensagens${query({ antesDe, depoisDe })}`, { aluno: exigirEmailChat(email), signal });
+  },
+  recibosChat(id, email, depoisDaRevisao, ateMensagemId) {
+    return request(`/chats/${id}/recibos${query({ depoisDaRevisao, ateMensagemId })}`, { aluno: exigirEmailChat(email) });
+  },
+  enviarMensagemChat(id, texto, email, clientId) {
+    return request(`/chats/${id}/mensagens`, { method: 'POST', body: { texto, clientId }, aluno: exigirEmailChat(email) });
+  },
+  gruposMatching(programa) {
+    return request(`/coordenacao/matching/grupos${query({ programa })}`);
+  },
+  destinosMatching(apadrinhadoId, vinculoOrigemId) {
+    return request(`/coordenacao/matching/destinos${query({ apadrinhadoId, vinculoOrigemId })}`);
+  },
+  transferirVinculoMatching(id, dados) {
+    return request(`/coordenacao/matching/vinculos/${id}/transferir`, { method: 'POST', body: dados });
+  },
+  reconsiderarParMatching(id, justificativa) {
+    return request(`/coordenacao/matching/pares/${id}/reconsiderar`, {method: 'POST', body: {justificativa}});
   },
   criteriosMatching(busca) {
     return request(`/coordenacao/matching/criterios${query({ busca })}`);
@@ -460,6 +520,44 @@ export const api = {
     return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
   },
 
+  missoesCoordenacao(status) {
+    return request(`/coordenacao/missoes${query({ status })}`);
+  },
+  criarMissao(dados) {
+    return request('/coordenacao/missoes', { method: 'POST', body: dados });
+  },
+  atualizarMissao(id, dados) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  ativarMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+  desativarMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  /** Libera o código da missão (CODIGO ou EVENTO) por alguns minutos. */
+  liberarCodigoMissao(id, minutos) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/codigo`, { method: 'POST', body: { minutos } });
+  },
+  encerrarCodigoMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/codigo`, { method: 'DELETE' });
+  },
+  /** Só rascunho; a API responde 409 para missão já publicada. */
+  excluirMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  /** `antes`: id da última notificação carregada, para buscar as mais antigas. */
+  notificacoes(limite, antes) {
+    return request(`/me/notificacoes${query({ limite, antes })}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  marcarNotificacaoLida(id) {
+    return request(`/me/notificacoes/${encodeURIComponent(id)}/lida`, { method: 'PATCH', aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  /** `ateId`: notificação mais recente que a tela mostrava (as criadas depois continuam não lidas). */
+  marcarNotificacoesLidas(ateId) {
+    return request('/me/notificacoes/lidas', { method: 'PATCH', body: ateId ? { ateId } : {}, aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+
   /* ===== Lojinha: recompensas (coordenação; F27) ===== */
   /** Todas as recompensas (`status` opcional: rascunho, publicada, inativa, arquivada). */
   recompensas(status) {
@@ -493,6 +591,42 @@ export const api = {
   /** Só sem transações; com resgates o servidor responde 409 (arquive). */
   excluirRecompensa(id) {
     return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  /* ===== Lojinha: resgates (coordenação; F29) ===== */
+  /**
+   * Uma página da fila: `{ itens, proximoCursor, contagem }`. Todos os
+   * filtros rodam no servidor antes da paginação. `situacao`:
+   * aguardando_entrega | entregue | cancelado; `programa`: ciclo da troca;
+   * `semPrograma: 'true'`: só sem programa identificado; `busca`: nome,
+   * e-mail, código ou recompensa; `cursor`: `proximoCursor` da página anterior.
+   */
+  resgatesCoordenacao({ situacao, programa, semPrograma, recompensaId, busca, limite, cursor } = {}) {
+    return request(`/coordenacao/resgates${query({ situacao, programa, semPrograma, recompensaId, busca, limite, cursor })}`);
+  },
+  resgateCoordenacao(id) {
+    return request(`/coordenacao/resgates/${encodeURIComponent(id)}`);
+  },
+  /** Registra a entrega (responsável e data vêm do token). 409 se já concluído. */
+  entregarResgate(id) {
+    return request(`/coordenacao/resgates/${encodeURIComponent(id)}/entregar`, { method: 'POST' });
+  },
+  /** Cancela antes da entrega, devolvendo as moedas e a unidade. */
+  cancelarResgate(id, motivo) {
+    return request(`/coordenacao/resgates/${encodeURIComponent(id)}/cancelar`, { method: 'POST', body: { motivo } });
+  },
+
+  /* ===== XP e moedas dos participantes (coordenação; F26) ===== */
+  xpParticipantes(busca) {
+    return request(`/coordenacao/xp${query({ busca })}`);
+  },
+  /** Resumo como em `/me/xp`, extrato (`limite`, `antes`) e ajustes. */
+  xpParticipante(usuarioId, { limite, antes } = {}) {
+    return request(`/coordenacao/xp/${encodeURIComponent(usuarioId)}${query({ limite, antes })}`);
+  },
+  /** `{ quantidade, motivo, chaveIdempotencia }`; até ±200, mexe em XP e moedas. */
+  ajustarXp(usuarioId, dados) {
+    return request(`/coordenacao/xp/${encodeURIComponent(usuarioId)}/ajustes`, { method: 'POST', body: dados });
   },
 
   /* ===== Mapa do campus (seletores de local da coordenação) ===== */

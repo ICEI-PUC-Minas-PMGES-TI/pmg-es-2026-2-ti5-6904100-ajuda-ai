@@ -1,263 +1,387 @@
-import { DataSource } from 'typeorm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { FormularioEntity } from '../src/formularios/entities/formulario.entity.js';
-import {
-  MatchingChatOutboxEntity,
-  MatchingConfiguracaoEntity,
-  MatchingDecisaoEntity,
-  MatchingExecucaoEntity,
-  MatchingSugestaoEntity,
-  MatchingVinculoEntity,
-} from '../src/matching/entities/matching.entity.js';
-import { MatchingService } from '../src/matching/matching.service.js';
-import { ParticipacaoEntity } from '../src/participacoes/entities/participacao.entity.js';
+import { randomUUID } from 'node:crypto';
+import * as executor from '../src/matching/matching.executor.js';
 import { ProgramaEntity } from '../src/programas/entities/programa.entity.js';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  bancoMatchingIsolado,
+  semearCenarioMatching,
+  servicosMatching,
+} from './helpers/matching-postgres.js';
+import {
+  MatchingConfiguracaoEntity,
+  MatchingExecucaoEntity,
+  MatchingVinculoEntity,
+  MatchingSugestaoEntity,
+} from '../src/matching/entities/matching.entity.js';
+import { MatchingVinculoEventoEntity } from '../src/matching/entities/grupo.entity.js';
+import {
+  ChatEntity,
+  ChatPeriodoEntity,
+  ChatDestinatarioEntity,
+  MensagemChatEntity,
+} from '../src/chat/entities/chat.entity.js';
 
-const URL_TESTE = process.env.MATCHING_TEST_DB_URL;
-
-describe.skipIf(!URL_TESTE)('Matching com PostgreSQL real', () => {
-  let dados: DataSource;
-  let matching: MatchingService;
-  const codigo = `MT-${Date.now()}`;
-
-  beforeAll(async () => {
-    dados = new DataSource({
-      type: 'postgres',
-      url: URL_TESTE,
-      schema: 'feed',
-      entities: [
-        ProgramaEntity,
-        ParticipacaoEntity,
-        FormularioEntity,
-        MatchingConfiguracaoEntity,
-        MatchingExecucaoEntity,
-        MatchingSugestaoEntity,
-        MatchingDecisaoEntity,
-        MatchingVinculoEntity,
-        MatchingChatOutboxEntity,
-      ],
-      synchronize: false,
-    });
-    await dados.initialize();
-    matching = new MatchingService(dados);
+describe.skipIf(
+  !process.env.MATCHING_TEST_DB_URL ||
+    process.env.MATCHING_TEST_DB_ISOLATED !== 'true',
+)('Matching: PostgreSQL real e conexões independentes', () => {
+  let banco: Awaited<ReturnType<typeof bancoMatchingIsolado>>;
+  const autor = 'coord@teste.local';
+  const transferir = (padrinhoDestinoId: number) => ({
+    padrinhoDestinoId,
+    motivo: 'Reorganização justificada',
+    operacaoId: randomUUID(),
   });
+  beforeEach(async () => {
+    banco = await bancoMatchingIsolado();
+  }, 90_000);
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await banco?.limpar();
+  }, 30_000);
+  async function segundaConexao() {
+    await banco.outra.initialize();
+    return servicosMatching(banco.outra);
+  }
 
-  afterAll(async () => {
-    if (!dados?.isInitialized) return;
-    const programa = await dados.getRepository(ProgramaEntity).findOne({
-      where: { codigo },
-    });
-    if (programa) {
-      await dados
-        .getRepository(MatchingChatOutboxEntity)
-        .delete({ programaId: programa.id });
-      const sugestoes = await dados
-        .getRepository(MatchingSugestaoEntity)
-        .find({ where: { programaId: programa.id } });
-      if (sugestoes.length) {
-        await dados
-          .getRepository(MatchingDecisaoEntity)
-          .delete(sugestoes.map((s) => ({ sugestaoId: s.id })));
-        await dados
-          .getRepository(MatchingSugestaoEntity)
-          .update({ programaId: programa.id }, { vinculoId: null });
-        await dados
-          .getRepository(MatchingVinculoEntity)
-          .update({ programaId: programa.id }, { sugestaoId: null });
-      }
-      await dados
-        .getRepository(MatchingVinculoEntity)
-        .delete({ programaId: programa.id });
-      await dados
-        .getRepository(MatchingSugestaoEntity)
-        .delete({ programaId: programa.id });
-      await dados
+  it('dois POSTs com a mesma operação criam apenas uma execução no PostgreSQL', async () => {
+    const c = await semearCenarioMatching(banco.dados);
+    const outra = await segundaConexao();
+    const operacaoId = randomUUID();
+    const [a, b] = await Promise.all([
+      c.matching.executar(c.programa.codigo, autor, operacaoId),
+      outra.matching.executar(c.programa.codigo, autor, operacaoId),
+    ]);
+    expect(a.id).toBe(b.id);
+    expect(
+      await banco.dados
         .getRepository(MatchingExecucaoEntity)
-        .delete({ programaId: programa.id });
-      await dados
-        .getRepository(MatchingConfiguracaoEntity)
-        .delete({ programaId: programa.id });
-      await dados
-        .getRepository(ParticipacaoEntity)
-        .delete({ programa: codigo });
-      await dados.getRepository(FormularioEntity).delete({ programa: codigo });
-      await dados.getRepository(ProgramaEntity).delete(programa.id);
-    }
-    await dados.destroy();
-  });
-
-  it('serializa aprovações pela última vaga e mantém efeitos idempotentes', async () => {
-    const programa = await dados.getRepository(ProgramaEntity).save({
-      codigo,
-      titulo: codigo,
-      etapaAtual: 'formacao',
-      inscricoesAbertas: false,
-      formularioPublicado: true,
-      matchingPendente: false,
-      vagasApadrinhados: 10,
-      gruposPrevistos: 2,
-    });
-    const participacoes = await dados.getRepository(ParticipacaoEntity).save([
-      {
-        usuarioId: `p1-${codigo}@teste`,
-        programa: codigo,
-        papel: 'candidato',
-        status: 'aprovado',
-        grupo: null,
-        apadrinhados: 0,
-        respostas: { nome: 'Padrinho 1', areas: ['Acadêmico'] },
-      },
-      {
-        usuarioId: `p2-${codigo}@teste`,
-        programa: codigo,
-        papel: 'candidato',
-        status: 'aprovado',
-        grupo: null,
-        apadrinhados: 0,
-        respostas: { nome: 'Padrinho 2', areas: ['Acadêmico'] },
-      },
-      {
-        usuarioId: `a-${codigo}@teste`,
-        programa: codigo,
-        papel: 'apadrinhado',
-        status: 'em_andamento',
-        grupo: null,
-        apadrinhados: 0,
-        respostas: { nome: 'Apadrinhado', areas: ['Acadêmico'] },
-      },
-      {
-        usuarioId: `a2-${codigo}@teste`,
-        programa: codigo,
-        papel: 'apadrinhado',
-        status: 'em_andamento',
-        grupo: null,
-        apadrinhados: 0,
-        respostas: { nome: 'Apadrinhado 2', areas: ['Acadêmico'] },
-      },
-    ]);
-    await matching.salvarConfiguracao(
-      {
-        programa: codigo,
-        liberado: true,
-        capacidadePorPadrinho: 2,
-        capacidadePorApadrinhado: 1,
-        criterios: [
-          {
-            campoPadrinho: 'areas',
-            campoApadrinhado: 'areas',
-            operacao: 'intersecao',
-            peso: 100,
-          },
-        ],
-      },
-      'coord@teste',
-    );
-    const execucao = await matching.executar(codigo, 'coord@teste');
-    expect(
-      await dados
-        .getRepository(MatchingVinculoEntity)
-        .count({ where: { programaId: programa.id } }),
-    ).toBe(0);
-
-    const primeira = await dados
-      .getRepository(MatchingSugestaoEntity)
-      .findOneOrFail({
-        where: { execucaoId: execucao.id },
-        order: { apadrinhadoParticipacaoId: 'ASC' },
-      });
-    const padrinhoAlternativo = participacoes.find(
-      (p) =>
-        p.papel === 'candidato' && p.id !== primeira.padrinhoParticipacaoId,
-    )!;
-    const segunda = await dados.getRepository(MatchingSugestaoEntity).save({
-      programaId: programa.id,
-      execucaoId: execucao.id,
-      padrinhoParticipacaoId: padrinhoAlternativo.id,
-      apadrinhadoParticipacaoId: primeira.apadrinhadoParticipacaoId,
-      status: 'pendente',
-      score: '1.0000',
-      explicacao: primeira.explicacao,
-      decididaPor: null,
-      decididaEm: null,
-      motivoDecisao: null,
-      vinculoId: null,
-    });
-
-    const resultados = await Promise.allSettled([
-      matching.aprovar(primeira.id, 'coord-a@teste'),
-      matching.aprovar(segunda.id, 'coord-b@teste'),
-    ]);
-    expect(resultados.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
-    expect(resultados.filter((r) => r.status === 'rejected')).toHaveLength(1);
-
-    const vinculos = await dados
-      .getRepository(MatchingVinculoEntity)
-      .find({ where: { programaId: programa.id, ativo: true } });
-    expect(vinculos).toHaveLength(1);
-    const aprovada = await dados
-      .getRepository(MatchingSugestaoEntity)
-      .findOneByOrFail({ vinculoId: vinculos[0].id });
-    await matching.aprovar(aprovada.id, 'coord-a@teste');
-    expect(
-      await dados
-        .getRepository(MatchingVinculoEntity)
-        .count({ where: { programaId: programa.id, ativo: true } }),
+        .countBy({ operacaoId }),
     ).toBe(1);
-    const recusada = primeira.id === aprovada.id ? segunda : primeira;
-    await matching.recusar(
-      recusada.id,
-      'coord-b@teste',
-      'Alternativa não usada',
-    );
-    expect(
-      await dados
-        .getRepository(ParticipacaoEntity)
-        .findOneByOrFail({ id: recusada.padrinhoParticipacaoId }),
-    ).toMatchObject(
-      recusada.padrinhoParticipacaoId === aprovada.padrinhoParticipacaoId
-        ? { status: 'em_andamento' }
-        : { status: 'aprovado' },
-    );
+    await expect(
+      outra.matching.executar(
+        c.programa.codigo,
+        'outro@teste.local',
+        operacaoId,
+      ),
+    ).rejects.toThrow(/outro responsável/);
+  }, 30000);
 
-    const outroApadrinhado = participacoes.find(
-      (p) =>
-        p.papel === 'apadrinhado' &&
-        p.id !== aprovada.apadrinhadoParticipacaoId,
-    )!;
-    let sugestaoGrupo = await dados
-      .getRepository(MatchingSugestaoEntity)
-      .findOneBy({
-        execucaoId: execucao.id,
-        padrinhoParticipacaoId: aprovada.padrinhoParticipacaoId,
-        apadrinhadoParticipacaoId: outroApadrinhado.id,
+  it('GET recupera uma execução abandonada sem depender de novo POST', async () => {
+    const c = await semearCenarioMatching(banco.dados);
+    const antiga = await c.matching.executar(c.programa.codigo, autor);
+    await banco.dados
+      .getRepository(MatchingExecucaoEntity)
+      .update(antiga.id, {
+        status: 'executando',
+        criadoEm: new Date(Date.now() - 180000),
       });
-    sugestaoGrupo ??= await dados.getRepository(MatchingSugestaoEntity).save({
-      programaId: programa.id,
-      execucaoId: execucao.id,
-      padrinhoParticipacaoId: aprovada.padrinhoParticipacaoId,
-      apadrinhadoParticipacaoId: outroApadrinhado.id,
-      status: 'pendente',
-      score: '1.0000',
-      explicacao: primeira.explicacao,
-      decididaPor: null,
-      decididaEm: null,
-      motivoDecisao: null,
-      vinculoId: null,
-    });
-    await matching.aprovar(sugestaoGrupo.id, 'coord-a@teste');
+    const estado = await c.matching.listarExecucoes(c.programa.codigo);
+    expect(estado.find((e) => e.id === antiga.id)?.status).toBe('falha');
+    expect((await c.matching.executar(c.programa.codigo, autor)).status).toBe(
+      'concluida',
+    );
+  }, 30000);
+
+  it.each(['vinculo', 'configuracao', 'encerramento'] as const)(
+    'libera o ciclo durante o cálculo e recusa publicação após mudança de %s',
+    async (mudanca) => {
+      const c = await semearCenarioMatching(banco.dados);
+      const origem = (await c.operacoes.vincular(c.a[0].id, c.p[0].id, autor))
+        .vinculo;
+      const outra = await segundaConexao();
+      const grupo = await banco.dados
+        .getRepository(ChatEntity)
+        .findOneByOrFail({ tipo: 'coletivo', grupoId: origem.grupoId! });
+      let iniciou!: () => void, liberar!: () => void;
+      const inicio = new Promise<void>((r) => {
+          iniciou = r;
+        }),
+        espera = new Promise<void>((r) => {
+          liberar = r;
+        });
+      const real = executor.calcularMatchingAssincrono;
+      vi.spyOn(executor, 'calcularMatchingAssincrono').mockImplementationOnce(
+        async (...args) => {
+          iniciou();
+          await espera;
+          return real(...args);
+        },
+      );
+      const rodada = c.matching.executar(c.programa.codigo, autor);
+      // Instala o handler antes de liberar o cálculo para não deixar rejeição sem consumidor.
+      const resultado = rodada.then(
+        (valor) => ({ valor, erro: null }),
+        (erro) => ({ valor: null, erro }),
+      );
+      await inicio;
+      try {
+        await outra.chat.enviarMensagem(
+          grupo.id,
+          c.p[0].usuarioId,
+          'API disponível durante o cálculo',
+          randomUUID(),
+        );
+        if (mudanca === 'vinculo')
+          await outra.operacoes.vincular(c.a[1].id, c.p[1].id, autor);
+        else if (mudanca === 'encerramento')
+          await banco.outra
+            .getRepository(ProgramaEntity)
+            .update(c.programa.id, { etapaAtual: 'encerramento' });
+        else {
+          const config = await outra.matching.obterConfiguracao(
+            c.programa.codigo,
+          );
+          await outra.matching.salvarConfiguracao(
+            {
+              programa: c.programa.codigo,
+              versaoBase: config!.versao,
+              liberado: true,
+              capacidadePorPadrinho: 4,
+              capacidadePorApadrinhado: 1,
+              criterios: config!.criterios,
+            },
+            autor,
+          );
+        }
+      } finally {
+        liberar();
+      }
+      expect((await resultado).erro).toBeInstanceOf(Error);
+      expect(
+        await banco.dados.getRepository(MatchingSugestaoEntity).count(),
+      ).toBe(0);
+      expect(
+        await banco.dados
+          .getRepository(MatchingExecucaoEntity)
+          .countBy({ status: 'falha' }),
+      ).toBe(1);
+    },
+    30_000,
+  );
+
+  it('aplica as 16 migrações em schema vazio e repetir não altera o banco', async () => {
+    expect(await banco.dados.showMigrations()).toBe(false);
+    expect(await banco.dados.runMigrations()).toEqual([]);
+    const [{ total }] = await banco.dados.query(
+      `SELECT count(*)::int AS total FROM "${banco.schema}".migrations`,
+    );
+    expect(total).toBe(16);
+    expect(banco.dados.options.synchronize).toBe(false);
+  });
+  it('aprovação sugerida e vínculo manual disputam a última vaga entre pools', async () => {
+    const { programa, p, a, matching } = await semearCenarioMatching(
+      banco.dados,
+      1,
+      1,
+      2,
+    );
+    const outra = await segundaConexao();
+    const rodada = await matching.executar(programa.codigo, autor);
+    const sugestao = await banco.dados
+      .getRepository(MatchingSugestaoEntity)
+      .findOneByOrFail({ execucaoId: rodada.id });
+    const aluno = a.find((v) => v.id !== sugestao.apadrinhadoParticipacaoId)!;
+    const r = await Promise.allSettled([
+      matching.aprovar(sugestao.id, autor),
+      outra.operacoes.vincular(aluno.id, p[0].id, 'coord2@teste.local'),
+    ]);
+    expect(r.filter((v) => v.status === 'fulfilled')).toHaveLength(1);
     expect(
-      await dados
-        .getRepository(MatchingChatOutboxEntity)
-        .count({ where: { programaId: programa.id } }),
-    ).toBe(3);
+      await banco.dados
+        .getRepository(MatchingVinculoEntity)
+        .countBy({ ativo: true }),
+    ).toBe(1);
     expect(
-      await dados
-        .getRepository(ParticipacaoEntity)
-        .findOneByOrFail({ id: aprovada.padrinhoParticipacaoId }),
-    ).toMatchObject({
-      papel: 'padrinho',
-      status: 'em_andamento',
-      apadrinhados: 2,
-    });
+      await banco.dados.getRepository(ChatEntity).countBy({ tipo: 'privado' }),
+    ).toBe(1);
+    expect(
+      await banco.dados.getRepository(ChatEntity).countBy({ tipo: 'coletivo' }),
+    ).toBe(1);
+  });
+  it('transferências disputam vaga sem perder a origem da operação rejeitada', async () => {
+    const { p, a, operacoes } = await semearCenarioMatching(
+      banco.dados,
+      1,
+      3,
+      2,
+    );
+    const v1 = (await operacoes.vincular(a[0].id, p[0].id, autor)).vinculo;
+    const v2 = (await operacoes.vincular(a[1].id, p[1].id, autor)).vinculo;
+    const outra = await segundaConexao();
+    const r = await Promise.allSettled([
+      operacoes.transferir(v1.id, transferir(p[2].id), autor),
+      outra.operacoes.transferir(v2.id, transferir(p[2].id), autor),
+    ]);
+    expect(r.filter((v) => v.status === 'fulfilled')).toHaveLength(1);
+    const ativos = await banco.dados
+      .getRepository(MatchingVinculoEntity)
+      .findBy({ ativo: true });
+    expect(ativos).toHaveLength(2);
+    expect(
+      ativos.filter((v) => v.padrinhoParticipacaoId === p[2].id),
+    ).toHaveLength(1);
+    expect(
+      ativos.some((v) => v.id === (r[0].status === 'rejected' ? v1.id : v2.id)),
+    ).toBe(true);
+  });
+  it('UUID concorrente de transferência gera um destino e um evento', async () => {
+    const { p, a, operacoes } = await semearCenarioMatching(banco.dados);
+    const origem = (await operacoes.vincular(a[0].id, p[0].id, autor)).vinculo;
+    const outra = await segundaConexao(),
+      dto = transferir(p[1].id);
+    const r = await Promise.all([
+      operacoes.transferir(origem.id, dto, autor),
+      outra.operacoes.transferir(origem.id, dto, autor),
+    ]);
+    expect(r[0].destino!.id).toBe(r[1].destino!.id);
+    expect(
+      await banco.dados
+        .getRepository(MatchingVinculoEventoEntity)
+        .countBy({ operacaoId: dto.operacaoId }),
+    ).toBe(1);
+    expect(
+      await banco.dados
+        .getRepository(MatchingVinculoEntity)
+        .countBy({ ativo: true }),
+    ).toBe(1);
+  });
+  it('falha no chat faz rollback de vínculo, períodos e auditoria no PostgreSQL', async () => {
+    const { p, a, operacoes, chat } = await semearCenarioMatching(banco.dados);
+    const origem = (await operacoes.vincular(a[0].id, p[0].id, autor)).vinculo;
+    const periodos = await banco.dados.getRepository(ChatPeriodoEntity).find();
+    const dto = transferir(p[1].id);
+    vi.spyOn(chat, 'criarParaVinculo').mockRejectedValueOnce(
+      new Error('Falha controlada no chat'),
+    );
+    await expect(operacoes.transferir(origem.id, dto, autor)).rejects.toThrow(
+      'Falha controlada',
+    );
+    expect(
+      await banco.dados
+        .getRepository(MatchingVinculoEntity)
+        .findOneByOrFail({ id: origem.id }),
+    ).toMatchObject({ ativo: true });
+    expect(await banco.dados.getRepository(ChatPeriodoEntity).find()).toEqual(
+      periodos,
+    );
+    expect(
+      await banco.dados
+        .getRepository(MatchingVinculoEventoEntity)
+        .countBy({ operacaoId: dto.operacaoId }),
+    ).toBe(0);
+    expect(
+      (await operacoes.transferir(origem.id, dto, autor)).destino!
+        .padrinhoParticipacaoId,
+    ).toBe(p[1].id);
+  });
+  it('entrada, transferência e retorno preservam lacuna, recibos e envio idempotente', async () => {
+    const { p, a, operacoes, chat } = await semearCenarioMatching(banco.dados);
+    const v = (await operacoes.vincular(a[0].id, p[0].id, autor)).vinculo;
+    const grupo = await banco.dados
+      .getRepository(ChatEntity)
+      .findOneByOrFail({ tipo: 'coletivo', grupoId: v.grupoId! });
+    await chat.enviarMensagem(
+      grupo.id,
+      p[0].usuarioId,
+      'Antes da segunda entrada',
+      randomUUID(),
+    );
+    await operacoes.vincular(a[1].id, p[0].id, autor);
+    const durante = await chat.enviarMensagem(
+      grupo.id,
+      p[0].usuarioId,
+      'Durante a participação',
+      randomUUID(),
+    );
+    const fora = await operacoes.transferir(v.id, transferir(p[1].id), autor);
+    await chat.enviarMensagem(
+      grupo.id,
+      p[0].usuarioId,
+      'Durante a ausência',
+      randomUUID(),
+    );
+    await operacoes.transferir(fora.destino!.id, transferir(p[0].id), autor);
+    const retorno = await chat.enviarMensagem(
+      grupo.id,
+      p[0].usuarioId,
+      'Depois do retorno',
+      randomUUID(),
+    );
+    const outra = await segundaConexao();
+    await Promise.all([
+      chat.listarMensagens(grupo.id, a[0].usuarioId),
+      outra.chat.listarMensagens(grupo.id, a[1].usuarioId),
+    ]);
+    expect(
+      (await chat.listarMensagens(grupo.id, a[0].usuarioId)).mensagens.map(
+        (m) => m.texto,
+      ),
+    ).toEqual([
+      'Antes da segunda entrada',
+      'Durante a participação',
+      'Depois do retorno',
+    ]);
+    expect(
+      (await chat.listarMensagens(grupo.id, a[1].usuarioId)).mensagens.map(
+        (m) => m.texto,
+      ),
+    ).toEqual([
+      'Durante a participação',
+      'Durante a ausência',
+      'Depois do retorno',
+    ]);
+    expect(
+      await banco.dados
+        .getRepository(ChatDestinatarioEntity)
+        .countBy({ mensagemId: retorno.id }),
+    ).toBe(2);
+    expect(
+      (
+        await banco.dados
+          .getRepository(ChatDestinatarioEntity)
+          .findBy({ mensagemId: durante.id })
+      ).every((r) => r.lidaEm),
+    ).toBe(true);
+    const pedido = randomUUID();
+    const r = await Promise.all([
+      chat.enviarMensagem(grupo.id, p[0].usuarioId, 'Envio repetido', pedido),
+      outra.chat.enviarMensagem(
+        grupo.id,
+        p[0].usuarioId,
+        'Envio repetido',
+        pedido,
+      ),
+    ]);
+    expect(r[0].id).toBe(r[1].id);
+    expect(
+      await banco.dados
+        .getRepository(MensagemChatEntity)
+        .countBy({ clientId: pedido }),
+    ).toBe(1);
+  });
+  it('configurações da mesma versão concorrentes não se sobrescrevem', async () => {
+    const { programa, matching } = await semearCenarioMatching(banco.dados);
+    const outra = await segundaConexao(),
+      base = await matching.obterConfiguracao(programa.codigo);
+    const dto = {
+      programa: programa.codigo,
+      versaoBase: base!.versao,
+      liberado: true,
+      capacidadePorPadrinho: 3,
+      capacidadePorApadrinhado: 1,
+      criterios: base!.criterios,
+    };
+    const r = await Promise.allSettled([
+      matching.salvarConfiguracao(dto, autor),
+      outra.matching.salvarConfiguracao(
+        { ...dto, capacidadePorPadrinho: 4 },
+        'outro@teste.local',
+      ),
+    ]);
+    expect(r.filter((v) => v.status === 'fulfilled')).toHaveLength(1);
+    expect(
+      await banco.dados.getRepository(MatchingConfiguracaoEntity).count(),
+    ).toBe(2);
   });
 });

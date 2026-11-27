@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'dados_cadastro.dart';
+import 'models/preferencia_genero.dart';
+import 'widgets/preferencia_genero.dart';
 import 'models/formulario.dart';
 import 'services/api_config.dart';
 import 'sessao_usuario.dart';
@@ -66,6 +68,7 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
   late final List<String> _areasInteresse;
   late final List<String> _disponibilidadesEscolhidas;
   String? _genero;
+  PreferenciaGenero? _preferenciaGenero;
   bool? _bolsistaProuni;
   bool? _deOutraCidade;
 
@@ -114,6 +117,7 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
       _faltaMotivo ||
       _faltaAreas ||
       _faltaDisponibilidade ||
+      (_preferenciaGenero != null && !_preferenciaGenero!.valida) ||
       _faltaGenero ||
       _faltaProuni ||
       _faltaCidade;
@@ -132,6 +136,7 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
     _areasInteresse = List.of(dados.areasApoio);
     _disponibilidadesEscolhidas = dados.disponibilidadeLista;
     _genero = dados.genero;
+    _preferenciaGenero = dados.preferenciaGenero;
     _bolsistaProuni = dados.bolsistaProuni;
     _deOutraCidade = dados.deOutraCidade;
     _cumpridos = Map.of(dados.requisitosCumpridos);
@@ -251,6 +256,8 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
         areasApoio: List.of(_areasInteresse),
         disponibilidade: _disponibilidadesEscolhidas.join(', '),
         genero: _genero,
+        preferenciaGenero: _preferenciaGenero,
+        limparPreferenciaGenero: _preferenciaGenero == null,
         bolsistaProuni: _bolsistaProuni,
         deOutraCidade: _deOutraCidade,
         requisitosCumpridos: {
@@ -456,6 +463,14 @@ class _CadastroPadrinhoPageState extends State<CadastroPadrinhoPage> {
               ),
             ],
           ),
+        ),
+        CampoPreferenciaGenero(
+          valor: _preferenciaGenero,
+          onChanged: (v) => setState(() => _preferenciaGenero = v),
+          erro:
+              _validar &&
+              _preferenciaGenero != null &&
+              !_preferenciaGenero!.valida,
         ),
         if (_erroFormulario != null)
           Text(_erroFormulario!, style: const TextStyle(color: Colors.red)),

@@ -25,7 +25,8 @@
     "seed:demo-gamificacao": "nest build && node dist/scripts/seed-demo-gamificacao.js",
     "celebracoes:aplicar": "nest build && node dist/scripts/aplicar-celebracoes-nivel.js",
     "migration:show": "nest build && typeorm migration:show -d dist/database/data-source.js",
-    "migration:run": "nest build && typeorm migration:run -d dist/database/data-source.js",
+    "db:preparar": "nest build && node dist/scripts/preparar-schema.js",
+    "migration:run": "nest build && node dist/scripts/preparar-schema.js && typeorm migration:run -d dist/database/data-source.js",
     "migration:revert": "nest build && typeorm migration:revert -d dist/database/data-source.js",
     "mapa:exportar-pucmaps": "nest build && node scripts/mapa/exportar-pucmaps.mjs",
     "mapa:importar": "nest build && node dist/scripts/importar-mapa.js"

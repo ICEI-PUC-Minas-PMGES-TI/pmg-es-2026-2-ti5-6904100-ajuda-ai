@@ -220,3 +220,34 @@ export function ehViolacaoUnica(erro: unknown, constraint?: string): boolean {
   };
   return code === '23505' && (!constraint || nome === constraint);
 }
+
+/** Violação de CHECK do PostgreSQL (`23514`), opcionalmente de uma constraint. */
+export function ehViolacaoCheck(erro: unknown, constraint?: string): boolean {
+  const e = (erro as { driverError?: unknown })?.driverError ?? erro;
+  const { code, constraint: nome } = (e ?? {}) as {
+    code?: string;
+    constraint?: string;
+  };
+  return code === '23514' && (!constraint || nome === constraint);
+}
+
+/** Quem fez uma ação da coordenação (ajuste de estoque, entrega, ajuste de XP). */
+export interface ResponsavelCoordenacao {
+  /** `usuarios.id`, ou `null` para a coordenação mockada (fora de `usuarios`). */
+  id: number | null;
+  email: string;
+}
+
+/** Responsável a partir do JWT da coordenação. */
+export async function responsavelDoToken(
+  dataSource: DataSource,
+  token: AccessTokenPayload,
+): Promise<ResponsavelCoordenacao> {
+  const email = String(token?.email ?? '')
+    .trim()
+    .toLowerCase();
+  return {
+    id: await usuarioDoTokenOuNulo(dataSource, token),
+    email: email || 'coordenacao',
+  };
+}

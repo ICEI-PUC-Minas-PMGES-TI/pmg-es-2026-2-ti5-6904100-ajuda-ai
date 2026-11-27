@@ -1,3 +1,5 @@
+import 'models/preferencia_genero.dart';
+
 class DadosCadastro {
   const DadosCadastro({
     required this.nome,
@@ -12,6 +14,7 @@ class DadosCadastro {
     this.areasApoio = const [],
     this.disponibilidade,
     this.genero,
+    this.preferenciaGenero,
     this.bolsistaProuni,
     this.deOutraCidade,
     this.requisitosCumpridos = const {},
@@ -39,6 +42,7 @@ class DadosCadastro {
   /// Disponibilidade(s) separadas por ", ".
   final String? disponibilidade;
   final String? genero;
+  final PreferenciaGenero? preferenciaGenero;
   final bool? bolsistaProuni;
   final bool? deOutraCidade;
 
@@ -64,6 +68,8 @@ class DadosCadastro {
     required List<String> areasApoio,
     required String? disponibilidade,
     required String? genero,
+    PreferenciaGenero? preferenciaGenero,
+    bool limparPreferenciaGenero = false,
     required bool? bolsistaProuni,
     required bool? deOutraCidade,
     Map<String, bool>? requisitosCumpridos,
@@ -83,6 +89,9 @@ class DadosCadastro {
       areasApoio: areasApoio,
       disponibilidade: disponibilidade,
       genero: genero,
+      preferenciaGenero: limparPreferenciaGenero
+          ? null
+          : preferenciaGenero ?? this.preferenciaGenero,
       bolsistaProuni: bolsistaProuni,
       deOutraCidade: deOutraCidade,
       requisitosCumpridos: requisitosCumpridos ?? this.requisitosCumpridos,
@@ -115,6 +124,7 @@ class DadosCadastro {
       areasApoio: areasApoio,
       disponibilidade: disponibilidade,
       genero: genero,
+      preferenciaGenero: preferenciaGenero,
       bolsistaProuni: bolsistaProuni,
       deOutraCidade: deOutraCidade,
       requisitosCumpridos: requisitosCumpridos,
@@ -140,6 +150,7 @@ class DadosCadastro {
   Map<String, dynamic> respostasApadrinhado() => {
     ..._perfil(),
     'genero': ?genero,
+    'preferenciaGenero': ?preferenciaGenero?.toJson(),
     'bolsistaProuni': ?bolsistaProuni,
     'deOutraCidade': ?deOutraCidade,
     'disponibilidade': disponibilidadeLista,
@@ -158,6 +169,7 @@ class DadosCadastro {
     'areas': areasApoio,
     'disponibilidade': disponibilidadeLista,
     'genero': ?genero,
+    'preferenciaGenero': ?preferenciaGenero?.toJson(),
     'bolsistaProuni': ?bolsistaProuni,
     'deOutraCidade': ?deOutraCidade,
     'requisitos': [
@@ -197,6 +209,9 @@ class DadosCadastro {
       areasApoio: lista(respostas['areas']),
       disponibilidade: lista(respostas['disponibilidade']).join(', '),
       genero: respostas['genero'] as String?,
+      preferenciaGenero: PreferenciaGenero.fromJson(
+        respostas['preferenciaGenero'],
+      ),
       bolsistaProuni: respostas['bolsistaProuni'] as bool?,
       deOutraCidade: respostas['deOutraCidade'] as bool?,
       requisitosCumpridos: {

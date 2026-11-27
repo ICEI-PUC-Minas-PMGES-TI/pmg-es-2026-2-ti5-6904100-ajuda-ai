@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -28,13 +30,36 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         manifestPlaceholders["appAuthRedirectScheme"] = "br.pucminas.ajudaai"
+        // HTTP sem TLS só para a API local (10.0.2.2/LAN) em debug e profile.
+        manifestPlaceholders["usesCleartextTraffic"] = "true"
+    }
+
+    // Assinatura de release: android/key.properties (fora do Git), escrito pelo
+    // CI a partir dos secrets. Sem o arquivo, cai na chave de debug (uso local).
+    // Com a mesma chave sempre, quem instalou o APK consegue atualizar sem desinstalar.
+    val keyPropertiesFile = rootProject.file("key.properties")
+    val keyProperties = Properties()
+    if (keyPropertiesFile.exists()) {
+        keyPropertiesFile.inputStream().use { keyProperties.load(it) }
+    }
+    signingConfigs {
+        if (keyPropertiesFile.exists()) {
+            create("release") {
+                storeFile = file(keyProperties.getProperty("storeFile"))
+                storePassword = keyProperties.getProperty("storePassword")
+                keyAlias = keyProperties.getProperty("keyAlias")
+                keyPassword = keyProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Release publicado fala só com a API em HTTPS.
+            manifestPlaceholders["usesCleartextTraffic"] = "false"
+            signingConfig =
+                if (keyPropertiesFile.exists()) signingConfigs.getByName("release")
+                else signingConfigs.getByName("debug")
         }
     }
 }

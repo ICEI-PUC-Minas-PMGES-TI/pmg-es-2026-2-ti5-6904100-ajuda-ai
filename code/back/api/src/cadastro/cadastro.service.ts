@@ -1,3 +1,4 @@
+import { validarPreferenciaGenero } from '../participacoes/preferencia-genero.js';
 import { FormulariosService } from '../formularios/formularios.service.js';
 import { FormularioEntity } from '../formularios/entities/formulario.entity.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
@@ -228,6 +229,7 @@ export class CadastroService {
     dados: DadosCadastro,
   ): Promise<{ usuario: UsuarioEntity; participacao: ParticipacaoEntity }> {
     const d = CadastroService.validar(dados);
+    validarPreferenciaGenero(d.respostas.preferenciaGenero);
     const ciclo = await this.programasService.resolverInscricao(d.programa);
     return this.usuariosService.transacao(async (manager) => {
       const programas = manager.getRepository(ProgramaEntity);
@@ -359,9 +361,9 @@ export class CadastroService {
   }
 
   /** POST /cadastro: registra e já devolve a sessão do aluno. */
-  async cadastrar(dados: DadosCadastro) {
+  async cadastrar(dados: DadosCadastro, expiraAte?: number) {
     const { usuario, participacao } = await this.registrar(dados);
-    const sessao = await this.authService.emitirSessao(usuario);
+    const sessao = await this.authService.emitirSessao(usuario, expiraAte);
     return { ...sessao, participacao: serializarParticipacao(participacao) };
   }
 

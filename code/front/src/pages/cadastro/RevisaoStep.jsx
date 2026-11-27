@@ -1,3 +1,4 @@
+import { textoPreferenciaGenero } from '../../components/PreferenciaGenero';
 import Icon from '../../components/Icon';
 import { textoResposta, formularioSuportado, ERRO_FORMULARIO_NAO_SUPORTADO } from '../../components/PerguntasAdicionais';
 import { Progress, SidePanel } from './partes';
@@ -6,6 +7,7 @@ export default function RevisaoStep({ profile, initials, perguntas, onBack, onEd
   if (!formularioSuportado(perguntas)) return <p role="alert" className="form-error">{ERRO_FORMULARIO_NAO_SUPORTADO}</p>;
   const items = [
     { icon: 'person', title: 'Gênero', value: profile.gender },
+    { icon: 'person', title: 'Preferência de gênero', value: textoPreferenciaGenero(profile.preferenciaGenero) },
     { icon: 'school', title: 'É bolsista ProUni?', value: profile.prouni },
     { icon: 'pin', title: 'É de outra cidade?', value: profile.otherCity },
     { icon: 'clock', title: 'Disponibilidade de horários', value: profile.availability.join(', ') },

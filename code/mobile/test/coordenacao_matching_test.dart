@@ -116,6 +116,73 @@ Map<String, dynamic> _programaComAcoes({
 };
 
 void main() {
+  testWidgets(
+    '409 preserva configuração e exige carregar a versão atual antes de salvar',
+    (tester) async {
+      tester.view.physicalSize = const Size(412, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final visao = _visao;
+      (visao['configuracao'] as Map)['criterios'] = [
+        {'campoCadastro': 'areas', 'operacao': 'intersecao', 'peso': 100},
+      ];
+      visao['criteriosCadastroDisponiveis'] = [
+        {
+          'campo': 'areas',
+          'nome': 'Áreas de apoio',
+          'operacao': 'intersecao',
+          'permiteObrigatorio': true,
+        },
+      ];
+      var leituras = 0, envios = 0;
+      final api = CoordenacaoApi(
+        accessToken: 'coord',
+        baseUrl: '',
+        client: MockClient((r) async {
+          if (r.method == 'PUT') {
+            envios++;
+            expect(jsonDecode(r.body)['versaoBase'], 2);
+            return _json({
+              'message': 'A configuração mudou em outra sessão.',
+            }, 409);
+          }
+          if (r.url.path == '/coordenacao/matching') {
+            leituras++;
+            return _json(visao);
+          }
+          return _json([]);
+        }),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TelaMatchingCoord(api: api, programa: '2026/2'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Editar configuração'));
+      await tester.tap(find.text('Editar configuração'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Salvar nova versão'));
+      await tester.tap(find.text('Salvar nova versão'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('A configuração mudou em outra sessão.'),
+        findsOneWidget,
+      );
+      expect(envios, 1);
+      final salvar = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Salvar nova versão'),
+      );
+      expect(salvar.onPressed, isNull);
+      await tester.tap(find.text('Carregar configuração atual'));
+      await tester.pumpAndSettle();
+      expect(leituras, greaterThan(1));
+      expect(find.text('Configuração salva em uma nova versão.'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
   test('CoordenacaoApi preserva contratos separados para matching', () async {
     final pedidos = <http.Request>[];
     final api = CoordenacaoApi(
@@ -477,6 +544,131 @@ void main() {
     });
   });
 
+  testWidgets(
+    'editor preserva fonte do cadastro e altera seu peso no payload',
+    (tester) async {
+      tester.view.physicalSize = const Size(900, 1500);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      Map<String, dynamic>? salvo;
+      final visao = _visao;
+      visao['configuracao'] = {
+        ...(visao['configuracao'] as Map),
+        'criterios': [
+          {
+            'campoCadastro': 'preferenciaGenero',
+            'operacao': 'preferencia_genero',
+            'peso': 30,
+          },
+        ],
+      };
+      visao['criteriosCadastroDisponiveis'] = [
+        {
+          'campo': 'preferenciaGenero',
+          'nome': 'Preferência de gênero',
+          'operacao': 'preferencia_genero',
+        },
+      ];
+      visao['criteriosDisponiveis'] = [];
+      final api = CoordenacaoApi(
+        accessToken: 'token',
+        baseUrl: '',
+        client: MockClient((pedido) async {
+          if (pedido.method == 'PUT' &&
+              pedido.url.path == '/coordenacao/matching/config') {
+            salvo = Map<String, dynamic>.from(jsonDecode(pedido.body) as Map);
+            return _json({});
+          }
+          if (pedido.url.path == '/coordenacao/matching') return _json(visao);
+          return _json([]);
+        }),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TelaMatchingCoord(api: api, programa: '2026/2'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Editar configuração'));
+      await tester.tap(find.text('Editar configuração'));
+      await tester.pumpAndSettle();
+      expect(find.text('Preferência de gênero'), findsOneWidget);
+      await tester.enterText(find.byType(TextFormField), '45');
+      await tester.tap(find.text('Salvar nova versão'));
+      await tester.pumpAndSettle();
+      expect(salvo?['criterios'], [
+        {
+          'campoCadastro': 'preferenciaGenero',
+          'operacao': 'preferencia_genero',
+          'peso': 45,
+        },
+      ]);
+      expect(salvo?['capacidadePorPadrinho'], 3);
+    },
+  );
+
+  testWidgets(
+    'condição obrigatória do programa sobrevive à edição e pode ser desmarcada',
+    (tester) async {
+      tester.view.physicalSize = const Size(900, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      Map<String, dynamic>? salvo;
+      final visao = _visao;
+      visao['configuracao'] = {
+        ...(visao['configuracao'] as Map),
+        'criterios': [
+          {
+            'campoCadastro': 'areas',
+            'operacao': 'intersecao',
+            'peso': 30,
+            'obrigatorio': true,
+          },
+        ],
+      };
+      visao['criteriosCadastroDisponiveis'] = [
+        {
+          'campo': 'areas',
+          'nome': 'Áreas de apoio',
+          'operacao': 'intersecao',
+          'permiteObrigatorio': true,
+        },
+      ];
+      visao['criteriosDisponiveis'] = [];
+      final api = CoordenacaoApi(
+        accessToken: 'token',
+        baseUrl: '',
+        client: MockClient((pedido) async {
+          if (pedido.method == 'PUT' &&
+              pedido.url.path == '/coordenacao/matching/config') {
+            salvo = Map<String, dynamic>.from(jsonDecode(pedido.body) as Map);
+            return _json({});
+          }
+          if (pedido.url.path == '/coordenacao/matching') return _json(visao);
+          return _json([]);
+        }),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TelaMatchingCoord(api: api, programa: '2026/2'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Editar configuração'));
+      await tester.tap(find.text('Editar configuração'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+        isTrue,
+      );
+      await tester.tap(find.text('Correspondência obrigatória neste programa'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Salvar nova versão'));
+      await tester.pumpAndSettle();
+      expect((salvo?['criterios'] as List).first['obrigatorio'], isFalse);
+    },
+  );
+
   testWidgets('a tela principal carrega as sugestões do contrato automático', (
     tester,
   ) async {
@@ -524,7 +716,9 @@ void main() {
       isTrue,
     );
     expect(
-      pedidos.any((request) => request.url.path == '/coordenacao/matching/pool'),
+      pedidos.any(
+        (request) => request.url.path == '/coordenacao/matching/pool',
+      ),
       isFalse,
     );
   });
@@ -570,7 +764,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Conversa privada'), findsOneWidget);
     expect(
-      find.text('A conversa privada será criada junto com a aprovação do vínculo.'),
+      find.text(
+        'A conversa privada será criada junto com a aprovação do vínculo.',
+      ),
       findsOneWidget,
     );
 

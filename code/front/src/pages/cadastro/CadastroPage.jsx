@@ -7,6 +7,7 @@ import {
   periodoNumero,
   salvarSessaoAluno,
 } from '../../auth/sessaoAluno';
+import { preferenciaGeneroValida } from '../../components/PreferenciaGenero';
 import Icon from '../../components/Icon';
 import { limparExtras, useFormularioPublico, validarExtras } from '../../components/PerguntasAdicionais';
 import { useToast } from '../../components/Toast';
@@ -41,6 +42,7 @@ function perfilInicial(email, sessao) {
     shift: salvo?.turno || 'Noite',
     interests: salvo?.interesses || ['Tecnologia', 'Inovação', 'Projetos'],
     gender: '',
+    preferenciaGenero: undefined,
     prouni: '',
     otherCity: '',
     availability: [],
@@ -196,6 +198,7 @@ export default function CadastroPage() {
     const errosExtras = validarExtras(perguntasApadrinhado, profile.extras);
     const nextErrors = {
       gender: !profile.gender,
+      preferenciaGenero: !preferenciaGeneroValida(profile.preferenciaGenero),
       prouni: !profile.prouni,
       otherCity: !profile.otherCity,
       availability: profile.availability.length === 0,
@@ -221,6 +224,7 @@ export default function CadastroPage() {
     const respostas = {
       ...perfil,
       genero: profile.gender,
+      preferenciaGenero: profile.preferenciaGenero,
       bolsistaProuni: paraBool(profile.prouni),
       deOutraCidade: paraBool(profile.otherCity),
       disponibilidade: profile.availability,

@@ -175,15 +175,10 @@ export class CoordenacaoService implements OnModuleInit {
         'seed:demo',
       );
     } else if (!config.liberado) {
-      await this.matchingService.liberar(
-        programa.codigo,
-        true,
-        'seed:demo',
-      );
+      await this.matchingService.liberar(programa.codigo, true, 'seed:demo');
     }
 
-    const alternativa =
-      criterio.versao.alternativas?.[0]?.id ?? 'academico';
+    const alternativa = criterio.versao.alternativas?.[0]?.id ?? 'academico';
     const elegiveis = [
       'thiago@pucminas.edu.br',
       'camila@pucminas.edu.br',
@@ -827,7 +822,11 @@ export class CoordenacaoService implements OnModuleInit {
       }),
     );
     const grupo = item.grupo?.trim();
-    if (grupo && (item.papel === 'padrinho' || item.papel === 'apadrinhado')) {
+    if (
+      this.participacoesService.podeUsarGrupoLegado() &&
+      grupo &&
+      (item.papel === 'padrinho' || item.papel === 'apadrinhado')
+    ) {
       const membros =
         item.papel === 'padrinho'
           ? (
@@ -870,8 +869,8 @@ export class CoordenacaoService implements OnModuleInit {
   }
 
   /** Encerra um vínculo do matching para permitir revogar a aprovação. */
-  async encerrarVinculo(id: number, vinculoId: number) {
-    await this.participacoesService.encerrarVinculo(id, vinculoId);
+  async encerrarVinculo(id: number, vinculoId: number, responsavel?: string) {
+    await this.participacoesService.encerrarVinculo(id, vinculoId, responsavel);
     return this.detalharCandidatura(id);
   }
 
@@ -939,9 +938,9 @@ export class CoordenacaoService implements OnModuleInit {
     return this.detalharCandidatura(id);
   }
 
-  async desvincularCandidatura(id: number) {
+  async desvincularCandidatura(id: number, responsavel?: string) {
     const { apadrinhado, padrinho } =
-      await this.participacoesService.desvincular(id);
+      await this.participacoesService.desvincular(id, responsavel);
     return {
       apadrinhado: this.enriquecerCandidatura(apadrinhado),
       padrinho: padrinho ? this.enriquecerCandidatura(padrinho) : null,
@@ -1115,10 +1114,7 @@ export class CoordenacaoService implements OnModuleInit {
         const padrinhos = registros.filter((r) => r.papel === 'padrinho');
         return {
           ...this.serializarPrograma(programa, codigoAtual),
-          podeLiberarMatching: this.podeLiberarMatching(
-            programa,
-            registros,
-          ),
+          podeLiberarMatching: this.podeLiberarMatching(programa, registros),
           etapas: montarEtapas(programa),
           datas: {
             inscricoesInicio: programa.inscricoesInicio,
@@ -1175,8 +1171,7 @@ export class CoordenacaoService implements OnModuleInit {
       registros.some(
         (registro) =>
           (registro.papel === 'candidato' && registro.status === 'aprovado') ||
-          (registro.papel === 'padrinho' &&
-            registro.status === 'em_andamento'),
+          (registro.papel === 'padrinho' && registro.status === 'em_andamento'),
       )
     );
   }
@@ -1263,10 +1258,12 @@ export class CoordenacaoService implements OnModuleInit {
       ),
       matchingLiberado: true,
       padrinhos: padrinhos.map((r) => this.enriquecerCandidatura(r)),
-      apadrinhados: apadrinhados.map((r) => ({
-        ...this.enriquecerCandidatura(r),
-        vinculado: ParticipacoesService.vinculoValido(r, registros),
-      })),
+      apadrinhados: await Promise.all(
+        apadrinhados.map(async (r) => ({
+          ...this.enriquecerCandidatura(r),
+          vinculado: await this.participacoesService.temVinculoValido(r),
+        })),
+      ),
     };
   }
   obterFormulario(tipo: string, programa?: string) {
@@ -1508,7 +1505,8 @@ export class CoordenacaoService implements OnModuleInit {
         apadrinhados: 0,
         inicioEm: dias(1),
         respostas: {
-          expectativa: 'Preciso de apoio para montar a grade e conhecer o campus.',
+          expectativa:
+            'Preciso de apoio para montar a grade e conhecer o campus.',
           areas: ['Rotina universitária', 'Vida no campus'],
           disponibilidade: ['Manhã', 'Tarde'],
           genero: 'Feminino',

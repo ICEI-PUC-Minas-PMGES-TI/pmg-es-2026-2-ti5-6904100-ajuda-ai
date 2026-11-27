@@ -5,7 +5,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 const server = await createServer({
-  server: { middlewareMode: true },
+  server: { middlewareMode: true, hmr: false },
+  optimizeDeps: { noDiscovery: true, include: [] },
   appType: "custom",
 });
 after(() => server.close());
@@ -19,10 +20,18 @@ const { default: RevisaoStep } = await server.ssrLoadModule(
   "/src/pages/cadastro/RevisaoStep.jsx",
 );
 
-test("criação oferece somente os quatro tipos suportados", () => {
+test("criação distingue tipos comuns e os três tipos do catálogo", () => {
   assert.deepEqual(
     modulo.TIPOS_PERGUNTA.map((p) => p.valor),
-    ["texto_curto", "texto_longo", "checklist", "dropdown"],
+    [
+      "texto_curto",
+      "texto_longo",
+      "checklist",
+      "dropdown",
+      "sim_nao",
+      "escolha_unica",
+      "multipla_escolha",
+    ],
   );
   const html = renderToStaticMarkup(
     React.createElement(PerguntaEditor, {
