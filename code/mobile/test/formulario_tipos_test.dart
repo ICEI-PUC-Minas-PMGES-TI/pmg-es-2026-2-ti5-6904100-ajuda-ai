@@ -11,7 +11,7 @@ import 'package:http/testing.dart';
 
 void main() {
   test('somente quatro tipos são selecionáveis', () {
-    expect(TipoPergunta.suportados.map((p) => p.apiValue), [
+    expect(TipoPergunta.comuns.map((p) => p.apiValue), [
       'texto_curto',
       'texto_longo',
       'checklist',
@@ -121,12 +121,18 @@ void main() {
       expect(find.text('Texto curto'), findsWidgets);
       await tester.tapAt(const Offset(2, 2));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Salvar alterações'));
-      await tester.tap(find.text('Salvar alterações'));
+      await tester.scrollUntilVisible(
+        find.text('Salvar'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Salvar'));
       await tester.pumpAndSettle();
       expect(gravacoes, 0);
       expect(
-        find.textContaining('remova ou substitua a pergunta antes de salvar'),
+        find.textContaining(
+          'Tipo não suportado: remova ou substitua a pergunta',
+        ),
         findsOneWidget,
       );
     },

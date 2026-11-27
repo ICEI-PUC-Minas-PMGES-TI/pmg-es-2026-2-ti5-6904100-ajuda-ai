@@ -14,7 +14,11 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { ProgramasService } from '../programas/programas.service.js';
-import { montarEtapas, ROTULOS_STATUS_PROGRAMA } from '../programas/etapas.js';
+import {
+  montarEtapas,
+  matchingLiberado,
+  ROTULOS_STATUS_PROGRAMA,
+} from '../programas/etapas.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
 import { ParticipacoesService } from './participacoes.service.js';
 import { perfilDoRegistro, serializarParticipacao } from './perfil.js';
@@ -53,7 +57,9 @@ export class ParticipacoesController {
       try {
         this.programasService.validarInscricoes(programa);
         inscricoesDisponiveis = true;
-      } catch { /* Calendário fechado: consulta continua disponível. */ }
+      } catch {
+        /* Calendário fechado: consulta continua disponível. */
+      }
       return {
         codigo: programa.codigo,
         titulo: programa.titulo,
@@ -98,6 +104,8 @@ export class ParticipacoesController {
         cadastro: null,
         grupo: null,
         padrinho: null,
+        padrinhos: [],
+        podeConversar: false,
         apadrinhados: [],
       };
     const registro = await this.participacoesService.registroPrincipal(
@@ -105,30 +113,33 @@ export class ParticipacoesController {
       programa.codigo,
     );
 
-    const aprovado = await this.participacoesService.temVinculoValido(registro);
     let padrinho: Record<string, unknown> | null = null;
     let apadrinhados: Array<Record<string, unknown>> = [];
     const grupo = registro?.grupo?.trim() || null;
-    if (aprovado && registro && grupo && registro.papel === 'apadrinhado') {
-      const registroPadrinho =
-        await this.participacoesService.buscarPadrinhoDoGrupo(
-          programa.codigo,
+    const relacionados =
+      registro && programa.etapaAtual !== 'encerramento'
+        ? await this.participacoesService.listarVinculados(registro)
+        : [];
+    const aprovado = relacionados.length > 0;
+    const padrinhos =
+      registro?.papel === 'apadrinhado'
+        ? relacionados.map(({ participacao, vinculoId, grupoId, grupo }) => ({
+            ...perfilDoRegistro(participacao),
+            vinculoId,
+            grupoId,
+            grupo,
+          }))
+        : [];
+    if (padrinhos.length) padrinho = padrinhos[0];
+    if (registro?.papel === 'padrinho')
+      apadrinhados = relacionados.map(
+        ({ participacao, vinculoId, grupoId, grupo }) => ({
+          ...perfilDoRegistro(participacao),
+          vinculoId,
+          grupoId,
           grupo,
-        );
-      if (registroPadrinho) {
-        padrinho = { ...perfilDoRegistro(registroPadrinho), grupo };
-      }
-    }
-    if (aprovado && registro && grupo && registro.papel === 'padrinho') {
-      const lista = await this.participacoesService.listarApadrinhadosDoGrupo(
-        programa.codigo,
-        grupo,
+        }),
       );
-      apadrinhados = lista.map((item) => ({
-        ...perfilDoRegistro(item),
-        grupo,
-      }));
-    }
 
     return {
       usuarioId,
@@ -140,7 +151,14 @@ export class ParticipacoesController {
         inscricoesAbertas: programa.inscricoesAbertas,
         etapas: montarEtapas(programa),
       },
-      situacao: await this.participacoesService.situacaoDoRegistro(registro),
+      situacao:
+        programa.etapaAtual === 'encerramento' &&
+        registro &&
+        ['aprovado', 'em_andamento', 'concluido'].includes(registro.status)
+          ? 'concluido'
+          : ParticipacoesService.situacaoDe(registro, aprovado),
+      podeConversar:
+        aprovado && matchingLiberado(programa) && !programa.inscricoesAbertas,
       cadastro: usuario
         ? {
             status:
@@ -176,6 +194,7 @@ export class ParticipacoesController {
       registro: registro ? serializarParticipacao(registro) : null,
       grupo,
       padrinho,
+      padrinhos,
       apadrinhados,
     };
   }

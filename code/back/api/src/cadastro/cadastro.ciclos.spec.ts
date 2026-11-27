@@ -5,10 +5,7 @@ import {
 } from '../../test/helpers/repositorio-memoria.js';
 import type { AuthService } from '../auth/auth.service.js';
 import { CoordenacaoService } from '../coordenacao/coordenacao.service.js';
-import {
-  ParticipacaoEntity,
-  type RespostasCadastro,
-} from '../participacoes/entities/participacao.entity.js';
+import { ParticipacaoEntity, type RespostasCadastro } from '../participacoes/entities/participacao.entity.js';
 import { ParticipacoesService } from '../participacoes/participacoes.service.js';
 import { conferirTudo } from '../../test/helpers/conferencia-academica.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
@@ -23,21 +20,17 @@ import { CadastroService } from './cadastro.service.js';
  * da tela de Candidaturas (CoordenacaoService).
  */
 const cronograma = {
-  inscricoesInicio: '2000-01-01', inscricoesFim: '2099-12-31',
-  analiseInicio: '2099-12-31', analiseFim: '2099-12-31',
-  formacaoInicio: '2099-12-31', formacaoFim: '2099-12-31',
-  andamentoInicio: '2099-12-31', andamentoFim: '2099-12-31', encerramentoEm: '2099-12-31',
+  inscricoesInicio: '2000-01-01',
+  inscricoesFim: '2099-12-31',
+  analiseInicio: '2099-12-31',
+  analiseFim: '2099-12-31',
+  formacaoInicio: '2099-12-31',
+  formacaoFim: '2099-12-31',
+  andamentoInicio: '2099-12-31',
+  andamentoFim: '2099-12-31',
+  encerramentoEm: '2099-12-31',
 };
 
-const respostasApadrinhado: RespostasCadastro = {
-  areas: ['Rotina'],
-  disponibilidade: ['Noite'],
-  genero: 'Prefiro não informar',
-  bolsistaProuni: false,
-  deOutraCidade: false,
-  expectativa: 'Quero apoio na adaptação.',
-  declaraPrimeiroPeriodo: true,
-};
 describe('Cadastro × ciclos, requisitos e transição', () => {
   const COORD = 'renata@pucminas.edu.br';
   let usuarios: UsuarioEntity[];
@@ -80,6 +73,8 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
       null as never,
       cadastro,
       usuariosService,
+      null as never,
+      null as never,
       repoParticipacoes,
     );
     for (const codigo of ['2025/2', '2026/2', '2027/1', '2027/2']) {
@@ -313,13 +308,13 @@ describe('Cadastro × ciclos, requisitos e transição', () => {
 
   it('código de ciclo inválido → 400; ciclo já existente → 409 (sem duplicar)', async () => {
     for (const codigo of ['2027', '2027/3', '27/1', '1999/1', 'abc']) {
-      await expect(programasService.criarNovoCiclo(codigo, cronograma)).rejects.toThrow(
-        /Código do ciclo inválido/,
-      );
+      await expect(
+        programasService.criarNovoCiclo(codigo, cronograma),
+      ).rejects.toThrow(/Código do ciclo inválido/);
     }
-    await expect(programasService.criarNovoCiclo('2027/1', cronograma)).rejects.toThrow(
-      /já existe/,
-    );
+    await expect(
+      programasService.criarNovoCiclo('2027/1', cronograma),
+    ).rejects.toThrow(/já existe/);
     expect(
       (await programasService.listar()).filter((p) => p.codigo === '2027/1'),
     ).toHaveLength(1);

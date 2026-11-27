@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../models/preferencia_genero.dart';
+
 import '../services/coordenacao_api.dart';
 import '../theme/colors.dart';
 import 'componentes_coord.dart';
@@ -216,6 +218,12 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
         _lista(r['disponibilidade']),
       ),
       (Icons.person_outline, 'Gênero', _texto(r['genero'])),
+      (
+        Icons.person_outline,
+        'Preferência de gênero',
+        PreferenciaGenero.fromJson(r['preferenciaGenero'])?.descricao ??
+            'Não informado',
+      ),
       (
         Icons.school_outlined,
         'É bolsista ProUni?',
@@ -501,9 +509,7 @@ class _DetalheCandidaturaState extends State<_DetalheCandidatura> {
                             ),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: corErroCoord,
-                              side: const BorderSide(
-                                color: Color(0xFFFCA5A5),
-                              ),
+                              side: const BorderSide(color: Color(0xFFFCA5A5)),
                               minimumSize: const Size.fromHeight(48),
                             ),
                           ),

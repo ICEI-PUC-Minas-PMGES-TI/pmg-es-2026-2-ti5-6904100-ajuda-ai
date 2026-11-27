@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../models/preferencia_genero.dart';
+import 'resumo_matching.dart';
+import 'pares_recusados_matching.dart';
+import 'grupos_matching.dart';
+
 import '../services/coordenacao_api.dart';
+import '../services/api_config.dart';
 import '../theme/colors.dart';
 import 'componentes_coord.dart';
 
@@ -24,10 +30,7 @@ List<Map<String, dynamic>> _mapas(Object? valor) => valor is List
 String _nome(Map<String, dynamic> pessoa) =>
     '${pessoa['nome'] ?? _mapa(pessoa['respostas'])['nome'] ?? pessoa['usuarioId'] ?? 'Participante'}';
 
-String _percentual(Object? valor) {
-  final numero = valor is num ? valor.toDouble() : double.tryParse('$valor');
-  return '${((numero ?? 0) * 100).round()}%';
-}
+String _percentual(Object? valor) => percentualMatching(valor);
 
 /// Fluxo F11/F12 de matching da coordenação para o ciclo selecionado no shell.
 class TelaMatchingCoord extends StatefulWidget {
@@ -53,6 +56,7 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
   String? _erro;
   bool _carregando = true;
   bool _alterando = false;
+  int _sequencia = 0;
 
   @override
   void initState() {
@@ -60,18 +64,35 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
     _carregar();
   }
 
+  @override
+  void didUpdateWidget(covariant TelaMatchingCoord oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.programa != widget.programa || oldWidget.api != widget.api) {
+      _visao = null;
+      _execucoes = const [];
+      _sugestoes = const [];
+      _status = 'pendente';
+      _alterando = false;
+      _carregar();
+    }
+  }
+
   Future<void> _carregar() async {
+    final pedido = ++_sequencia;
+    final programa = widget.programa;
     setState(() {
       _carregando = true;
       _erro = null;
     });
     try {
       final resultados = await Future.wait<Object>([
-        widget.api.matchingVisao(widget.programa),
-        widget.api.execucoesMatching(widget.programa),
-        widget.api.sugestoesMatching(widget.programa, status: _status),
+        widget.api.matchingVisao(programa),
+        widget.api.execucoesMatching(programa),
+        widget.api.sugestoesMatching(programa, status: _status),
       ]);
-      if (!mounted) return;
+      if (!mounted || pedido != _sequencia || programa != widget.programa) {
+        return;
+      }
       setState(() {
         _visao = _mapa(resultados[0]);
         _execucoes = _mapas(resultados[1]);
@@ -79,7 +100,9 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
         _carregando = false;
       });
     } catch (erro) {
-      if (!mounted) return;
+      if (!mounted || pedido != _sequencia || programa != widget.programa) {
+        return;
+      }
       setState(() {
         _erro = mensagemDeErro(erro);
         _carregando = false;
@@ -96,20 +119,29 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
   Future<void> _configurar() async {
     final visao = _visao;
     if (visao == null) return;
-    final salvo = await showModalBottomSheet<bool>(
+    final programa = widget.programa;
+    final salvo = await showModalBottomSheet<Object?>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: Colors.white,
       builder: (_) => _EditorMatching(
         api: widget.api,
-        programa: widget.programa,
+        programa: programa,
         configuracao: _mapa(visao['configuracao']),
         criteriosDisponiveis: _mapas(visao['criteriosDisponiveis']),
+        criteriosCadastro: _mapas(visao['criteriosCadastroDisponiveis']),
       ),
     );
-    if (salvo == true && mounted) {
-      mostrarMensagemCoord(context, 'Configuração salva em uma nova versão.');
+    if ((salvo == true || salvo == 'conflito') &&
+        mounted &&
+        programa == widget.programa) {
+      mostrarMensagemCoord(
+        context,
+        salvo == true
+            ? 'Configuração salva em uma nova versão.'
+            : 'Carregando a configuração atual. Revise antes de salvar.',
+      );
       await _carregar();
     }
   }
@@ -125,6 +157,7 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
 
   Future<void> _executar() async {
     if (_visao?['podeExecutar'] != true || _alterando) return;
+    final programa = widget.programa;
     final confirmou = await confirmarAcaoCoord(
       context,
       titulo: 'Gerar nova rodada?',
@@ -133,14 +166,14 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
           'vínculos confirmados serão preservados.',
       confirmar: 'Executar matching',
     );
-    if (!confirmou || !mounted) return;
+    if (!confirmou || !mounted || programa != widget.programa) return;
     setState(() {
       _alterando = true;
       _erro = null;
     });
     try {
-      final resultado = await widget.api.executarMatching(widget.programa);
-      if (!mounted) return;
+      final resultado = await widget.api.executarMatching(programa);
+      if (!mounted || programa != widget.programa) return;
       setState(() => _status = 'pendente');
       mostrarMensagemCoord(
         context,
@@ -148,9 +181,13 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
       );
       await _carregar();
     } catch (erro) {
-      if (mounted) setState(() => _erro = mensagemDeErro(erro));
+      if (mounted && programa == widget.programa) {
+        setState(() => _erro = mensagemDeErro(erro));
+      }
     } finally {
-      if (mounted) setState(() => _alterando = false);
+      if (mounted && programa == widget.programa) {
+        setState(() => _alterando = false);
+      }
     }
   }
 
@@ -215,10 +252,7 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
                 child: SegmentedButton<String>(
                   segments: const [
                     ButtonSegment(value: 'operacao', label: Text('Operação')),
-                    ButtonSegment(
-                      value: 'criterios',
-                      label: Text('Critérios'),
-                    ),
+                    ButtonSegment(value: 'criterios', label: Text('Critérios')),
                   ],
                   selected: {_aba},
                   onSelectionChanged: (valor) =>
@@ -278,11 +312,32 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
                       : bloqueios.map((item) => '• $item').join('\n'),
                 ),
                 _ResumoMatching(totais: totais),
+                GruposMatchingCoord(
+                  api: widget.api,
+                  programa: widget.programa,
+                  revisao: visao,
+                  onAlterado: _carregar,
+                ),
+                ParesRecusadosMatching(
+                  api: widget.api,
+                  programa: widget.programa,
+                  revisao: visao,
+                  onAlterado: _carregar,
+                ),
+                if (_execucoes.isNotEmpty)
+                  RelatorioRodadaMatching(
+                    relatorio: _mapa(
+                      _mapa(_execucoes.first['configSnapshot'])['relatorio'],
+                    ),
+                  ),
                 _CardConfiguracao(
                   configuracao: configuracao,
                   alterando: _alterando,
                   onConfigurar: _configurar,
                   onExecutar: visao['podeExecutar'] == true ? _executar : null,
+                ),
+                DiagnosticoDadosMatching(
+                  dados: _mapa(visao['diagnosticoDados']),
                 ),
                 _Aviso(
                   icone: Icons.chat_bubble_outline,
@@ -291,7 +346,7 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
                       ? 'Chat integrado'
                       : 'Dependência de chat pendente',
                   descricao: chat['disponivel'] == true
-                      ? 'A aprovação cria a conversa privada do vínculo.'
+                      ? 'A aprovação cria o privado e atualiza a conversa do grupo.'
                       : '${chat['mensagem'] ?? 'A integração do chat está pendente.'} '
                             '${chat['pendencias'] ?? totais['outboxPendentes'] ?? 0} '
                             'evento(s) aguardando processamento.',
@@ -605,7 +660,10 @@ class _CardSugestao extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    _percentual(sugestao['score']),
+                    _percentual(
+                      _mapa(sugestao['explicacao'])['score'] ??
+                          sugestao['score'],
+                    ),
                     style: const TextStyle(
                       color: AppColors.primary,
                       fontWeight: FontWeight.w800,
@@ -654,32 +712,41 @@ class _EditorMatching extends StatefulWidget {
     required this.programa,
     required this.configuracao,
     required this.criteriosDisponiveis,
+    required this.criteriosCadastro,
   });
 
   final CoordenacaoApi api;
   final String programa;
   final Map<String, dynamic> configuracao;
   final List<Map<String, dynamic>> criteriosDisponiveis;
+  final List<Map<String, dynamic>> criteriosCadastro;
 
   @override
   State<_EditorMatching> createState() => _EditorMatchingState();
 }
 
 class _EditorMatchingState extends State<_EditorMatching> {
+  bool _conflito = false;
   late int _capacidadeP =
       (widget.configuracao['capacidadePorPadrinho'] as num?)?.toInt() ?? 3;
   late int _capacidadeA =
       (widget.configuracao['capacidadePorApadrinhado'] as num?)?.toInt() ?? 1;
   late final List<Map<String, dynamic>> _criterios = [
     for (final item in _mapas(widget.configuracao['criterios']))
-      if (item['criterioPadrinhoId'] != null &&
-          item['criterioApadrinhadoId'] != null)
+      if (item['campoCadastro'] != null ||
+          (item['criterioPadrinhoId'] != null &&
+              item['criterioApadrinhadoId'] != null))
         {
-          'criterioPadrinhoId': (item['criterioPadrinhoId'] as num).toInt(),
-          'criterioApadrinhadoId': (item['criterioApadrinhadoId'] as num)
-              .toInt(),
+          if (item['campoCadastro'] != null)
+            'campoCadastro': item['campoCadastro'],
+          if (item['campoCadastro'] == null) ...{
+            'criterioPadrinhoId': (item['criterioPadrinhoId'] as num).toInt(),
+            'criterioApadrinhadoId': (item['criterioApadrinhadoId'] as num)
+                .toInt(),
+          },
           'operacao': '${item['operacao'] ?? 'igualdade'}',
           'peso': (item['peso'] as num?)?.toInt() ?? 10,
+          if (item['obrigatorio'] is bool) 'obrigatorio': item['obrigatorio'],
         },
   ];
   bool _salvando = false;
@@ -711,8 +778,33 @@ class _EditorMatchingState extends State<_EditorMatching> {
     });
   }
 
+  Widget _campoObrigatorio(Map<String, dynamic> criterio) => CheckboxListTile(
+    contentPadding: EdgeInsets.zero,
+    title: const Text('Correspondência obrigatória neste programa'),
+    subtitle: Text(
+      criterio['campoCadastro'] == 'areas'
+          ? 'Exige ao menos uma área de apoio em comum.'
+          : criterio['campoCadastro'] == 'disponibilidade'
+          ? 'Exige ao menos um horário em comum; online é modalidade.'
+          : 'Sem correspondência ou com dados insuficientes, o par não será sugerido.',
+    ),
+    value: criterio['obrigatorio'] == true,
+    onChanged: (valor) =>
+        setState(() => criterio['obrigatorio'] = valor == true),
+  );
+
   Future<void> _salvar() async {
-    if (_criterios.isEmpty || _salvando) {
+    if (_salvando || _conflito) return;
+    if (_criterios.any(
+      (c) =>
+          c['peso'] is! int ||
+          (c['peso'] as int) < 1 ||
+          (c['peso'] as int) > 100,
+    )) {
+      setState(() => _erro = 'Informe pesos inteiros entre 1 e 100.');
+      return;
+    }
+    if (_criterios.isEmpty) {
       setState(() => _erro = 'Adicione ao menos um par de critérios.');
       return;
     }
@@ -723,6 +815,7 @@ class _EditorMatchingState extends State<_EditorMatching> {
     try {
       await widget.api.salvarMatchingConfiguracao(
         programa: widget.programa,
+        versaoBase: (widget.configuracao['versao'] as num?)?.toInt() ?? 0,
         liberado: widget.configuracao['liberado'] == true,
         capacidadePorPadrinho: _capacidadeP,
         capacidadePorApadrinhado: _capacidadeA,
@@ -734,6 +827,7 @@ class _EditorMatchingState extends State<_EditorMatching> {
         setState(() {
           _salvando = false;
           _erro = mensagemDeErro(erro);
+          _conflito = erro is ApiException && erro.statusCode == 409;
         });
       }
     }
@@ -764,7 +858,7 @@ class _EditorMatchingState extends State<_EditorMatching> {
               ),
             ),
             const Text(
-              'Selecione pares do catálogo. Prefira critérios habilitáveis '
+              'Adicione dados do cadastro pelo ícone de pessoa ou critérios do catálogo. '
               '(já coletados nos dois públicos).',
               style: TextStyle(color: corTextoSecundarioCoord, fontSize: 12),
             ),
@@ -816,6 +910,32 @@ class _EditorMatchingState extends State<_EditorMatching> {
                   icon: const Icon(Icons.add),
                   label: const Text('Adicionar'),
                 ),
+                PopupMenuButton<String>(
+                  tooltip: 'Adicionar dado do cadastro',
+                  icon: const Icon(Icons.person_add_alt),
+                  itemBuilder: (_) => [
+                    for (final fonte in widget.criteriosCadastro)
+                      PopupMenuItem(
+                        value: '${fonte['campo']}',
+                        enabled: !_criterios.any(
+                          (c) => c['campoCadastro'] == fonte['campo'],
+                        ),
+                        child: Text('${fonte['nome']}'),
+                      ),
+                  ],
+                  onSelected: (campo) {
+                    final fonte = widget.criteriosCadastro.firstWhere(
+                      (f) => f['campo'] == campo,
+                    );
+                    setState(
+                      () => _criterios.add({
+                        'campoCadastro': campo,
+                        'operacao': fonte['operacao'],
+                        'peso': 10,
+                      }),
+                    );
+                  },
+                ),
               ],
             ),
             Expanded(
@@ -831,11 +951,56 @@ class _EditorMatchingState extends State<_EditorMatching> {
                       itemCount: _criterios.length,
                       itemBuilder: (context, indice) {
                         final criterio = _criterios[indice];
+                        if (criterio['campoCadastro'] != null) {
+                          final fontes = widget.criteriosCadastro.where(
+                            (f) => f['campo'] == criterio['campoCadastro'],
+                          );
+                          final nome = fontes.isEmpty
+                              ? '${criterio['campoCadastro']}'
+                              : '${fontes.first['nome']}';
+                          return Card(
+                            key: ObjectKey(criterio),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                children: [
+                                  ListTile(
+                                    title: Text(nome),
+                                    subtitle: const Text(
+                                      'Dado do cadastro · peso configurável',
+                                    ),
+                                    trailing: IconButton(
+                                      tooltip: 'Remover critério',
+                                      icon: const Icon(Icons.delete_outline),
+                                      onPressed: () => setState(
+                                        () => _criterios.removeAt(indice),
+                                      ),
+                                    ),
+                                  ),
+                                  if (fontes.isNotEmpty &&
+                                      fontes.first['permiteObrigatorio'] ==
+                                          true)
+                                    _campoObrigatorio(criterio),
+                                  TextFormField(
+                                    initialValue: '${criterio['peso']}',
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Peso (1 a 100)',
+                                    ),
+                                    onChanged: (v) =>
+                                        criterio['peso'] = int.tryParse(v) ?? 0,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
                         final ids = {
                           for (final c in widget.criteriosDisponiveis)
                             (c['id'] as num).toInt(): c,
                         };
                         return Card(
+                          key: ObjectKey(criterio),
                           child: Padding(
                             padding: const EdgeInsets.all(12),
                             child: Column(
@@ -866,8 +1031,7 @@ class _EditorMatchingState extends State<_EditorMatching> {
                                     labelText: 'Critério do padrinho',
                                   ),
                                   items: [
-                                    for (final c
-                                        in widget.criteriosDisponiveis)
+                                    for (final c in widget.criteriosDisponiveis)
                                       DropdownMenuItem(
                                         value: (c['id'] as num).toInt(),
                                         child: Text(
@@ -880,6 +1044,7 @@ class _EditorMatchingState extends State<_EditorMatching> {
                                     if (valor == null) return;
                                     setState(() {
                                       criterio['criterioPadrinhoId'] = valor;
+                                      criterio['criterioApadrinhadoId'] = valor;
                                       final meta = ids[valor];
                                       criterio['operacao'] =
                                           meta?['tipo'] == 'multipla_escolha'
@@ -897,7 +1062,11 @@ class _EditorMatchingState extends State<_EditorMatching> {
                                   ),
                                   items: [
                                     for (final c
-                                        in widget.criteriosDisponiveis)
+                                        in widget.criteriosDisponiveis.where(
+                                          (c) =>
+                                              c['id'] ==
+                                              criterio['criterioPadrinhoId'],
+                                        ))
                                       DropdownMenuItem(
                                         value: (c['id'] as num).toInt(),
                                         child: Text(
@@ -907,9 +1076,8 @@ class _EditorMatchingState extends State<_EditorMatching> {
                                       ),
                                   ],
                                   onChanged: (valor) => setState(
-                                    () =>
-                                        criterio['criterioApadrinhadoId'] =
-                                            valor,
+                                    () => criterio['criterioApadrinhadoId'] =
+                                        valor,
                                   ),
                                 ),
                                 const SizedBox(height: 8),
@@ -938,6 +1106,7 @@ class _EditorMatchingState extends State<_EditorMatching> {
                                   ),
                                 ),
                                 const SizedBox(height: 8),
+                                _campoObrigatorio(criterio),
                                 TextFormField(
                                   initialValue: '${criterio['peso'] ?? 10}',
                                   keyboardType: TextInputType.number,
@@ -946,11 +1115,7 @@ class _EditorMatchingState extends State<_EditorMatching> {
                                   ),
                                   onChanged: (valor) {
                                     final peso = int.tryParse(valor);
-                                    if (peso != null &&
-                                        peso >= 1 &&
-                                        peso <= 100) {
-                                      criterio['peso'] = peso;
-                                    }
+                                    criterio['peso'] = peso ?? 0;
                                   },
                                 ),
                               ],
@@ -968,6 +1133,11 @@ class _EditorMatchingState extends State<_EditorMatching> {
                   style: const TextStyle(color: corErroCoord),
                 ),
               ),
+            if (_conflito)
+              TextButton(
+                onPressed: () => Navigator.pop(context, 'conflito'),
+                child: const Text('Carregar configuração atual'),
+              ),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -982,7 +1152,7 @@ class _EditorMatchingState extends State<_EditorMatching> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: FilledButton(
-                    onPressed: _salvando ? null : _salvar,
+                    onPressed: _salvando || _conflito ? null : _salvar,
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
                     ),
@@ -1056,7 +1226,9 @@ class _TelaCatalogoCriteriosMatchingState
     Map<String, dynamic>? inicial = item;
     if (item != null) {
       try {
-        inicial = await widget.api.criterioMatching((item['id'] as num).toInt());
+        inicial = await widget.api.criterioMatching(
+          (item['id'] as num).toInt(),
+        );
       } catch (erro) {
         if (mounted) {
           mostrarMensagemCoord(context, mensagemDeErro(erro));
@@ -1070,10 +1242,8 @@ class _TelaCatalogoCriteriosMatchingState
       isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: Colors.white,
-      builder: (_) => _EditorCriterioCatalogo(
-        api: widget.api,
-        inicial: inicial,
-      ),
+      builder: (_) =>
+          _EditorCriterioCatalogo(api: widget.api, inicial: inicial),
     );
     if (salvo == true && mounted) {
       _alterou = true;
@@ -1138,7 +1308,10 @@ class _TelaCatalogoCriteriosMatchingState
             if (_erro != null)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
-                child: Text(_erro!, style: const TextStyle(color: corErroCoord)),
+                child: Text(
+                  _erro!,
+                  style: const TextStyle(color: corErroCoord),
+                ),
               ),
             if (_carregando)
               const Padding(
@@ -1215,8 +1388,7 @@ class _EditorCriterioCatalogoState extends State<_EditorCriterioCatalogo> {
     text: '${widget.inicial?['descricao'] ?? ''}',
   );
   late final _enunciado = TextEditingController(
-    text:
-        '${_mapa(widget.inicial?['versao'])['enunciadoPadrao'] ?? ''}',
+    text: '${_mapa(widget.inicial?['versao'])['enunciadoPadrao'] ?? ''}',
   );
   late String _tipo =
       '${_mapa(widget.inicial?['versao'])['tipo'] ?? 'escolha_unica'}';
@@ -1230,11 +1402,16 @@ class _EditorCriterioCatalogoState extends State<_EditorCriterioCatalogo> {
   ];
   bool _salvando = false;
   String? _erro;
+  final Map<TextEditingController, String> _idsAlternativas = {};
   List<Map<String, dynamic>> _semelhantes = const [];
 
   @override
   void initState() {
     super.initState();
+    final anteriores = _mapas(_mapa(widget.inicial?['versao'])['alternativas']);
+    for (var i = 0; i < anteriores.length; i++) {
+      _idsAlternativas[_alternativas[i]] = '${anteriores[i]['id']}';
+    }
     _nome.addListener(_atualizarSemelhantes);
   }
 
@@ -1284,7 +1461,11 @@ class _EditorCriterioCatalogoState extends State<_EditorCriterioCatalogo> {
       if (_tipo != 'sim_nao')
         'alternativas': [
           for (final c in _alternativas)
-            if (c.text.trim().isNotEmpty) {'rotulo': c.text.trim()},
+            if (c.text.trim().isNotEmpty)
+              {
+                if (_idsAlternativas[c] != null) 'id': _idsAlternativas[c],
+                'rotulo': c.text.trim(),
+              },
         ],
     };
     try {
@@ -1337,10 +1518,7 @@ class _EditorCriterioCatalogoState extends State<_EditorCriterioCatalogo> {
                 Text(
                   'Definições semelhantes (não serão fundidas): '
                   '${_semelhantes.map((s) => s['nome']).join('; ')}.',
-                  style: TextStyle(
-                    color: Colors.orange.shade800,
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
                 ),
               ],
               TextField(
@@ -1534,6 +1712,8 @@ class _TelaComparacaoMatchingState extends State<TelaComparacaoMatching> {
             maxLines: 3,
             decoration: const InputDecoration(
               labelText: 'Motivo administrativo (opcional)',
+              helperText: 'O par ficará fora das rodadas até uma reconsideração explícita.',
+              helperMaxLines: 3,
             ),
             onChanged: (valor) => motivo = valor,
           ),
@@ -1613,7 +1793,8 @@ class _TelaComparacaoMatchingState extends State<TelaComparacaoMatching> {
     final capA = _mapa(capacidade['apadrinhado']);
     final explicacao = _mapa(dados['explicacao']);
     final criterios = _mapas(explicacao['criterios']);
-    final pendente = dados['status'] == 'pendente';
+    final pendente =
+        dados['status'] == 'pendente' && dados['podeAprovar'] != false;
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -1636,6 +1817,8 @@ class _TelaComparacaoMatchingState extends State<TelaComparacaoMatching> {
             ),
           ],
         ),
+        ValidadeSugestaoMatching(dados: dados),
+        HistoricoParMatching(eventos: _mapas(dados['historicoPar'])),
         Card(
           color: Colors.white,
           child: Padding(
@@ -1644,7 +1827,7 @@ class _TelaComparacaoMatchingState extends State<TelaComparacaoMatching> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Compatibilidade ${_percentual(explicacao['score'] ?? dados['score'])}',
+                  '${explicacao['politicaVersao'] == null ? 'Compatibilidade' : 'Aderência comprovada'} ${_percentual(explicacao['score'] ?? dados['score'])}',
                   style: const TextStyle(
                     fontFamily: 'Poppins',
                     fontWeight: FontWeight.w800,
@@ -1658,6 +1841,7 @@ class _TelaComparacaoMatchingState extends State<TelaComparacaoMatching> {
                     color: corTextoSecundarioCoord,
                   ),
                 ),
+                IndicadoresCompatibilidade(explicacao: explicacao),
                 const Divider(),
                 Text(
                   'Capacidade: padrinho ${capP['restante'] ?? '—'}/${capP['limite'] ?? '—'} restante(s) · '
@@ -1666,15 +1850,25 @@ class _TelaComparacaoMatchingState extends State<TelaComparacaoMatching> {
                 for (final criterio in criterios) ...[
                   const Divider(),
                   Text(
-                    '${criterio['rotuloPadrinho'] ?? criterio['campoPadrinho']} '
-                    '↔ ${criterio['rotuloApadrinhado'] ?? criterio['campoApadrinhado']}',
+                    '${criterio['rotuloPadrinho'] ?? criterio['nomePadrinho'] ?? criterio['campoPadrinho']} '
+                    '↔ ${criterio['rotuloApadrinhado'] ?? criterio['nomeApadrinhado'] ?? criterio['campoApadrinhado']}',
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                   Text(
                     criterio['considerado'] != true
-                        ? 'Não considerado: uma resposta está ausente.'
-                        : '${criterio['compativel'] == true ? 'Compatível' : 'Sem correspondência'} · '
-                              'contribuição ${criterio['contribuicao']}/${criterio['peso']}',
+                        ? (criterio['motivo'] == 'sem_preferencia'
+                              ? 'Sem preferência declarada.'
+                              : criterio['motivo'] == 'vivencia_nao_aplicavel'
+                              ? 'Vivência não aplicável ao par.'
+                              : 'Não considerado: dados insuficientes.')
+                        : '${(criterio['atendimento'] as num? ?? 0) > 0 && (criterio['atendimento'] as num? ?? 1) < 1
+                                  ? 'Parcialmente atendida'
+                                  : criterio['compativel'] == true
+                                  ? 'Compatível'
+                                  : (criterio['fator'] as num? ?? 0) > 0
+                                  ? 'Parcialmente atendida'
+                                  : 'Sem correspondência'} · '
+                              'contribuição ${criterio['contribuicao']}/${criterio['peso']}${criterio['obrigatorio'] == true ? ' · Correspondência obrigatória' : ''}',
                     style: TextStyle(
                       color: criterio['compativel'] == true
                           ? AppAccents.success
@@ -1700,7 +1894,7 @@ class _TelaComparacaoMatchingState extends State<TelaComparacaoMatching> {
               ? 'A conversa privada do vínculo foi criada.'
               : 'A conversa privada será criada junto com a aprovação do vínculo.',
         ),
-        if (!pendente)
+        if (dados['status'] != 'pendente' && dados['status'] != 'obsoleta')
           _Aviso(
             icone: Icons.fact_check_outlined,
             cor: AppColors.primary,
@@ -1739,8 +1933,12 @@ class _TelaComparacaoMatchingState extends State<TelaComparacaoMatching> {
     );
   }
 
-  String _valorCriterio(Object? valor) =>
-      valor is List ? valor.join(', ') : '${valor ?? '—'}';
+  String _valorCriterio(Object? valor) {
+    final preferencia = PreferenciaGenero.fromJson(valor);
+    if (preferencia != null) return preferencia.descricao;
+    if (valor is bool) return valor ? 'Sim' : 'Não';
+    return valor is List ? valor.join(', ') : '${valor ?? 'Não informado'}';
+  }
 }
 
 class _PessoaMatching extends StatelessWidget {

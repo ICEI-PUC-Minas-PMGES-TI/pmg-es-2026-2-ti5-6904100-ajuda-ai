@@ -1,3 +1,4 @@
+import { moduloMatchingMemoria } from './helpers/modulo-matching-memoria.js';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -33,8 +34,10 @@ describe('Período e requisitos de padrinho (e2e)', () => {
       ProgramaEntity: repositorioEmMemoria<ProgramaEntity>(),
       FormularioEntity: repositorioEmMemoria<FormularioEntity>(),
     });
+    const matching = moduloMatchingMemoria(repos);
     const modulo = await Test.createTestingModule({
       imports: [
+        matching.modulo,
         AuthModule,
         ParticipacoesModule,
         CadastroModule,

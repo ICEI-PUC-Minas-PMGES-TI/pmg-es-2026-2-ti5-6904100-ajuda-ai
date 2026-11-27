@@ -66,6 +66,8 @@ describe('formulários da coordenação (e2e)', () => {
       {} as AvisosService,
       {} as CadastroService,
       {} as UsuariosService,
+      null as never,
+      null as never,
       repos.ParticipacaoEntity,
     );
     const modulo = await Test.createTestingModule({

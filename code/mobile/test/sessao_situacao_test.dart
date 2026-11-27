@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:ajuda_ai/services/participacoes_api.dart';
 import 'package:ajuda_ai/sessao_usuario.dart';
 import 'package:ajuda_ai/status_participacao.dart';
-import 'package:ajuda_ai/widgets/app_bottom_navigation.dart';
+import 'package:ajuda_ai/models/app_destination.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -231,4 +231,25 @@ void main() {
     sessao.limpar();
     expect(sessao.contextoFresco, isFalse);
   });
+
+  for (final codigo in [401, 403]) {
+    test(
+      'autorização $codigo limpa participação, vínculos e token em vez de conservar dados protegidos',
+      () async {
+        await confirmarAtivo();
+        final consulta = sessao.sincronizarSituacao();
+        await pumpEventQueue();
+        servidor.responder(
+          servidor.pendentes.length - 1,
+          http.Response('{"message":"Acesso encerrado"}', codigo),
+        );
+        expect(await consulta, isFalse);
+        expect(sessao.situacao, isNull);
+        expect(sessao.accessToken, isNull);
+        expect(sessao.padrinhos, isEmpty);
+        expect(sessao.destinos, reduzidas);
+        expect(sessao.erroSituacao, contains('Entre novamente'));
+      },
+    );
+  }
 }

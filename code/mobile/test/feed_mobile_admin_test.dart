@@ -90,6 +90,7 @@ class _Backend {
     if (path == '/coordenacao/programas') return json([]);
     if (path == '/publicacoes/permissoes') {
       return json({
+        'podeLer': podeInteragir,
         'podePublicar': podePublicar,
         'podeInteragir': podeInteragir,
         'podeAdministrar': admin,
@@ -215,6 +216,15 @@ void main() {
       );
       await tester.pumpAndSettle();
       final publica = perfil == 'coord' || perfil == 'padrinho';
+      if (perfil == 'nenhuma') {
+        expect(find.text('Aviso oficial'), findsNothing);
+        expect(
+          find.text('O feed é dos participantes aprovados do ciclo atual.'),
+          findsOneWidget,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        return;
+      }
       expect(
         find.text('Compartilhe algo com a comunidade...'),
         publica ? findsOneWidget : findsNothing,
@@ -252,9 +262,6 @@ void main() {
         expect(backend.posts.first['categoria'], 'Comunicados');
         expect(backend.posts.first['texto'], 'Publicação do $perfil');
         expect(backend.uploads, 1);
-      } else if (perfil == 'nenhuma') {
-        await tocar(tester, find.byTooltip('Ver comentários'));
-        expect(find.byType(TextField), findsNothing);
       }
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();

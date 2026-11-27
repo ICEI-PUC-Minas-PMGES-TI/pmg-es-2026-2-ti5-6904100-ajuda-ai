@@ -143,16 +143,16 @@ describe('PublicacoesService', () => {
 
     it.each([
       [
-        'padrinho de outro grupo',
-        (t: any) => (t.ParticipacaoEntity[0].grupo = 'Grupo 02'),
+        'vínculo canônico encerrado',
+        (t: any) => (t.MatchingVinculoEntity[0].ativo = false),
       ],
       [
         'vínculo encerrado',
-        (t: any) => (t.ParticipacaoEntity[0].status = 'concluido'),
+        (t: any) => (t.ParticipacaoEntity[0].status = 'aprovado'),
       ],
       [
-        'apadrinhado sem grupo',
-        (t: any) => (t.ParticipacaoEntity[1].grupo = null),
+        'apadrinhado sem elegibilidade',
+        (t: any) => (t.ParticipacaoEntity[1].status = 'aprovado'),
       ],
     ])(
       'padrinho sem vínculo ativo com o autor não exclui: %s',
@@ -389,10 +389,12 @@ describe('PublicacoesService', () => {
     });
   });
 
-  it('somente mapa pode consultar, mas não publicar/comentar/curtir; conserva exclusão própria', async () => {
+  it('somente mapa não consulta nem interage; aluno com perfil nenhuma conserva exclusão própria', async () => {
     const { service } = criarFeedTeste();
     const post = await service.criar({ texto: 'Teste' }, coordenador);
-    expect((await service.listar(somenteMapa))[0].podeInteragir).toBe(false);
+    await expect(service.listar(somenteMapa)).rejects.toThrow(
+      ForbiddenException,
+    );
     await expect(service.criar({ texto: 'X' }, somenteMapa)).rejects.toThrow(
       ForbiddenException,
     );

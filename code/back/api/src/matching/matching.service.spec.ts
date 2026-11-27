@@ -77,7 +77,7 @@ describe('MatchingService: critérios do catálogo', () => {
     },
   };
 
-  it('ignora resposta ausente no denominador e compara booleanos de forma estável', () => {
+  it('distingue cobertura e afinidade ao comparar booleanos de forma estável', () => {
     const criterios: CriterioMatching[] = [
       {
         criterioPadrinhoId: 10,
@@ -111,13 +111,16 @@ describe('MatchingService: critérios do catálogo', () => {
       criterios,
       metadata,
     );
-    expect(resultado.score).toBe(1);
+    expect(resultado.score).toBe(0.7);
+    expect(resultado.explicacao).toMatchObject({
+      afinidade: 1,
+      cobertura: 0.7,
+    });
     expect(resultado.explicacao.pesoConsiderado).toBe(70);
     expect(resultado.explicacao.criterios[1]).toMatchObject({
       considerado: false,
       motivo: 'resposta_ausente',
     });
-
   });
 
   const pontuarBolsa = (

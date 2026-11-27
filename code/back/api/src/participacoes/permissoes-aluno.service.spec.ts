@@ -53,7 +53,7 @@ describe('PermissoesAlunoService: permissões pela situação no ciclo atual', (
       podeColetarTotens: true,
       podeUsarLojinha: true,
     });
-    expect(await policy.resumo(camila)).toEqual({
+    expect(await policy.resumo(camila)).toMatchObject({
       podeLer: true,
       podePublicar: false,
       podeAdministrar: false,

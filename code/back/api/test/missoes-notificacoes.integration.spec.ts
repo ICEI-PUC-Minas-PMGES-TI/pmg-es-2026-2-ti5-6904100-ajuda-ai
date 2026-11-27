@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { VinculosService } from '../src/matching/vinculos.service.js';
 /**
  * Missões e notificações contra PostgreSQL/PostGIS REAL, sem dublês:
  *
@@ -436,16 +437,52 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     };
   }
 
+  async function participacaoDe(a: Aluno): Promise<number> {
+    const [{ id }] = (await ds.query(
+      `SELECT id FROM feed.participacoes WHERE usuario_id = $1 AND programa = $2`,
+      [a.email, CICLO],
+    )) as Array<{ id: number }>;
+    return Number(id);
+  }
+
+  async function ligar(padrinho: Aluno, apadrinhado: Aluno) {
+    await ds.query(
+      'UPDATE feed.programas SET inscricoes_abertas = false WHERE codigo = $1',
+      [CICLO],
+    );
+    const matching = new MatchingService(ds, chats);
+    if (!(await matching.obterConfiguracao(CICLO))) {
+      await matching.salvarConfiguracao(
+        {
+          programa: CICLO,
+          versaoBase: 0,
+          liberado: false,
+          capacidadePorPadrinho: 3,
+          capacidadePorApadrinhado: 1,
+          criterios: [
+            { campoCadastro: 'areas', operacao: 'intersecao', peso: 100 },
+          ],
+        },
+        'renata.coordenacao@pucminas.br',
+      );
+    }
+    await ds.query(
+      `UPDATE feed.participacoes SET respostas = respostas || '{"areas":["Tecnologia"]}'::jsonb WHERE usuario_id = ANY($1) AND programa = $2`,
+      [[padrinho.email, apadrinhado.email], CICLO],
+    );
+    const vinculo = await new VinculosService(ds, matching, chats).vincular(
+      await participacaoDe(apadrinhado),
+      await participacaoDe(padrinho),
+      'renata.coordenacao@pucminas.br',
+    );
+    return vinculo;
+  }
+
   async function formarDupla(): Promise<Dupla> {
     const padrinho = await novoAluno({ papel: 'padrinho' });
     const apadrinhado = await novoAluno({ papel: 'apadrinhado' });
-    const [{ id: vinculoId }] = (await ds.query(
-      `INSERT INTO feed.matching_vinculos (programa_id, padrinho_participacao_id, apadrinhado_participacao_id, origem, confirmado_por) ` +
-        `VALUES ((SELECT id FROM feed.programas WHERE codigo = $1), ` +
-        `(SELECT id FROM feed.participacoes WHERE usuario_id = $2 AND programa = $1), ` +
-        `(SELECT id FROM feed.participacoes WHERE usuario_id = $3 AND programa = $1), 'manual', 'renata.coordenacao@pucminas.br') RETURNING id`,
-      [CICLO, padrinho.email, apadrinhado.email],
-    )) as Array<{ id: number }>;
+    const vinculo = await ligar(padrinho, apadrinhado);
+    const vinculoId = vinculo.vinculo.id;
     const chat = await ds.transaction((m) =>
       chats.criarParaVinculo(m, vinculoId),
     );
@@ -546,7 +583,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     const r = await http()
       .post(`/chats/${chatId}/mensagens`)
       .set('Authorization', a.auth)
-      .send({ texto });
+      .send({ texto, clientId: crypto.randomUUID() });
     expect(r.status, JSON.stringify(r.body)).toBe(201);
   }
 
@@ -659,6 +696,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         FormulariosService,
         AvisosService,
         MatchingService,
+        VinculosService,
         CriterioCatalogoService,
         JwtAuthGuard,
         RolesGuard,
@@ -1092,7 +1130,10 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         ),
       ).toBe(0);
 
-      await criarMissao({ ...base, fim: new Date(inicio - 29 * MIN).toISOString() });
+      await criarMissao({
+        ...base,
+        fim: new Date(inicio - 29 * MIN).toISOString(),
+      });
       await criarMissao({ ...base, inicio: new Date(fim - MIN).toISOString() });
 
       const rascunho = await criarMissao({ ...base, ativar: false });
@@ -1114,7 +1155,10 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         .get(`/coordenacao/missoes/${rascunho.id}`)
         .set('Authorization', coord())
         .expect(200);
-      expect(depois.body).toMatchObject({ estado: 'rascunho', publicadaEm: null });
+      expect(depois.body).toMatchObject({
+        estado: 'rascunho',
+        publicadaEm: null,
+      });
     });
 
     it('evento remarcado para depois do prazo ou desativado: some para quem não fez e não avisa; quem fez continua vendo', async () => {
@@ -1138,7 +1182,9 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         alvoId: roda.id,
         fim: new Date(agora + 3 * HORA).toISOString(),
       });
-      await concluir(fez, m.id, { ...noPredio('P34'), accuracy: 10 }).expect(201);
+      await concluir(fez, m.id, { ...noPredio('P34'), accuracy: 10 }).expect(
+        201,
+      );
       expect(await itemDe(naoFez, m.id)).toBeDefined();
 
       await eventos.atualizar(roda.id, {
@@ -2293,7 +2339,11 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       });
       const a = await novoAluno();
       await comentar(a, posts[0], 'Primeira semana foi corrida, mas valeu!');
-      await comentar(a, posts[1], 'Valeu pela lista, vou entrar no de Cálculo.');
+      await comentar(
+        a,
+        posts[1],
+        'Valeu pela lista, vou entrar no de Cálculo.',
+      );
       await http()
         .post(`/coordenacao/missoes/${m.id}/ativar`)
         .set('Authorization', coord())
@@ -2303,8 +2353,16 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         meta: 2,
       });
       await concluir(a, m.id).expect(422);
-      await comentar(a, posts[2], 'Eu vou! Alguém quer ir junto depois da aula?');
-      await comentar(a, posts[0], 'Segunda semana já está mais tranquila aqui.');
+      await comentar(
+        a,
+        posts[2],
+        'Eu vou! Alguém quer ir junto depois da aula?',
+      );
+      await comentar(
+        a,
+        posts[0],
+        'Segunda semana já está mais tranquila aqui.',
+      );
       expect((await itemDe(a, m.id))!.pronta).toBe(true);
       await concluir(a, m.id).expect(201);
     });
@@ -2406,7 +2464,11 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         message: 'Comente em mais 1 post de colegas.',
         progresso: { atual: 1, meta: 2 },
       });
-      await comentar(a, posts[1], 'Valeu pela lista, vou entrar no de Cálculo.');
+      await comentar(
+        a,
+        posts[1],
+        'Valeu pela lista, vou entrar no de Cálculo.',
+      );
       await concluir(a, m.id).expect(201);
     });
 
@@ -2580,7 +2642,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       await http()
         .post(`/chats/${d.chatId}/mensagens`)
         .set('Authorization', d.apadrinhado.auth)
-        .send({ texto: 'Ainda está aí?' })
+        .send({ texto: 'Ainda está aí?', clientId: crypto.randomUUID() })
         .expect(409);
       expect(await itemDe(d.apadrinhado, m.id)).toBeUndefined();
       await concluir(d.apadrinhado, m.id).expect(404);
@@ -2796,7 +2858,12 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       expect(
         (await liberar(agendada.id, { minutos: 10 }).expect(422)).body.motivo,
       ).toBe('fora-do-periodo');
-      for (const corpo of [{}, { minutos: 0 }, { minutos: 121 }, { minutos: 1.5 }]) {
+      for (const corpo of [
+        {},
+        { minutos: 0 },
+        { minutos: 121 },
+        { minutos: 1.5 },
+      ]) {
         await liberar(rascunho.id, corpo).expect(400);
       }
       const a = await novoAluno();
@@ -3364,9 +3431,9 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         .post(`/coordenacao/missoes/${m.id}/ativar`)
         .set('Authorization', coord())
         .expect(200);
-      expect(deNovo.body.pontos.map((p: { ativo: boolean }) => p.ativo)).toEqual(
-        [true, true, false],
-      );
+      expect(
+        deNovo.body.pontos.map((p: { ativo: boolean }) => p.ativo),
+      ).toEqual([true, true, false]);
 
       // Sem nenhum ponto ativo, nem a republicação passa.
       await http()
@@ -3390,7 +3457,12 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         posicao: noPredio('P13'),
         id: (
           await pucstopsAdmin.criar(
-            { nome: 'PucStop do Ginásio', ...noPredio('P13'), xp: 10, raioMetros: 30 },
+            {
+              nome: 'PucStop do Ginásio',
+              ...noPredio('P13'),
+              xp: 10,
+              raioMetros: 30,
+            },
             null,
           )
         ).id,
@@ -3420,7 +3492,9 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         ),
       ).toBe(0);
 
-      expect(await itemDe(concluiu, m.id)).toMatchObject({ status: 'concluida' });
+      expect(await itemDe(concluiu, m.id)).toMatchObject({
+        status: 'concluida',
+      });
       await concluir(concluiu, m.id).expect(409);
       expect(await itemDe(coletou, m.id)).toMatchObject({
         progresso: { atual: 1, meta: 1 },
@@ -4109,22 +4183,6 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       )) as Array<{ titulo: string; link: string; chave: string }>;
     }
 
-    async function participacaoDe(a: Aluno): Promise<number> {
-      const [{ id }] = (await ds.query(
-        `SELECT id FROM feed.participacoes WHERE usuario_id = $1 AND programa = $2`,
-        [a.email, CICLO],
-      )) as Array<{ id: number }>;
-      return Number(id);
-    }
-
-    async function ligar(padrinho: Aluno, apadrinhado: Aluno): Promise<void> {
-      await ds.query(
-        `INSERT INTO feed.matching_vinculos (programa_id, padrinho_participacao_id, apadrinhado_participacao_id, origem, confirmado_por) ` +
-          `VALUES ((SELECT id FROM feed.programas WHERE codigo = $1), $2, $3, 'manual', 'renata.coordenacao@pucminas.br')`,
-        [CICLO, await participacaoDe(padrinho), await participacaoDe(apadrinhado)],
-      );
-    }
-
     const sino = (a: Aluno) =>
       http().get('/me/notificacoes').set('Authorization', a.auth).expect(200);
 
@@ -4185,7 +4243,10 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       await sino(novo);
       expect(
         (await avisosDe(novo, 'VINCULO_CONFIRMADO')).map((n) => n.titulo),
-      ).toEqual(['Seu apadrinhamento começou!', 'Você tem um novo apadrinhado!']);
+      ).toEqual([
+        'Seu apadrinhamento começou!',
+        'Você tem um novo apadrinhado!',
+      ]);
 
       // O padrinho antigo ficou sem dupla: nada de aviso novo.
       await sino(d.padrinho);
@@ -4198,10 +4259,16 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         programa: CICLO,
         em: '2026-11-20T15:00:00.000Z',
       });
-      await notificacoesServico.criarParaEmail(a.email.toUpperCase(), reprovada);
+      await notificacoesServico.criarParaEmail(
+        a.email.toUpperCase(),
+        reprovada,
+      );
       await notificacoesServico.criarParaEmail(a.email, reprovada);
       await expect(
-        notificacoesServico.criarParaEmail('sem.conta@sga.pucminas.br', reprovada),
+        notificacoesServico.criarParaEmail(
+          'sem.conta@sga.pucminas.br',
+          reprovada,
+        ),
       ).resolves.toBeUndefined();
       expect(await avisosDe(a, 'CANDIDATURA_NAO_APROVADA')).toEqual([
         {
@@ -4236,17 +4303,26 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     });
 
     async function conferido(): Promise<Aluno> {
-      const aluno = await novoAluno({ papel: 'apadrinhado', status: 'pendente' });
+      const aluno = await novoAluno({
+        papel: 'apadrinhado',
+        status: 'pendente',
+      });
       await ds.query(
         `UPDATE feed.participacoes SET respostas = $3 WHERE usuario_id = $1 AND programa = $2`,
         [
           aluno.email,
           CICLO,
-          JSON.stringify({ nome: aluno.nome, periodo: 1, declaraPrimeiroPeriodo: true }),
+          JSON.stringify({
+            nome: aluno.nome,
+            periodo: 1,
+            declaraPrimeiroPeriodo: true,
+          }),
         ],
       );
       const r = await http()
-        .put(`/coordenacao/candidaturas/${await participacaoDe(aluno)}/verificacao`)
+        .put(
+          `/coordenacao/candidaturas/${await participacaoDe(aluno)}/verificacao`,
+        )
         .set('Authorization', coord())
         .send({
           itens: [
@@ -4263,7 +4339,9 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         .post(caminho)
         .set('Authorization', coord())
         .send(corpo);
-      expect(r.status, `${caminho} ${JSON.stringify(r.body)}`).toBeLessThan(300);
+      expect(r.status, `${caminho} ${JSON.stringify(r.body)}`).toBeLessThan(
+        300,
+      );
     }
 
     async function decisaoEm(a: Aluno): Promise<string> {
@@ -4277,16 +4355,27 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     it('decisão pela tela de Cadastros ou pela rejeição manual avisa como a de Candidaturas, uma vez só', async () => {
       const ciclo = encodeURIComponent(CICLO);
       const aprovadoCadastros = await conferido();
-      await decidir(`/coordenacao/cadastros/${aprovadoCadastros.id}/aprovar?programa=${ciclo}`);
-      const recusadoCadastros = await novoAluno({ papel: 'apadrinhado', status: 'pendente' });
-      await decidir(`/coordenacao/cadastros/${recusadoCadastros.id}/rejeitar?programa=${ciclo}`, {
-        motivo: 'Matrícula não confirmada no sistema da faculdade.',
+      await decidir(
+        `/coordenacao/cadastros/${aprovadoCadastros.id}/aprovar?programa=${ciclo}`,
+      );
+      const recusadoCadastros = await novoAluno({
+        papel: 'apadrinhado',
+        status: 'pendente',
       });
+      await decidir(
+        `/coordenacao/cadastros/${recusadoCadastros.id}/rejeitar?programa=${ciclo}`,
+        {
+          motivo: 'Matrícula não confirmada no sistema da faculdade.',
+        },
+      );
       const aprovadoCandidaturas = await conferido();
       await decidir(
         `/coordenacao/candidaturas/${await participacaoDe(aprovadoCandidaturas)}/aprovar`,
       );
-      const recusadoManual = await novoAluno({ papel: 'apadrinhado', status: 'pendente' });
+      const recusadoManual = await novoAluno({
+        papel: 'apadrinhado',
+        status: 'pendente',
+      });
       await decidir('/participacoes/rejeitar-candidatura', {
         usuarioId: recusadoManual.email,
         programa: CICLO,
@@ -4295,9 +4384,17 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
 
       for (const [aluno, tipo, titulo] of [
         [aprovadoCadastros, 'CANDIDATURA_APROVADA', 'Candidatura aprovada'],
-        [recusadoCadastros, 'CANDIDATURA_NAO_APROVADA', 'Candidatura não aprovada'],
+        [
+          recusadoCadastros,
+          'CANDIDATURA_NAO_APROVADA',
+          'Candidatura não aprovada',
+        ],
         [aprovadoCandidaturas, 'CANDIDATURA_APROVADA', 'Candidatura aprovada'],
-        [recusadoManual, 'CANDIDATURA_NAO_APROVADA', 'Candidatura não aprovada'],
+        [
+          recusadoManual,
+          'CANDIDATURA_NAO_APROVADA',
+          'Candidatura não aprovada',
+        ],
       ] as const) {
         expect(await avisosDe(aluno, tipo), aluno.email).toEqual([
           {

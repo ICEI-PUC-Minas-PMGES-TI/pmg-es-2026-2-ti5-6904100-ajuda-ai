@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'dados_cadastro.dart';
+import 'models/preferencia_genero.dart';
+import 'widgets/preferencia_genero.dart';
 import 'models/formulario.dart';
 import 'sessao_usuario.dart';
 import 'tela_cadastro_revisao.dart';
@@ -52,6 +54,7 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
   late final List<String> _areasApoio;
   String? _disponibilidade;
   String? _genero;
+  PreferenciaGenero? _preferenciaGenero;
   bool? _bolsistaProuni;
   bool? _deOutraCidade;
   bool _declaraPrimeiroPeriodo = false;
@@ -78,6 +81,7 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
       _faltaExpectativa ||
       _faltaAreas ||
       _faltaDisponibilidade ||
+      (_preferenciaGenero != null && !_preferenciaGenero!.valida) ||
       _faltaGenero ||
       _faltaProuni ||
       _faltaCidade ||
@@ -95,6 +99,7 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
     _areasApoio = List.of(dados.areasApoio);
     _disponibilidade = dados.disponibilidade;
     _genero = dados.genero;
+    _preferenciaGenero = dados.preferenciaGenero;
     _bolsistaProuni = dados.bolsistaProuni;
     _deOutraCidade = dados.deOutraCidade;
     _declaraPrimeiroPeriodo = dados.declaraPrimeiroPeriodo;
@@ -165,6 +170,8 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
       areasApoio: List.of(_areasApoio),
       disponibilidade: _disponibilidade,
       genero: _genero,
+      preferenciaGenero: _preferenciaGenero,
+      limparPreferenciaGenero: _preferenciaGenero == null,
       bolsistaProuni: _bolsistaProuni,
       deOutraCidade: _deOutraCidade,
       declaraPrimeiroPeriodo: _declaraPrimeiroPeriodo,
@@ -267,6 +274,14 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
             ],
           ),
         ),
+        CampoPreferenciaGenero(
+          valor: _preferenciaGenero,
+          onChanged: (v) => setState(() => _preferenciaGenero = v),
+          erro:
+              _validar &&
+              _preferenciaGenero != null &&
+              !_preferenciaGenero!.valida,
+        ),
         const RotuloCampo('É de outra cidade?'),
         CampoSelecao<bool>(
           icone: Icons.location_on_outlined,
@@ -290,24 +305,27 @@ class _PerfilCadastroPageState extends State<PerfilCadastroPage> {
         ),
         const SizedBox(height: 12),
         const RotuloCampo('Identificação acadêmica'),
-        CheckboxListTile(
-          value: _declaraPrimeiroPeriodo,
-          contentPadding: EdgeInsets.zero,
-          activeColor: AppColors.primary,
-          controlAffinity: ListTileControlAffinity.leading,
-          title: Text(
-            'Declaro que estou no 1º período e que os dados acadêmicos '
-            '(curso, período e e-mail institucional) estão corretos.',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 13,
-              color: _validar && _faltaDeclaracao
-                  ? Colors.red.shade700
-                  : AppColors.ink,
+        Material(
+          type: MaterialType.transparency,
+          child: CheckboxListTile(
+            value: _declaraPrimeiroPeriodo,
+            contentPadding: EdgeInsets.zero,
+            activeColor: AppColors.primary,
+            controlAffinity: ListTileControlAffinity.leading,
+            title: Text(
+              'Declaro que estou no 1º período e que os dados acadêmicos '
+              '(curso, período e e-mail institucional) estão corretos.',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                color: _validar && _faltaDeclaracao
+                    ? Colors.red.shade700
+                    : AppColors.ink,
+              ),
             ),
+            onChanged: (valor) =>
+                setState(() => _declaraPrimeiroPeriodo = valor ?? false),
           ),
-          onChanged: (valor) =>
-              setState(() => _declaraPrimeiroPeriodo = valor ?? false),
         ),
         if (_validar && _faltaDeclaracao)
           const Padding(
