@@ -383,13 +383,19 @@ class _AvatarPerfilState extends State<_AvatarPerfil> {
   @override
   void initState() {
     super.initState();
-    if (_fotoUrl == null) unawaited(_carregarFoto());
+    // Sem conta autenticada não há foto para buscar (e a requisição ficaria
+    // pendente à toa). Mesma regra da tela de perfil.
+    if (_fotoUrl == null && SessaoUsuario.atual.identidade != null) {
+      unawaited(_carregarFoto());
+    }
   }
 
   Future<void> _carregarFoto() async {
+    final email = SessaoUsuario.atual.identidade?.email;
     try {
       final url = await SessaoUsuario.atual.participacoesApi.foto();
-      if (!mounted) return;
+      // Descarta a resposta se a tela fechou ou a conta mudou no meio.
+      if (!mounted || email != SessaoUsuario.atual.identidade?.email) return;
       SessaoUsuario.atual.fotoUrl = url;
       setState(() => _fotoUrl = url);
     } catch (erro) {
