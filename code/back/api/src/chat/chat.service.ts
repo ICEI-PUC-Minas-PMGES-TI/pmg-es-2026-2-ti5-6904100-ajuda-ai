@@ -254,7 +254,10 @@ export class ChatService {
     email: string,
     antesDe?: number,
   ): Promise<{ mensagens: MensagemChatResposta[]; temMais: boolean }> {
-    if (antesDe !== undefined && (!Number.isInteger(antesDe) || antesDe < 1))
+    if (
+      antesDe !== undefined &&
+      (!Number.isSafeInteger(antesDe) || antesDe < 1)
+    )
       throw new BadRequestException('Cursor de mensagem inválido.');
     const manager = this.dados.manager;
     const membro = await this.exigirMembro(manager, chatId, email);
@@ -293,6 +296,7 @@ export class ChatService {
       }
     }
 
+    const versaoCache = this.cache.versaoAtual();
     const consulta = manager
       .getRepository(MensagemChatEntity)
       .createQueryBuilder('mensagem')
@@ -302,16 +306,17 @@ export class ChatService {
     }
     const resultados = await consulta
       .orderBy('mensagem.id', 'DESC')
-      .take(50)
+      .take(51)
       .getMany();
-    const mensagens = resultados.reverse();
+    const temMais = resultados.length > 50;
+    const mensagens = resultados.slice(0, 50).reverse();
     if (antesDe === undefined)
-      this.cache.salvar(chatId, mensagens, mensagens.length === 50);
+      this.cache.salvarSeAtual(chatId, mensagens, temMais, versaoCache);
     return {
       mensagens: await Promise.all(
         mensagens.map((mensagem) => this.apresentarMensagem(mensagem)),
       ),
-      temMais: mensagens.length === 50,
+      temMais,
     };
   }
 
@@ -327,7 +332,7 @@ export class ChatService {
       throw new BadRequestException(
         'A mensagem excede o limite de 4000 caracteres.',
       );
-    return this.dados.transaction(async (manager) => {
+    const resposta = await this.dados.transaction(async (manager) => {
       const membro = await this.exigirMembro(manager, chatId, email);
       await this.exigirVinculoAtivo(manager, chatId);
       const mensagem = manager.getRepository(MensagemChatEntity).create({
@@ -354,9 +359,10 @@ export class ChatService {
           publicadoEm: null,
         }),
       );
-      this.cache.invalidar(chatId);
       return this.apresentarMensagem(salva);
     });
+    this.cache.invalidar(chatId);
+    return resposta;
   }
 
   async enviarImagem(
@@ -380,7 +386,7 @@ export class ChatService {
     });
 
     try {
-      return await this.dados.transaction(async (manager) => {
+      const resposta = await this.dados.transaction(async (manager) => {
         const membro = await this.exigirMembro(manager, chatId, email);
         await this.exigirVinculoAtivo(manager, chatId);
         const repo = manager.getRepository(MensagemChatEntity);
@@ -407,9 +413,10 @@ export class ChatService {
             publicadoEm: null,
           }),
         );
-        this.cache.invalidar(chatId);
         return this.apresentarMensagem(mensagem);
       });
+      this.cache.invalidar(chatId);
+      return resposta;
     } catch (erro) {
       try {
         await this.storage.excluir('chat', nome);
@@ -424,7 +431,9 @@ export class ChatService {
 
   async observarMensagens(chatId: number, email: string, expiraEm: number) {
     await this.exigirMembro(this.dados.manager, chatId, email);
-    return this.stream.observar(chatId, expiraEm);
+    return this.stream.observar(chatId, expiraEm, () =>
+      this.exigirMembro(this.dados.manager, chatId, email).then(() => {}),
+    );
   }
 
   /** Cria o chat e seus dois participantes na transação do matching. */

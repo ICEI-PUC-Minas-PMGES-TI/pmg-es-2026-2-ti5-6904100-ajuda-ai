@@ -5,6 +5,7 @@ import 'models/notificacao.dart';
 import 'models/situacao_participacao.dart';
 import 'services/notificacoes_api.dart';
 import 'sessao_usuario.dart';
+import 'tela_chat.dart';
 import 'tela_resgatar.dart';
 import 'main.dart' show estiloBarraClara;
 import 'theme/colors.dart';
@@ -559,7 +560,7 @@ class _CardVinculo extends StatelessWidget {
               if (indice > 0) const SizedBox(height: 14),
               _LinhaPessoa(
                 pessoa: pessoa,
-                onConversar: () => _emBreve(context, 'Conversas'),
+                onConversar: () => _abrirChat(context, pessoa),
               ),
             ],
         ],
@@ -758,7 +759,18 @@ class _BarraInferior extends StatelessWidget {
   }
 }
 
-void _emBreve(BuildContext context, String funcionalidade) {
-  ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text('$funcionalidade: em breve!')));
+void _abrirChat(BuildContext context, PessoaVinculo pessoa) {
+  if (pessoa.email.trim().isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('O e-mail deste vínculo não está disponível.'),
+      ),
+    );
+    return;
+  }
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => TelaChat(destinatarioEmail: pessoa.email),
+    ),
+  );
 }

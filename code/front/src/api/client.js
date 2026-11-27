@@ -217,6 +217,8 @@ export async function streamChatMessages(chatId, email, onEvent, signal, onStatu
         const tipo = bloco.match(/^event:\s*(.+)$/m)?.[1];
         const dados = [...bloco.matchAll(/^data:\s?(.*)$/gm)].map((linha) => linha[1]).join('\n');
         if (dados && tipo === 'chat.message') onEvent(JSON.parse(dados));
+        else if (dados && tipo === 'chat.access')
+          onEvent({ ...JSON.parse(dados), tipo });
         else if (dados && (tipo === 'chat.ready' || tipo === 'chat.heartbeat'))
           onStatus(JSON.parse(dados).conectado === true);
       }

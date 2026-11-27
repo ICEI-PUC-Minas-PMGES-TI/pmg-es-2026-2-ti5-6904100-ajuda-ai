@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'models/situacao_participacao.dart';
 import 'sessao_usuario.dart';
+import 'tela_chat.dart';
 import 'theme/colors.dart';
 import 'widgets/cabecalho_logos.dart';
 import 'widgets/campos_cadastro.dart';
@@ -79,10 +80,20 @@ class _PadrinhoDefinidoPageState extends State<PadrinhoDefinidoPage> {
     return pessoa == null ? null : Padrinho.daPessoa(pessoa);
   }
 
-  void _emBreve(String funcionalidade) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text('$funcionalidade: em breve!')));
+  void _abrirChat(Padrinho padrinho) {
+    if (padrinho.email.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('O e-mail do padrinho não está disponível.'),
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => TelaChat(destinatarioEmail: padrinho.email),
+      ),
+    );
   }
 
   void _verPerfil(Padrinho padrinho) {
@@ -123,7 +134,7 @@ class _PadrinhoDefinidoPageState extends State<PadrinhoDefinidoPage> {
                 _CardPadrinho(padrinho: padrinho),
                 const SizedBox(height: 14),
                 _ProximosPassos(
-                  onMensagem: () => _emBreve('Chat'),
+                  onMensagem: () => _abrirChat(padrinho),
                   onPerfil: () => _verPerfil(padrinho),
                 ),
                 const SizedBox(height: 14),

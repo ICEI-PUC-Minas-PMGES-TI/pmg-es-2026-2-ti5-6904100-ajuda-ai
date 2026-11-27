@@ -8,6 +8,7 @@ import { vi } from 'vitest';
 import { MatchingVinculoEntity } from '../matching/entities/matching.entity.js';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
+import { ChatCacheService } from './chat-cache.service.js';
 import {
   ChatEntity,
   ChatOutboxEntity,
@@ -215,11 +216,15 @@ describe('ChatService.enviarMensagem', () => {
     const manager = {
       getRepository: (entity: Function) => repositorios.get(entity),
     } as unknown as EntityManager;
+    const ordem: string[] = [];
     const dados = {
-      transaction: (acao: (tx: EntityManager) => Promise<unknown>) =>
-        acao(manager),
+      transaction: async (acao: (tx: EntityManager) => Promise<unknown>) => {
+        const resultado = await acao(manager);
+        ordem.push('commit');
+        return resultado;
+      },
     } as unknown as DataSource;
-    const invalidar = vi.fn();
+    const invalidar = vi.fn(() => ordem.push('invalidar'));
     const service = new ChatService(
       dados,
       {} as never,
@@ -244,6 +249,7 @@ describe('ChatService.enviarMensagem', () => {
       }),
     );
     expect(invalidar).toHaveBeenCalledWith(5);
+    expect(ordem).toEqual(['commit', 'invalidar']);
   });
 
   it('recusa enviar mensagens quando o vínculo do chat está encerrado', async () => {
@@ -286,5 +292,91 @@ describe('ChatService.enviarMensagem', () => {
     ).rejects.toBeInstanceOf(ConflictException);
     expect(salvarMensagem).not.toHaveBeenCalled();
     expect(atualizarChat).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChatService.listarMensagens', () => {
+  it('informa mensagens anteriores e pagina pelo ID da mensagem', async () => {
+    const registros = Array.from({ length: 51 }, (_, indice) => ({
+      id: indice + 1,
+      chatId: 5,
+      remetenteParticipacaoId: 22,
+      texto: `Mensagem ${indice + 1}`,
+      imagemChave: null,
+      estado: 'entregue',
+      entregueEm: new Date(),
+      lidaEm: null,
+      criadaEm: new Date(),
+    }));
+    let cursor: number | undefined;
+    let limite = 0;
+    const builder = {
+      update: () => builder,
+      set: () => builder,
+      where: () => builder,
+      andWhere: (condicao: string, parametros: Record<string, number>) => {
+        if (condicao === 'mensagem.id < :antesDe') cursor = parametros.antesDe;
+        return builder;
+      },
+      execute: async () => ({ affected: 0 }),
+      orderBy: () => builder,
+      take: (tamanho: number) => {
+        limite = tamanho;
+        return builder;
+      },
+      getMany: async () =>
+        registros
+          .filter((mensagem) => cursor === undefined || mensagem.id < cursor)
+          .sort((a, b) => b.id - a.id)
+          .slice(0, limite),
+    };
+    const repositorios = new Map<Function, object>([
+      [
+        ParticipacaoEntity,
+        {
+          find: vi
+            .fn()
+            .mockResolvedValue([{ id: 11, usuarioId: 'aluno@example.com' }]),
+        },
+      ],
+      [
+        ChatParticipanteEntity,
+        {
+          findOne: vi.fn().mockResolvedValue({ chatId: 5, participacaoId: 11 }),
+        },
+      ],
+      [MensagemChatEntity, { createQueryBuilder: () => builder }],
+    ]);
+    const manager = {
+      getRepository: (entity: Function) => repositorios.get(entity),
+    } as unknown as EntityManager;
+    const cache = new ChatCacheService();
+    const service = new ChatService(
+      { manager } as unknown as DataSource,
+      {} as never,
+      cache,
+      {} as never,
+    );
+
+    const recente = await service.listarMensagens(5, 'aluno@example.com');
+    expect(recente.mensagens.map((mensagem) => mensagem.id)).toEqual(
+      Array.from({ length: 50 }, (_, indice) => indice + 2),
+    );
+    expect(recente.temMais).toBe(true);
+
+    const anterior = await service.listarMensagens(
+      5,
+      'aluno@example.com',
+      recente.mensagens[0].id,
+    );
+    expect(anterior.mensagens.map((mensagem) => mensagem.id)).toEqual([1]);
+    expect(anterior.temMais).toBe(false);
+    await expect(
+      service.listarMensagens(
+        5,
+        'aluno@example.com',
+        Number.MAX_SAFE_INTEGER + 1,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

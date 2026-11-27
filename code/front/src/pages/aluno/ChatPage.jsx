@@ -1,12 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, getAlunoSession, streamChatMessages } from "../../api/client";
 import Icon from "../../components/Icon";
+import { aplicarRespostaSeAtual } from "./chat-requests";
 import { PageHeader } from "./partes";
 import "./chat.css";
 
 const TAMANHO_MAXIMO_IMAGEM = 5 * 1024 * 1024;
 const TIPOS_IMAGEM = ["image/png", "image/jpeg", "image/webp"];
+
+function mesclarMensagens(atuais, recebidas) {
+  const porId = new Map(atuais.map((mensagem) => [mensagem.id, mensagem]));
+  recebidas.forEach((mensagem) => porId.set(mensagem.id, mensagem));
+  return [...porId.values()].sort((a, b) => a.id - b.id);
+}
 
 function hora(data) {
   if (!data) return "";
@@ -77,68 +91,213 @@ export default function ChatPage() {
   const [params, setParams] = useSearchParams();
   const sessao = getAlunoSession();
   const email = sessao?.email;
-  const [conversas, setConversas] = useState([]);
-  const [mensagens, setMensagens] = useState([]);
+  const [estadoConversas, setEstadoConversas] = useState({
+    email: null,
+    conversas: [],
+  });
+  const [estadoMensagens, setEstadoMensagens] = useState({
+    chave: null,
+    mensagens: [],
+    temMais: false,
+  });
+  const [rascunhos, setRascunhos] = useState({});
   const [busca, setBusca] = useState("");
-  const [texto, setTexto] = useState("");
   const [erro, setErro] = useState("");
   const [carregandoConversas, setCarregandoConversas] = useState(true);
   const [carregandoMensagens, setCarregandoMensagens] = useState(false);
-  const [enviando, setEnviando] = useState(false);
+  const [carregandoAnteriores, setCarregandoAnteriores] = useState(false);
+  const [chaveEnviando, setChaveEnviando] = useState(null);
   const [conectado, setConectado] = useState(false);
   const listaRef = useRef(null);
+  const restaurarScrollRef = useRef(null);
+  const emailAtivoRef = useRef(email);
+  const requisicaoConversasRef = useRef(0);
+  const chaveAtivaRef = useRef(null);
+  const chaveAnteriorRef = useRef(null);
+  const chaveEnviandoRef = useRef(null);
+  const enviosAtivosRef = useRef(new Set());
+  const requisicaoMensagensRef = useRef(0);
+  const requisicaoAnterioresRef = useRef(0);
   const campoRef = useRef(null);
   const arquivoRef = useRef(null);
   const conversaId = params.get("conversa");
+  const conversas =
+    estadoConversas.email === email ? estadoConversas.conversas : [];
   const conversaAtiva = conversas.find(
     (conversa) => String(conversa.id) === conversaId,
   );
+  const chaveAtiva =
+    conversaAtiva && email ? `${email}:${conversaAtiva.id}` : null;
+  emailAtivoRef.current = email;
+  chaveAtivaRef.current = chaveAtiva;
+  const texto = chaveAtiva ? rascunhos[chaveAtiva] || "" : "";
+  const mensagens =
+    estadoMensagens.chave === chaveAtiva ? estadoMensagens.mensagens : [];
+  const temMaisMensagens =
+    estadoMensagens.chave === chaveAtiva ? estadoMensagens.temMais : false;
+  const enviando = chaveEnviando === chaveAtiva;
 
   const carregarConversas = useCallback(async () => {
+    const requisicao = ++requisicaoConversasRef.current;
     if (!email) {
+      setEstadoConversas({ email: null, conversas: [] });
       setErro("Entre na sua conta de aluno para acessar as conversas.");
       setCarregandoConversas(false);
       return;
     }
+    setCarregandoConversas(true);
     try {
       const resultado = await api.chats(email);
-      setConversas(resultado.map(resumirChat));
+      if (
+        emailAtivoRef.current !== email ||
+        requisicaoConversasRef.current !== requisicao
+      ) return;
+      setEstadoConversas({
+        email,
+        conversas: resultado.map(resumirChat),
+      });
       setErro("");
     } catch (falha) {
-      setErro(falha.message || "Não foi possível carregar as conversas.");
+      if (
+        emailAtivoRef.current === email &&
+        requisicaoConversasRef.current === requisicao
+      ) {
+        setErro(falha.message || "Não foi possível carregar as conversas.");
+      }
     } finally {
-      setCarregandoConversas(false);
+      if (
+        emailAtivoRef.current === email &&
+        requisicaoConversasRef.current === requisicao
+      ) setCarregandoConversas(false);
     }
   }, [email]);
 
   const carregarMensagens = useCallback(
     async (id, mostrarCarregamento = false) => {
       if (!email || !id) return;
+      const chave = `${email}:${id}`;
+      const requisicao = ++requisicaoMensagensRef.current;
       if (mostrarCarregamento) setCarregandoMensagens(true);
       try {
-        const resultado = await api.mensagensChat(id, email);
-        setMensagens(resultado.mensagens);
-        setConversas((atuais) =>
-          atuais.map((chat) =>
-            chat.id === Number(id)
-              ? {
-                  ...chat,
-                  ultimaMensagem:
-                    resultado.mensagens.at(-1) ?? chat.ultimaMensagem,
-                  naoLidas: 0,
-                }
-              : chat,
-          ),
-        );
-        setErro("");
+        await aplicarRespostaSeAtual({
+          chave,
+          chaveAtual: chaveAtivaRef,
+          requisicao,
+          requisicaoAtual: requisicaoMensagensRef,
+          carregar: () => api.mensagensChat(id, email),
+          aplicar: (resultado) => {
+            setEstadoMensagens((atual) => ({
+              chave,
+              mensagens: mesclarMensagens(
+                atual.chave === chave ? atual.mensagens : [],
+                resultado.mensagens,
+              ),
+              temMais:
+                atual.chave === chave &&
+                atual.mensagens[0]?.id < resultado.mensagens[0]?.id
+                  ? atual.temMais
+                  : resultado.temMais,
+            }));
+            setEstadoConversas((atual) =>
+              atual.email !== email
+                ? atual
+                : {
+                    ...atual,
+                    conversas: atual.conversas.map((chat) =>
+                      chat.id === Number(id)
+                        ? {
+                            ...chat,
+                            ultimaMensagem:
+                              resultado.mensagens.at(-1) ??
+                              chat.ultimaMensagem,
+                            naoLidas: 0,
+                          }
+                        : chat,
+                    ),
+                  },
+            );
+            setErro("");
+          },
+        });
       } catch (falha) {
-        setErro(falha.message || "Não foi possível carregar as mensagens.");
+        if (
+          chaveAtivaRef.current === chave &&
+          requisicaoMensagensRef.current === requisicao
+        ) {
+          setErro(falha.message || "Não foi possível carregar as mensagens.");
+        }
       } finally {
-        if (mostrarCarregamento) setCarregandoMensagens(false);
+        if (
+          chaveAtivaRef.current === chave &&
+          requisicaoMensagensRef.current === requisicao
+        )
+          setCarregandoMensagens(false);
       }
     },
     [email],
   );
+
+  const carregarAnteriores = useCallback(async () => {
+    if (
+      !conversaAtiva ||
+      !email ||
+      !temMaisMensagens ||
+      carregandoAnteriores ||
+      !mensagens.length
+    )
+      return;
+    const chave = `${email}:${conversaAtiva.id}`;
+    const antesDe = mensagens[0].id;
+    const requisicao = ++requisicaoAnterioresRef.current;
+    const lista = listaRef.current;
+    restaurarScrollRef.current = lista
+      ? {
+          chave,
+          requisicao,
+          altura: lista.scrollHeight,
+          topo: lista.scrollTop,
+        }
+      : null;
+    setCarregandoAnteriores(true);
+    try {
+      const resultado = await api.mensagensChat(
+        conversaAtiva.id,
+        email,
+        antesDe,
+      );
+      if (
+        chaveAtivaRef.current !== chave ||
+        requisicaoAnterioresRef.current !== requisicao
+      ) {
+        if (restaurarScrollRef.current?.requisicao === requisicao)
+          restaurarScrollRef.current = null;
+        return;
+      }
+      setEstadoMensagens((atual) => ({
+        chave,
+        mensagens: mesclarMensagens(
+          atual.chave === chave ? atual.mensagens : [],
+          resultado.mensagens,
+        ),
+        temMais: resultado.temMais,
+      }));
+    } catch (falha) {
+      if (
+        chaveAtivaRef.current === chave &&
+        requisicaoAnterioresRef.current === requisicao
+      ) {
+        if (restaurarScrollRef.current?.requisicao === requisicao)
+          restaurarScrollRef.current = null;
+        setErro(falha.message || "Não foi possível carregar o histórico.");
+      }
+    } finally {
+      if (
+        chaveAtivaRef.current === chave &&
+        requisicaoAnterioresRef.current === requisicao
+      )
+        setCarregandoAnteriores(false);
+    }
+  }, [carregandoAnteriores, conversaAtiva, email, mensagens, temMaisMensagens]);
 
   useEffect(() => {
     void carregarConversas();
@@ -155,34 +314,77 @@ export default function ChatPage() {
   }, [carregandoConversas, conversaId, conversas, setParams]);
 
   useEffect(() => {
+    if (chaveAnteriorRef.current !== chaveAtiva) {
+      chaveAnteriorRef.current = chaveAtiva;
+      setErro("");
+    }
+  }, [chaveAtiva]);
+
+  useEffect(() => {
     if (!conversaAtiva || !email) {
-      setMensagens([]);
       setConectado(false);
+      setCarregandoMensagens(false);
+      setCarregandoAnteriores(false);
       return undefined;
     }
     const id = conversaAtiva.id;
+    const chave = `${email}:${id}`;
     const controller = new AbortController();
     let aguardando = false;
+    let acessoRevogado = false;
+    setCarregandoAnteriores(false);
     void carregarMensagens(id, true);
 
     async function conectar() {
-      while (!controller.signal.aborted) {
+      while (!controller.signal.aborted && !acessoRevogado) {
         try {
           await streamChatMessages(
             id,
             email,
-            () => {
+            (evento) => {
+              if (chaveAtivaRef.current !== chave) return;
+              if (evento.tipo === "chat.access") {
+                acessoRevogado = true;
+                setConectado(false);
+                setEstadoMensagens({
+                  chave: null,
+                  mensagens: [],
+                  temMais: false,
+                });
+                setParams({}, { replace: true });
+                void carregarConversas().then(() => {
+                  setErro(
+                    "Seu acesso a esta conversa foi revogado. Atualize a lista de conversas.",
+                  );
+                });
+                return;
+              }
               if (!aguardando) void carregarMensagens(id);
             },
             controller.signal,
-            setConectado,
+            (status) => {
+              if (chaveAtivaRef.current === chave) setConectado(status);
+            },
           );
         } catch (falha) {
-          setConectado(false);
-          if (falha.status === 401 && !controller.signal.aborted)
-            setErro(falha.message);
+          if (chaveAtivaRef.current === chave) setConectado(false);
+          if (
+            [401, 403, 404].includes(falha.status) &&
+            !controller.signal.aborted
+          ) {
+            acessoRevogado = true;
+            setEstadoMensagens({
+              chave: null,
+              mensagens: [],
+              temMais: false,
+            });
+            setParams({}, { replace: true });
+            void carregarConversas().then(() => {
+              setErro(falha.message || "Seu acesso à conversa foi encerrado.");
+            });
+          }
         }
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted && !acessoRevogado)
           await new Promise((resolve) => {
             aguardando = true;
             window.setTimeout(() => {
@@ -202,11 +404,27 @@ export default function ChatPage() {
       controller.abort();
       window.clearInterval(sincronizar);
     };
-  }, [conversaAtiva?.id, email, carregarConversas, carregarMensagens]);
+  }, [
+    conversaAtiva?.id,
+    email,
+    carregarConversas,
+    carregarMensagens,
+    setParams,
+  ]);
 
-  useEffect(() => {
-    listaRef.current?.scrollTo({ top: listaRef.current.scrollHeight });
-  }, [mensagens.length, conversaAtiva?.id]);
+  useLayoutEffect(() => {
+    const lista = listaRef.current;
+    if (!lista) return;
+    const restauracao = restaurarScrollRef.current;
+    if (restauracao?.chave === chaveAtiva) {
+      lista.scrollTop =
+        restauracao.topo + (lista.scrollHeight - restauracao.altura);
+      restaurarScrollRef.current = null;
+      return;
+    }
+    if (restauracao) restaurarScrollRef.current = null;
+    lista.scrollTo({ top: lista.scrollHeight });
+  }, [chaveAtiva, estadoMensagens, mensagens.length, mensagens.at(-1)?.id]);
 
   const filtradas = useMemo(() => {
     const consulta = busca.trim().toLocaleLowerCase("pt-BR");
@@ -227,25 +445,44 @@ export default function ChatPage() {
   async function enviar(event) {
     event.preventDefault();
     const conteudo = texto.trim();
-    if (!conteudo || !conversaAtiva || enviando) return;
-    setEnviando(true);
+    if (!conteudo || !conversaAtiva || !email) return;
+    const id = conversaAtiva.id;
+    const chave = `${email}:${id}`;
+    if (enviosAtivosRef.current.has(chave)) return;
+    enviosAtivosRef.current.add(chave);
+    chaveEnviandoRef.current = chave;
+    setChaveEnviando(chave);
     setErro("");
     try {
-      await api.enviarMensagemChat(conversaAtiva.id, conteudo, email);
-      setTexto("");
-      await carregarMensagens(conversaAtiva.id);
+      await api.enviarMensagemChat(id, conteudo, email);
+      if (chaveAtivaRef.current !== chave) return;
+      setRascunhos((atuais) =>
+        atuais[chave] === conteudo
+          ? { ...atuais, [chave]: "" }
+          : atuais,
+      );
+      await carregarMensagens(id);
       campoRef.current?.focus();
     } catch (falha) {
-      setErro(falha.message || "Não foi possível enviar a mensagem.");
+      if (chaveAtivaRef.current === chave) {
+        setErro(falha.message || "Não foi possível enviar a mensagem.");
+      }
     } finally {
-      setEnviando(false);
+      enviosAtivosRef.current.delete(chave);
+      if (chaveEnviandoRef.current === chave) {
+        chaveEnviandoRef.current = null;
+        setChaveEnviando(null);
+      }
     }
   }
 
   async function enviarImagem(event) {
     const arquivo = event.target.files?.[0];
     event.target.value = "";
-    if (!arquivo || !conversaAtiva || enviando) return;
+    if (!arquivo || !conversaAtiva || !email) return;
+    const id = conversaAtiva.id;
+    const chave = `${email}:${id}`;
+    if (enviosAtivosRef.current.has(chave)) return;
     if (!TIPOS_IMAGEM.includes(arquivo.type)) {
       setErro("Escolha uma imagem PNG, JPEG ou WebP.");
       return;
@@ -254,15 +491,24 @@ export default function ChatPage() {
       setErro("A imagem deve ter até 5 MB.");
       return;
     }
-    setEnviando(true);
+    enviosAtivosRef.current.add(chave);
+    chaveEnviandoRef.current = chave;
+    setChaveEnviando(chave);
     setErro("");
     try {
-      await api.enviarImagemChat(conversaAtiva.id, arquivo, email);
-      await carregarMensagens(conversaAtiva.id);
+      await api.enviarImagemChat(id, arquivo, email);
+      if (chaveAtivaRef.current !== chave) return;
+      await carregarMensagens(id);
     } catch (falha) {
-      setErro(falha.message || "Não foi possível enviar a imagem.");
+      if (chaveAtivaRef.current === chave) {
+        setErro(falha.message || "Não foi possível enviar a imagem.");
+      }
     } finally {
-      setEnviando(false);
+      enviosAtivosRef.current.delete(chave);
+      if (chaveEnviandoRef.current === chave) {
+        chaveEnviandoRef.current = null;
+        setChaveEnviando(null);
+      }
     }
   }
 
@@ -380,6 +626,18 @@ export default function ChatPage() {
             </header>
 
             <div className="chat-messages" ref={listaRef} aria-live="polite">
+              {temMaisMensagens && (
+                <button
+                  type="button"
+                  className="chat-load-older"
+                  onClick={carregarAnteriores}
+                  disabled={carregandoAnteriores}
+                >
+                  {carregandoAnteriores
+                    ? "Carregando mensagens…"
+                    : "Mensagens anteriores"}
+                </button>
+              )}
               {carregandoMensagens && mensagens.length === 0 && (
                 <p className="chat-empty-search">Carregando mensagens…</p>
               )}
@@ -461,7 +719,12 @@ export default function ChatPage() {
                   ref={campoRef}
                   value={texto}
                   onChange={(event) => {
-                    setTexto(event.target.value);
+                    if (chaveAtiva) {
+                      setRascunhos((atuais) => ({
+                        ...atuais,
+                        [chaveAtiva]: event.target.value,
+                      }));
+                    }
                     if (erro) setErro("");
                   }}
                   onKeyDown={(event) => {

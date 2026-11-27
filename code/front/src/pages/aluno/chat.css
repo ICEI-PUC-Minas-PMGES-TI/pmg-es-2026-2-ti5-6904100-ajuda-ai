@@ -254,6 +254,23 @@
   background-size: 18px 18px;
 }
 
+.chat-load-older {
+  align-self: center;
+  padding: 8px 13px;
+  border: 1px solid #dedbf1;
+  border-radius: 999px;
+  color: var(--purple-deep);
+  background: #fff;
+  font: inherit;
+  font-size: .82rem;
+  cursor: pointer;
+}
+
+.chat-load-older:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
 .chat-day-divider {
   align-self: center;
   margin: 1px 0 10px;

@@ -1,9 +1,8 @@
 import { useNavigate, useOutletContext } from 'react-router-dom';
+import { api } from '../../api/client';
 import Icon from '../../components/Icon';
 import { useToast } from '../../components/Toast';
 import { EstadoCarregando, EstadoErro, EstadoVazio } from './partes';
-
-const CHAT_EM_BREVE = 'O chat do Ajuda-aí chega em breve. Por enquanto, combine pelo e-mail institucional.';
 
 function PessoaCard({ pessoa, destaque = false }) {
   return (
@@ -27,12 +26,36 @@ function PessoaCard({ pessoa, destaque = false }) {
 }
 
 export default function PadrinhoPage() {
-  const { situacao: dados, carregando, erro, recarregar } = useOutletContext();
+  const { situacao: dados, carregando, erro, recarregar, email } = useOutletContext();
   const navigate = useNavigate();
   const mostrarToast = useToast();
 
   if (carregando && !dados) return <EstadoCarregando texto="Carregando seu vínculo…" />;
   if (erro && !dados) return <EstadoErro mensagem={erro} onTentar={recarregar} />;
+
+  async function abrirConversa(emailPessoa) {
+    const alvo = String(emailPessoa || '').trim().toLowerCase();
+    if (!alvo) {
+      mostrarToast('O e-mail do vínculo ainda não está disponível.');
+      return;
+    }
+    try {
+      const conversas = await api.chats(email);
+      const conversa = conversas.find((item) =>
+        item.participantes?.some(
+          (participante) => String(participante.email || '').trim().toLowerCase() === alvo,
+        ),
+      );
+      if (!conversa) {
+        navigate('/aluno/chat');
+        mostrarToast('Não há uma conversa ativa com essa pessoa neste programa.');
+        return;
+      }
+      navigate(`/aluno/chat?conversa=${encodeURIComponent(conversa.id)}`);
+    } catch (falha) {
+      mostrarToast(falha.message || 'Não foi possível abrir a conversa.');
+    }
+  }
 
   const tipo = dados?.situacao;
   const formacao = dados?.programa?.etapas?.find((e) => e.id === 'formacao');
@@ -74,7 +97,7 @@ export default function PadrinhoPage() {
                   <strong>Seu grupo está ativo!</strong>
                   <p>Apresente-se, combine o primeiro encontro e acompanhe seus apadrinhados ao longo do semestre.</p>
                 </div>
-                <button type="button" className="primary-button inline" onClick={() => mostrarToast(CHAT_EM_BREVE)}>
+                <button type="button" className="primary-button inline" onClick={() => navigate('/aluno/chat')}>
                   <Icon name="chat" size={17} /> Enviar mensagem
                 </button>
               </div>
@@ -131,7 +154,7 @@ export default function PadrinhoPage() {
               </li>
             </ol>
             <div className="next-steps-actions">
-              <button type="button" className="primary-button" onClick={() => mostrarToast(CHAT_EM_BREVE)}>
+              <button type="button" className="primary-button" onClick={() => abrirConversa(padrinho.email)}>
                 <Icon name="chat" size={18} /> Enviar mensagem
               </button>
             </div>

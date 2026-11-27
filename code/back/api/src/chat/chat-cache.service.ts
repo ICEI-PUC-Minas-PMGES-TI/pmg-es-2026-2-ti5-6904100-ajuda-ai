@@ -13,6 +13,11 @@ const DURACAO_CACHE_MS = 20_000;
 @Injectable()
 export class ChatCacheService {
   private readonly recentes = new Map<number, PaginaMensagens>();
+  private versaoInvalidacao = 0;
+
+  versaoAtual(): number {
+    return this.versaoInvalidacao;
+  }
 
   obter(chatId: number): PaginaMensagens | undefined {
     const pagina = this.recentes.get(chatId);
@@ -47,7 +52,19 @@ export class ChatCacheService {
     }
   }
 
+  salvarSeAtual(
+    chatId: number,
+    mensagens: MensagemChatEntity[],
+    temMais: boolean,
+    versao: number,
+  ): boolean {
+    if (versao !== this.versaoInvalidacao) return false;
+    this.salvar(chatId, mensagens, temMais);
+    return true;
+  }
+
   invalidar(chatId: number): void {
+    this.versaoInvalidacao++;
     this.recentes.delete(chatId);
   }
 }
