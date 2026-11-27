@@ -8,7 +8,8 @@ aluno e desbloqueia. O cliente nunca marca uma conquista como obtida.
 `1795300000000-CriaConquistas` (schema `gamificacao`):
 
 - `conquistas`: `nome` (até 80), `descricao` (até 500), `imagem_url`
-  (opcional, `https://`), `criterio`, `meta`, `publico` (`TODOS`,
+  (opcional, `https://`; a API grava o protocolo em minúsculas, então
+  `HTTPS://` também é aceito), `criterio`, `meta`, `publico` (`TODOS`,
   `PADRINHOS`, `APADRINHADOS`), `programa_codigo` (nulo = todos os ciclos;
   FK para `programas`, RESTRICT), `xp` (0 a 50), `ativa` e `publicada_em`.
   CHECKs repetem as regras da API: critério suportado, meta na faixa do
@@ -52,8 +53,12 @@ meta cumprida. Roda:
 - em `GET /me/conquistas` (a coleção);
 - depois do commit de `POST /me/missoes/:id/concluir` e de
   `POST /mapa/pucstops/:id/claim`;
-- em `GET /me/xp` (Início e Perfil leem o XP ao abrir: é quando nível e feed,
-  que não têm gancho próprio, liberam conquistas).
+- depois do commit de `POST /publicacoes` e de
+  `POST /publicacoes/:id/comentarios` (`aposAtividadeNoFeed`), **no ciclo da
+  publicação**: quem cumpre a meta no fim do semestre e só volta no seguinte
+  não perde a conquista nem o XP do semestre anterior;
+- em `GET /me/xp` (Início e Perfil leem o XP ao abrir: é quando o nível, que
+  não tem gancho próprio, libera conquistas).
 
 Uma falha na conferência só gera log: nunca derruba a missão, a coleta ou o
 XP. Só quem participa do ciclo (`podeColetarTotens`) desbloqueia; quem não
@@ -62,9 +67,15 @@ participa vê só as já obtidas.
 Cada desbloqueio roda numa transação com a carteira do aluno travada
 (`travarCarteira`): consultas simultâneas do mesmo aluno se enfileiram, e o
 UNIQUE do desbloqueio e o da chave do ledger barram o repetido. A conquista é
-relida (`FOR SHARE`): arquivada no meio, não desbloqueia. O XP de uma
-conquista pode subir o nível; a conferência repete (até 3 passadas) para
-liberar uma conquista de nível na mesma consulta.
+relida (`FOR SHARE`): arquivada no meio, não desbloqueia. Os avisos
+(`CONQUISTA_DESBLOQUEADA` e, se for o caso, `NIVEL_SUBIU`) são gravados **na
+mesma transação**: se a gravação falhar, desbloqueio e XP são desfeitos e a
+próxima consulta tenta de novo, sem conquista sem aviso no sino.
+
+O XP de uma conquista pode subir o nível e liberar uma conquista de nível,
+cujo XP sobe o nível de novo. A conferência repete enquanto o nível sobe, até
+`PASSADAS_MAX` = `NIVEIS.length` (10) passadas: o nível sobe no máximo 9
+vezes, então a cadeia inteira sai na mesma consulta.
 
 ## XP
 
@@ -108,7 +119,10 @@ JWT de aluno cadastrado. Resposta:
   `contexto`, `xpCreditado` e `desbloqueadaEm`;
 - `disponiveis`: publicadas e elegíveis ainda não obtidas, com
   `criterioTexto`, `xp` e `progresso { atual, meta }`;
-- `novas`: ids desbloqueados nesta consulta (o aviso da tela).
+- `novas`: desbloqueios desta consulta (o aviso da tela), como
+  `{ id, contexto }`. A mesma conquista obtida em dois semestres aparece duas
+  vezes em `obtidas`; web e app comparam id **e** contexto para marcar só a
+  nova.
 
 ## Notificação
 

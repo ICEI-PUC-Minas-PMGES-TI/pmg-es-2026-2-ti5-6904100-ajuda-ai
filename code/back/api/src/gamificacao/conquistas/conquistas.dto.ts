@@ -29,7 +29,9 @@ const NAO_VAZIO = /\S/;
 const HTTPS = /^https:\/\/\S+$/i;
 const CICLO = /^\d{4}\/[12]$/;
 const MENSAGEM_HTTPS = { message: 'imagemUrl deve ser um endereço https://' };
-const MENSAGEM_CICLO = { message: 'programaCodigo deve ser um ciclo, ex.: 2026/2' };
+const MENSAGEM_CICLO = {
+  message: 'programaCodigo deve ser um ciclo, ex.: 2026/2',
+};
 const MENSAGEM_CRITERIO = {
   message: `criterio deve ser um destes: ${CRITERIOS_CONQUISTA.join(', ')}`,
 };
@@ -49,7 +51,9 @@ class CamposConquista {
   descricao?: string;
 
   /** `null` tira a imagem (a medalha usa o ícone padrão). */
-  @ValidateIf((o: CamposConquista) => o.imagemUrl !== null && o.imagemUrl !== undefined)
+  @ValidateIf(
+    (o: CamposConquista) => o.imagemUrl !== null && o.imagemUrl !== undefined,
+  )
   @IsString()
   @MaxLength(IMAGEM_CONQUISTA_MAX)
   @Matches(HTTPS, MENSAGEM_HTTPS)
@@ -70,7 +74,10 @@ class CamposConquista {
   publico?: PublicoConquista;
 
   /** `null` = todos os ciclos. */
-  @ValidateIf((o: CamposConquista) => o.programaCodigo !== null && o.programaCodigo !== undefined)
+  @ValidateIf(
+    (o: CamposConquista) =>
+      o.programaCodigo !== null && o.programaCodigo !== undefined,
+  )
   @IsString()
   @Matches(CICLO, MENSAGEM_CICLO)
   programaCodigo?: string | null;
@@ -94,7 +101,9 @@ export class CriarConquistaDto {
   @Matches(NAO_VAZIO, { message: 'descricao não pode ficar vazia' })
   descricao!: string;
 
-  @ValidateIf((o: CriarConquistaDto) => o.imagemUrl !== null && o.imagemUrl !== undefined)
+  @ValidateIf(
+    (o: CriarConquistaDto) => o.imagemUrl !== null && o.imagemUrl !== undefined,
+  )
   @IsString()
   @MaxLength(IMAGEM_CONQUISTA_MAX)
   @Matches(HTTPS, MENSAGEM_HTTPS)
@@ -112,7 +121,10 @@ export class CriarConquistaDto {
   @IsIn(PUBLICOS_CONQUISTA)
   publico?: PublicoConquista;
 
-  @ValidateIf((o: CriarConquistaDto) => o.programaCodigo !== null && o.programaCodigo !== undefined)
+  @ValidateIf(
+    (o: CriarConquistaDto) =>
+      o.programaCodigo !== null && o.programaCodigo !== undefined,
+  )
   @IsString()
   @Matches(CICLO, MENSAGEM_CICLO)
   programaCodigo?: string | null;
@@ -201,6 +213,16 @@ export interface ConquistasAlunoDto {
   obtidas: ConquistaObtidaDto[];
   /** Publicadas, do público do aluno, ainda não obtidas neste contexto. */
   disponiveis: ConquistaDisponivelDto[];
-  /** Desbloqueadas nesta consulta (para o aviso na tela). */
-  novas: string[];
+  /**
+   * Desbloqueadas nesta consulta (para o aviso na tela), com o contexto: a
+   * mesma conquista obtida em dois semestres aparece duas vezes em
+   * `obtidas`, e só a deste desbloqueio é nova.
+   */
+  novas: NovaConquistaDto[];
+}
+
+/** Um desbloqueio: a definição e o contexto (ciclo ou `GERAL`). */
+export interface NovaConquistaDto {
+  id: string;
+  contexto: string;
 }

@@ -56,12 +56,18 @@ export function validarConquista(form, criterios = []) {
   return '';
 }
 
+/** Imagem como a API guarda: sem espaços e com `https://` em minúsculas. */
+export function normalizarImagem(url) {
+  const limpa = (url ?? '').trim();
+  return limpa ? limpa.replace(/^https:\/\//i, 'https://') : null;
+}
+
 /** Corpo da criação, já normalizado para a API. */
 export function corpoCriacaoConquista(form) {
   return {
     nome: form.nome.trim(),
     descricao: form.descricao.trim(),
-    imagemUrl: form.imagemUrl.trim() || null,
+    imagemUrl: normalizarImagem(form.imagemUrl),
     criterio: form.criterio,
     meta: Number(form.meta),
     publico: form.publico,

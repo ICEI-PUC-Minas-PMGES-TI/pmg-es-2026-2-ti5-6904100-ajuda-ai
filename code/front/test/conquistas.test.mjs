@@ -63,9 +63,12 @@ test('lista da coordenação: estado, critério e exclusão só sem uso', () => 
 });
 
 test('coleção do aluno: aviso das novas, contexto e barra de progresso', () => {
-  const colecao = { novas: ['a'], obtidas: [{ id: 'a', nome: 'Explorador' }, { id: 'b', nome: 'Outra' }] };
+  const colecao = {
+    novas: [{ id: 'a', contexto: '2026/2' }],
+    obtidas: [{ id: 'a', nome: 'Explorador', contexto: '2026/2' }, { id: 'b', nome: 'Outra', contexto: 'GERAL' }],
+  };
   assert.equal(aluno.textoNovas(colecao), 'Conquista desbloqueada: Explorador!');
-  assert.equal(aluno.textoNovas({ ...colecao, novas: ['a', 'b'] }), 'Você desbloqueou 2 conquistas!');
+  assert.equal(aluno.textoNovas({ ...colecao, novas: [...colecao.novas, { id: 'b', contexto: 'GERAL' }] }), 'Você desbloqueou 2 conquistas!');
   assert.equal(aluno.textoNovas({ ...colecao, novas: [] }), '');
   assert.equal(aluno.rotuloContexto('GERAL'), 'Conquista de carreira');
   assert.equal(aluno.rotuloContexto('2026/2'), 'Semestre 2026/2');
@@ -77,4 +80,28 @@ test('coleção do aluno: aviso das novas, contexto e barra de progresso', () =>
 test('notificação de conquista abre a coleção na web', () => {
   assert.equal(notificacoes.rotaDaNotificacao('/conquistas'), '/aluno/conquistas');
   assert.equal(notificacoes.ICONE_NOTIFICACAO.CONQUISTA_DESBLOQUEADA, 'trophy');
+});
+
+test('mesma conquista em dois semestres: só o desbloqueio de agora é novo (id + contexto)', () => {
+  const colecao = {
+    novas: [{ id: 'a', contexto: '2026/2' }],
+    obtidas: [
+      { id: 'a', nome: 'Explorador', contexto: '2026/2' },
+      { id: 'a', nome: 'Explorador', contexto: '2026/1' },
+    ],
+  };
+  assert.equal(aluno.textoNovas(colecao), 'Conquista desbloqueada: Explorador!');
+  assert.deepEqual(colecao.obtidas.filter((o) => aluno.ehNova(colecao, o)).map((o) => o.contexto), ['2026/2']);
+  // Formato antigo (só o id) não marca nada como novo.
+  assert.equal(aluno.textoNovas({ ...colecao, novas: ['a'] }), '');
+});
+
+test('imagem com HTTPS:// maiúsculo é aceita e enviada em minúsculas, como o banco exige', () => {
+  const form = { ...coord.formDaConquista(null), nome: 'X', descricao: 'Y', criterio: 'MISSOES_CONCLUIDAS', meta: '2', imagemUrl: '  HTTPS://exemplo.com/Medalha.PNG ' };
+  assert.equal(coord.validarConquista(form, CRITERIOS), '');
+  assert.equal(coord.corpoCriacaoConquista(form).imagemUrl, 'https://exemplo.com/Medalha.PNG');
+  assert.equal(coord.normalizarImagem('HtTpS://a.b/c'), 'https://a.b/c');
+  assert.equal(coord.normalizarImagem('   '), null);
+  const original = { nome: 'X', descricao: 'Y', imagemUrl: 'https://exemplo.com/Medalha.PNG', criterio: 'MISSOES_CONCLUIDAS', meta: 2, publico: 'TODOS', programaCodigo: null, xp: 0 };
+  assert.deepEqual(coord.alteracoesConquista(original, form), {});
 });

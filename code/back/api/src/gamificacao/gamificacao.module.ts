@@ -73,5 +73,7 @@ import { XpService } from './xp/xp.service.js';
     ConquistasService,
     ConquistasAdminService,
   ],
+  // O feed confere as conquistas de publicação e comentário (F32).
+  exports: [ConquistasService],
 })
 export class GamificacaoModule {}

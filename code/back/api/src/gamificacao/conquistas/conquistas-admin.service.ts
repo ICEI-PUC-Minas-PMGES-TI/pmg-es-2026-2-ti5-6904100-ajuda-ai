@@ -20,6 +20,7 @@ import {
   estadoDaConquista,
   type EstadoConquista,
   ID_CONQUISTA,
+  normalizarImagemConquista,
   problemaDaRegra,
   type PublicoConquista,
   textoCriterio,
@@ -82,7 +83,13 @@ function regraInvalida(mensagem: string): BadRequestException {
 }
 
 /** Campos que valem como o aluno viu: congelados depois da 1ª publicação. */
-const CONGELADOS = ['criterio', 'meta', 'publico', 'programaCodigo', 'xp'] as const;
+const CONGELADOS = [
+  'criterio',
+  'meta',
+  'publico',
+  'programaCodigo',
+  'xp',
+] as const;
 
 function jaPublicada(campos: string[]): ConflictException {
   return new ConflictException({
@@ -144,7 +151,7 @@ export class ConquistasAdminService {
       [
         dados.nome.trim(),
         dados.descricao.trim(),
-        dados.imagemUrl?.trim() || null,
+        normalizarImagemConquista(dados.imagemUrl),
         dados.criterio,
         dados.meta,
         publico,
@@ -207,7 +214,7 @@ export class ConquistasAdminService {
           dados.descricao?.trim() ?? atual.descricao,
           dados.imagemUrl === undefined
             ? atual.imagemUrl
-            : dados.imagemUrl?.trim() || null,
+            : normalizarImagemConquista(dados.imagemUrl),
           novo.criterio,
           novo.meta,
           novo.publico,

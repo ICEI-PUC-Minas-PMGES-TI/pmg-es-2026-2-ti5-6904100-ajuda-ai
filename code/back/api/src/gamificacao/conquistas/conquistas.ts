@@ -15,7 +15,11 @@ export const DESCRICAO_CONQUISTA_MAX = 500;
 export const IMAGEM_CONQUISTA_MAX = 500;
 
 /** Quem pode desbloquear. Mesmos valores das missões. */
-export const PUBLICOS_CONQUISTA = ['TODOS', 'PADRINHOS', 'APADRINHADOS'] as const;
+export const PUBLICOS_CONQUISTA = [
+  'TODOS',
+  'PADRINHOS',
+  'APADRINHADOS',
+] as const;
 export type PublicoConquista = (typeof PUBLICOS_CONQUISTA)[number];
 
 /**
@@ -23,7 +27,11 @@ export type PublicoConquista = (typeof PUBLICOS_CONQUISTA)[number];
  * rascunho (nunca publicada), publicada (critério, meta, público, programa e
  * XP congelados) e arquivada (sai da vitrine; quem já obteve continua com ela).
  */
-export const ESTADOS_CONQUISTA = ['rascunho', 'publicada', 'arquivada'] as const;
+export const ESTADOS_CONQUISTA = [
+  'rascunho',
+  'publicada',
+  'arquivada',
+] as const;
 export type EstadoConquista = (typeof ESTADOS_CONQUISTA)[number];
 
 export function estadoDaConquista(
@@ -62,46 +70,50 @@ export interface DefinicaoCriterio {
   metaMax: number;
 }
 
-export const DEFINICAO_CRITERIOS: Record<CriterioConquista, DefinicaoCriterio> = {
-  MISSOES_CONCLUIDAS: {
-    criterio: 'MISSOES_CONCLUIDAS',
-    rotulo: 'Missões concluídas no semestre',
-    escopo: 'CICLO',
-    metaMin: 1,
-    metaMax: 50,
-  },
-  PUCSTOPS_COLETADOS: {
-    criterio: 'PUCSTOPS_COLETADOS',
-    rotulo: 'PucStops coletados no semestre',
-    escopo: 'CICLO',
-    metaMin: 1,
-    metaMax: 50,
-  },
-  FEED_PUBLICACOES: {
-    criterio: 'FEED_PUBLICACOES',
-    rotulo: 'Publicações no feed no semestre',
-    escopo: 'CICLO',
-    metaMin: 1,
-    metaMax: 50,
-  },
-  FEED_COMENTARIOS: {
-    criterio: 'FEED_COMENTARIOS',
-    rotulo: 'Posts de colegas comentados no semestre',
-    escopo: 'CICLO',
-    metaMin: 1,
-    metaMax: 50,
-  },
-  NIVEL_ALCANCADO: {
-    criterio: 'NIVEL_ALCANCADO',
-    rotulo: 'Nível alcançado',
-    escopo: 'GERAL',
-    metaMin: 2,
-    metaMax: 10,
-  },
-};
+export const DEFINICAO_CRITERIOS: Record<CriterioConquista, DefinicaoCriterio> =
+  {
+    MISSOES_CONCLUIDAS: {
+      criterio: 'MISSOES_CONCLUIDAS',
+      rotulo: 'Missões concluídas no semestre',
+      escopo: 'CICLO',
+      metaMin: 1,
+      metaMax: 50,
+    },
+    PUCSTOPS_COLETADOS: {
+      criterio: 'PUCSTOPS_COLETADOS',
+      rotulo: 'PucStops coletados no semestre',
+      escopo: 'CICLO',
+      metaMin: 1,
+      metaMax: 50,
+    },
+    FEED_PUBLICACOES: {
+      criterio: 'FEED_PUBLICACOES',
+      rotulo: 'Publicações no feed no semestre',
+      escopo: 'CICLO',
+      metaMin: 1,
+      metaMax: 50,
+    },
+    FEED_COMENTARIOS: {
+      criterio: 'FEED_COMENTARIOS',
+      rotulo: 'Posts de colegas comentados no semestre',
+      escopo: 'CICLO',
+      metaMin: 1,
+      metaMax: 50,
+    },
+    NIVEL_ALCANCADO: {
+      criterio: 'NIVEL_ALCANCADO',
+      rotulo: 'Nível alcançado',
+      escopo: 'GERAL',
+      metaMin: 2,
+      metaMax: 10,
+    },
+  };
 
 /** Texto do critério para o aluno ("conhecer seus critérios"). */
-export function textoCriterio(criterio: CriterioConquista, meta: number): string {
+export function textoCriterio(
+  criterio: CriterioConquista,
+  meta: number,
+): string {
   const plural = (n: number, um: string, varios: string) =>
     `${n} ${n === 1 ? um : varios}`;
   switch (criterio) {
@@ -139,7 +151,10 @@ export function problemaDaRegra(regra: {
   ) {
     return `Para "${def.rotulo}", a meta vai de ${def.metaMin} a ${def.metaMax}.`;
   }
-  if (regra.publico === 'APADRINHADOS' && regra.criterio === 'FEED_PUBLICACOES') {
+  if (
+    regra.publico === 'APADRINHADOS' &&
+    regra.criterio === 'FEED_PUBLICACOES'
+  ) {
     return 'Só padrinhos com dupla publicam no feed: escolha outro público ou outro critério.';
   }
   if (
@@ -152,9 +167,24 @@ export function problemaDaRegra(regra: {
   return null;
 }
 
+/**
+ * Imagem como o banco guarda: sem espaços nas pontas e com o protocolo em
+ * minúsculas (a API aceita `HTTPS://`; o CHECK exige `https://`). Vazia vira
+ * `null` (medalha com o ícone padrão).
+ */
+export function normalizarImagemConquista(
+  url: string | null | undefined,
+): string | null {
+  const limpa = url?.trim();
+  if (!limpa) return null;
+  return limpa.replace(/^https:\/\//i, 'https://');
+}
+
 /** Contexto de um desbloqueio: o ciclo, ou `GERAL` nos critérios de carreira. */
 export function contextoDe(criterio: CriterioConquista, ciclo: string): string {
-  return DEFINICAO_CRITERIOS[criterio].escopo === 'GERAL' ? CONTEXTO_GERAL : ciclo;
+  return DEFINICAO_CRITERIOS[criterio].escopo === 'GERAL'
+    ? CONTEXTO_GERAL
+    : ciclo;
 }
 
 /**

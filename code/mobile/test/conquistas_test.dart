@@ -12,7 +12,12 @@ import 'package:http/testing.dart';
 
 const _json = {'content-type': 'application/json; charset=utf-8'};
 
-Map<String, Object?> _colecao({List<String> novas = const ['a']}) => {
+const _novaA = {'id': 'a', 'contexto': '2026/2'};
+
+Map<String, Object?> _colecao({
+  List<Map<String, String>> novas = const [_novaA],
+  List<Map<String, Object?>> extras = const [],
+}) => {
   'ciclo': '2026/2',
   'obtidas': [
     {
@@ -37,6 +42,7 @@ Map<String, Object?> _colecao({List<String> novas = const ['a']}) => {
       'desbloqueadaEm': '2026-10-01T15:00:00.000Z',
       'arquivada': true,
     },
+    ...extras,
   ],
   'disponiveis': [
     {
@@ -64,11 +70,49 @@ void main() {
       expect(c.disponiveis.single.fracao, closeTo(0.4, 0.001));
       expect(c.avisoNovas, 'Conquista desbloqueada: Explorador!');
       expect(
-        ColecaoConquistas.fromJson(_colecao(novas: ['a', 'b']))!.avisoNovas,
+        ColecaoConquistas.fromJson(
+          _colecao(
+            novas: [
+              _novaA,
+              {'id': 'b', 'contexto': 'GERAL'},
+            ],
+          ),
+        )!.avisoNovas,
         'Você desbloqueou 2 conquistas!',
       );
       expect(
         ColecaoConquistas.fromJson(_colecao(novas: []))!.avisoNovas,
+        isNull,
+      );
+    });
+
+    test('mesma conquista em dois semestres: só o desbloqueio novo é novo', () {
+      // "Explorador" já obtida em 2026/1 e de novo agora, em 2026/2.
+      final c = ColecaoConquistas.fromJson(
+        _colecao(
+          extras: [
+            {
+              'id': 'a',
+              'nome': 'Explorador',
+              'descricao': 'Coletou totens pelo campus.',
+              'criterioTexto': 'Coletar 3 PucStops no semestre.',
+              'contexto': '2026/1',
+              'xpCreditado': 20,
+              'desbloqueadaEm': '2026-05-27T15:00:00.000Z',
+              'arquivada': false,
+            },
+          ],
+        ),
+      )!;
+      expect(c.obtidas.where((o) => o.id == 'a'), hasLength(2));
+      expect(c.obtidas.where(c.ehNova).map((o) => o.contexto), ['2026/2']);
+      expect(c.avisoNovas, 'Conquista desbloqueada: Explorador!');
+      // Formato antigo (só o id) não marca nada como novo.
+      expect(
+        ColecaoConquistas.fromJson({
+          ..._colecao(),
+          'novas': ['a'],
+        })!.avisoNovas,
         isNull,
       );
     });

@@ -35,7 +35,10 @@ const UUID = new ParseUUIDPipe({ version: '4' });
 
 /** Acesso do aluno às conquistas a partir das permissões do ciclo. */
 export function acessoConquistas(
-  permissoes: Pick<PermissoesAluno, 'podeColetarTotens' | 'papel' | 'podePublicar'> | null,
+  permissoes: Pick<
+    PermissoesAluno,
+    'podeColetarTotens' | 'papel' | 'podePublicar'
+  > | null,
 ): AcessoConquistas {
   return {
     participante: permissoes?.podeColetarTotens === true,

@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import type { AccessTokenPayload } from '../../auth/authenticated-request.js';
 import {
   notificacaoConquista,
   notificacaoNivel,
@@ -7,18 +8,21 @@ import {
 } from '../../notificacoes/notificacoes.js';
 import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
-import { nivelDe } from '../economia.js';
+import { PermissoesAlunoService } from '../../participacoes/permissoes-aluno.service.js';
+import { NIVEIS, nivelDe } from '../economia.js';
 import {
   ehViolacaoUnica,
   SCHEMA_GAMIFICACAO,
   schemaUsuarios,
   travarCarteira,
+  usuarioDoTokenOuNulo,
 } from '../gamificacao.js';
 import { creditarGanho } from '../ganhos.js';
 import type {
   ConquistaDisponivelDto,
   ConquistaObtidaDto,
   ConquistasAlunoDto,
+  NovaConquistaDto,
 } from './conquistas.dto.js';
 import {
   chaveConquista,
@@ -51,8 +55,14 @@ interface Candidata {
   xp: number;
 }
 
-/** Passadas no máximo: o XP de uma conquista pode subir o nível e liberar outra. */
-const PASSADAS_MAX = 3;
+/**
+ * Passadas no máximo. O XP de uma conquista pode subir o nível e liberar uma
+ * conquista de nível, cujo XP sobe o nível de novo. Só se faz outra passada
+ * quando o nível subiu; como há `NIVEIS.length` níveis, ele sobe no máximo
+ * `NIVEIS.length - 1` vezes, então `NIVEIS.length` passadas bastam para
+ * liberar a cadeia inteira na mesma consulta.
+ */
+export const PASSADAS_MAX = NIVEIS.length;
 
 @Injectable()
 export class ConquistasService {
@@ -61,6 +71,7 @@ export class ConquistasService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly notificacoes: NotificacoesService,
+    @Optional() private readonly permissoes?: PermissoesAlunoService,
   ) {}
 
   private get u(): string {
@@ -74,7 +85,7 @@ export class ConquistasService {
   ): Promise<ConquistasAlunoDto> {
     const ciclo = ParticipacoesService.programaAtual(agora);
     const novas = acesso.participante
-      ? await this.sincronizar(usuarioId, acesso, agora)
+      ? await this.sincronizar(usuarioId, acesso, ciclo)
       : [];
     const [obtidas, disponiveis] = await Promise.all([
       this.obtidas(usuarioId),
@@ -88,15 +99,16 @@ export class ConquistasService {
   /**
    * Confere o progresso real e desbloqueia o que tiver a meta cumprida.
    * Nunca derruba quem chamou (missão, totem, XP): uma falha só gera log.
-   * Devolve os ids desbloqueados agora.
+   * Devolve os desbloqueios feitos agora (id e contexto).
    */
   async sincronizarComSeguranca(
     usuarioId: number,
     acesso: AcessoConquistas,
-  ): Promise<string[]> {
+    ciclo?: string,
+  ): Promise<NovaConquistaDto[]> {
     if (!acesso.participante) return [];
     try {
-      return await this.sincronizar(usuarioId, acesso);
+      return await this.sincronizar(usuarioId, acesso, ciclo);
     } catch (erro) {
       this.logger.warn(
         `falha ao conferir conquistas usuario=${usuarioId}: ${(erro as Error).message}`,
@@ -105,15 +117,58 @@ export class ConquistasService {
     }
   }
 
+  /**
+   * Depois do commit de uma publicação ou comentário no feed (critérios
+   * `FEED_*`, que não passam por missão nem totem). Confere no ciclo da
+   * atividade, não no da próxima consulta: quem cumpre a meta no fim do
+   * semestre e só volta no seguinte não perde a conquista nem o XP do
+   * semestre anterior. Coordenação e quem não é aluno cadastrado: nada a
+   * fazer. Nunca derruba a ação no feed.
+   */
+  async aposAtividadeNoFeed(
+    usuario: AccessTokenPayload,
+    ciclo: string | null | undefined,
+  ): Promise<NovaConquistaDto[]> {
+    try {
+      if (!this.permissoes) return [];
+      const usuarioId = await usuarioDoTokenOuNulo(this.dataSource, usuario);
+      if (usuarioId === null) return [];
+      const p = await this.permissoes.doUsuario(usuario);
+      return await this.sincronizarComSeguranca(
+        usuarioId,
+        {
+          participante: p.podeColetarTotens === true,
+          papel: p.papel ?? null,
+          podePublicar: p.podePublicar === true,
+        },
+        ciclo ?? undefined,
+      );
+    } catch (erro) {
+      this.logger.warn(
+        `falha ao conferir conquistas do feed: ${(erro as Error).message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Desbloqueia o que tiver a meta cumprida no `ciclo` (padrão: o atual).
+   * Cada novidade vai com o contexto: a mesma conquista pode ser obtida de
+   * novo em outro semestre.
+   */
   async sincronizar(
     usuarioId: number,
     acesso: AcessoConquistas,
-    agora = new Date(),
-  ): Promise<string[]> {
-    const ciclo = ParticipacoesService.programaAtual(agora);
-    const novas: string[] = [];
+    ciclo = ParticipacoesService.programaAtual(),
+  ): Promise<NovaConquistaDto[]> {
+    const novas: NovaConquistaDto[] = [];
+    let nivelAnterior: number | null = null;
     for (let passada = 0; passada < PASSADAS_MAX; passada++) {
       const contagens = await this.contagens(usuarioId, ciclo);
+      // Fora a primeira, uma passada só traz novidade se o nível subiu: as
+      // outras contagens não mudam com o desbloqueio.
+      if (nivelAnterior !== null && contagens.nivel <= nivelAnterior) break;
+      nivelAnterior = contagens.nivel;
       const candidatas = await this.candidatas(usuarioId, acesso, ciclo);
       const cumpridas = candidatas.filter(
         (c) => progressoDe(c.criterio, contagens) >= c.meta,
@@ -127,7 +182,7 @@ export class ConquistasService {
           progressoDe(c.criterio, contagens),
         );
         if (resultado) {
-          novas.push(c.id);
+          novas.push({ id: c.id, contexto: resultado.contexto });
           ganhouXp ||= resultado.xp > 0;
         }
       }
@@ -189,11 +244,10 @@ export class ConquistasService {
     c: Candidata,
     ciclo: string,
     progresso: number,
-  ): Promise<{ xp: number } | null> {
+  ): Promise<{ xp: number; contexto: string } | null> {
     const contexto = contextoDe(c.criterio, ciclo);
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
-    const avisos: NovaNotificacao[] = [];
     try {
       await qr.startTransaction();
       await travarCarteira(qr, usuarioId);
@@ -241,12 +295,10 @@ export class ConquistasService {
           ganho?.movimentacao?.movimentacaoId ?? null,
         ],
       );
-      await qr.commitTransaction();
       const xp = ganho?.xp ?? 0;
-      this.logger.log(
-        `conquista desbloqueada id=${c.id} usuario=${usuarioId} contexto=${contexto} xp=${xp}/${definicao.xp}`,
-      );
-      avisos.push(notificacaoConquista({ id: c.id, nome: c.nome, contexto, xp }));
+      const avisos: NovaNotificacao[] = [
+        notificacaoConquista({ id: c.id, nome: c.nome, contexto, xp }),
+      ];
       const xpDepois = ganho?.movimentacao?.xpAcumulado;
       if (
         xpDepois !== undefined &&
@@ -254,7 +306,15 @@ export class ConquistasService {
       ) {
         avisos.push(notificacaoNivel(xpDepois));
       }
-      return { xp };
+      // Na mesma transação: se o aviso falhar, o desbloqueio e o XP são
+      // desfeitos e a próxima consulta tenta de novo. Nunca fica conquista
+      // sem o aviso no sino.
+      await this.notificacoes.criarNaTransacao(qr, usuarioId, avisos);
+      await qr.commitTransaction();
+      this.logger.log(
+        `conquista desbloqueada id=${c.id} usuario=${usuarioId} contexto=${contexto} xp=${xp}/${definicao.xp}`,
+      );
+      return { xp, contexto };
     } catch (erro) {
       if (qr.isTransactionActive) await qr.rollbackTransaction();
       if (
@@ -266,10 +326,6 @@ export class ConquistasService {
       throw erro;
     } finally {
       await qr.release();
-      // Depois de liberar a conexão (como nos totens): não segura duas do pool.
-      for (const aviso of avisos) {
-        await this.notificacoes.criar(usuarioId, aviso);
-      }
     }
   }
 

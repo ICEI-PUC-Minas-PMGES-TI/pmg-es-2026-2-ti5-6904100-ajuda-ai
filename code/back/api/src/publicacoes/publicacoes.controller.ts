@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Optional,
   ParseIntPipe,
   Patch,
   Post,
@@ -17,6 +18,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { ConquistasService } from '../gamificacao/conquistas/conquistas.service.js';
 import {
   FeedAdminGuard,
   FeedLeituraGuard,
@@ -37,6 +39,7 @@ export class PublicacoesController {
     private readonly stream: FeedStreamService,
     private readonly midias: FeedMidiasService,
     private readonly policy: FeedPolicy,
+    @Optional() private readonly conquistas?: ConquistasService,
   ) {}
   @Get()
   @UseGuards(FeedLeituraGuard)
@@ -87,8 +90,11 @@ export class PublicacoesController {
   }
   @Post()
   @UseGuards(FeedPublishGuard)
-  criar(@Body() corpo: PublicacaoDto, @Req() req: AuthenticatedRequest) {
-    return this.publicacoes.criar(corpo, req.user);
+  async criar(@Body() corpo: PublicacaoDto, @Req() req: AuthenticatedRequest) {
+    const publicacao = await this.publicacoes.criar(corpo, req.user);
+    // Depois do commit, no ciclo da publicação (F32: FEED_PUBLICACOES).
+    await this.conquistas?.aposAtividadeNoFeed(req.user, publicacao.programa);
+    return publicacao;
   }
   @Patch(':id')
   @UseGuards(FeedAdminGuard)
@@ -107,12 +113,20 @@ export class PublicacoesController {
     return this.publicacoes.remover(id, req.user);
   }
   @Post(':id/comentarios')
-  comentar(
+  async comentar(
     @Param('id', ParseIntPipe) id: number,
     @Body() corpo: ComentarioDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.publicacoes.comentar(id, corpo.texto, req.user, corpo.paiId);
+    const publicacao = await this.publicacoes.comentar(
+      id,
+      corpo.texto,
+      req.user,
+      corpo.paiId,
+    );
+    // Depois do commit, no ciclo do post comentado (F32: FEED_COMENTARIOS).
+    await this.conquistas?.aposAtividadeNoFeed(req.user, publicacao.programa);
+    return publicacao;
   }
   @Delete(':id/comentarios/:comentarioId')
   removerComentario(

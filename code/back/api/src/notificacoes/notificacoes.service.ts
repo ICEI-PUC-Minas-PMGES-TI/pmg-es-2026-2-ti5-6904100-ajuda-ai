@@ -33,6 +33,11 @@ interface Linha {
   criado_em: Date;
 }
 
+/** Quem executa o SQL: o DataSource ou o QueryRunner de uma transação. */
+interface Executor {
+  query(sql: string, parametros?: unknown[]): Promise<unknown>;
+}
+
 function paraDto(l: Linha): NotificacaoDto {
   return {
     id: l.id,
@@ -163,15 +168,29 @@ export class NotificacoesService {
     }
   }
 
+  /**
+   * Grava na transação de quem chama (ex.: o desbloqueio de uma conquista):
+   * o aviso e o fato que ele anuncia são confirmados ou desfeitos juntos.
+   * Ao contrário de `criar`, a falha sobe e desfaz a transação.
+   */
+  async criarNaTransacao(
+    executor: Executor,
+    usuarioId: number,
+    novas: NovaNotificacao[],
+  ): Promise<void> {
+    if (novas.length) await this.inserir(usuarioId, novas, executor);
+  }
+
   private async inserir(
     usuarioId: number,
     novas: NovaNotificacao[],
+    executor: Executor = this.dataSource,
   ): Promise<void> {
     const valores = novas.map((_, i) => {
       const p = 2 + i * 5;
       return `($1, $${p}, $${p + 1}, $${p + 2}, $${p + 3}, $${p + 4})`;
     });
-    await this.dataSource.query(
+    await executor.query(
       `INSERT INTO ${this.tabela} ("usuario_id", "tipo", "titulo", "mensagem", "link", "chave") ` +
         `VALUES ${valores.join(', ')} ON CONFLICT ("usuario_id", "chave") DO NOTHING`,
       [

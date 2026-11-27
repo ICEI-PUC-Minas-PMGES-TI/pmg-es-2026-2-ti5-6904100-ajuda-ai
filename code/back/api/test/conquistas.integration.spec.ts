@@ -92,14 +92,17 @@ interface Colecao {
     criterioTexto: string;
     progresso: { atual: number; meta: number };
   }>;
-  novas: string[];
+  novas: Array<{ id: string; contexto: string }>;
 }
+
+const idsNovas = (v: Colecao) => v.novas.map((n) => n.id);
 
 describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
   let ds: DataSource;
   let app: INestApplication;
   let jwt: JwtService;
-  const ids = { apadrinhado: 0, padrinho: 0, outro: 0 };
+  let servico: ConquistasService;
+  const ids = { apadrinhado: 0, padrinho: 0, outro: 0, feed: 0, sino: 0, semestres: 0, cascata: 0 };
   const http = () => request(app.getHttpServer());
 
   const coord = () =>
@@ -224,6 +227,7 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
     );
     await app.init();
     jwt = modulo.get(JwtService);
+    servico = modulo.get(ConquistasService);
   });
 
   afterAll(async () => {
@@ -362,7 +366,7 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
 
       await concluirMissoes(ids.apadrinhado, 1);
       vista = await colecao(apadrinhado());
-      expect(vista.novas).toContain(c.id);
+      expect(idsNovas(vista)).toContain(c.id);
       expect(vista.obtidas.find((o) => o.id === c.id)).toMatchObject({
         contexto: CICLO,
         xpCreditado: 0,
@@ -374,7 +378,7 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       const repetidas = await Promise.all(
         Array.from({ length: 5 }, () => colecao(apadrinhado())),
       );
-      expect(repetidas.every((r) => !r.novas.includes(c.id))).toBe(true);
+      expect(repetidas.every((r) => !idsNovas(r).includes(c.id))).toBe(true);
       expect(await desbloqueios(c.id, ids.apadrinhado)).toBe(1);
 
       const avisos = (await ds.query(
@@ -429,7 +433,7 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
     it('arquivar preserva quem já obteve; com uso não exclui; sem uso exclui', async () => {
       const c = await nova({ meta: 1 });
       await concluirMissoes(ids.outro, 1);
-      expect((await colecao(outro())).novas).toContain(c.id);
+      expect(idsNovas(await colecao(outro()))).toContain(c.id);
       await http()
         .post(`/coordenacao/conquistas/${c.id}/arquivar`)
         .set('Authorization', coord())
@@ -507,6 +511,169 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       expect(vista.novas).toEqual([]);
       expect(await desbloqueios(c.id, ids.outro)).toBe(0);
       expect(vista.obtidas.length).toBeGreaterThan(0);
+    });
+  });
+
+  /** Correções da auditoria do F32: cada teste reproduz o cenário relatado. */
+  describe('cenários da auditoria', () => {
+    const acessoApadrinhado = {
+      participante: true,
+      papel: 'apadrinhado' as const,
+      podePublicar: false,
+    };
+    const xpDe = async (usuarioId: number) =>
+      (
+        (await ds.query(
+          `SELECT COALESCE((SELECT xp_acumulado FROM gamificacao.xp_carteiras WHERE usuario_id = $1), 0)::int AS xp`,
+          [usuarioId],
+        )) as Array<{ xp: number }>
+      )[0].xp;
+    const avisosDe = async (usuarioId: number, conquistaId: string) =>
+      (
+        (await ds.query(
+          `SELECT count(*)::int AS n FROM feed.notificacoes WHERE usuario_id = $1 AND tipo = 'CONQUISTA_DESBLOQUEADA' AND chave LIKE $2`,
+          [usuarioId, `conquista:${conquistaId}:%`],
+        )) as Array<{ n: number }>
+      )[0].n;
+
+    it('comentário no fim do semestre conta no ciclo da atividade, mesmo conferido no semestre seguinte', async () => {
+      const c = await nova({ criterio: 'FEED_COMENTARIOS', meta: 1, xp: 15 });
+      // Post de um colega no semestre que acabou e o comentário do aluno nele.
+      const [{ id: post }] = (await ds.query(
+        `INSERT INTO feed.publicacoes (autor, iniciais, descricao_autor, categoria, texto, owner_id, programa_codigo) ` +
+          `VALUES ('Padrinho', 'PA', 'Padrinho do programa', 'Geral', 'Bem-vindos ao semestre!', 'padrinho@pucminas.edu.br', $1) RETURNING id`,
+        [CICLO_ANTERIOR],
+      )) as Array<{ id: number }>;
+      await ds.query(
+        `INSERT INTO feed.comentarios (publicacao_id, autor_id, texto) VALUES ($1, 'feed@pucminas.edu.br', 'Obrigado, até logo!')`,
+        [post],
+      );
+      const aluno = token('feed', 'apadrinhado');
+      // O cenário relatado: só a consulta do semestre novo não registra nada.
+      await colecao(aluno);
+      expect(await desbloqueios(c.id, ids.feed)).toBe(0);
+      // A conferência disparada pelo feed usa o ciclo da publicação.
+      const novas = await servico.aposAtividadeNoFeed(
+        jwt.verify(aluno.slice(7)),
+        CICLO_ANTERIOR,
+      );
+      expect(novas).toEqual([{ id: c.id, contexto: CICLO_ANTERIOR }]);
+      const [registro] = (await ds.query(
+        `SELECT d.contexto, d.xp_creditado, m.ciclo FROM gamificacao.conquistas_desbloqueios d ` +
+          `JOIN gamificacao.xp_movimentacoes m ON m.id = d.movimentacao_id WHERE d.conquista_id = $1 AND d.usuario_id = $2`,
+        [c.id, ids.feed],
+      )) as Array<{ contexto: string; xp_creditado: number; ciclo: string }>;
+      expect(registro).toEqual({ contexto: CICLO_ANTERIOR, xp_creditado: 15, ciclo: CICLO_ANTERIOR });
+      // Coordenação (sem conta de aluno) não confere nada nem falha.
+      await expect(
+        servico.aposAtividadeNoFeed(jwt.verify(coord().slice(7)), CICLO),
+      ).resolves.toEqual([]);
+    });
+
+    it('se o aviso falha, o desbloqueio e o XP são desfeitos e a próxima consulta refaz tudo', async () => {
+      const c = await nova({ meta: 1, xp: 20 });
+      await concluirMissoes(ids.sino, 1);
+      await ds.query(`
+        CREATE FUNCTION feed.falha_aviso_teste() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.tipo = 'CONQUISTA_DESBLOQUEADA' THEN RAISE EXCEPTION 'falha simulada do aviso'; END IF;
+          RETURN NEW;
+        END $$`);
+      await ds.query(
+        `CREATE TRIGGER falha_aviso_teste BEFORE INSERT ON feed.notificacoes FOR EACH ROW EXECUTE FUNCTION feed.falha_aviso_teste()`,
+      );
+      try {
+        // Como depois de concluir uma missão: a falha só gera log.
+        await expect(
+          servico.sincronizarComSeguranca(ids.sino, acessoApadrinhado),
+        ).resolves.toEqual([]);
+        expect(await desbloqueios(c.id, ids.sino)).toBe(0);
+        expect(await xpDe(ids.sino)).toBe(0);
+      } finally {
+        await ds.query(`DROP TRIGGER falha_aviso_teste ON feed.notificacoes`);
+        await ds.query(`DROP FUNCTION feed.falha_aviso_teste()`);
+      }
+      const vista = await colecao(token('sino', 'apadrinhado'));
+      expect(idsNovas(vista)).toContain(c.id);
+      expect(await desbloqueios(c.id, ids.sino)).toBe(1);
+      expect(await avisosDe(ids.sino, c.id)).toBe(1);
+      // Um crédito só desta conquista (outras publicadas também valem para ele).
+      expect(
+        await ds.query(
+          `SELECT quantidade FROM gamificacao.xp_movimentacoes WHERE usuario_id = $1 AND tipo = 'CONQUISTA' AND referencia_id = $2`,
+          [ids.sino, c.id],
+        ),
+      ).toEqual([{ quantidade: 20 }]);
+    });
+
+    it('mesma conquista em dois semestres: a novidade vem com o contexto, uma vez', async () => {
+      const c = await nova({ meta: 1 });
+      await concluirMissoes(ids.semestres, 1, CICLO_ANTERIOR);
+      expect(
+        await servico.sincronizar(ids.semestres, acessoApadrinhado, CICLO_ANTERIOR),
+      ).toContainEqual({ id: c.id, contexto: CICLO_ANTERIOR });
+      await concluirMissoes(ids.semestres, 1);
+      const vista = await colecao(token('semestres', 'apadrinhado'));
+      expect(
+        vista.obtidas.filter((o) => o.id === c.id).map((o) => o.contexto).sort(),
+      ).toEqual([CICLO_ANTERIOR, CICLO].sort());
+      expect(vista.novas.filter((n) => n.id === c.id)).toEqual([
+        { id: c.id, contexto: CICLO },
+      ]);
+    });
+
+    it('imagem com HTTPS:// maiúsculo é aceita e gravada em minúsculas (o CHECK do banco exige)', async () => {
+      const criada = (
+        await criar({
+          nome: 'Medalha maiúscula',
+          descricao: 'URL com protocolo em maiúsculas.',
+          imagemUrl: 'HTTPS://exemplo.com/Medalha.PNG',
+          criterio: 'MISSOES_CONCLUIDAS',
+          meta: 3,
+        }).expect(201)
+      ).body as Conquista & { imagemUrl: string };
+      expect(criada.imagemUrl).toBe('https://exemplo.com/Medalha.PNG');
+      const editada = (
+        await http()
+          .patch(`/coordenacao/conquistas/${criada.id}`)
+          .set('Authorization', coord())
+          .send({ atualizadoEm: criada.atualizadoEm, imagemUrl: 'HtTpS://exemplo.com/outra.png' })
+          .expect(200)
+      ).body as Conquista & { imagemUrl: string };
+      expect(editada.imagemUrl).toBe('https://exemplo.com/outra.png');
+      await criar({
+        nome: 'Sem https',
+        descricao: 'Recusada.',
+        imagemUrl: 'http://exemplo.com/m.png',
+        criterio: 'MISSOES_CONCLUIDAS',
+        meta: 3,
+      }).expect(400);
+    });
+
+    it('cadeia de níveis de 50 a 500 XP libera a conquista do nível 5 na mesma consulta', async () => {
+      await creditarXp(ids.cascata, 50); // nível 2
+      const criadas = [
+        ...(await Promise.all([1, 2].map(() => nova({ criterio: 'NIVEL_ALCANCADO', meta: 2, xp: 50 })))), // -> 150, nível 3
+        ...(await Promise.all([1, 2, 3].map(() => nova({ criterio: 'NIVEL_ALCANCADO', meta: 3, xp: 50 })))), // -> 300, nível 4
+        ...(await Promise.all([1, 2, 3, 4].map(() => nova({ criterio: 'NIVEL_ALCANCADO', meta: 4, xp: 50 })))), // -> 500, nível 5
+      ];
+      const nivel5 = await nova({ criterio: 'NIVEL_ALCANCADO', meta: 5 });
+      try {
+        const vista = await colecao(token('cascata', 'apadrinhado'));
+        expect(await xpDe(ids.cascata)).toBe(500);
+        expect(idsNovas(vista)).toContain(nivel5.id);
+        expect(vista.obtidas.map((o) => o.id)).toContain(nivel5.id);
+        expect(vista.disponiveis.map((d) => d.id)).not.toContain(nivel5.id);
+        for (const c of criadas) expect(await desbloqueios(c.id, ids.cascata)).toBe(1);
+      } finally {
+        // Não deixa a cadeia valendo para os outros testes.
+        for (const c of [...criadas, nivel5]) {
+          await http()
+            .post(`/coordenacao/conquistas/${c.id}/arquivar`)
+            .set('Authorization', coord())
+            .expect(200);
+        }
+      }
     });
   });
 });

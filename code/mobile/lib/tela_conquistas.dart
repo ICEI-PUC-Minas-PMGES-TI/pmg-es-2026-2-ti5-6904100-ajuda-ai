@@ -87,7 +87,7 @@ class _TelaConquistasState extends State<TelaConquistas> {
               )
             else
               for (final o in colecao.obtidas)
-                _CartaoObtida(conquista: o, nova: colecao.novas.contains(o.id)),
+                _CartaoObtida(conquista: o, nova: colecao.ehNova(o)),
             const SizedBox(height: 18),
             const _Secao(titulo: 'Para desbloquear'),
             if (colecao.disponiveis.isEmpty)

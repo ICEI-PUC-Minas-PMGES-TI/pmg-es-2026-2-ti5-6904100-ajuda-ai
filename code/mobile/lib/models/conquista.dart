@@ -104,12 +104,20 @@ class ColecaoConquistas {
   final List<ConquistaObtida> obtidas;
   final List<ConquistaDisponivel> disponiveis;
 
-  /// Ids desbloqueados nesta consulta (para o aviso na tela).
+  /// Desbloqueios desta consulta (para o aviso na tela), como
+  /// `chaveDesbloqueio(id, contexto)`: a mesma conquista obtida em dois
+  /// semestres aparece duas vezes em [obtidas], e só uma é nova.
   final Set<String> novas;
+
+  static String chaveDesbloqueio(String id, String contexto) => '$id|$contexto';
+
+  /// A obtida [o] foi desbloqueada nesta consulta?
+  bool ehNova(ConquistaObtida o) =>
+      novas.contains(chaveDesbloqueio(o.id, o.contexto));
 
   /// Texto do aviso das conquistas desbloqueadas agora, ou `null`.
   String? get avisoNovas {
-    final novasObtidas = obtidas.where((o) => novas.contains(o.id)).toList();
+    final novasObtidas = obtidas.where(ehNova).toList();
     if (novasObtidas.isEmpty) return null;
     if (novasObtidas.length == 1) {
       return 'Conquista desbloqueada: ${novasObtidas.first.nome}!';
@@ -133,8 +141,9 @@ class ColecaoConquistas {
           .whereType<ConquistaDisponivel>()
           .toList(),
       novas: {
-        for (final id in (json['novas'] as List? ?? const []))
-          if (id is String) id,
+        for (final n in (json['novas'] as List? ?? const []))
+          if (n is Map && n['id'] is String && n['contexto'] is String)
+            chaveDesbloqueio(n['id'] as String, n['contexto'] as String),
       },
     );
   }

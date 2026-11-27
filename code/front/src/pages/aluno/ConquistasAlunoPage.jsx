@@ -5,9 +5,17 @@ import { useToast } from '../../components/Toast';
 import { formatarData } from './util';
 import { EstadoCarregando, EstadoErro, EstadoVazio, PageHeader } from './partes';
 
+/**
+ * A obtida `o` foi desbloqueada nesta visita? Compara id e contexto: a mesma
+ * conquista obtida em dois semestres aparece duas vezes, e só uma é nova.
+ */
+export function ehNova(colecao, o) {
+  return (colecao?.novas || []).some((n) => n?.id === o.id && n?.contexto === o.contexto);
+}
+
 /** Texto do aviso das conquistas desbloqueadas nesta visita. */
 export function textoNovas(colecao) {
-  const novas = (colecao?.obtidas || []).filter((o) => colecao.novas?.includes(o.id));
+  const novas = (colecao?.obtidas || []).filter((o) => ehNova(colecao, o));
   if (!novas.length) return '';
   if (novas.length === 1) return `Conquista desbloqueada: ${novas[0].nome}!`;
   return `Você desbloqueou ${novas.length} conquistas!`;
@@ -78,7 +86,7 @@ export default function ConquistasAlunoPage() {
             ) : (
               <ul className="conquistas-grade">
                 {colecao.obtidas.map((o) => (
-                  <li key={`${o.id}-${o.contexto}`} className={`conquista-card obtida${colecao.novas.includes(o.id) ? ' nova' : ''}`}>
+                  <li key={`${o.id}-${o.contexto}`} className={`conquista-card obtida${ehNova(colecao, o) ? ' nova' : ''}`}>
                     <Medalha imagemUrl={o.imagemUrl} />
                     <div>
                       <strong>{o.nome}</strong>
@@ -88,7 +96,7 @@ export default function ConquistasAlunoPage() {
                         {rotuloContexto(o.contexto)} · {formatarData(dataLocal(o.desbloqueadaEm))}
                         {o.xpCreditado > 0 ? ` · +${o.xpCreditado} XP` : ''}
                       </small>
-                      {colecao.novas.includes(o.id) && <span className="flag green">Nova!</span>}
+                      {ehNova(colecao, o) && <span className="flag green">Nova!</span>}
                     </div>
                   </li>
                 ))}

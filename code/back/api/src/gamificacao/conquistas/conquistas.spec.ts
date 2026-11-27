@@ -11,7 +11,12 @@ import {
   textoCriterio,
 } from './conquistas.js';
 
-const valida = { criterio: 'MISSOES_CONCLUIDAS', meta: 3, publico: 'TODOS', xp: 0 } as const;
+const valida = {
+  criterio: 'MISSOES_CONCLUIDAS',
+  meta: 3,
+  publico: 'TODOS',
+  xp: 0,
+} as const;
 
 describe('conquistas: regras puras', () => {
   it('estado sai de ativa + publicada_em', () => {
@@ -26,8 +31,12 @@ describe('conquistas: regras puras', () => {
       expect(d.metaMin).toBeLessThanOrEqual(d.metaMax);
       expect(textoCriterio(c, d.metaMin)).toMatch(/\.$/);
     }
-    expect(textoCriterio('MISSOES_CONCLUIDAS', 1)).toBe('Concluir 1 missão no semestre.');
-    expect(textoCriterio('MISSOES_CONCLUIDAS', 2)).toBe('Concluir 2 missões no semestre.');
+    expect(textoCriterio('MISSOES_CONCLUIDAS', 1)).toBe(
+      'Concluir 1 missão no semestre.',
+    );
+    expect(textoCriterio('MISSOES_CONCLUIDAS', 2)).toBe(
+      'Concluir 2 missões no semestre.',
+    );
   });
 
   it.each([
@@ -35,11 +44,17 @@ describe('conquistas: regras puras', () => {
     ['meta zero', { ...valida, meta: 0 }, /meta vai de 1 a 50/],
     ['meta fracionada', { ...valida, meta: 1.5 }, /meta/],
     ['nível 1', { ...valida, criterio: 'NIVEL_ALCANCADO', meta: 1 }, /2 a 10/],
-    ['feed para apadrinhados', { ...valida, criterio: 'FEED_PUBLICACOES', publico: 'APADRINHADOS' }, /padrinhos/],
+    [
+      'feed para apadrinhados',
+      { ...valida, criterio: 'FEED_PUBLICACOES', publico: 'APADRINHADOS' },
+      /padrinhos/,
+    ],
     ['XP negativo', { ...valida, xp: -1 }, /XP/],
     ['XP acima do teto', { ...valida, xp: LIMITES.porConquista + 1 }, /XP/],
   ] as const)('recusa %s', (_, regra, motivo) => {
-    expect(problemaDaRegra(regra as Parameters<typeof problemaDaRegra>[0])).toMatch(motivo);
+    expect(
+      problemaDaRegra(regra as Parameters<typeof problemaDaRegra>[0]),
+    ).toMatch(motivo);
   });
 
   it('aceita a regra válida', () => {
@@ -59,8 +74,16 @@ describe('conquistas: regras puras', () => {
   });
 
   it('progresso lê a contagem do critério', () => {
-    const c = { missoes: 1, pucstops: 2, publicacoes: 3, comentarios: 4, nivel: 5 };
-    expect(CRITERIOS_CONQUISTA.map((k) => progressoDe(k, c))).toEqual([1, 2, 3, 4, 5]);
+    const c = {
+      missoes: 1,
+      pucstops: 2,
+      publicacoes: 3,
+      comentarios: 4,
+      nivel: 5,
+    };
+    expect(CRITERIOS_CONQUISTA.map((k) => progressoDe(k, c))).toEqual([
+      1, 2, 3, 4, 5,
+    ]);
   });
 
   it('elegibilidade: público do papel, programa por parâmetro e feed só para quem publica', () => {
@@ -71,6 +94,8 @@ describe('conquistas: regras puras', () => {
     const padrinho = sqlConquistaElegivel('c', 'padrinho', '$2', true);
     expect(padrinho).toContain(`IN ('TODOS', 'PADRINHOS')`);
     expect(padrinho).not.toContain('FEED_PUBLICACOES');
-    expect(sqlConquistaElegivel('c', null, '$2', false)).toContain(`IN ('TODOS')`);
+    expect(sqlConquistaElegivel('c', null, '$2', false)).toContain(
+      `IN ('TODOS')`,
+    );
   });
 });

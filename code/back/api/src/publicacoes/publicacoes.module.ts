@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module.js';
+import { GamificacaoModule } from '../gamificacao/gamificacao.module.js';
 import { ParticipacoesModule } from '../participacoes/participacoes.module.js';
 import { ProgramasModule } from '../programas/programas.module.js';
 import { ComentarioEntity } from './entities/comentario.entity.js';
@@ -26,6 +27,7 @@ import { FeedOutboxEntity } from './entities/feed-outbox.entity.js';
 @Module({
   imports: [
     AuthModule,
+    GamificacaoModule,
     ParticipacoesModule,
     ProgramasModule,
     StorageModule,
