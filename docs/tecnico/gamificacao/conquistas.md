@@ -58,8 +58,12 @@ meta cumprida. Roda:
   publicação**: quem cumpre a meta no fim do semestre e só volta no seguinte
   não perde a conquista nem o XP do semestre anterior. A elegibilidade
   (participação, papel, publicar) também vem desse ciclo
-  (`PermissoesAlunoService.doUsuario(usuario, ciclo)`): logo após a virada,
-  quem ainda não participa do semestre novo recebe o que alcançou no anterior;
+  (`PermissoesAlunoService.doUsuario(usuario, manager, ciclo)`): logo após a
+  virada, quem ainda não participa do semestre novo recebe o que alcançou no
+  anterior. O controller lê a elegibilidade **quando a ação é aceita**
+  (`elegibilidadeNoFeed`, antes de publicar ou comentar) e a passa à
+  conferência: um encerramento do ciclo entre o commit e a conferência não
+  tira a conquista de uma atividade aceita;
 - em `GET /me/xp` (Início e Perfil leem o XP ao abrir: é quando o nível, que
   não tem gancho próprio, libera conquistas).
 
@@ -124,10 +128,16 @@ JWT de aluno cadastrado. Resposta:
   `criterioTexto`, `xp` e `progresso { atual, meta }`;
 - `novas`: desbloqueios que o aluno ainda não viu na coleção (o aviso da
   tela), como `{ id, contexto }`. Inclui os feitos por outras rotas (feed,
-  missão, totem). A consulta os marca como vistos em
-  `conquistas_desbloqueios_vistos` (migration `1795400000000`, só de
-  inserção, PK no desbloqueio), então cada aviso sai uma vez só, mesmo com
-  consultas simultâneas. A mesma conquista obtida em dois semestres aparece duas
+  missão, totem). **A leitura não marca nada**: se a resposta se perder ou a
+  tela falhar, o aviso volta na próxima consulta.
+
+## Rota do aluno: `POST /me/conquistas/vistas`
+
+Corpo `{ "vistas": [{ "id", "contexto" }] }` (até 200). Web e app chamam
+depois de exibir o aviso "Nova!". Grava em `conquistas_desbloqueios_vistos`
+(migration `1795400000000`, só de inserção, PK no desbloqueio): idempotente,
+e só marca desbloqueios do próprio aluno. Resposta `{ "marcadas": n }`.
+Falha na confirmação não atrapalha a tela: o aviso só volta na próxima visita. A mesma conquista obtida em dois semestres aparece duas
   vezes em `obtidas`; web e app comparam id **e** contexto para marcar só a
   nova.
 

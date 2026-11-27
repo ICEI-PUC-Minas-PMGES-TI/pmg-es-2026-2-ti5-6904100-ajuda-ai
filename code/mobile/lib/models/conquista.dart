@@ -111,9 +111,15 @@ class ColecaoConquistas {
 
   static String chaveDesbloqueio(String id, String contexto) => '$id|$contexto';
 
-  /// A obtida [o] foi desbloqueada nesta consulta?
+  /// A obtida [o] tem aviso "Nova!" ainda não confirmado?
   bool ehNova(ConquistaObtida o) =>
       novas.contains(chaveDesbloqueio(o.id, o.contexto));
+
+  /// Desbloqueios cujo aviso a tela exibe, para confirmar ao servidor
+  /// (`POST /me/conquistas/vistas`) depois de mostrar.
+  List<Map<String, String>> get vistasParaConfirmar => [
+    for (final o in obtidas.where(ehNova)) {'id': o.id, 'contexto': o.contexto},
+  ];
 
   /// Texto do aviso das conquistas desbloqueadas agora, ou `null`.
   String? get avisoNovas {

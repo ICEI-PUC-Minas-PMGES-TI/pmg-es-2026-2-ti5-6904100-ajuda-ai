@@ -101,9 +101,16 @@ export class PublicacoesController {
   @Post()
   @UseGuards(FeedPublishGuard)
   async criar(@Body() corpo: PublicacaoDto, @Req() req: AuthenticatedRequest) {
+    // Elegibilidade de quando a ação é aceita (F32): um encerramento do
+    // ciclo logo depois do commit não tira a conquista.
+    const aceita = await this.conquistas?.elegibilidadeNoFeed(req.user);
     const publicacao = await this.publicacoes.criar(corpo, req.user);
     // Depois do commit, no ciclo da publicação (F32: FEED_PUBLICACOES).
-    await this.conquistas?.aposAtividadeNoFeed(req.user, publicacao.programa);
+    await this.conquistas?.aposAtividadeNoFeed(
+      req.user,
+      publicacao.programa,
+      aceita,
+    );
     return publicacao;
   }
   @Patch(':id')
@@ -128,6 +135,7 @@ export class PublicacoesController {
     @Body() corpo: ComentarioDto,
     @Req() req: AuthenticatedRequest,
   ) {
+    const aceita = await this.conquistas?.elegibilidadeNoFeed(req.user);
     const publicacao = await this.publicacoes.comentar(
       id,
       corpo.texto,
@@ -135,7 +143,11 @@ export class PublicacoesController {
       corpo.paiId,
     );
     // Depois do commit, no ciclo do post comentado (F32: FEED_COMENTARIOS).
-    await this.conquistas?.aposAtividadeNoFeed(req.user, publicacao.programa);
+    await this.conquistas?.aposAtividadeNoFeed(
+      req.user,
+      publicacao.programa,
+      aceita,
+    );
     return publicacao;
   }
   @Delete(':id/comentarios/:comentarioId')

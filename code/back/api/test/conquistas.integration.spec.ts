@@ -14,7 +14,12 @@ import { JwtModule, JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import pg from 'pg';
 import request from 'supertest';
-import { DataSource, type MigrationInterface } from 'typeorm';
+import {
+  DataSource,
+  getMetadataArgsStorage,
+  type MigrationInterface,
+} from 'typeorm';
+import type { AccessTokenPayload } from '../src/auth/authenticated-request.js';
 import { JwtAuthGuard } from '../src/auth/jwt-auth.guard.js';
 import { RolesGuard } from '../src/auth/roles.guard.js';
 import {
@@ -30,6 +35,9 @@ import { XpService } from '../src/gamificacao/xp/xp.service.js';
 import { NotificacoesService } from '../src/notificacoes/notificacoes.service.js';
 import { ParticipacoesService } from '../src/participacoes/participacoes.service.js';
 import { PermissoesAlunoService } from '../src/participacoes/permissoes-aluno.service.js';
+import { ParticipacaoEntity } from '../src/participacoes/entities/participacao.entity.js';
+import { ProgramaEntity } from '../src/programas/entities/programa.entity.js';
+import { ProgramasService } from '../src/programas/programas.service.js';
 import { permissoesPeloToken } from './helpers/permissoes.js';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
@@ -53,6 +61,17 @@ const MIGRATIONS = Object.entries(
     ),
   )
   .sort((a, b) => Number(a.name.slice(-13)) - Number(b.name.slice(-13)));
+
+/** Entidades reais, para as permissões de verdade (participação e ciclo). */
+const ENTIDADES = Object.values(
+  import.meta.glob<Record<string, unknown>>('../src/**/*.entity.ts', {
+    eager: true,
+  }),
+)
+  .flatMap((modulo) => Object.values(modulo))
+  .filter((v): v is Function =>
+    getMetadataArgsStorage().tables.some((t) => t.target === v),
+  );
 
 async function admin(sql: string): Promise<void> {
   const c = new pg.Client({ connectionString: URL_TESTE });
@@ -114,6 +133,7 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
     cascata: 0,
     virada: 0,
     aviso: 0,
+    encerra: 0,
   };
   const http = () => request(app.getHttpServer());
 
@@ -148,6 +168,14 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
         .set('Authorization', coord())
         .expect(200)
     ).body as Conquista;
+  const confirmar = (
+    auth: string,
+    vistas: Array<{ id: string; contexto: string }>,
+  ) =>
+    http()
+      .post('/me/conquistas/vistas')
+      .set('Authorization', auth)
+      .send({ vistas });
   const colecao = async (auth: string) =>
     (await http().get('/me/conquistas').set('Authorization', auth).expect(200))
       .body as Colecao;
@@ -420,6 +448,10 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       });
       expect(vista.disponiveis.map((d) => d.id)).not.toContain(c.id);
 
+      // A tela exibiu o aviso e confirmou.
+      await confirmar(apadrinhado(), [{ id: c.id, contexto: CICLO }]).expect(
+        200,
+      );
       // Consultas seguintes (inclusive simultâneas) não desbloqueiam de novo.
       const repetidas = await Promise.all(
         Array.from({ length: 5 }, () => colecao(apadrinhado())),
@@ -587,7 +619,7 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       const exAluno = `Bearer ${jwt.sign({ sub: String(ids.outro), email: 'outro@pucminas.edu.br', perfil: 'aluno', escopo: 'acesso' })}`;
       const vista = await colecao(exAluno);
       expect(vista.disponiveis).toEqual([]);
-      expect(vista.novas).toEqual([]);
+      expect(idsNovas(vista)).not.toContain(c.id);
       expect(await desbloqueios(c.id, ids.outro)).toBe(0);
       expect(vista.obtidas.length).toBeGreaterThan(0);
     });
@@ -715,16 +747,154 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       expect(
         await servico.aposAtividadeNoFeed(jwt.verify(aluno.slice(7)), CICLO),
       ).toContainEqual({ id: c.id, contexto: CICLO });
+      const nova_ = { id: c.id, contexto: CICLO };
       const vista = await colecao(aluno);
       expect(vista.obtidas.map((o) => o.id)).toContain(c.id);
-      expect(vista.novas).toContainEqual({ id: c.id, contexto: CICLO });
-      // Duas consultas simultâneas depois: nenhuma repete o aviso.
+      expect(vista.novas).toContainEqual(nova_);
+      // Resposta perdida (o cliente não exibiu nem confirmou): volta.
+      expect((await colecao(aluno)).novas).toContainEqual(nova_);
+      // A tela exibiu e confirmou; repetir a confirmação não falha.
+      expect((await confirmar(aluno, [nova_]).expect(200)).body).toEqual({
+        marcadas: 1,
+      });
+      expect((await confirmar(aluno, [nova_]).expect(200)).body).toEqual({
+        marcadas: 0,
+      });
       const [a, b] = await Promise.all([colecao(aluno), colecao(aluno)]);
       expect([...a.novas, ...b.novas].filter((n) => n.id === c.id)).toEqual([]);
       // O banco barra apagar a marca de visto (só de inserção).
       await expect(
         ds.query(`DELETE FROM gamificacao.conquistas_desbloqueios_vistos`),
       ).rejects.toThrow();
+    });
+
+    it('falha ao montar a coleção não consome o aviso "Nova!"', async () => {
+      const c = await nova({ meta: 1 });
+      const aluno = token('aviso', 'apadrinhado');
+      await concluirMissoes(ids.aviso, 1);
+      // Desbloqueia (como depois de concluir a missão) e a coleção falha.
+      await servico.sincronizarComSeguranca(ids.aviso, {
+        participante: true,
+        papel: 'apadrinhado',
+        podePublicar: false,
+      });
+      const falha = vi
+        .spyOn(
+          servico as unknown as { obtidas: () => Promise<unknown> },
+          'obtidas',
+        )
+        .mockRejectedValueOnce(new Error('falha simulada na leitura'));
+      try {
+        await http()
+          .get('/me/conquistas')
+          .set('Authorization', aluno)
+          .expect(500);
+      } finally {
+        falha.mockRestore();
+      }
+      // Nova tentativa: o aviso continua lá, até a tela confirmar.
+      expect((await colecao(aluno)).novas).toContainEqual({
+        id: c.id,
+        contexto: CICLO,
+      });
+    });
+
+    it('confirmar vistas: só os desbloqueios do próprio aluno; corpo inválido é 400', async () => {
+      const c = await nova({ meta: 1 });
+      await concluirMissoes(ids.encerra, 1);
+      await servico.sincronizarComSeguranca(ids.encerra, {
+        participante: true,
+        papel: 'apadrinhado',
+        podePublicar: false,
+      });
+      // Outro aluno tenta marcar o desbloqueio alheio: nada muda.
+      expect(
+        (await confirmar(outro(), [{ id: c.id, contexto: CICLO }]).expect(200))
+          .body,
+      ).toEqual({ marcadas: 0 });
+      expect(
+        idsNovas(await colecao(token('encerra', 'apadrinhado'))),
+      ).toContain(c.id);
+      await confirmar(outro(), [{ id: 'x', contexto: CICLO }]).expect(400);
+      await confirmar(outro(), [{ id: c.id, contexto: 'qualquer' }]).expect(
+        400,
+      );
+      await http()
+        .post('/me/conquistas/vistas')
+        .set('Authorization', outro())
+        .send({})
+        .expect(400);
+    });
+
+    it('encerramento real do ciclo entre o comentário e a conferência não tira a conquista', async () => {
+      // Permissões de verdade: participação e etapa do ciclo lidas do banco.
+      const url = new URL(URL_TESTE!);
+      url.pathname = `/${BANCO}`;
+      const dsReal = new DataSource({
+        type: 'postgres',
+        url: url.toString(),
+        schema: 'feed',
+        entities: ENTIDADES,
+      });
+      await dsReal.initialize();
+      const permissoesReais = new PermissoesAlunoService(
+        new ParticipacoesService(
+          dsReal.getRepository(ParticipacaoEntity),
+          dsReal.getRepository(ProgramaEntity),
+          dsReal,
+        ),
+        new ProgramasService(dsReal.getRepository(ProgramaEntity)),
+      );
+      const real = new ConquistasService(
+        ds,
+        app.get(NotificacoesService),
+        permissoesReais,
+      );
+      const c = await nova({ criterio: 'FEED_COMENTARIOS', meta: 1, xp: 10 });
+      await ds.query(
+        `INSERT INTO feed.participacoes (usuario_id, programa, papel, status, inicio_em, termino_em, respostas) ` +
+          `VALUES ('encerra@pucminas.edu.br', $1, 'apadrinhado', 'em_andamento', now() - interval '30 days', NULL, '{}')`,
+        [CICLO],
+      );
+      // Contas reais têm perfil 'nenhuma' no token: nada vem do JWT.
+      const usuario = jwt.verify<AccessTokenPayload>(
+        token('encerra', 'nenhuma').slice(7),
+      );
+      try {
+        // O controller lê a elegibilidade quando o feed aceita a ação...
+        const aceita = await real.elegibilidadeNoFeed(usuario);
+        expect(aceita).toMatchObject({ programa: CICLO, participante: true });
+        await comentarNoCiclo('encerra', CICLO); // ...o comentário é gravado...
+        // ...e a coordenação encerra o ciclo antes da conferência.
+        await ds.query(
+          `UPDATE feed.programas SET etapa_atual = 'encerramento' WHERE codigo = $1`,
+          [CICLO],
+        );
+        // Resolvendo agora, o encerramento descarta a participação.
+        expect((await permissoesReais.doUsuario(usuario)).participante).toBe(
+          false,
+        );
+        expect(await real.aposAtividadeNoFeed(usuario, CICLO)).toEqual([]);
+        expect(await desbloqueios(c.id, ids.encerra)).toBe(0);
+        // Com a elegibilidade de quando a ação foi aceita: desbloqueia.
+        expect(
+          await real.aposAtividadeNoFeed(usuario, CICLO, aceita),
+        ).toContainEqual({
+          id: c.id,
+          contexto: CICLO,
+        });
+        const [{ xp }] = (await ds.query(
+          `SELECT xp_creditado AS xp FROM gamificacao.conquistas_desbloqueios WHERE conquista_id = $1 AND usuario_id = $2`,
+          [c.id, ids.encerra],
+        )) as Array<{ xp: number }>;
+        expect(xp).toBe(10);
+      } finally {
+        await ds.query(
+          `UPDATE feed.programas SET etapa_atual = 'andamento' WHERE codigo = $1`,
+          [CICLO],
+        );
+        await dsReal.destroy();
+      }
     });
 
     it('se o aviso falha, o desbloqueio e o XP são desfeitos e a próxima consulta refaz tudo', async () => {
@@ -773,12 +943,15 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
           CICLO_ANTERIOR,
         ),
       ).toContainEqual({ id: c.id, contexto: CICLO_ANTERIOR });
-      // O aluno viu o aviso daquele semestre (e só aquele desbloqueio).
+      // O aluno viu (e a tela confirmou) o aviso daquele semestre.
       expect(
         (await colecao(token('semestres', 'apadrinhado'))).novas.filter(
           (n) => n.id === c.id,
         ),
       ).toEqual([{ id: c.id, contexto: CICLO_ANTERIOR }]);
+      await confirmar(token('semestres', 'apadrinhado'), [
+        { id: c.id, contexto: CICLO_ANTERIOR },
+      ]).expect(200);
       await concluirMissoes(ids.semestres, 1);
       const vista = await colecao(token('semestres', 'apadrinhado'));
       expect(

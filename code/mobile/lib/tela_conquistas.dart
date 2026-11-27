@@ -52,6 +52,10 @@ class _TelaConquistasState extends State<TelaConquistas> {
       if (aviso != null) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(aviso)));
+        // Só depois de exibir. Se falhar, o aviso volta na próxima visita.
+        _api
+            .confirmarVistas(token, colecao.vistasParaConfirmar)
+            .catchError((_) {});
       }
     } catch (erro) {
       if (mounted) setState(() => _erro = mensagemErroConquistas(erro));

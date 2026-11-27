@@ -562,6 +562,10 @@ export const api = {
   conquistasAluno() {
     return request('/me/conquistas', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
   },
+  /** Confirma que o aviso "Nova!" destes desbloqueios ({ id, contexto }) foi exibido. */
+  confirmarConquistasVistas(vistas) {
+    return request('/me/conquistas/vistas', { method: 'POST', body: { vistas }, aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
   /** `antes`: id da última notificação carregada, para buscar as mais antigas. */
   notificacoes(limite, antes) {
     return request(`/me/notificacoes${query({ limite, antes })}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });

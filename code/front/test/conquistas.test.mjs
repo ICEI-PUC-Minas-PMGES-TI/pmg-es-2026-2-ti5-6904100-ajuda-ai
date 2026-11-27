@@ -105,3 +105,17 @@ test('imagem com HTTPS:// maiúsculo é aceita e enviada em minúsculas, como o 
   const original = { nome: 'X', descricao: 'Y', imagemUrl: 'https://exemplo.com/Medalha.PNG', criterio: 'MISSOES_CONCLUIDAS', meta: 2, publico: 'TODOS', programaCodigo: null, xp: 0 };
   assert.deepEqual(coord.alteracoesConquista(original, form), {});
 });
+
+test('aviso "Nova!": confirma ao servidor só o que a tela exibiu (id + contexto)', () => {
+  const colecao = {
+    novas: [{ id: 'a', contexto: '2026/2' }, { id: 'fantasma', contexto: '2026/2' }],
+    obtidas: [
+      { id: 'a', nome: 'Explorador', contexto: '2026/2' },
+      { id: 'a', nome: 'Explorador', contexto: '2026/1' },
+      { id: 'b', nome: 'Outra', contexto: 'GERAL' },
+    ],
+  };
+  assert.deepEqual(aluno.vistasParaConfirmar(colecao), [{ id: 'a', contexto: '2026/2' }]);
+  assert.deepEqual(aluno.vistasParaConfirmar({ ...colecao, novas: [] }), []);
+  assert.deepEqual(aluno.vistasParaConfirmar(null), []);
+});

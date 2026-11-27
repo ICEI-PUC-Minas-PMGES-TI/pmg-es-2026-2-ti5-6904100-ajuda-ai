@@ -23,6 +23,7 @@ import { usuarioDoToken, usuarioDoTokenOuNulo } from '../gamificacao.js';
 import { ConquistasAdminService } from './conquistas-admin.service.js';
 import {
   AtualizarConquistaDto,
+  ConfirmarVistasDto,
   CriarConquistaDto,
   ListarConquistasQuery,
 } from './conquistas.dto.js';
@@ -133,5 +134,19 @@ export class ConquistasController {
       .doUsuario(req.user)
       .catch(() => null);
     return this.conquistas.listar(usuarioId, acessoConquistas(permissoes));
+  }
+
+  /**
+   * O cliente exibiu o aviso "Nova!" destes desbloqueios. Até aqui eles
+   * continuam em `novas`: a leitura da coleção não consome o aviso.
+   */
+  @Post('vistas')
+  @HttpCode(200)
+  async confirmarVistas(
+    @Req() req: AuthenticatedRequest,
+    @Body() corpo: ConfirmarVistasDto,
+  ) {
+    const usuarioId = await usuarioDoToken(this.dataSource, req.user);
+    return this.conquistas.confirmarVistas(usuarioId, corpo.vistas);
   }
 }

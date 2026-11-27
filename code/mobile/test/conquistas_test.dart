@@ -117,6 +117,17 @@ void main() {
       );
     });
 
+    test('vistas para confirmar: só as novas exibidas', () {
+      final c = ColecaoConquistas.fromJson(_colecao())!;
+      expect(c.vistasParaConfirmar, [
+        {'id': 'a', 'contexto': '2026/2'},
+      ]);
+      expect(
+        ColecaoConquistas.fromJson(_colecao(novas: []))!.vistasParaConfirmar,
+        isEmpty,
+      );
+    });
+
     test('resposta malformada vira null, sem quebrar', () {
       expect(ColecaoConquistas.fromJson({'obtidas': 'x'}), isNull);
       expect(ConquistaDisponivel.fromJson({'id': 'x', 'nome': 'y'}), isNull);
@@ -138,6 +149,9 @@ void main() {
     ConquistasApi api({int status = 200}) => ConquistasApi(
       client: MockClient((pedido) async {
         pedidos.add(pedido);
+        if (pedido.method == 'POST') {
+          return http.Response('{"marcadas":1}', 200, headers: _json);
+        }
         return status == 200
             ? http.Response(jsonEncode(_colecao()), 200, headers: _json)
             : http.Response('{"message":"x"}', status, headers: _json);
@@ -150,8 +164,17 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: TelaConquistas(api: api())));
       await tester.pumpAndSettle();
 
-      expect(pedidos.single.url.path, '/me/conquistas');
-      expect(pedidos.single.headers['authorization'], 'Bearer tk');
+      expect(pedidos.first.url.path, '/me/conquistas');
+      expect(pedidos.first.headers['authorization'], 'Bearer tk');
+      // Depois de exibir o aviso, confirma só a novidade exibida.
+      expect(pedidos, hasLength(2));
+      expect(pedidos.last.method, 'POST');
+      expect(pedidos.last.url.path, '/me/conquistas/vistas');
+      expect(jsonDecode(pedidos.last.body), {
+        'vistas': [
+          {'id': 'a', 'contexto': '2026/2'},
+        ],
+      });
       expect(find.text('Explorador'), findsOneWidget);
       expect(find.text('Nova!'), findsOneWidget);
       expect(find.text('Conquista desbloqueada: Explorador!'), findsOneWidget);
@@ -174,6 +197,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.textContaining('Não foi possível carregar'), findsOneWidget);
+      // Falhou ao carregar: nada é confirmado, o aviso volta depois.
+      expect(pedidos.where((p) => p.method == 'POST'), isEmpty);
       await tester.tap(find.text('Tentar novamente'));
       await tester.pumpAndSettle();
       expect(pedidos, hasLength(2));

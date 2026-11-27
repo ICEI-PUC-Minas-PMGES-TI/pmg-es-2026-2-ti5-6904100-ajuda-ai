@@ -30,7 +30,13 @@ describe('feed confere as conquistas no ciclo da atividade', () => {
         return { id: 2, programa: '2026/1' };
       }),
     };
+    const aceita = { programa: '2026/1', participante: true };
     const conquistas = {
+      aceita,
+      elegibilidadeNoFeed: vi.fn(async () => {
+        ordem.push('elegibilidade');
+        return aceita;
+      }),
       aposAtividadeNoFeed: vi.fn(async () => {
         ordem.push('conquistas');
         return [];
@@ -53,21 +59,25 @@ describe('feed confere as conquistas no ciclo da atividade', () => {
       req,
     );
     expect(resposta).toEqual({ id: 1, programa: '2026/1' });
+    // Elegibilidade lida quando a ação é aceita, passada à conferência.
     expect(conquistas.aposAtividadeNoFeed).toHaveBeenCalledWith(
       req.user,
       '2026/1',
+      conquistas.aceita,
     );
-    expect(ordem).toEqual(['commit', 'conquistas']);
+    expect(ordem).toEqual(['elegibilidade', 'commit', 'conquistas']);
   });
 
   it('comentar: confere depois do commit, com o ciclo do post comentado', async () => {
     const { controller, conquistas, ordem } = montar();
     await controller.comentar(2, { texto: 'Boa ideia!' } as never, req);
+    // Elegibilidade lida quando a ação é aceita, passada à conferência.
     expect(conquistas.aposAtividadeNoFeed).toHaveBeenCalledWith(
       req.user,
       '2026/1',
+      conquistas.aceita,
     );
-    expect(ordem).toEqual(['commit', 'conquistas']);
+    expect(ordem).toEqual(['elegibilidade', 'commit', 'conquistas']);
   });
 
   it('sem o módulo de conquistas (testes do feed), a ação segue normal', async () => {

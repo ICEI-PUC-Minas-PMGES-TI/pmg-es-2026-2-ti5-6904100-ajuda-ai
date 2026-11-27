@@ -1,4 +1,7 @@
+import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
@@ -10,6 +13,7 @@ import {
   MaxLength,
   Min,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { LIMITES } from '../economia.js';
 import {
@@ -227,4 +231,28 @@ export interface ConquistasAlunoDto {
 export interface NovaConquistaDto {
   id: string;
   contexto: string;
+}
+
+/** Um desbloqueio cujo aviso o cliente exibiu. */
+export class ConquistaVistaDto {
+  @Matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, {
+    message: 'id deve ser o id de uma conquista',
+  })
+  id!: string;
+
+  @IsString()
+  @MaxLength(20)
+  @Matches(/^(\d{4}\/[12]|GERAL)$/, {
+    message: 'contexto deve ser um ciclo (ex.: 2026/2) ou GERAL',
+  })
+  contexto!: string;
+}
+
+/** `POST /me/conquistas/vistas`: confirma os avisos "Nova!" exibidos. */
+export class ConfirmarVistasDto {
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => ConquistaVistaDto)
+  vistas!: ConquistaVistaDto[];
 }

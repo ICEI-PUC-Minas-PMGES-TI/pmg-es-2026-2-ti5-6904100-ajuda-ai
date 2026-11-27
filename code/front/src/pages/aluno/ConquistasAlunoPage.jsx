@@ -13,6 +13,15 @@ export function ehNova(colecao, o) {
   return (colecao?.novas || []).some((n) => n?.id === o.id && n?.contexto === o.contexto);
 }
 
+/**
+ * Desbloqueios cujo aviso a tela exibiu, para confirmar ao servidor
+ * (`POST /me/conquistas/vistas`). Só depois de exibir: se a carga falhar ou
+ * a resposta se perder, o aviso volta na próxima visita.
+ */
+export function vistasParaConfirmar(colecao) {
+  return (colecao?.obtidas || []).filter((o) => ehNova(colecao, o)).map((o) => ({ id: o.id, contexto: o.contexto }));
+}
+
 /** Texto do aviso das conquistas desbloqueadas nesta visita. */
 export function textoNovas(colecao) {
   const novas = (colecao?.obtidas || []).filter((o) => ehNova(colecao, o));
@@ -59,7 +68,11 @@ export default function ConquistasAlunoPage() {
       const dados = await api.conquistasAluno();
       setColecao(dados);
       const aviso = textoNovas(dados);
-      if (aviso) mostrarToast(aviso, 'sucesso');
+      if (aviso) {
+        mostrarToast(aviso, 'sucesso');
+        // Falha aqui não atrapalha a tela: o aviso só volta na próxima visita.
+        api.confirmarConquistasVistas(vistasParaConfirmar(dados)).catch(() => {});
+      }
     } catch (error) {
       setErro(error.message || 'Não foi possível carregar suas conquistas.');
     }

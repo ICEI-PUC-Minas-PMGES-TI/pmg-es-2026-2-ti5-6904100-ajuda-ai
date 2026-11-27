@@ -8,7 +8,10 @@ import {
 } from '../../notificacoes/notificacoes.js';
 import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
 import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
-import { PermissoesAlunoService } from '../../participacoes/permissoes-aluno.service.js';
+import {
+  type PermissoesAluno,
+  PermissoesAlunoService,
+} from '../../participacoes/permissoes-aluno.service.js';
 import { NIVEIS, nivelDe } from '../economia.js';
 import {
   ehViolacaoUnica,
@@ -87,7 +90,7 @@ export class ConquistasService {
     if (acesso.participante) await this.sincronizar(usuarioId, acesso, ciclo);
     // Depois da conferência: entram também os desbloqueios feitos por outras
     // rotas (feed, missão, totem) que o aluno ainda não viu na coleção.
-    const novas = await this.marcarVistas(usuarioId);
+    const novas = await this.naoVistas(usuarioId);
     const [obtidas, disponiveis] = await Promise.all([
       this.obtidas(usuarioId),
       acesso.participante
@@ -98,22 +101,64 @@ export class ConquistasService {
   }
 
   /**
-   * Desbloqueios que o aluno ainda não viu na coleção, já marcados como
-   * vistos: o aviso "Nova!" aparece uma vez, qualquer que tenha sido a rota
-   * do desbloqueio. O PK de `conquistas_desbloqueios_vistos` garante que duas
-   * consultas simultâneas não anunciem o mesmo desbloqueio.
+   * Desbloqueios cujo aviso "Nova!" o aluno ainda não confirmou ter visto,
+   * qualquer que tenha sido a rota do desbloqueio (feed, missão, totem). A
+   * leitura não marca nada: se a resposta se perder ou a tela falhar, a
+   * próxima consulta traz o aviso de novo. Quem marca é o cliente, depois de
+   * exibir o aviso (`confirmarVistas`).
    */
-  private async marcarVistas(usuarioId: number): Promise<NovaConquistaDto[]> {
+  private async naoVistas(usuarioId: number): Promise<NovaConquistaDto[]> {
     const linhas = (await this.dataSource.query(
-      `WITH vistas AS (INSERT INTO ${g}."conquistas_desbloqueios_vistos" ("desbloqueio_id") ` +
-        `SELECT d."id" FROM ${g}."conquistas_desbloqueios" d WHERE d."usuario_id" = $1 ` +
-        `AND NOT EXISTS (SELECT 1 FROM ${g}."conquistas_desbloqueios_vistos" v WHERE v."desbloqueio_id" = d."id") ` +
-        `ON CONFLICT ("desbloqueio_id") DO NOTHING RETURNING "desbloqueio_id") ` +
-        `SELECT d."conquista_id" AS id, d."contexto" FROM vistas JOIN ${g}."conquistas_desbloqueios" d ON d."id" = vistas."desbloqueio_id" ` +
+      `SELECT d."conquista_id" AS id, d."contexto" FROM ${g}."conquistas_desbloqueios" d ` +
+        `WHERE d."usuario_id" = $1 AND NOT EXISTS (SELECT 1 FROM ${g}."conquistas_desbloqueios_vistos" v WHERE v."desbloqueio_id" = d."id") ` +
         `ORDER BY d."criado_em", d."id"`,
       [usuarioId],
     )) as NovaConquistaDto[];
     return linhas.map((l) => ({ id: l.id, contexto: l.contexto }));
+  }
+
+  /**
+   * O cliente exibiu o aviso destes desbloqueios: não aparecem mais em
+   * `novas`. Só os do próprio aluno; idempotente (PK no desbloqueio, `ON
+   * CONFLICT DO NOTHING`), então repetir a confirmação não falha. Devolve
+   * quantos foram marcados agora.
+   */
+  async confirmarVistas(
+    usuarioId: number,
+    vistas: NovaConquistaDto[],
+  ): Promise<{ marcadas: number }> {
+    if (!vistas.length) return { marcadas: 0 };
+    const linhas = (await this.dataSource.query(
+      `INSERT INTO ${g}."conquistas_desbloqueios_vistos" ("desbloqueio_id") ` +
+        `SELECT d."id" FROM ${g}."conquistas_desbloqueios" d ` +
+        `JOIN unnest($2::uuid[], $3::text[]) AS n("id", "contexto") ON n."id" = d."conquista_id" AND n."contexto" = d."contexto" ` +
+        `WHERE d."usuario_id" = $1 ON CONFLICT ("desbloqueio_id") DO NOTHING RETURNING "desbloqueio_id"`,
+      [usuarioId, vistas.map((v) => v.id), vistas.map((v) => v.contexto)],
+    )) as unknown[];
+    return { marcadas: linhas.length };
+  }
+
+  /**
+   * Elegibilidade do aluno no momento em que o feed aceita a ação: o
+   * controller lê antes de publicar ou comentar e passa a
+   * `aposAtividadeNoFeed`. Assim um encerramento do ciclo entre o commit e a
+   * conferência não tira a conquista de uma atividade aceita. `null` para
+   * quem não é aluno cadastrado (coordenação) ou se a leitura falhar.
+   */
+  async elegibilidadeNoFeed(
+    usuario: AccessTokenPayload,
+  ): Promise<PermissoesAluno | null> {
+    try {
+      if (!this.permissoes) return null;
+      if ((await usuarioDoTokenOuNulo(this.dataSource, usuario)) === null)
+        return null;
+      return await this.permissoes.doUsuario(usuario);
+    } catch (erro) {
+      this.logger.warn(
+        `falha ao ler a elegibilidade do feed: ${(erro as Error).message}`,
+      );
+      return null;
+    }
   }
 
   /**
@@ -147,23 +192,32 @@ export class ConquistasService {
    * semestre novo ainda recebe o que alcançou no anterior. Coordenação e
    * quem não é aluno cadastrado: nada a fazer. Nunca derruba a ação no feed.
    *
-   * O aviso na tela sai na próxima abertura da coleção (`marcarVistas`); o
-   * do sino já é gravado no desbloqueio.
+   * `aceita`: a elegibilidade lida quando a ação foi aceita
+   * (`elegibilidadeNoFeed`). Vale se for do mesmo ciclo da atividade: um
+   * encerramento do ciclo logo depois do commit não a desfaz. Sem ela (ou
+   * de outro ciclo, na virada exata), resolve no ciclo da atividade.
+   *
+   * O aviso na tela sai na próxima abertura da coleção (`novas`, até o
+   * cliente confirmar); o do sino já é gravado no desbloqueio.
    */
   async aposAtividadeNoFeed(
     usuario: AccessTokenPayload,
     ciclo: string | null | undefined,
+    aceita?: PermissoesAluno | null,
   ): Promise<NovaConquistaDto[]> {
     try {
       if (!this.permissoes) return [];
       const usuarioId = await usuarioDoTokenOuNulo(this.dataSource, usuario);
       if (usuarioId === null) return [];
       const cicloDaAtividade = ciclo ?? ParticipacoesService.programaAtual();
-      const p = await this.permissoes.doUsuario(
-        usuario,
-        undefined,
-        cicloDaAtividade,
-      );
+      const p =
+        aceita && aceita.programa === cicloDaAtividade
+          ? aceita
+          : await this.permissoes.doUsuario(
+              usuario,
+              undefined,
+              cicloDaAtividade,
+            );
       return await this.sincronizarComSeguranca(
         usuarioId,
         {

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 
 import '../models/conquista.dart';
@@ -28,5 +30,26 @@ class ConquistasApi {
       throw const FormatException('Resposta inválida das conquistas.');
     }
     return colecao;
+  }
+
+  /// Confirma que o aviso "Nova!" destes desbloqueios foi exibido. Até
+  /// aqui eles continuam em `novas`: ler a coleção não consome o aviso.
+  Future<void> confirmarVistas(
+    String token,
+    List<Map<String, String>> vistas,
+  ) async {
+    if (vistas.isEmpty) return;
+    await executarRequisicao(
+      () => _client.post(
+        Uri.parse('$baseUrl/me/conquistas/vistas'),
+        headers: {
+          'accept': 'application/json',
+          'content-type': 'application/json',
+          'authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'vistas': vistas}),
+      ),
+      erroPadrao: 'Não foi possível confirmar o aviso das conquistas',
+    );
   }
 }
