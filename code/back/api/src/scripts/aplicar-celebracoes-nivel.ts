@@ -1,5 +1,5 @@
 /**
- * Aplica SÓ a migration CelebracoesNivel1794100000000 (animação de novo
+ * Aplica SÓ a migration CelebracoesNivel1795500000000 (animação de novo
  * nível), sem rodar as outras migrations pendentes do banco — que são de
  * outras frentes e dependem de decisão própria. O registro é gravado na
  * tabela de migrations do TypeORM, então um `migration:run` futuro não a
@@ -19,10 +19,12 @@
  */
 import { DataSource } from 'typeorm';
 import { nivelDe } from '../gamificacao/economia.js';
-import { CelebracoesNivel1794100000000 } from '../migrations/1794100000000-CelebracoesNivel.js';
+import { CelebracoesNivel1795500000000 } from '../migrations/1795500000000-CelebracoesNivel.js';
 
-const NOME = 'CelebracoesNivel1794100000000';
-const TIMESTAMP = 1794100000000;
+const NOME = 'CelebracoesNivel1795500000000';
+const TIMESTAMP = 1795500000000;
+/** Nome anterior (antes da renomeação pós-Sprint-6); conta como já aplicada. */
+const LEGADA = 'CelebracoesNivel1794100000000';
 
 function argumento(nome: string): string | undefined {
   const prefixo = `--${nome}=`;
@@ -56,8 +58,8 @@ async function principal() {
       `SELECT to_regclass('gamificacao.celebracoes_nivel') IS NOT NULL AS tabela, ` +
         `to_regclass('gamificacao.xp_carteiras') IS NOT NULL AS carteiras, ` +
         `to_regclass('${s.replaceAll('"', '')}.usuarios') IS NOT NULL AS usuarios, ` +
-        `EXISTS (SELECT 1 FROM ${s}."migrations" WHERE "name" = $1) AS registrada`,
-      [NOME],
+        `EXISTS (SELECT 1 FROM ${s}."migrations" WHERE "name" IN ($1, $2)) AS registrada`,
+      [NOME, LEGADA],
     )) as Array<{ tabela: boolean; carteiras: boolean; usuarios: boolean; registrada: boolean }>;
     console.log(
       `tabela celebracoes_nivel: ${estado.tabela ? 'existe' : 'não existe'}; ` +
@@ -78,8 +80,9 @@ async function principal() {
         await qr.rollbackTransaction();
         return;
       }
-      if (estado.tabela) await new CelebracoesNivel1794100000000().down(qr);
-      await qr.query(`DELETE FROM ${s}."migrations" WHERE "name" = $1`, [NOME]);
+      // Registro primeiro: sem ele, o down remove também a tabela da versão antiga.
+      await qr.query(`DELETE FROM ${s}."migrations" WHERE "name" IN ($1, $2)`, [NOME, LEGADA]);
+      if (estado.tabela) await new CelebracoesNivel1795500000000().down(qr);
       await qr.commitTransaction();
       console.log('Revertida: tabela removida e registro apagado. XP e moedas intactos.');
       return;
@@ -123,7 +126,7 @@ async function principal() {
       return;
     }
 
-    await new CelebracoesNivel1794100000000().up(qr);
+    await new CelebracoesNivel1795500000000().up(qr);
     await qr.query(
       `INSERT INTO ${s}."migrations" ("timestamp", "name") VALUES ($1, $2)`,
       [TIMESTAMP, NOME],

@@ -43,7 +43,7 @@ import { HabilitaPostgisESchemaMapa1792263378656 } from '../src/migrations/17922
 import { CriaTabelasMapa1792263378657 } from '../src/migrations/1792263378657-CriaTabelasMapa.js';
 import { PucStopsEXpGlobal1792279161187 } from '../src/migrations/1792279161187-PucStopsEXpGlobal.js';
 import { GamificacaoNiveisMoedasCiclos1794000000000 } from '../src/migrations/1794000000000-GamificacaoNiveisMoedasCiclos.js';
-import { CelebracoesNivel1794100000000 } from '../src/migrations/1794100000000-CelebracoesNivel.js';
+import { CelebracoesNivel1795500000000 } from '../src/migrations/1795500000000-CelebracoesNivel.js';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
 const SEGREDO = 'segredo-de-teste-celebracoes';
@@ -191,7 +191,7 @@ describe.skipIf(!URL_TESTE)('Celebração de nível com PostgreSQL real', () => 
     await qr.connect();
     await qr.startTransaction();
     try {
-      await new CelebracoesNivel1794100000000()[sentido](qr);
+      await new CelebracoesNivel1795500000000()[sentido](qr);
       await qr.commitTransaction();
     } catch (e) {
       await qr.rollbackTransaction();

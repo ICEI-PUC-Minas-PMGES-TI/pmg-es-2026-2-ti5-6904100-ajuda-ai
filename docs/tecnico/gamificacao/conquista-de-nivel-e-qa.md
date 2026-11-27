@@ -29,7 +29,7 @@ Mesma sequência na web (`code/front/src/components/levelup/`) e no app
 Fonte de verdade: o servidor.
 
 - `gamificacao.celebracoes_nivel` guarda o último nível celebrado por usuário
-  (migration `1794100000000-CelebracoesNivel`). Sem linha = nível 1. A
+  (migration `1795500000000-CelebracoesNivel`). Sem linha = nível 1. A
   migration preenche o nível atual de quem já tem XP, para que a implantação
   não dispare conquistas antigas.
 - `GET /me/xp` devolve `celebracao: { de, para, nome, niveisAvancados }` quando

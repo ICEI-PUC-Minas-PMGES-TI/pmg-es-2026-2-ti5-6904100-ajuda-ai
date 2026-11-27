@@ -6,7 +6,7 @@ import {
 } from './celebracoes.js';
 import { NIVEIS, nivelDe } from './economia.js';
 import { XpService } from './xp/xp.service.js';
-import { CelebracoesNivel1794100000000 } from '../migrations/1794100000000-CelebracoesNivel.js';
+import { CelebracoesNivel1795500000000 } from '../migrations/1795500000000-CelebracoesNivel.js';
 import { LIMIARES_NIVEIS_V1, sqlNivelDe } from './celebracoes-sql.js';
 import type { DataSource, QueryRunner } from 'typeorm';
 
@@ -179,20 +179,28 @@ describe('migration CelebracoesNivel', () => {
 
   it('cria só a tabela nova e preenche o nível atual; down a remove', async () => {
     const executado: string[] = [];
+    let existe = false;
+    let comentario: string | null = null;
     const qr = {
       connection: { options: { schema: 'feed' } },
       query: async (sql: string) => {
+        if (sql.includes('to_regclass')) return [{ existe }];
+        if (sql.includes('obj_description')) return [{ comentario }];
         executado.push(sql);
+        if (sql.startsWith('CREATE TABLE')) existe = true;
+        const marca = /^COMMENT ON TABLE .* IS '(.*)'$/.exec(sql);
+        if (marca) comentario = marca[1];
         return [];
       },
     } as unknown as QueryRunner;
-    const migration = new CelebracoesNivel1794100000000();
+    const migration = new CelebracoesNivel1795500000000();
     await migration.up(qr);
     expect(executado[0]).toMatch(/CREATE TABLE "gamificacao"\."celebracoes_nivel"/);
     expect(executado[0]).toMatch(/REFERENCES "feed"\."usuarios"/);
     expect(executado[1]).toMatch(/^INSERT INTO "gamificacao"\."celebracoes_nivel"/);
+    expect(executado[2]).toMatch(/^COMMENT ON TABLE "gamificacao"\."celebracoes_nivel"/);
     // Nada além da tabela nova é alterado.
-    expect(executado).toHaveLength(2);
+    expect(executado).toHaveLength(3);
     for (const sql of executado) expect(sql).not.toMatch(/^(ALTER|UPDATE|DELETE|DROP)/);
     executado.length = 0;
     await migration.down(qr);
