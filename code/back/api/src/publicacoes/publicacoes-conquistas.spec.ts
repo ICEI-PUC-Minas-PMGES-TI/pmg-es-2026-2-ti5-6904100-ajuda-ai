@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import type { ConquistasService } from '../gamificacao/conquistas/conquistas.service.js';
 import { PASSADAS_MAX } from '../gamificacao/conquistas/conquistas.service.js';
@@ -18,17 +19,35 @@ describe('feed confere as conquistas no ciclo da atividade', () => {
     user: { sub: '7', email: 'aluno@pucminas.edu.br', perfil: 'padrinho' },
   } as unknown as AuthenticatedRequest;
 
-  function montar() {
+  type AoGravar = (g: { programa: string | null }) => Promise<unknown>;
+
+  /** `releituraFalha`: o commit acontece e a releitura da resposta falha. */
+  function montar(releituraFalha = false) {
     const ordem: string[] = [];
+    const depoisDoCommit = async (
+      aoGravar: AoGravar | undefined,
+      id: number,
+    ) => {
+      ordem.push('commit');
+      await aoGravar?.({ programa: '2026/1' });
+      ordem.push('releitura');
+      if (releituraFalha)
+        throw new ForbiddenException('Este semestre já encerrou.');
+      return { id, programa: '2026/1' };
+    };
     const publicacoes = {
-      criar: vi.fn(async () => {
-        ordem.push('commit');
-        return { id: 1, programa: '2026/1' };
-      }),
-      comentar: vi.fn(async () => {
-        ordem.push('commit');
-        return { id: 2, programa: '2026/1' };
-      }),
+      criar: vi.fn((_c: unknown, _u: unknown, aoGravar?: AoGravar) =>
+        depoisDoCommit(aoGravar, 1),
+      ),
+      comentar: vi.fn(
+        (
+          _i: unknown,
+          _t: unknown,
+          _u: unknown,
+          _p: unknown,
+          aoGravar?: AoGravar,
+        ) => depoisDoCommit(aoGravar, 2),
+      ),
     };
     const aceita = { programa: '2026/1', participante: true };
     const conquistas = {
@@ -65,7 +84,12 @@ describe('feed confere as conquistas no ciclo da atividade', () => {
       '2026/1',
       conquistas.aceita,
     );
-    expect(ordem).toEqual(['elegibilidade', 'commit', 'conquistas']);
+    expect(ordem).toEqual([
+      'elegibilidade',
+      'commit',
+      'conquistas',
+      'releitura',
+    ]);
   });
 
   it('comentar: confere depois do commit, com o ciclo do post comentado', async () => {
@@ -77,12 +101,45 @@ describe('feed confere as conquistas no ciclo da atividade', () => {
       '2026/1',
       conquistas.aceita,
     );
-    expect(ordem).toEqual(['elegibilidade', 'commit', 'conquistas']);
+    expect(ordem).toEqual([
+      'elegibilidade',
+      'commit',
+      'conquistas',
+      'releitura',
+    ]);
   });
+
+  it.each(['criar', 'comentar'] as const)(
+    '%s gravado e releitura falha (ciclo fechou): a conquista é conferida mesmo assim',
+    async (acao) => {
+      const { controller, conquistas, ordem } = montar(true);
+      const chamada =
+        acao === 'criar'
+          ? controller.criar({ texto: 'Olá' } as never, req)
+          : controller.comentar(2, { texto: 'Boa ideia!' } as never, req);
+      await expect(chamada).rejects.toThrow(ForbiddenException);
+      expect(conquistas.aposAtividadeNoFeed).toHaveBeenCalledWith(
+        req.user,
+        '2026/1',
+        conquistas.aceita,
+      );
+      expect(ordem).toEqual([
+        'elegibilidade',
+        'commit',
+        'conquistas',
+        'releitura',
+      ]);
+    },
+  );
 
   it('sem o módulo de conquistas (testes do feed), a ação segue normal', async () => {
     const controller = new PublicacoesController(
-      { criar: async () => ({ id: 1, programa: null }) } as never,
+      {
+        criar: async (_c: unknown, _u: unknown, aoGravar?: AoGravar) => {
+          await aoGravar?.({ programa: null });
+          return { id: 1, programa: null };
+        },
+      } as never,
       {} as FeedStreamService,
       {} as FeedMidiasService,
       {} as FeedPolicy,

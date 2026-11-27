@@ -491,4 +491,65 @@ describe('PublicacoesService', () => {
     ).rejects.toThrow();
     expect(tabelas.FeedOutboxEntity).toHaveLength(1);
   });
+
+  describe('aoGravar (conquistas do feed, F32)', () => {
+    it('comentário gravado e ciclo fechado antes da releitura: aoGravar recebe o ciclo gravado', async () => {
+      const { service, tabelas } = criarFeedTeste();
+      const post = await service.criar({ texto: 'Teste' }, coordenador);
+      const aoGravar = vi.fn(async () => {
+        // A coordenação encerra o ciclo entre o commit e a releitura.
+        tabelas.ProgramaEntity[0].etapaAtual = 'encerramento';
+      });
+      await expect(
+        service.comentar(
+          post.id,
+          'Comentário válido',
+          aluno,
+          undefined,
+          aoGravar,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      // Gravado, e quem reage ao commit soube disso com o ciclo do post.
+      expect(
+        tabelas.ComentarioEntity.filter((c) => c.publicacaoId === post.id),
+      ).toHaveLength(1);
+      expect(aoGravar).toHaveBeenCalledWith({
+        programa: ParticipacoesService.programaAtual(),
+      });
+    });
+
+    it('publicação gravada: aoGravar recebe o ciclo antes da releitura', async () => {
+      const { service } = criarFeedTeste();
+      const ordem: string[] = [];
+      const obter = service.obter.bind(service);
+      vi.spyOn(service, 'obter').mockImplementation(async (...args) => {
+        ordem.push('releitura');
+        return obter(...args);
+      });
+      const post = await service.criar(
+        { texto: 'Dica' },
+        padrinho,
+        async (g) => {
+          ordem.push(`gravado:${g.programa}`);
+        },
+      );
+      expect(post.programa).toBe(ParticipacoesService.programaAtual());
+      expect(ordem).toEqual([
+        `gravado:${ParticipacoesService.programaAtual()}`,
+        'releitura',
+      ]);
+    });
+
+    it('ação recusada (nada gravado): aoGravar não é chamado', async () => {
+      const { service } = criarFeedTeste();
+      const aoGravar = vi.fn(async () => {});
+      await expect(
+        service.criar({ texto: 'X' }, aluno, aoGravar),
+      ).rejects.toThrow(ForbiddenException);
+      await expect(
+        service.comentar(900, 'oi', aluno, undefined, aoGravar),
+      ).rejects.toThrow();
+      expect(aoGravar).not.toHaveBeenCalled();
+    });
+  });
 });

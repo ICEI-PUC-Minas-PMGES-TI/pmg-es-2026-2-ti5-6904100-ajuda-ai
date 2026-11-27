@@ -63,7 +63,11 @@ meta cumprida. Roda:
   anterior. O controller lê a elegibilidade **quando a ação é aceita**
   (`elegibilidadeNoFeed`, antes de publicar ou comentar) e a passa à
   conferência: um encerramento do ciclo entre o commit e a conferência não
-  tira a conquista de uma atividade aceita;
+  tira a conquista de uma atividade aceita. A conferência parte do que foi
+  gravado: o serviço do feed chama `aoGravar` logo depois do commit, com o
+  ciclo persistido, antes de reler a publicação para a resposta. Se a
+  releitura falhar (ex.: o ciclo fechou no intervalo), a conquista já foi
+  conferida;
 - em `GET /me/xp` (Início e Perfil leem o XP ao abrir: é quando o nível, que
   não tem gancho próprio, libera conquistas).
 
@@ -133,7 +137,10 @@ JWT de aluno cadastrado. Resposta:
 
 ## Rota do aluno: `POST /me/conquistas/vistas`
 
-Corpo `{ "vistas": [{ "id", "contexto" }] }` (até 200). Web e app chamam
+Corpo `{ "vistas": [{ "id", "contexto" }] }`, até `VISTAS_POR_LOTE` = 200
+por pedido (acima disso, 400). Com mais avisos, web (`confirmarEmLotes`) e app
+(`ConquistasApi.confirmarVistas`) mandam lotes de até 200, um depois do outro;
+a falha de um lote não impede os demais. Web e app chamam
 depois de exibir o aviso "Nova!". Grava em `conquistas_desbloqueios_vistos`
 (migration `1795400000000`, só de inserção, PK no desbloqueio): idempotente,
 e só marca desbloqueios do próprio aluno. Resposta `{ "marcadas": n }`.

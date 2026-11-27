@@ -5,6 +5,9 @@ import 'package:http/http.dart' as http;
 import '../models/conquista.dart';
 import 'api_config.dart';
 
+/// Máximo por `POST /me/conquistas/vistas` (o mesmo limite da API).
+const vistasPorLote = 200;
+
 /// Conquistas do aluno (F32). Consultar já faz o servidor conferir o
 /// progresso e desbloquear o que tiver a meta cumprida.
 class ConquistasApi {
@@ -34,11 +37,30 @@ class ConquistasApi {
 
   /// Confirma que o aviso "Nova!" destes desbloqueios foi exibido. Até
   /// aqui eles continuam em `novas`: ler a coleção não consome o aviso.
+  /// Em lotes de [vistasPorLote], um depois do outro: a falha de um lote não
+  /// impede os demais. Se algum falhar, lança o primeiro erro no fim.
   Future<void> confirmarVistas(
     String token,
     List<Map<String, String>> vistas,
   ) async {
-    if (vistas.isEmpty) return;
+    Object? primeiroErro;
+    for (var i = 0; i < vistas.length; i += vistasPorLote) {
+      final fim = i + vistasPorLote < vistas.length
+          ? i + vistasPorLote
+          : vistas.length;
+      try {
+        await _confirmarLote(token, vistas.sublist(i, fim));
+      } catch (erro) {
+        primeiroErro ??= erro;
+      }
+    }
+    if (primeiroErro != null) throw primeiroErro;
+  }
+
+  Future<void> _confirmarLote(
+    String token,
+    List<Map<String, String>> vistas,
+  ) async {
     await executarRequisicao(
       () => _client.post(
         Uri.parse('$baseUrl/me/conquistas/vistas'),

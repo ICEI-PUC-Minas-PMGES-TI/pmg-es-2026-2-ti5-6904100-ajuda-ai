@@ -22,6 +22,33 @@ export function vistasParaConfirmar(colecao) {
   return (colecao?.obtidas || []).filter((o) => ehNova(colecao, o)).map((o) => ({ id: o.id, contexto: o.contexto }));
 }
 
+/** Máximo por `POST /me/conquistas/vistas` (o mesmo limite da API). */
+export const VISTAS_POR_LOTE = 200;
+
+/** Divide a confirmação em lotes que a API aceita. */
+export function lotesDeVistas(vistas, tamanho = VISTAS_POR_LOTE) {
+  const lotes = [];
+  for (let i = 0; i < (vistas || []).length; i += tamanho) lotes.push(vistas.slice(i, i + tamanho));
+  return lotes;
+}
+
+/**
+ * Confirma em lotes, um depois do outro. A falha de um lote não impede os
+ * demais (o que falhou volta como aviso na próxima visita). Nunca rejeita.
+ */
+export async function confirmarEmLotes(vistas, enviar = api.confirmarConquistasVistas) {
+  let confirmados = 0;
+  for (const lote of lotesDeVistas(vistas)) {
+    try {
+      await enviar(lote);
+      confirmados += lote.length;
+    } catch {
+      // Segue para o próximo lote.
+    }
+  }
+  return confirmados;
+}
+
 /** Texto do aviso das conquistas desbloqueadas nesta visita. */
 export function textoNovas(colecao) {
   const novas = (colecao?.obtidas || []).filter((o) => ehNova(colecao, o));
@@ -70,8 +97,9 @@ export default function ConquistasAlunoPage() {
       const aviso = textoNovas(dados);
       if (aviso) {
         mostrarToast(aviso, 'sucesso');
-        // Falha aqui não atrapalha a tela: o aviso só volta na próxima visita.
-        api.confirmarConquistasVistas(vistasParaConfirmar(dados)).catch(() => {});
+        // Em lotes (limite da API). Falha não atrapalha a tela: o aviso do
+        // lote que falhou só volta na próxima visita.
+        confirmarEmLotes(vistasParaConfirmar(dados));
       }
     } catch (error) {
       setErro(error.message || 'Não foi possível carregar suas conquistas.');

@@ -104,14 +104,11 @@ export class PublicacoesController {
     // Elegibilidade de quando a ação é aceita (F32): um encerramento do
     // ciclo logo depois do commit não tira a conquista.
     const aceita = await this.conquistas?.elegibilidadeNoFeed(req.user);
-    const publicacao = await this.publicacoes.criar(corpo, req.user);
-    // Depois do commit, no ciclo da publicação (F32: FEED_PUBLICACOES).
-    await this.conquistas?.aposAtividadeNoFeed(
-      req.user,
-      publicacao.programa,
-      aceita,
+    // Logo depois do commit, com o ciclo gravado (F32: FEED_PUBLICACOES),
+    // antes e independente da releitura da resposta.
+    return this.publicacoes.criar(corpo, req.user, ({ programa }) =>
+      this.conferirConquistas(req, programa, aceita),
     );
-    return publicacao;
   }
   @Patch(':id')
   @UseGuards(FeedAdminGuard)
@@ -136,19 +133,26 @@ export class PublicacoesController {
     @Req() req: AuthenticatedRequest,
   ) {
     const aceita = await this.conquistas?.elegibilidadeNoFeed(req.user);
-    const publicacao = await this.publicacoes.comentar(
+    // Logo depois do commit, com o ciclo do post comentado (F32:
+    // FEED_COMENTARIOS): se a releitura falhar (ciclo fechou no
+    // intervalo), o comentário gravado ainda conta.
+    return this.publicacoes.comentar(
       id,
       corpo.texto,
       req.user,
       corpo.paiId,
+      ({ programa }) => this.conferirConquistas(req, programa, aceita),
     );
-    // Depois do commit, no ciclo do post comentado (F32: FEED_COMENTARIOS).
-    await this.conquistas?.aposAtividadeNoFeed(
-      req.user,
-      publicacao.programa,
-      aceita,
-    );
-    return publicacao;
+  }
+
+  /** Conquistas do feed (F32). Nunca falha: a ação já foi gravada. */
+  private async conferirConquistas(
+    req: AuthenticatedRequest,
+    programa: string | null,
+    aceita:
+      Awaited<ReturnType<ConquistasService['elegibilidadeNoFeed']>> | undefined,
+  ): Promise<void> {
+    await this.conquistas?.aposAtividadeNoFeed(req.user, programa, aceita);
   }
   @Delete(':id/comentarios/:comentarioId')
   removerComentario(

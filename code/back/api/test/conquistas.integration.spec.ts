@@ -826,6 +826,18 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
         .expect(400);
     });
 
+    it('confirmar vistas aceita lotes de até 200 (limite que web e app respeitam)', async () => {
+      const lote = (n: number) =>
+        Array.from({ length: n }, () => ({
+          id: randomUUID(),
+          contexto: CICLO,
+        }));
+      expect((await confirmar(outro(), lote(200)).expect(200)).body).toEqual({
+        marcadas: 0,
+      });
+      await confirmar(outro(), lote(201)).expect(400);
+    });
+
     it('encerramento real do ciclo entre o comentário e a conferência não tira a conquista', async () => {
       // Permissões de verdade: participação e etapa do ciclo lidas do banco.
       const url = new URL(URL_TESTE!);

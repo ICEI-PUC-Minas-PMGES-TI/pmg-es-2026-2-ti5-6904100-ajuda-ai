@@ -134,6 +134,57 @@ void main() {
     });
   });
 
+  group('confirmação em lotes', () {
+    final vistas = [
+      for (var i = 0; i < 450; i++) {'id': 'id-$i', 'contexto': '2026/2'},
+    ];
+
+    test(
+      'mais de 200 avisos: lotes de até 200, todos enviados uma vez',
+      () async {
+        final lotes = <List<Object?>>[];
+        final api = ConquistasApi(
+          client: MockClient((pedido) async {
+            lotes.add(
+              (jsonDecode(pedido.body) as Map<String, dynamic>)['vistas']
+                  as List,
+            );
+            return http.Response('{"marcadas":0}', 200, headers: _json);
+          }),
+        );
+        await api.confirmarVistas('tk', vistas);
+        expect(lotes.map((l) => l.length), [200, 200, 50]);
+        expect(lotes.expand((l) => l).toList(), vistas);
+      },
+    );
+
+    test('um lote recusado não barra os outros; o erro sobe no fim', () async {
+      var pedidos = 0;
+      final api = ConquistasApi(
+        client: MockClient((pedido) async {
+          pedidos++;
+          return pedidos == 2
+              ? http.Response('{"message":"x"}', 400, headers: _json)
+              : http.Response('{"marcadas":0}', 200, headers: _json);
+        }),
+      );
+      await expectLater(api.confirmarVistas('tk', vistas), throwsA(anything));
+      expect(pedidos, 3);
+    });
+
+    test('nada a confirmar: nenhum pedido', () async {
+      var pedidos = 0;
+      final api = ConquistasApi(
+        client: MockClient((pedido) async {
+          pedidos++;
+          return http.Response('{}', 200, headers: _json);
+        }),
+      );
+      await api.confirmarVistas('tk', const []);
+      expect(pedidos, 0);
+    });
+  });
+
   group('tela', () {
     final sessao = SessaoUsuario.atual;
     late List<http.Request> pedidos;

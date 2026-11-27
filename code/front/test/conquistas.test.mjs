@@ -119,3 +119,21 @@ test('aviso "Nova!": confirma ao servidor só o que a tela exibiu (id + contexto
   assert.deepEqual(aluno.vistasParaConfirmar({ ...colecao, novas: [] }), []);
   assert.deepEqual(aluno.vistasParaConfirmar(null), []);
 });
+
+test('mais de 200 avisos: confirma em lotes de até 200; um lote com falha não barra os outros', async () => {
+  const vistas = Array.from({ length: 450 }, (_, i) => ({ id: `id-${i}`, contexto: '2026/2' }));
+  assert.equal(aluno.VISTAS_POR_LOTE, 200);
+  assert.deepEqual(aluno.lotesDeVistas(vistas).map((l) => l.length), [200, 200, 50]);
+  assert.deepEqual(aluno.lotesDeVistas([]), []);
+  const enviados = [];
+  const confirmados = await aluno.confirmarEmLotes(vistas, async (lote) => {
+    enviados.push(lote.length);
+    if (enviados.length === 2) throw new Error('falha simulada no 2º lote');
+  });
+  assert.deepEqual(enviados, [200, 200, 50]);
+  assert.equal(confirmados, 250);
+  // Todos os avisos foram enviados, cada um uma vez.
+  const todos = [];
+  await aluno.confirmarEmLotes(vistas, async (lote) => { todos.push(...lote); });
+  assert.deepEqual(todos, vistas);
+});

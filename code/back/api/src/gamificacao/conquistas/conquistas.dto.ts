@@ -248,10 +248,16 @@ export class ConquistaVistaDto {
   contexto!: string;
 }
 
+/**
+ * Máximo de avisos por `POST /me/conquistas/vistas`. Web e app dividem a
+ * confirmação em lotes deste tamanho.
+ */
+export const VISTAS_POR_LOTE = 200;
+
 /** `POST /me/conquistas/vistas`: confirma os avisos "Nova!" exibidos. */
 export class ConfirmarVistasDto {
   @IsArray()
-  @ArrayMaxSize(200)
+  @ArrayMaxSize(VISTAS_POR_LOTE)
   @ValidateNested({ each: true })
   @Type(() => ConquistaVistaDto)
   vistas!: ConquistaVistaDto[];
