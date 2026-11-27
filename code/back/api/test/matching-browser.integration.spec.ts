@@ -265,6 +265,128 @@ describe.skipIf(
     await coord.getByText(/Execução concluída:/).waitFor();
     expect(operacoes).toHaveLength(2);
     expect(operacoes[0]).toBe(operacoes[1]);
+
+    // A confirmação local expira, mas o ciclo ainda precisa acompanhar outra rodada.
+    await coord.unroute('**/coordenacao/matching/execucoes?**');
+    perderPedido = true;
+    const inicioConcorrencia = Date.now();
+    const consultasCiclo: number[] = [];
+    let observouFimExterno = false;
+    await coord.route(
+      '**/coordenacao/matching/execucoes?**',
+      async (rota: any) => {
+        const resposta = await rota.fetch();
+        const rodadas = await resposta.json();
+        const tempo = Date.now() - inicioConcorrencia;
+        consultasCiclo.push(tempo);
+        const terminou = tempo >= 18_000;
+        observouFimExterno ||= terminou;
+        await rota.fulfill({
+          response: resposta,
+          json: [
+            {
+              ...resultadoRodada,
+              id: 99998,
+              operacaoId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              status: terminou ? 'falha' : 'executando',
+              erro: terminou ? 'Rodada externa encerrada.' : null,
+            },
+            ...rodadas,
+          ],
+        });
+      },
+    );
+    await coord
+      .getByRole('button', { name: 'Gerar sugestões', exact: true })
+      .click();
+    await coord
+      .getByRole('button', { name: 'Executar matching', exact: true })
+      .click();
+    await coord
+      .getByRole('button', { name: 'Executando…', exact: true })
+      .waitFor();
+    await coord
+      .getByRole('button', { name: 'Gerar sugestões', exact: true })
+      .waitFor({ timeout: 25_000 });
+    expect(observouFimExterno).toBe(true);
+    expect(
+      consultasCiclo.filter((t) => t >= 15_000).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      await coord
+        .getByText('Rodada concluída. Sugestões atualizadas.', { exact: true })
+        .count(),
+    ).toBe(0);
+    perderPedido = false;
+    await coord
+      .getByRole('button', { name: 'Gerar sugestões', exact: true })
+      .click();
+    await coord
+      .getByRole('button', { name: 'Executar matching', exact: true })
+      .click();
+    await coord.getByText(/Execução concluída:/).waitFor();
+    expect(operacoes).toHaveLength(4);
+    expect(operacoes[2]).toBe(operacoes[3]);
+    expect(operacoes[2]).not.toBe(operacoes[0]);
+
+    // Resposta de envio aparece antes da próxima consulta: 101 não pode ser pulada.
+    let enviada = false;
+    const cursoresChat: string[] = [];
+    const mensagem = (id: number, texto: string) => ({
+      id,
+      texto,
+      estado: 'enviada',
+      remetenteParticipacaoId: c.a[0].id,
+      remetenteNome: 'Aluno 0',
+      criadaEm: new Date().toISOString(),
+    });
+    await aluno.route(/\/chats\/\d+\/mensagens(?:\?|$)/, async (rota: any) => {
+      if (rota.request().method() === 'POST') {
+        enviada = true;
+        await rota.fulfill({ json: mensagem(102, 'Meu envio concorrente') });
+        return;
+      }
+      const resposta = await rota.fetch();
+      const pagina = await resposta.json();
+      const cursor = new URL(rota.request().url()).searchParams.get('depoisDe');
+      if (enviada) cursoresChat.push(cursor ?? 'inicial');
+      await rota.fulfill({
+        response: resposta,
+        json: {
+          ...pagina,
+          temMais: false,
+          mensagens:
+            cursor == null
+              ? [mensagem(100, 'Antes do envio concorrente')]
+              : cursor === '100' && enviada
+                ? [
+                    mensagem(101, 'Recebida durante envio'),
+                    mensagem(102, 'Meu envio concorrente'),
+                  ]
+                : [],
+        },
+      });
+    });
+    await aluno
+      .getByRole('button')
+      .filter({ has: aluno.locator('strong', { hasText: 'Padrinho 1' }) })
+      .click();
+    await aluno
+      .locator('.chat-bubble p', { hasText: 'Antes do envio concorrente' })
+      .waitFor();
+    await aluno.getByLabel('Digite uma mensagem').fill('Meu envio concorrente');
+    await aluno
+      .getByRole('button', { name: 'Enviar mensagem', exact: true })
+      .click();
+    await aluno
+      .locator('.chat-bubble p', { hasText: 'Recebida durante envio' })
+      .waitFor();
+    expect(cursoresChat[0]).toBe('100');
+    expect(
+      await aluno
+        .locator('.chat-bubble p', { hasText: 'Meu envio concorrente' })
+        .count(),
+    ).toBe(1);
     expect(falhas).toEqual([]);
   }, 120_000);
 });

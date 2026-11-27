@@ -69,17 +69,18 @@ export function alvoConversa(conversas, { vinculo, grupo, pessoa } = {}) {
     : undefined;
 }
 
-/** Busca só o intervalo novo; paginação de histórico segue um caminho separado. */
-export async function buscarPaginasChat({ mensagens, anteriores = false, buscar, aplicar, ativo }) {
-  const inicial = mensagens.length === 0;
+/** O cursor pertence às páginas consultadas; respostas de envio não o avançam. */
+export async function buscarPaginasChat({ mensagens, cursor, anteriores = false, buscar, aplicar, avancarCursor, ativo }) {
+  const inicial = cursor === undefined;
   const antesDe = anteriores ? mensagens[0]?.id : undefined;
-  let depoisDe = !anteriores && !inicial ? mensagens.at(-1).id : undefined;
+  let depoisDe = anteriores ? undefined : cursor;
   let pagina;
   do {
     pagina = await buscar({ antesDe, depoisDe });
     if (!ativo()) return null;
     aplicar(pagina);
     const proximo = pagina.mensagens.at(-1)?.id;
+    if (!anteriores) avancarCursor(Math.max(depoisDe ?? 0, proximo ?? 0));
     if (depoisDe === undefined || proximo == null || proximo <= depoisDe) break;
     depoisDe = proximo;
   } while (pagina.temMais && !anteriores && ativo());

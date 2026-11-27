@@ -249,7 +249,7 @@ test("conexão SSE usa token no header e encerra ao sair da tela", async () => {
 test('500 mensagens em memória: uma nova mensagem exige uma única página, a partir da mais recente', async () => {
  const pedidos=[], recebidas=[];
  const resultado=await buscarPaginasChat({
-   mensagens:Array.from({length:500},(_,i)=>({id:i+1})),ativo:()=>true,
+   mensagens:Array.from({length:500},(_,i)=>({id:i+1})),cursor:500,avancarCursor:()=>{},ativo:()=>true,
    buscar:async cursor=>{pedidos.push(cursor);return {mensagens:[{id:501,texto:'Nova'}],temMais:false};},
    aplicar:pagina=>recebidas.push(...pagina.mensagens),
  });
@@ -258,11 +258,43 @@ test('500 mensagens em memória: uma nova mensagem exige uma única página, a p
 });
 test('buscar histórico usa a mais antiga; atualizações percorrem somente páginas novas', async () => {
  const cursores=[];
- await buscarPaginasChat({mensagens:[{id:100},{id:500}],anteriores:true,ativo:()=>true,
+ await buscarPaginasChat({mensagens:[{id:100},{id:500}],cursor:500,anteriores:true,ativo:()=>true,
  buscar:async c=>{cursores.push(c);return {mensagens:[{id:99}],temMais:true};},aplicar:()=>{}});
  assert.deepEqual(cursores,[{antesDe:100,depoisDe:undefined}]);
  const novos=[];
- await buscarPaginasChat({mensagens:[{id:1},{id:500}],ativo:()=>true,
+ await buscarPaginasChat({mensagens:[{id:1},{id:500}],cursor:500,avancarCursor:()=>{},ativo:()=>true,
  buscar:async c=>{novos.push(c.depoisDe);return c.depoisDe===500?{mensagens:[{id:550}],temMais:true}:{mensagens:[{id:551}],temMais:false};},aplicar:()=>{}});
  assert.deepEqual(novos,[500,550]);
+});
+
+test('resposta do envio 102 não faz a consulta pular a mensagem recebida 101', async () => {
+ let mensagens=[{id:100},{id:102,texto:'Meu envio'}], cursor=100;
+ const pedidos=[];
+ await buscarPaginasChat({mensagens,cursor,ativo:()=>true,
+   avancarCursor:c=>{cursor=c;},
+   buscar:async c=>{pedidos.push(c.depoisDe);return {mensagens:c.depoisDe===100?[{id:101,texto:'Outra pessoa'},{id:102}]:[],temMais:false};},
+   aplicar:p=>{mensagens=mesclarMensagens(mensagens,p.mensagens);},
+ });
+ assert.deepEqual(pedidos,[100]);assert.deepEqual(mensagens.map(m=>m.id),[100,101,102]);assert.equal(cursor,102);
+});
+
+test('envio durante paginação e falha posterior preservam o cursor da última página consumida', async () => {
+ let mensagens=[{id:100}], cursor=100;
+ const pedidos=[];
+ const aplicar=p=>{mensagens=mesclarMensagens(mensagens,p.mensagens);};
+ await assert.rejects(buscarPaginasChat({mensagens,cursor,ativo:()=>true,avancarCursor:c=>{cursor=c;},
+   buscar:async c=>{pedidos.push(c.depoisDe);if(c.depoisDe===101)throw new Error('Rede');return {mensagens:[{id:101}],temMais:true};},
+   aplicar:p=>{aplicar(p);mensagens=mesclarMensagens(mensagens,[{id:103,texto:'Envio concorrente'}]);},
+ }),/Rede/);
+ assert.equal(cursor,101);
+ await buscarPaginasChat({mensagens,cursor,ativo:()=>true,avancarCursor:c=>{cursor=c;},
+   buscar:async c=>{pedidos.push(c.depoisDe);return {mensagens:[{id:102},{id:103}],temMais:false};},aplicar});
+ assert.deepEqual(pedidos,[100,101,101]);assert.deepEqual(mensagens.map(m=>m.id),[100,101,102,103]);assert.equal(cursor,103);
+});
+
+test('primeira consulta vazia estabelece cursor zero mesmo com envio local em memória', async () => {
+ let cursor;
+ await buscarPaginasChat({mensagens:[{id:102}],cursor,ativo:()=>true,avancarCursor:c=>{cursor=c;},
+   buscar:async()=>({mensagens:[],temMais:false}),aplicar:()=>{}});
+ assert.equal(cursor,0);
 });

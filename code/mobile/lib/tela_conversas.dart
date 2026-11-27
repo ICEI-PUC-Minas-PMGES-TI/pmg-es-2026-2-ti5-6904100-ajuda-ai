@@ -344,6 +344,8 @@ class _TelaConversaChatState extends State<TelaConversaChat>
   }
 
   int _recibosRevisao = 0;
+  // Avança somente com páginas consultadas, nunca com a resposta do envio.
+  int? _ultimaMensagemConsultada;
 
   Future<void> _carregar({bool anteriores = false}) async {
     if (!mounted || !_valida || !_resumed) return;
@@ -354,13 +356,11 @@ class _TelaConversaChatState extends State<TelaConversaChat>
     _busy = true;
     setState(() => _carregando = true);
     try {
-      final inicial = _mensagens.isEmpty;
+      final inicial = _ultimaMensagemConsultada == null;
       final antes = anteriores && _mensagens.isNotEmpty
           ? (_mensagens.first['id'] as num).toInt()
           : null;
-      int? depois = !anteriores && !inicial
-          ? (_mensagens.last['id'] as num).toInt()
-          : null;
+      int? depois = anteriores ? null : _ultimaMensagemConsultada;
       Map<String, dynamic> pagina;
       do {
         pagina = await widget.api.mensagens(
@@ -373,14 +373,20 @@ class _TelaConversaChatState extends State<TelaConversaChat>
             .whereType<Map>()
             .map((m) => Map<String, dynamic>.from(m))
             .toList();
+        final proximo = novas.isEmpty ? 0 : (novas.last['id'] as num).toInt();
+        if (!anteriores) {
+          _ultimaMensagemConsultada = proximo > (_ultimaMensagemConsultada ?? 0)
+              ? proximo
+              : (_ultimaMensagemConsultada ?? 0);
+        }
         setState(() {
           _mensagens = mesclarMensagensChat(_mensagens, novas);
           _acesso = {..._acesso, ...pagina};
           if (inicial || anteriores) _temMais = pagina['temMais'] == true;
           _erro = null;
         });
-        if (depois != null && novas.isNotEmpty) {
-          depois = (novas.last['id'] as num).toInt();
+        if (depois != null && proximo > depois) {
+          depois = proximo;
         } else {
           break;
         }

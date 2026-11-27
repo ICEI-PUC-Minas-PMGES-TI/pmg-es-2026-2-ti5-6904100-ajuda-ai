@@ -101,6 +101,7 @@ function Thread({ chat, email, onVoltar, onAtualizarLista }) {
     carregandoRef = useRef(false),
     repetir = useRef(false),
     mensagensRef = useRef([]),
+    cursorMensagens = useRef(undefined),
     recibosRevisao = useRef(0),
     intencao = useRef(null),
     envioRef = useRef(false),
@@ -128,9 +129,10 @@ function Thread({ chat, email, onVoltar, onAtualizarLista }) {
       setCarregando(true);
       try {
         const resultado = await buscarPaginasChat({
-          mensagens: mensagensRef.current, anteriores,
+          mensagens: mensagensRef.current, cursor: cursorMensagens.current, anteriores,
           buscar: cursores => api.mensagensChat(chat.id, email, cursores),
           ativo: () => vivo.current,
+          avancarCursor: cursor => { cursorMensagens.current = cursor; },
           aplicar: pagina => {
             setAcesso(a => ({ ...a, ...pagina }));
             atualizarMensagens(pagina.mensagens);

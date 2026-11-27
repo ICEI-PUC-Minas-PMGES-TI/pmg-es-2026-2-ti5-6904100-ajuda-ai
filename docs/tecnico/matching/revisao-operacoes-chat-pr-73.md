@@ -1,5 +1,13 @@
 # Revisão do PR #73 — operações de matching e atualização do chat
 
+## Correção adicional de concorrência
+
+O cursor de mensagens agora registra somente páginas efetivamente consumidas do GET, separado da lista exibida. Uma resposta de envio pode inserir a mensagem 102 na tela enquanto o cursor continua em 100; a próxima consulta recupera 101 e 102. Cada página consumida avança o cursor, inclusive quando uma página posterior falha. Carregar histórico e receber recibos não alteram esse cursor. A primeira página vazia estabelece cursor zero.
+
+Quando a confirmação do pedido local expira e existe outra rodada executando, a web continua acompanhando o estado do ciclo. Esse acompanhamento preserva o UUID da tentativa local e não anuncia a rodada externa como resultado do pedido local. Ao observar seu término, a tela atualiza o estado e libera nova tentativa.
+
+Validação desta correção: 215 testes web e build Vite aprovados; 17 testes de chat Flutter aprovados e análise estática sem problemas; tipos TypeScript aprovados. A jornada Chrome/PostgreSQL também passou: reproduz a sequência 100/101/102 na tela, mantém consultas após os 15 segundos até a rodada externa terminar e verifica a reutilização do UUID na tentativa seguinte. Os resultados nas demais seções registram a revisão anterior.
+
 ## Comportamento corrigido
 
 A web cria um UUID antes de solicitar sugestões. O POST persiste esse identificador por ciclo; chamadas repetidas do mesmo responsável devolvem a mesma execução, sem disparar outro cálculo. O acompanhamento procura esse UUID, inclusive quando a resposta HTTP se perde. Uma execução de outro coordenador não confirma o pedido local. Clientes antigos continuam podendo omitir o campo.

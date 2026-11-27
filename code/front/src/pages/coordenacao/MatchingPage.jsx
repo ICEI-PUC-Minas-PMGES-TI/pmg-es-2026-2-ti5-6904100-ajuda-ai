@@ -938,12 +938,13 @@ function MatchingPorPrograma({ programa }) {
   const emCurso = execucoes.find(e => e.status === 'executando');
   const aguardando = executando || !!acompanhamento || !!emCurso;
 
+  // O estado do ciclo continua sendo consultado após expirar a confirmação local.
   useEffect(() => {
-    if (!intencaoOperacao.current && !acompanhamento && emCurso && retomada.current !== emCurso.id) {
+    if (!executando && !acompanhamento && emCurso && retomada.current !== emCurso.id) {
       retomada.current = emCurso.id;
-      setAcompanhamento({ execucaoId: emCurso.id, operacaoId: emCurso.operacaoId });
+      setAcompanhamento({ execucaoId: emCurso.id, operacaoId: emCurso.operacaoId, ciclo: true });
     }
-  }, [acompanhamento, emCurso]);
+  }, [acompanhamento, emCurso, executando]);
 
   useEffect(() => {
     if (!acompanhamento) return;
@@ -962,9 +963,10 @@ function MatchingPorPrograma({ programa }) {
       if (!vigente()) return;
       setStatus('pendente');
       setAcompanhamento(null);
-      if (rodada.operacaoId === intencaoOperacao.current) intencaoOperacao.current = null;
+      const minhaOperacao = !!intencaoOperacao.current && rodada.operacaoId === intencaoOperacao.current;
+      if (minhaOperacao) intencaoOperacao.current = null;
       if (rodada.status === 'falha') setErro(rodada.erro || 'A execução falhou.');
-      else toast('Rodada concluída. Sugestões atualizadas.', 'sucesso');
+      else if (!acompanhamento.ciclo || minhaOperacao) toast('Rodada concluída. Sugestões atualizadas.', 'sucesso');
     }).catch(e => {
       if (!vigente()) return;
       retomada.current = acompanhamento.execucaoId;

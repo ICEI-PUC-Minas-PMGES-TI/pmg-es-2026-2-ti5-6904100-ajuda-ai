@@ -63,6 +63,61 @@ class StreamChat extends http.BaseClient {
 }
 
 void main() {
+  testWidgets('envio 102 não pula mensagem 101 recebida durante o POST', (
+    tester,
+  ) async {
+    final stream = StreamChat();
+    final consultas = <String?>[];
+    var enviada = false;
+    final api = ChatApi(
+      token: () => 'jwt',
+      baseUrl: '',
+      streamClientFactory: () => stream,
+      client: MockClient((r) async {
+        if (r.url.path.endsWith('/recibos')) {
+          return json({'recibos': [], 'recibosRevisao': 0});
+        }
+        if (r.method == 'POST') {
+          enviada = true;
+          return json(mensagem(102, 'Meu envio'));
+        }
+        final cursor = r.url.queryParameters['depoisDe'];
+        consultas.add(cursor);
+        return json({
+          ...conversa(),
+          'temMais': false,
+          'mensagens': cursor == null
+              ? [mensagem(100, 'Antes')]
+              : cursor == '100' && enviada
+              ? [
+                  mensagem(101, 'Recebida durante envio'),
+                  mensagem(102, 'Meu envio'),
+                ]
+              : [],
+        });
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TelaConversaChat(api: api, chat: conversa()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    consultas.clear();
+    await tester.enterText(find.byType(TextField), 'Meu envio');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Enviar mensagem'));
+    await tester.pumpAndSettle();
+    expect(consultas, ['100']);
+    expect(find.text('Recebida durante envio'), findsOneWidget);
+    expect(find.text('Meu envio'), findsOneWidget);
+    stream.evento('chat.changed', {'revisao': 3});
+    await tester.pumpAndSettle();
+    expect(consultas.last, '102');
+    await tester.pumpWidget(const SizedBox.shrink());
+    api.fechar();
+  });
+
   testWidgets(
     '500 mensagens carregadas: evento busca apenas a nova e atualiza recibos antigos separadamente',
     (tester) async {
