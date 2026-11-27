@@ -6,7 +6,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {MemoryRouter, Routes, Route, Outlet} from 'react-router-dom';
 const storage = new Map();
 globalThis.localStorage = {getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
-const server = await createServer({server:{middlewareMode:true},appType:'custom'});
+const server = await createServer({server:{middlewareMode:true,hmr:false},optimizeDeps:{noDiscovery:true,include:[]},appType:'custom'});
 after(() => server.close());
 const {resolverAluno, ESTADOS_ALUNO, escolherCiclo} = await server.ssrLoadModule('/src/auth/resolverAluno.js');
 const client = await server.ssrLoadModule('/src/api/client.js');

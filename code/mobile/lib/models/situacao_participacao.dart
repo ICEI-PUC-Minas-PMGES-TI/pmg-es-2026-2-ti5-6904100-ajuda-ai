@@ -6,6 +6,8 @@ class SituacaoParticipacao {
     this.registro,
     this.grupo,
     this.padrinho,
+    this.padrinhos = const [],
+    this.podeConversar,
     this.apadrinhados = const [],
     this.cadastro,
   });
@@ -22,6 +24,14 @@ class SituacaoParticipacao {
   final Map<String, dynamic>? registro;
   final String? grupo;
   final PessoaVinculo? padrinho;
+  final List<PessoaVinculo> padrinhos;
+  final bool? podeConversar;
+  List<PessoaVinculo> get padrinhosAtuais =>
+      padrinhos.isNotEmpty ? padrinhos : [?padrinho];
+  bool get conversasLiberadas =>
+      (situacao == 'padrinho_ativo' || situacao == 'apadrinhado_ativo') &&
+      podeConversar != false &&
+      programa?.etapaAtual != 'encerramento';
   final List<PessoaVinculo> apadrinhados;
 
   Map<String, dynamic>? get respostas {
@@ -40,6 +50,15 @@ class SituacaoParticipacao {
     final registro = json['registro'];
     final padrinho = json['padrinho'];
     final cadastro = json['cadastro'];
+    final listaPadrinhos = json['padrinhos'] is List
+        ? (json['padrinhos'] as List)
+              .whereType<Map>()
+              .map((p) => PessoaVinculo.fromJson(Map<String, dynamic>.from(p)))
+              .toList()
+        : [
+            if (padrinho is Map)
+              PessoaVinculo.fromJson(Map<String, dynamic>.from(padrinho)),
+          ];
     return SituacaoParticipacao(
       cadastro: cadastro is Map
           ? CadastroSituacao.fromJson(Map<String, dynamic>.from(cadastro))
@@ -50,8 +69,10 @@ class SituacaoParticipacao {
           : null,
       registro: registro is Map ? Map<String, dynamic>.from(registro) : null,
       grupo: json['grupo'] as String?,
-      padrinho: padrinho is Map
-          ? PessoaVinculo.fromJson(Map<String, dynamic>.from(padrinho))
+      padrinho: listaPadrinhos.firstOrNull,
+      padrinhos: listaPadrinhos,
+      podeConversar: json['podeConversar'] is bool
+          ? json['podeConversar'] as bool
           : null,
       apadrinhados: (json['apadrinhados'] as List? ?? const [])
           .whereType<Map>()
@@ -168,6 +189,8 @@ class PessoaVinculo {
     this.fotoUrl,
     this.iniciais = '',
     this.grupo,
+    this.vinculoId,
+    this.grupoId,
   });
 
   final String nome;
@@ -178,6 +201,8 @@ class PessoaVinculo {
   final String? fotoUrl;
   final String iniciais;
   final String? grupo;
+  final int? vinculoId;
+  final int? grupoId;
 
   factory PessoaVinculo.fromJson(Map<String, dynamic> json) => PessoaVinculo(
     nome: '${json['nome'] ?? ''}',
@@ -190,6 +215,8 @@ class PessoaVinculo {
     fotoUrl: json['fotoUrl'] as String?,
     iniciais: '${json['iniciais'] ?? ''}',
     grupo: json['grupo'] as String?,
+    vinculoId: (json['vinculoId'] as num?)?.toInt(),
+    grupoId: (json['grupoId'] as num?)?.toInt(),
   );
 }
 

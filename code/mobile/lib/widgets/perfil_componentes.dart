@@ -93,6 +93,7 @@ class CardSituacaoPerfil extends StatelessWidget {
       'Programa $programa',
       'Período atual',
     );
+    final padrinhos = sessao.situacao?.padrinhosAtuais ?? const [];
     final padrinho = sessao.padrinho;
     final grupo = sessao.grupo;
 
@@ -175,10 +176,18 @@ class CardSituacaoPerfil extends StatelessWidget {
             'seu padrinho.',
         corSelo: AppAccents.success,
         fundoSelo: AppAccents.successBg,
-        destaque: padrinho == null ? null : 'Padrinho: ${padrinho.nome}',
+        destaque: padrinhos.length > 1
+            ? 'Padrinhos: ${padrinhos.map((p) => p.nome).join(', ')}'
+            : padrinho == null
+            ? null
+            : 'Padrinho: ${padrinho.nome}',
         onTap: onAbrirPadrinho,
         infos: [
-          (Icons.person_outline, '1', 'Padrinho'),
+          (
+            Icons.person_outline,
+            '${padrinhos.length}',
+            padrinhos.length == 1 ? 'Padrinho' : 'Padrinhos',
+          ),
           (Icons.emoji_events_outlined, grupo ?? 'A definir', 'Seu grupo'),
           infoPrograma,
         ],

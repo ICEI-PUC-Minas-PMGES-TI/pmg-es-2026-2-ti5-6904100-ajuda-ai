@@ -1,523 +1,586 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
+  type MessageEvent,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In } from 'typeorm';
-import { randomUUID } from 'node:crypto';
-import { detectarTipoCardapio } from '../campus/cardapios/cardapio-arquivo.js';
-import { MatchingVinculoEntity } from '../matching/entities/matching.entity.js';
+import {
+  Between,
+  DataSource,
+  EntityManager,
+  In,
+  IsNull,
+  MoreThan,
+} from 'typeorm';
+import { Observable } from 'rxjs';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
-import { AzureBlobStorageService } from '../storage/azure-blob-storage.service.js';
-import { ChatCacheService } from './chat-cache.service.js';
-import { novoEventoChat } from './chat-evento.js';
-import { ChatStreamService } from './chat-stream.service.js';
 import {
   ChatEntity,
-  ChatOutboxEntity,
-  ChatParticipanteEntity,
-  EstadoMensagemChat,
+  ChatPeriodoEntity,
+  ChatDestinatarioEntity,
   MensagemChatEntity,
 } from './entities/chat.entity.js';
+import {
+  avancarRevisao,
+  criarConversasDoVinculo,
+  membrosAtuais,
+} from './chat.vinculos.js';
+import {
+  intervalosDoHistorico,
+  mensagemNoHistorico,
+} from './chat.historico.js';
 
-export interface ParticipanteDoChat {
-  id: number;
-  participacaoId: number;
-  nome: string;
-  curso: string;
-  email: string;
-  papel: string;
-}
-
-export interface MensagemChatResposta {
-  id: number;
-  chatId: number;
-  remetenteParticipacaoId: number;
-  texto: string;
-  imagemUrl: string | null;
-  estado: EstadoMensagemChat;
-  entregueEm: Date | null;
-  lidaEm: Date | null;
-  criadaEm: Date;
-}
-
-export interface ResumoChat {
-  id: number;
-  programaId: number;
-  programa: string;
-  minhaParticipacaoId: number;
-  titulo: string | null;
-  atualizadoEm: Date;
-  participantes: ParticipanteDoChat[];
-  ultimaMensagem: MensagemChatResposta | null;
-  naoLidas: number;
-}
+type Contexto = Awaited<ReturnType<ChatService['contexto']>>;
 
 @Injectable()
 export class ChatService {
-  private readonly logger = new Logger(ChatService.name);
+  constructor(@InjectDataSource() private readonly dados: DataSource) {}
 
-  constructor(
-    @InjectDataSource() private readonly dados: DataSource,
-    private readonly storage: AzureBlobStorageService,
-    private readonly cache: ChatCacheService,
-    private readonly stream: ChatStreamService,
-  ) {}
-
-  private nome(participacao: ParticipacaoEntity): string {
-    return participacao.respostas?.nome?.trim() || participacao.usuarioId;
-  }
-
-  private async participacoesDoUsuario(
-    manager: EntityManager,
-    email: string,
-  ): Promise<ParticipacaoEntity[]> {
-    if (!email?.trim())
-      throw new ForbiddenException('Usuário sem identidade válida.');
-    return manager.getRepository(ParticipacaoEntity).find({
-      where: { usuarioId: email.trim().toLowerCase() },
-    });
-  }
-
-  private async exigirMembro(
+  private async contexto(
     manager: EntityManager,
     chatId: number,
     email: string,
-  ): Promise<ChatParticipanteEntity> {
-    const participacoes = await this.participacoesDoUsuario(manager, email);
-    if (!participacoes.length)
+  ) {
+    const chat = await manager
+      .getRepository(ChatEntity)
+      .findOne({ where: { id: chatId, ativo: true } });
+    if (!chat || !['privado', 'coletivo'].includes(chat.tipo))
       throw new NotFoundException('Conversa não encontrada.');
-    const membro = await manager.getRepository(ChatParticipanteEntity).findOne({
-      where: {
-        chatId,
-        participacaoId: In(participacoes.map((p) => p.id)),
-        chat: { ativo: true },
-      },
-      relations: { participacao: true },
+    const programa = await manager
+      .getRepository(ProgramaEntity)
+      .findOne({ where: { id: chat.programaId } });
+    if (!programa) throw new NotFoundException('Conversa não encontrada.');
+    const pessoas = await manager
+      .getRepository(ParticipacaoEntity)
+      .find({ where: { programa: programa.codigo } });
+    const minhas = pessoas.filter(
+      (p) =>
+        p.usuarioId === email.trim().toLowerCase() &&
+        ['aprovado', 'em_andamento', 'concluido'].includes(p.status),
+    );
+    const ids = minhas.map((p) => p.id);
+    if (!ids.length) throw new NotFoundException('Conversa não encontrada.');
+    const periodos = await manager.getRepository(ChatPeriodoEntity).find({
+      where: { chatId, participacaoId: In(ids) },
+      order: { id: 'ASC' },
     });
-    if (!membro) throw new NotFoundException('Conversa não encontrada.');
-    return membro;
+    if (!periodos.length)
+      throw new NotFoundException('Conversa não encontrada.');
+    const atuais = await membrosAtuais(manager, chat, programa);
+    const idsAtuais = new Set(atuais.map((p) => p.id));
+    const idsHistoricos =
+      programa.etapaAtual === 'encerramento'
+        ? new Set(
+            (await membrosAtuais(manager, chat, programa, true)).map(
+              (p) => p.id,
+            ),
+          )
+        : idsAtuais;
+    const abertos = periodos.filter(
+      (p) => p.ateMensagemId == null && idsAtuais.has(p.participacaoId),
+    );
+    const podeEnviar = abertos.length > 0;
+    // Intervalo aberto sem relação atual não autoriza histórico futuro em dados divergentes.
+    const visiveis = periodos.filter(
+      (p) =>
+        p.ateMensagemId != null ||
+        idsAtuais.has(p.participacaoId) ||
+        idsHistoricos.has(p.participacaoId),
+    );
+    const intervalos = intervalosDoHistorico(visiveis);
+    const minhaParticipacaoId =
+      abertos[0]?.participacaoId ?? periodos[0].participacaoId;
+    const motivoBloqueio = podeEnviar
+      ? null
+      : programa.etapaAtual === 'encerramento'
+        ? 'O ciclo foi encerrado. Esta conversa está disponível para consulta.'
+        : 'Sua participação nesta conversa foi encerrada. O histórico dos seus períodos foi preservado.';
+    let participantes = atuais;
+    if (!podeEnviar) {
+      if (chat.tipo === 'privado') {
+        const historicos = await manager
+          .getRepository(ChatPeriodoEntity)
+          .find({ where: { chatId } });
+        participantes = pessoas.filter((p) =>
+          historicos.some((h) => h.participacaoId === p.id),
+        );
+      } else participantes = [];
+    }
+    return {
+      chat,
+      programa,
+      ids,
+      minhaParticipacaoId,
+      podeEnviar,
+      motivoBloqueio,
+      intervalos,
+      atuais,
+      participantes,
+    };
   }
 
-  private async exigirVinculoAtivo(
-    manager: EntityManager,
+  private async comAcesso<T>(
     chatId: number,
-  ): Promise<void> {
-    const chat = await manager.getRepository(ChatEntity).findOne({
-      where: { id: chatId },
+    email: string,
+    escrita: boolean,
+    acao: (manager: EntityManager, contexto: Contexto) => Promise<T>,
+  ) {
+    const inicial = await this.dados
+      .getRepository(ChatEntity)
+      .findOne({ where: { id: chatId } });
+    if (!inicial) throw new NotFoundException('Conversa não encontrada.');
+    return this.dados.transaction(async (manager) => {
+      // Mesma ordem do matching: programa primeiro. Todas as decisões são revalidadas dentro do lock.
+      const programa = await manager
+        .getRepository(ProgramaEntity)
+        .createQueryBuilder('programa')
+        .setLock(escrita ? 'pessimistic_write' : 'pessimistic_read')
+        .where('programa.id = :id', { id: inicial.programaId })
+        .getOne();
+      if (!programa) throw new NotFoundException('Conversa não encontrada.');
+      const contexto = await this.contexto(manager, chatId, email);
+      return acao(manager, contexto);
     });
-    if (!chat) throw new NotFoundException('Conversa não encontrada.');
-    if (chat.matchingVinculoId == null) return;
+  }
 
-    const vinculo = await manager
-      .getRepository(MatchingVinculoEntity)
-      .findOne({ where: { id: chat.matchingVinculoId } });
-    if (!vinculo?.ativo) {
-      throw new ConflictException(
-        'Não é possível enviar mensagens: o vínculo associado foi encerrado.',
-      );
+  private acesso(c: Contexto) {
+    return {
+      recibosRevisao: c.chat.revisao ?? 0,
+      minhaParticipacaoId: c.minhaParticipacaoId,
+      minhasParticipacoesIds: c.ids,
+      podeEnviar: c.podeEnviar,
+      motivoBloqueio: c.motivoBloqueio,
+      revisao: c.podeEnviar ? (c.chat.revisao ?? 0) : 0,
+    };
+  }
+
+  private filtros(c: Contexto, antesDe?: number, depoisDe?: number) {
+    return c.intervalos
+      .map((p) => ({
+        inicio: Math.max(p.inicio, (depoisDe ?? 0) + 1),
+        fim: Math.min(p.fim, (antesDe ?? 2147483648) - 1),
+      }))
+      .filter((p) => p.inicio <= p.fim)
+      .map((p) => ({ chatId: c.chat.id, id: Between(p.inicio, p.fim) }));
+  }
+
+  private async serializar(
+    manager: EntityManager,
+    mensagens: MensagemChatEntity[],
+  ) {
+    if (!mensagens.length) return [];
+    const recibos = await manager
+      .getRepository(ChatDestinatarioEntity)
+      .find({ where: { mensagemId: In(mensagens.map((m) => m.id)) } });
+    return mensagens.map((m) => {
+      const destinados = recibos.filter((r) => r.mensagemId === m.id);
+      const lidas = destinados.filter((r) => r.lidaEm != null).length;
+      const entregues = destinados.filter((r) => r.entregueEm != null).length;
+      const estado =
+        destinados.length && lidas === destinados.length
+          ? 'lida'
+          : destinados.length && entregues === destinados.length
+            ? 'entregue'
+            : 'enviada';
+      return {
+        ...m,
+        estado,
+        recibos: { total: destinados.length, entregues, lidas },
+      };
+    });
+  }
+
+  private async registrarRecebimento(
+    manager: EntityManager,
+    c: Contexto,
+    mensagens?: number[],
+  ) {
+    if (mensagens && !mensagens.length) return;
+    const repo = manager.getRepository(ChatDestinatarioEntity);
+    const recibos = await repo.find({
+      where: {
+        chatId: c.chat.id,
+        participacaoId: In(c.ids),
+        ...(mensagens
+          ? { mensagemId: In(mensagens), lidaEm: IsNull() }
+          : { entregueEm: IsNull() }),
+      },
+      order: { id: 'ASC' },
+    });
+    const alterados: number[] = [];
+    for (const recibo of recibos) {
+      if (
+        !mensagemNoHistorico(recibo.mensagemId, c.intervalos) ||
+        (mensagens && !mensagens.includes(recibo.mensagemId))
+      )
+        continue;
+      if (!recibo.entregueEm || (mensagens && !recibo.lidaEm)) {
+        // Atualizações condicionais preservam uma leitura confirmada por outra sessão.
+        const entrega = await repo.update(
+          { id: recibo.id, entregueEm: IsNull() },
+          { entregueEm: new Date() },
+        );
+        const leitura = mensagens
+          ? await repo.update(
+              { id: recibo.id, lidaEm: IsNull() },
+              { lidaEm: new Date() },
+            )
+          : null;
+        if ((entrega.affected ?? 0) + (leitura?.affected ?? 0) > 0)
+          alterados.push(recibo.id);
+      }
+    }
+    if (alterados.length) {
+      c.chat.revisao = await avancarRevisao(manager, c.chat.id);
+      await repo.update({ id: In(alterados) }, { revisao: c.chat.revisao });
     }
   }
 
-  private participantes(
-    membros: ChatParticipanteEntity[],
-  ): ParticipanteDoChat[] {
-    return membros.map((membro) => ({
-      id: membro.id,
-      participacaoId: membro.participacaoId,
-      nome: this.nome(membro.participacao),
-      curso: membro.participacao.respostas?.curso?.trim() || 'Aluno',
-      email: membro.participacao.usuarioId,
-      papel: membro.participacao.papel,
-    }));
-  }
-
-  private async apresentarMensagem(
-    mensagem: MensagemChatEntity,
-  ): Promise<MensagemChatResposta> {
-    return {
-      id: mensagem.id,
-      chatId: mensagem.chatId,
-      remetenteParticipacaoId: mensagem.remetenteParticipacaoId,
-      texto: mensagem.texto,
-      imagemUrl: mensagem.imagemChave
-        ? this.storage.sasLeitura(
-            'chat',
-            mensagem.imagemChave.slice('chat/'.length),
-          ).url
-        : null,
-      estado: mensagem.estado,
-      entregueEm: mensagem.entregueEm,
-      lidaEm: mensagem.lidaEm,
-      criadaEm: mensagem.criadaEm,
-    };
-  }
-
-  private async registrarEntrega(
-    manager: EntityManager,
-    chatId: number,
-    meusIds: number[],
-  ): Promise<void> {
-    if (!meusIds.length) return;
-    const resultado = await manager
-      .getRepository(MensagemChatEntity)
-      .createQueryBuilder()
-      .update()
-      .set({ estado: 'entregue', entregueEm: new Date() })
-      .where('"chat_id" = :chatId', { chatId })
-      .andWhere('"remetente_participacao_id" NOT IN (:...meusIds)', {
-        meusIds,
-      })
-      .andWhere('"estado" = :estado', { estado: 'enviada' })
-      .execute();
-    if (resultado.affected) this.cache.invalidar(chatId);
-  }
-
-  private async resumo(
-    manager: EntityManager,
-    chat: ChatEntity,
-    meusIds: number[],
-  ): Promise<ResumoChat> {
-    const [ultima, naoLidas] = await Promise.all([
-      manager.getRepository(MensagemChatEntity).findOne({
-        where: { chatId: chat.id },
-        order: { id: 'DESC' },
-      }),
-      meusIds.length
-        ? manager
-            .getRepository(MensagemChatEntity)
-            .createQueryBuilder('mensagem')
-            .where('mensagem.chat_id = :chatId', { chatId: chat.id })
-            .andWhere(
-              'mensagem.remetente_participacao_id NOT IN (:...meusIds)',
-              {
-                meusIds,
-              },
-            )
-            .andWhere('mensagem.estado != :lida', { lida: 'lida' })
-            .getCount()
-        : Promise.resolve(0),
-    ]);
-    const ultimaMensagem = ultima
-      ? await this.apresentarMensagem(ultima)
-      : null;
-    return {
-      id: chat.id,
-      programaId: chat.programaId,
-      programa: chat.programa?.codigo ?? '',
-      minhaParticipacaoId: meusIds[0] ?? 0,
-      titulo: chat.titulo,
-      atualizadoEm: chat.atualizadoEm,
-      participantes: this.participantes(chat.participantes),
-      ultimaMensagem,
-      naoLidas,
-    };
-  }
-
-  async listar(email: string): Promise<ResumoChat[]> {
-    const manager = this.dados.manager;
-    const participacoes = await this.participacoesDoUsuario(manager, email);
-    if (!participacoes.length) return [];
-    const meusIds = participacoes.map((participacao) => participacao.id);
-    const chats = await manager
-      .getRepository(ChatEntity)
-      .createQueryBuilder('chat')
-      .innerJoin('chat.participantes', 'membroAtual')
-      .innerJoin('membroAtual.participacao', 'minhaParticipacao')
-      .leftJoinAndSelect('chat.participantes', 'membro')
-      .leftJoinAndSelect('membro.participacao', 'participacao')
-      .leftJoinAndSelect('chat.programa', 'programa')
-      .where('minhaParticipacao.id IN (:...meusIds)', { meusIds })
-      .andWhere('chat.ativo = true')
-      .orderBy('chat.atualizadoEm', 'DESC')
-      .getMany();
-    const unicos = [...new Map(chats.map((chat) => [chat.id, chat])).values()];
-    return Promise.all(
-      unicos.map(async (chat) => {
-        const idsNoChat = chat.participantes.map(
-          (membro) => membro.participacaoId,
-        );
-        const idsDoUsuario = meusIds.filter((id) => idsNoChat.includes(id));
-        await this.registrarEntrega(manager, chat.id, idsDoUsuario);
-        return this.resumo(manager, chat, idsDoUsuario);
-      }),
+  async listar(email: string, codigo?: string) {
+    const pessoas = await this.dados.getRepository(ParticipacaoEntity).find({
+      where: {
+        usuarioId: email.trim().toLowerCase(),
+        ...(codigo ? { programa: codigo } : {}),
+      },
+    });
+    if (!pessoas.length) return [];
+    const periodos = await this.dados
+      .getRepository(ChatPeriodoEntity)
+      .find({ where: { participacaoId: In(pessoas.map((p) => p.id)) } });
+    const ids = [...new Set(periodos.map((p) => p.chatId))];
+    const resultado = [];
+    for (const id of ids) {
+      try {
+        resultado.push(await this.resumo(id, email));
+      } catch (erro) {
+        if (!(erro instanceof NotFoundException)) throw erro;
+      }
+    }
+    return resultado.sort(
+      (a, b) =>
+        new Date(b.atualizadoEm).getTime() -
+          new Date(a.atualizadoEm).getTime() || b.id - a.id,
     );
+  }
+
+  private resumo(chatId: number, email: string) {
+    return this.comAcesso(chatId, email, false, async (manager, c) => {
+      const where = this.filtros(c);
+      const ultima = where.length
+        ? await manager
+            .getRepository(MensagemChatEntity)
+            .findOne({ where, order: { id: 'DESC' } })
+        : null;
+      await this.registrarRecebimento(manager, c);
+      const recibos = await manager.getRepository(ChatDestinatarioEntity).find({
+        where: { chatId, participacaoId: In(c.ids), lidaEm: IsNull() },
+      });
+      return {
+        id: chatId,
+        programaId: c.programa.id,
+        programa: c.programa.codigo,
+        tipo: c.chat.tipo,
+        grupoId: c.chat.grupoId,
+        matchingVinculoId: c.chat.matchingVinculoId,
+        titulo: c.chat.titulo,
+        atualizadoEm: ultima?.criadaEm ?? c.chat.criadoEm,
+        participantes: this.perfis(c),
+        ultimaMensagem: ultima
+          ? (await this.serializar(manager, [ultima]))[0]
+          : null,
+        naoLidas: new Set(
+          recibos
+            .filter((r) => mensagemNoHistorico(r.mensagemId, c.intervalos))
+            .map((r) => r.mensagemId),
+        ).size,
+        ...this.acesso(c),
+      };
+    });
+  }
+
+  private perfis(c: Contexto) {
+    return c.participantes.map((p) => ({
+      participacaoId: p.id,
+      id: p.id,
+      nome: p.respostas?.nome?.trim() || p.usuarioId,
+      email: p.usuarioId,
+      papel: p.papel,
+    }));
   }
 
   async listarMensagens(
     chatId: number,
     email: string,
     antesDe?: number,
-  ): Promise<{ mensagens: MensagemChatResposta[]; temMais: boolean }> {
+    depoisDe?: number,
+  ) {
     if (
-      antesDe !== undefined &&
-      (!Number.isSafeInteger(antesDe) || antesDe < 1)
+      (antesDe !== undefined &&
+        (!Number.isSafeInteger(antesDe) || antesDe < 1)) ||
+      (depoisDe !== undefined &&
+        (!Number.isSafeInteger(depoisDe) || depoisDe < 0)) ||
+      (antesDe !== undefined && depoisDe !== undefined)
     )
       throw new BadRequestException('Cursor de mensagem inválido.');
-    const manager = this.dados.manager;
-    const membro = await this.exigirMembro(manager, chatId, email);
-    const participacoes = await this.participacoesDoUsuario(manager, email);
-    const meusIds = participacoes
-      .filter((participacao) => participacao.id === membro.participacaoId)
-      .map((participacao) => participacao.id);
-    const leitura = await manager
-      .getRepository(MensagemChatEntity)
-      .createQueryBuilder()
-      .update()
-      .set({
-        estado: 'lida',
-        entregueEm: new Date(),
-        lidaEm: new Date(),
-      })
-      .where('"chat_id" = :chatId', { chatId })
-      .andWhere('"remetente_participacao_id" NOT IN (:...meusIds)', { meusIds })
-      .andWhere('"estado" IN (:...estados)', {
-        estados: ['enviada', 'entregue'],
-      })
-      .execute();
-    if (leitura.affected) this.cache.invalidar(chatId);
+    return this.comAcesso(chatId, email, false, async (manager, c) => {
+      const where = this.filtros(c, antesDe, depoisDe);
+      const resultados = where.length
+        ? await manager.getRepository(MensagemChatEntity).find({
+            where,
+            order: { id: depoisDe !== undefined ? 'ASC' : 'DESC' },
+            take: 51,
+          })
+        : [];
+      const pagina = resultados.slice(0, 50);
+      if (depoisDe === undefined) pagina.reverse();
+      await this.registrarRecebimento(
+        manager,
+        c,
+        pagina.map((m) => m.id),
+      );
+      return {
+        mensagens: await this.serializar(manager, pagina),
+        temMais: resultados.length > 50,
+        ...this.acesso(c),
+      };
+    });
+  }
 
-    if (antesDe === undefined) {
-      const emCache = this.cache.obter(chatId);
-      if (emCache) {
-        return {
-          mensagens: await Promise.all(
-            emCache.mensagens.map((mensagem) =>
-              this.apresentarMensagem(mensagem),
-            ),
-          ),
-          temMais: emCache.temMais,
-        };
-      }
-    }
-
-    const versaoCache = this.cache.versaoAtual();
-    const consulta = manager
-      .getRepository(MensagemChatEntity)
-      .createQueryBuilder('mensagem')
-      .where('mensagem.chat_id = :chatId', { chatId });
-    if (antesDe !== undefined) {
-      consulta.andWhere('mensagem.id < :antesDe', { antesDe });
-    }
-    const resultados = await consulta
-      .orderBy('mensagem.id', 'DESC')
-      .take(51)
-      .getMany();
-    const temMais = resultados.length > 50;
-    const mensagens = resultados.slice(0, 50).reverse();
-    if (antesDe === undefined)
-      this.cache.salvarSeAtual(chatId, mensagens, temMais, versaoCache);
-    return {
-      mensagens: await Promise.all(
-        mensagens.map((mensagem) => this.apresentarMensagem(mensagem)),
-      ),
-      temMais,
-    };
+  /** Delta de estado, sem baixar novamente o texto das mensagens já carregadas. */
+  async listarRecibos(
+    chatId: number,
+    email: string,
+    depoisDaRevisao: number,
+    ateMensagemId: number,
+  ) {
+    if (
+      !Number.isSafeInteger(depoisDaRevisao) ||
+      depoisDaRevisao < 0 ||
+      !Number.isSafeInteger(ateMensagemId) ||
+      ateMensagemId < 1
+    )
+      throw new BadRequestException('Cursor de recibos inválido.');
+    return this.comAcesso(chatId, email, false, async (manager, c) => {
+      const revisao = c.chat.revisao ?? 0;
+      const alterados = await manager
+        .getRepository(ChatDestinatarioEntity)
+        .find({
+          where: { chatId, revisao: MoreThan(depoisDaRevisao) },
+        });
+      const ids = [
+        ...new Set(
+          alterados
+            .filter(
+              (r) =>
+                r.revisao <= revisao &&
+                r.mensagemId <= ateMensagemId &&
+                mensagemNoHistorico(r.mensagemId, c.intervalos),
+            )
+            .map((r) => r.mensagemId),
+        ),
+      ];
+      const mensagens = ids.length
+        ? await manager
+            .getRepository(MensagemChatEntity)
+            .find({ where: { chatId, id: In(ids) } })
+        : [];
+      const estados = await this.serializar(manager, mensagens);
+      return {
+        recibos: estados.map(({ id, estado, recibos }) => ({
+          id,
+          estado,
+          recibos,
+        })),
+        ...this.acesso(c),
+      };
+    });
   }
 
   async enviarMensagem(
     chatId: number,
     email: string,
     texto: string,
-  ): Promise<MensagemChatResposta> {
-    const conteudo = texto.trim();
-    if (!conteudo)
-      throw new BadRequestException('A mensagem não pode ser vazia.');
-    if (conteudo.length > 4000)
+    clientId?: string,
+  ) {
+    if (
+      typeof texto !== 'string' ||
+      !texto.trim() ||
+      texto.trim().length > 4000
+    )
       throw new BadRequestException(
-        'A mensagem excede o limite de 4000 caracteres.',
+        'Escreva uma mensagem de até 4000 caracteres.',
       );
-    const resposta = await this.dados.transaction(async (manager) => {
-      const membro = await this.exigirMembro(manager, chatId, email);
-      await this.exigirVinculoAtivo(manager, chatId);
-      const mensagem = manager.getRepository(MensagemChatEntity).create({
-        chatId,
-        remetenteParticipacaoId: membro.participacaoId,
-        texto: conteudo,
-        imagemChave: null,
-        estado: 'enviada' satisfies EstadoMensagemChat,
-        entregueEm: null,
-        lidaEm: null,
-      });
-      const salva = await manager
-        .getRepository(MensagemChatEntity)
-        .save(mensagem);
+    if (
+      clientId !== undefined &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        clientId,
+      )
+    )
+      throw new BadRequestException('Identificador de mensagem inválido.');
+    return this.comAcesso(chatId, email, true, async (manager, c) => {
+      const repo = manager.getRepository(MensagemChatEntity);
+      if (clientId) {
+        const anterior = await repo.findOne({
+          where: { chatId, remetenteParticipacaoId: In(c.ids), clientId },
+        });
+        if (anterior) {
+          if (anterior.texto !== texto.trim())
+            throw new ConflictException(
+              'O identificador já foi usado para outra mensagem.',
+            );
+          if (!mensagemNoHistorico(anterior.id, c.intervalos))
+            throw new NotFoundException('Mensagem não encontrada.');
+          return (await this.serializar(manager, [anterior]))[0];
+        }
+      }
+      if (!c.podeEnviar) throw new ConflictException(c.motivoBloqueio!);
+      const mensagem = await repo.save(
+        repo.create({
+          chatId,
+          remetenteParticipacaoId: c.minhaParticipacaoId,
+          texto: texto.trim(),
+          remetenteNome: (
+            c.atuais.find((p) => p.id === c.minhaParticipacaoId)?.respostas
+              ?.nome || email
+          ).slice(0, 160),
+          clientId: clientId ?? randomUUID(),
+          criadaEm: new Date(),
+          estado: 'enviada',
+          entregueEm: null,
+          lidaEm: null,
+        }),
+      );
+      const repoRecibos = manager.getRepository(ChatDestinatarioEntity);
+      const destinatarios = c.atuais.filter(
+        (p) => p.id !== c.minhaParticipacaoId,
+      );
+      if (destinatarios.length)
+        await repoRecibos.save(
+          destinatarios.map((p) =>
+            repoRecibos.create({
+              chatId,
+              mensagemId: mensagem.id,
+              participacaoId: p.id,
+              entregueEm: null,
+              lidaEm: null,
+            }),
+          ),
+        );
       await manager
         .getRepository(ChatEntity)
         .update({ id: chatId }, { atualizadoEm: new Date() });
-      const outbox = manager.getRepository(ChatOutboxEntity);
-      const evento = novoEventoChat(chatId, salva.id);
-      await outbox.save(
-        outbox.create({
-          id: evento.id,
-          evento,
-          publicadoEm: null,
-        }),
-      );
-      return this.apresentarMensagem(salva);
+      c.chat.revisao = await avancarRevisao(manager, chatId);
+      if (destinatarios.length)
+        await repoRecibos.update(
+          { mensagemId: mensagem.id },
+          { revisao: c.chat.revisao },
+        );
+      return (await this.serializar(manager, [mensagem]))[0];
     });
-    this.cache.invalidar(chatId);
-    return resposta;
-  }
-
-  async enviarImagem(
-    chatId: number,
-    email: string,
-    arquivo: Buffer | undefined,
-  ): Promise<MensagemChatResposta> {
-    if (!arquivo?.length || arquivo.length > 5 * 1024 * 1024)
-      throw new BadRequestException('Envie uma imagem de até 5 MB.');
-    const tipo = detectarTipoCardapio(arquivo);
-    if (tipo !== 'image/png' && tipo !== 'image/jpeg' && tipo !== 'image/webp')
-      throw new BadRequestException('Envie uma imagem PNG, JPEG ou WebP.');
-    const extensao =
-      tipo === 'image/png' ? 'png' : tipo === 'image/jpeg' ? 'jpg' : 'webp';
-
-    await this.exigirMembro(this.dados.manager, chatId, email);
-    await this.exigirVinculoAtivo(this.dados.manager, chatId);
-    const nome = `chats/${chatId}/${randomUUID()}.${extensao}`;
-    const blob = await this.storage.enviar('chat', nome, arquivo, tipo, {
-      cacheControl: 'private, no-store',
-    });
-
-    try {
-      const resposta = await this.dados.transaction(async (manager) => {
-        const membro = await this.exigirMembro(manager, chatId, email);
-        await this.exigirVinculoAtivo(manager, chatId);
-        const repo = manager.getRepository(MensagemChatEntity);
-        const mensagem = await repo.save(
-          repo.create({
-            chatId,
-            remetenteParticipacaoId: membro.participacaoId,
-            texto: 'Imagem',
-            imagemChave: blob.chave,
-            estado: 'enviada',
-            entregueEm: null,
-            lidaEm: null,
-          }),
-        );
-        await manager
-          .getRepository(ChatEntity)
-          .update({ id: chatId }, { atualizadoEm: new Date() });
-        const outbox = manager.getRepository(ChatOutboxEntity);
-        const evento = novoEventoChat(chatId, mensagem.id);
-        await outbox.save(
-          outbox.create({
-            id: evento.id,
-            evento,
-            publicadoEm: null,
-          }),
-        );
-        return this.apresentarMensagem(mensagem);
-      });
-      this.cache.invalidar(chatId);
-      return resposta;
-    } catch (erro) {
-      try {
-        await this.storage.excluir('chat', nome);
-      } catch {
-        this.logger.warn(
-          `Não foi possível remover a imagem órfã do chat ${chatId}.`,
-        );
-      }
-      throw erro;
-    }
   }
 
   async observarMensagens(chatId: number, email: string, expiraEm: number) {
-    await this.exigirMembro(this.dados.manager, chatId, email);
-    return this.stream.observar(chatId, expiraEm, () =>
-      this.exigirMembro(this.dados.manager, chatId, email).then(() => {}),
+    await this.comAcesso(chatId, email, false, async (_m, c) => this.acesso(c));
+    return new Observable<MessageEvent>((assinante) => {
+      let ocupado = false,
+        terminado = false,
+        revisao: number | undefined;
+      let ultimoHeartbeat = Date.now();
+      const consultar = async () => {
+        if (ocupado || terminado) return;
+        if (Date.now() >= expiraEm) {
+          terminado = true;
+          assinante.complete();
+          return;
+        }
+        ocupado = true;
+        try {
+          const acesso = await this.comAcesso(
+            chatId,
+            email,
+            false,
+            async (_m, c) => this.acesso(c),
+          );
+          if (terminado || Date.now() >= expiraEm) return;
+          if (!acesso.podeEnviar) {
+            assinante.next({
+              type: 'chat.access',
+              data: {
+                chatId,
+                podeEnviar: false,
+                motivoBloqueio: acesso.motivoBloqueio,
+              },
+            });
+            terminado = true;
+            assinante.complete();
+          } else if (revisao !== acesso.revisao) {
+            assinante.next({
+              id: String(acesso.revisao),
+              type: revisao === undefined ? 'chat.ready' : 'chat.changed',
+              data: { chatId, revisao: acesso.revisao },
+            });
+            revisao = acesso.revisao;
+          } else if (Date.now() - ultimoHeartbeat >= 15000) {
+            assinante.next({ type: 'chat.heartbeat', data: { chatId } });
+            ultimoHeartbeat = Date.now();
+          }
+        } catch (erro) {
+          if (!terminado) {
+            if (erro instanceof NotFoundException) {
+              assinante.next({
+                type: 'chat.access',
+                data: { chatId, revogado: true },
+              });
+              terminado = true;
+              assinante.complete();
+            } else {
+              terminado = true;
+              assinante.error(erro);
+            }
+          }
+        } finally {
+          ocupado = false;
+        }
+      };
+      void consultar();
+      const timer = setInterval(() => {
+        void consultar();
+      }, 2000);
+      const expirar = setTimeout(
+        () => {
+          terminado = true;
+          assinante.complete();
+        },
+        Math.max(0, expiraEm - Date.now()),
+      );
+      return () => {
+        terminado = true;
+        clearInterval(timer);
+        clearTimeout(expirar);
+      };
+    });
+  }
+
+  async buscarParticipantes(chatId: number, email: string) {
+    return this.comAcesso(chatId, email, false, async (_m, c) =>
+      this.perfis(c),
     );
   }
 
-  /** Cria o chat e seus dois participantes na transação do matching. */
   async criarParaVinculo(
     manager: EntityManager,
-    matchingVinculoId: number,
+    vinculoId: number,
   ): Promise<ChatEntity> {
-    return ChatService.criarParaVinculoNaTransacao(manager, matchingVinculoId);
+    return ChatService.criarParaVinculoNaTransacao(manager, vinculoId);
   }
-
   static async criarParaVinculoNaTransacao(
     manager: EntityManager,
-    matchingVinculoId: number,
-  ): Promise<ChatEntity> {
-    const vinculo = await manager
-      .getRepository(MatchingVinculoEntity)
-      .createQueryBuilder('vinculo')
-      .setLock('pessimistic_write')
-      .where('vinculo.id = :id', { id: matchingVinculoId })
-      .getOne();
-    if (!vinculo || !vinculo.ativo)
-      throw new NotFoundException('Vínculo ativo do matching não encontrado.');
-    const chats = manager.getRepository(ChatEntity);
-    const existente = await chats.findOne({
-      where: { matchingVinculoId: vinculo.id },
-    });
-    if (existente) return existente;
-
-    const participacoes = manager.getRepository(ParticipacaoEntity);
-    const padrinho = await participacoes.findOne({
-      where: { id: vinculo.padrinhoParticipacaoId },
-    });
-    const apadrinhado = await participacoes.findOne({
-      where: { id: vinculo.apadrinhadoParticipacaoId },
-    });
-    const programa = await manager.getRepository(ProgramaEntity).findOne({
-      where: { id: vinculo.programaId },
-    });
-    if (
-      !padrinho ||
-      !apadrinhado ||
-      !programa ||
-      padrinho.programa !== programa.codigo ||
-      apadrinhado.programa !== programa.codigo ||
-      padrinho.papel !== 'padrinho' ||
-      apadrinhado.papel !== 'apadrinhado' ||
-      padrinho.status !== 'em_andamento' ||
-      apadrinhado.status !== 'em_andamento'
-    )
-      throw new BadRequestException(
-        'O vínculo precisa ter um padrinho e um apadrinhado ativos.',
-      );
-
-    const chat = await chats.save(
-      chats.create({
-        programaId: vinculo.programaId,
-        matchingVinculoId: vinculo.id,
-        titulo: null,
-        ativo: true,
-      }),
-    );
-    await manager.getRepository(ChatParticipanteEntity).save([
-      manager.getRepository(ChatParticipanteEntity).create({
-        chatId: chat.id,
-        participacaoId: padrinho.id,
-      }),
-      manager.getRepository(ChatParticipanteEntity).create({
-        chatId: chat.id,
-        participacaoId: apadrinhado.id,
-      }),
-    ]);
-    return chat;
-  }
-
-  async buscarParticipantes(
-    chatId: number,
-    email: string,
-  ): Promise<ParticipanteDoChat[]> {
-    const manager = this.dados.manager;
-    await this.exigirMembro(manager, chatId, email);
-    const membros = await manager.getRepository(ChatParticipanteEntity).find({
-      where: { chatId },
-      relations: { participacao: true },
-    });
-    return this.participantes(membros);
+    vinculoId: number,
+  ) {
+    return criarConversasDoVinculo(manager, vinculoId);
   }
 }

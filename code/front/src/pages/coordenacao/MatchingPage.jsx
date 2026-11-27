@@ -1,7 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
-import { api } from '../../api/client';
+import { api, getStoredToken } from '../../api/client';
+import { acompanharMatching } from './acompanharMatching';
+import { textoPreferenciaGenero } from '../../components/PreferenciaGenero';
 import Icon from '../../components/Icon';
+import ParesRecusadosMatching, {HistoricoParMatching, ValidadeSugestaoMatching} from '../../components/ParesRecusadosMatching';
+import RelatorioMatching from '../../components/RelatorioMatching';
+import DiagnosticoMatching from '../../components/DiagnosticoMatching';
+import GruposMatching from '../../components/GruposMatching';
 import Modal from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 
@@ -25,7 +31,8 @@ const OPERACOES = [
 ];
 
 function percentual(valor) {
-  return `${Math.round(Number(valor || 0) * 100)}%`;
+  const pontos = Number(valor || 0) * 100;
+  return pontos > 0 && pontos < 0.01 ? '<0,01%' : `${new Intl.NumberFormat('pt-BR', {maximumFractionDigits: 2}).format(pontos)}%`;
 }
 
 function dataHora(valor) {
@@ -60,17 +67,31 @@ function CampoPessoa({ pessoa, titulo }) {
   );
 }
 
-function Explicacao({ explicacao }) {
+function valorCriterio(valor) {
+  if (Array.isArray(valor)) return valor.join(', ');
+  if (valor && typeof valor === 'object' && 'modo' in valor) return textoPreferenciaGenero(valor);
+  if (typeof valor === 'boolean') return valor ? 'Sim' : 'Não';
+  return valor == null ? 'Não informado' : String(valor);
+}
+
+export function Explicacao({ explicacao }) {
   const criterios = explicacao?.criterios || [];
   return (
     <section className="matching-explanation">
       <div className="matching-score-head">
         <div>
-          <h3>Compatibilidade calculada</h3>
+          <h3>{explicacao?.politicaVersao ? 'Aderência comprovada' : 'Compatibilidade calculada'}</h3>
           <p>Este score descreve o cálculo configurado; não é probabilidade de sucesso.</p>
         </div>
         <strong>{percentual(explicacao?.score)}</strong>
       </div>
+      {explicacao?.politicaVersao ? <div className="matching-help">
+        <p><strong>Cobertura dos dados: {percentual(explicacao.cobertura)}</strong> · Afinidade entre os dados avaliáveis: {explicacao.afinidade == null ? 'Sem dados avaliáveis' : percentual(explicacao.afinidade)}.</p>
+        <p>{explicacao.pesoConhecido} de {explicacao.pesoConfigurado} pontos de critérios conhecidos. Neutralidades: {explicacao.pesoNeutro}. Dados ausentes não comprovam afinidade.</p>
+        {explicacao.viabilidade === 'inviavel' && <p role="alert">O par não atende a uma condição obrigatória.</p>}
+        {explicacao.viabilidade === 'dados_insuficientes' && <p role="alert">Faltam dados para conferir uma condição obrigatória.</p>}
+        {explicacao.distribuicao?.padrinho && <p>Ocupação deste padrinho: {explicacao.distribuicao.padrinho.confirmados} vínculo(s) confirmado(s) + {explicacao.distribuicao.padrinho.sugeridos} sugestão(ões), total projetado {explicacao.distribuicao.padrinho.totalProjetado}/{explicacao.distribuicao.padrinho.limite}. Equilíbrio considerado após a qualidade.</p>}
+      </div> : <p className="matching-help">Cálculo histórico: cobertura dos dados não registrada nesta versão.</p>}
       <div className="matching-criteria-results">
         {criterios.map((criterio, index) => (
           <article key={`${criterio.criterioPadrinhoId || criterio.campoPadrinho}-${index}`}>
@@ -81,23 +102,19 @@ function Explicacao({ explicacao }) {
                   || criterio.campoPadrinho
                   || `Critério ${criterio.criterioPadrinhoId || index + 1}`}
               </strong>
-              <span>Peso {criterio.peso}</span>
+              <span>Peso {criterio.peso}{criterio.cobertura != null && criterio.cobertura < 1 ? ` · Dados conhecidos: ${percentual(criterio.cobertura)}` : ''}{criterio.obrigatorio && ' · Correspondência obrigatória'}</span>
             </div>
             {!criterio.considerado ? (
-              <p>Não considerado: uma das respostas está ausente.</p>
+              <p>{criterio.motivo === 'sem_preferencia' ? 'Sem preferência declarada.' : criterio.motivo === 'vivencia_nao_aplicavel' ? 'Vivência não aplicável ao par.' : 'Não considerado: dados insuficientes.'}</p>
             ) : (
               <>
                 <p className={criterio.compativel ? 'matching-ok' : 'matching-no'}>
-                  {criterio.compativel ? 'Compatível' : 'Sem correspondência'}
+                  {criterio.atendimento > 0 && criterio.atendimento < 1 ? 'Parcialmente atendida' : criterio.compativel ? 'Compatível' : criterio.fator > 0 ? 'Parcialmente atendida' : 'Sem correspondência'}
                   {' · '}contribuição {criterio.contribuicao}/{criterio.peso}
                 </p>
                 <small>
-                  Padrinho: {Array.isArray(criterio.valorPadrinho)
-                    ? criterio.valorPadrinho.join(', ')
-                    : String(criterio.valorPadrinho)}
-                  {' · '}Apadrinhado: {Array.isArray(criterio.valorApadrinhado)
-                    ? criterio.valorApadrinhado.join(', ')
-                    : String(criterio.valorApadrinhado)}
+                  Padrinho: {valorCriterio(criterio.valorPadrinho)}
+                  {' · '}Apadrinhado: {valorCriterio(criterio.valorApadrinhado)}
                 </small>
               </>
             )}
@@ -115,30 +132,39 @@ function DetalheSugestao({ id, onFechar, onAlterado }) {
   const [acao, setAcao] = useState('');
   const [confirmar, setConfirmar] = useState('');
   const [motivo, setMotivo] = useState('');
+  const vida = useRef(0);
+  const emDecisao = useRef(false);
 
   useEffect(() => {
     let ativo = true;
+    vida.current++;
     api.sugestaoMatching(id)
       .then((resposta) => { if (ativo) setDados(resposta); })
       .catch((e) => { if (ativo) setErro(e.message); });
-    return () => { ativo = false; };
+    return () => { ativo = false; vida.current++; };
   }, [id]);
 
   async function decidir(tipo) {
+    if (emDecisao.current) return;
+    emDecisao.current = true;
+    const consulta = vida.current;
     setAcao(tipo);
     setErro('');
     try {
       if (tipo === 'aprovar') await api.aprovarSugestaoMatching(id);
       else await api.recusarSugestaoMatching(id, motivo.trim());
+      if (consulta !== vida.current) return;
       toast(tipo === 'aprovar' ? 'Match aprovado e vínculo confirmado.' : 'Sugestão recusada.', 'sucesso');
       onAlterado();
       onFechar();
     } catch (e) {
+      if (consulta !== vida.current) return;
       setErro(e.message || 'Não foi possível registrar a decisão.');
       setConfirmar('');
-      api.sugestaoMatching(id).then(setDados).catch(() => {});
+      api.sugestaoMatching(id).then(d => {if (consulta === vida.current) setDados(d);}).catch(() => {});
     } finally {
-      setAcao('');
+      emDecisao.current = false;
+      if (consulta === vida.current) setAcao('');
     }
   }
 
@@ -154,7 +180,7 @@ function DetalheSugestao({ id, onFechar, onAlterado }) {
         onFechar={onFechar}
         tamanho="lg"
         className="matching-detail-modal"
-        acoes={dados?.status === 'pendente' ? (
+        acoes={dados?.status === 'pendente' && dados?.podeAprovar !== false ? (
           <>
             <button type="button" className="danger-button" onClick={() => setConfirmar('recusar')}>
               Recusar sugestão
@@ -187,8 +213,10 @@ function DetalheSugestao({ id, onFechar, onAlterado }) {
                   : 'capacidade indisponível'}
               </p>
             </div>
+            <ValidadeSugestaoMatching dados={dados} />
             <Explicacao explicacao={dados.explicacao} />
-            {dados.status !== 'pendente' && (
+            <HistoricoParMatching eventos={dados.historicoPar} />
+            {dados.status !== 'pendente' && dados.status !== 'obsoleta' && (
               <p className="matching-decision">
                 Decisão: <strong>{dados.status}</strong> por {dados.decididaPor || '—'} em {dataHora(dados.decididaEm)}.
                 {dados.motivoDecisao ? ` Motivo: ${dados.motivoDecisao}` : ''}
@@ -196,7 +224,7 @@ function DetalheSugestao({ id, onFechar, onAlterado }) {
             )}
             {dados.status === 'aprovada' && (
               <p className="matching-chat-note">
-                <Icon name="chat" size={16} /> Conversa privada criada para este vínculo.
+                <Icon name="chat" size={16} /> Conversas privada e de grupo disponíveis para este vínculo.
               </p>
             )}
           </>
@@ -207,7 +235,7 @@ function DetalheSugestao({ id, onFechar, onAlterado }) {
           titulo={confirmar === 'aprovar' ? 'Confirmar este match?' : 'Recusar esta sugestão?'}
           descricao={confirmar === 'aprovar'
             ? `Será criado o vínculo entre ${nomePessoa(dados?.padrinho)} e ${nomePessoa(dados?.apadrinhado)}. As condições serão revalidadas no servidor.`
-            : 'A recusa não reprova nenhuma candidatura e não remove vínculos existentes.'}
+            : 'O par ficará fora das próximas sugestões deste ciclo até a coordenação escolher Reconsiderar par. A recusa não reprova as candidaturas nem remove vínculos existentes.'}
           onFechar={() => setConfirmar('')}
           acoes={(
             <>
@@ -583,18 +611,32 @@ function CatalogoCriterios() {
   );
 }
 
-function ConfiguracaoMatching({ programa, visao, onSalvo }) {
+export function criterioParaApi(criterio) {
+  return {
+    ...(criterio.campoCadastro ? {campoCadastro: criterio.campoCadastro} : {criterioPadrinhoId: Number(criterio.criterioPadrinhoId), criterioApadrinhadoId: Number(criterio.criterioApadrinhadoId)}),
+    operacao: criterio.operacao,
+    peso: Number(criterio.peso),
+    ...(typeof criterio.obrigatorio === 'boolean' ? {obrigatorio: criterio.obrigatorio} : {}),
+  };
+}
+
+export function ConfiguracaoMatching({ programa, visao, onSalvo }) {
   const toast = useToast();
   const atual = visao?.configuracao;
   const disponiveis = visao?.criteriosDisponiveis || [];
+  const cadastro = visao?.criteriosCadastroDisponiveis || [];
   const [aberto, setAberto] = useState(false);
   const [capP, setCapP] = useState(3);
   const [capA, setCapA] = useState(1);
   const [criterios, setCriterios] = useState([]);
   const [salvando, setSalvando] = useState(false);
+  const [versaoEdicao, setVersaoEdicao] = useState(atual?.versao ?? 0);
+  const [conflito, setConflito] = useState(false);
   const [erro, setErro] = useState('');
 
   useEffect(() => {
+    if (aberto) return;
+    setVersaoEdicao(atual?.versao ?? 0); setConflito(false);
     if (!atual) {
       setCapP(3);
       setCapA(1);
@@ -605,15 +647,15 @@ function ConfiguracaoMatching({ programa, visao, onSalvo }) {
     setCapA(atual.capacidadePorApadrinhado);
     setCriterios(
       (atual.criterios || [])
-        .filter((c) => c.criterioPadrinhoId && c.criterioApadrinhadoId)
+        .filter((c) => c.campoCadastro || (c.criterioPadrinhoId && c.criterioApadrinhadoId))
         .map((c) => ({
-          criterioPadrinhoId: c.criterioPadrinhoId,
-          criterioApadrinhadoId: c.criterioApadrinhadoId,
+          ...(c.campoCadastro ? {campoCadastro: c.campoCadastro} : {criterioPadrinhoId: c.criterioPadrinhoId, criterioApadrinhadoId: c.criterioApadrinhadoId}),
           operacao: c.operacao || 'igualdade',
           peso: c.peso || 10,
+          ...(typeof c.obrigatorio === 'boolean' ? {obrigatorio: c.obrigatorio} : {}),
         })),
     );
-  }, [atual]);
+  }, [atual, aberto]);
 
   const habilitaveis = disponiveis.filter((c) => c.habilitavel);
   const opcoes = (habilitaveis.length ? habilitaveis : disponiveis).filter((c) => c.ativo !== false);
@@ -624,6 +666,7 @@ function ConfiguracaoMatching({ programa, visao, onSalvo }) {
       const novo = { ...item, [chave]: Number(valor) || valor };
       if (chave === 'criterioPadrinhoId') {
         const meta = disponiveis.find((c) => c.id === Number(valor));
+        novo.criterioApadrinhadoId = Number(valor);
         novo.operacao = meta?.tipo === 'multipla_escolha' ? 'intersecao' : 'igualdade';
       }
       return novo;
@@ -632,26 +675,24 @@ function ConfiguracaoMatching({ programa, visao, onSalvo }) {
 
   async function salvar(event) {
     event.preventDefault();
+    if (salvando || conflito) return;
     setSalvando(true);
     setErro('');
     try {
       await api.salvarMatchingConfiguracao({
         programa,
+        versaoBase: versaoEdicao,
         liberado: atual?.liberado === true,
         capacidadePorPadrinho: Number(capP),
         capacidadePorApadrinhado: Number(capA),
-        criterios: criterios.map((c) => ({
-          criterioPadrinhoId: Number(c.criterioPadrinhoId),
-          criterioApadrinhadoId: Number(c.criterioApadrinhadoId),
-          operacao: c.operacao,
-          peso: Number(c.peso),
-        })),
+        criterios: criterios.map(criterioParaApi),
       });
       toast('Configuração de matching salva em uma nova versão.', 'sucesso');
       setAberto(false);
       onSalvo();
     } catch (e) {
       setErro(e.message || 'Não foi possível salvar a configuração.');
+      setConflito(e.status === 409);
     } finally {
       setSalvando(false);
     }
@@ -668,7 +709,7 @@ function ConfiguracaoMatching({ programa, visao, onSalvo }) {
             : 'Defina critérios do catálogo antes de liberar e executar o matching.'}
         </p>
         <p className="matching-help">
-          Os critérios são geridos na aba <strong>Critérios de matching</strong> e inseridos nos formulários
+          Os dados do cadastro já estão disponíveis. Critérios adicionais são geridos na aba <strong>Critérios de matching</strong> e inseridos nos formulários
           com <strong>Adicionar pergunta de matching</strong>. Prefira critérios <em>habilitáveis</em>
           (já coletados nos dois públicos).
         </p>
@@ -688,6 +729,18 @@ function ConfiguracaoMatching({ programa, visao, onSalvo }) {
               <label>Limite por padrinho<input type="number" min="1" max="20" value={capP} onChange={(e) => setCapP(e.target.value)} required /></label>
               <label>Limite por apadrinhado<input type="number" min="1" max="20" value={capA} onChange={(e) => setCapA(e.target.value)} required /></label>
             </div>
+            <fieldset><legend>Dados do cadastro</legend>
+              <p>Use os dados já respondidos, sem criar perguntas duplicadas. Os pesos são definidos pela coordenação.</p>
+              {cadastro.map(fonte => {
+                const selecionado = criterios.find(c => c.campoCadastro === fonte.campo);
+                return <div key={fonte.campo} className="matching-cap-fields">
+                  <label><input type="checkbox" checked={Boolean(selecionado)} onChange={e => setCriterios(lista => e.target.checked ? [...lista, {campoCadastro: fonte.campo, operacao: fonte.operacao, peso: 10}] : lista.filter(c => c.campoCadastro !== fonte.campo))} />{fonte.nome}</label>
+                  {selecionado && <label>Peso (1 a 100)<input type="number" min="1" max="100" required value={selecionado.peso} onChange={e => setCriterios(lista => lista.map(c => c.campoCadastro === fonte.campo ? {...c, peso: e.target.value} : c))} /></label>}
+                  {selecionado && fonte.permiteObrigatorio && <label><input type="checkbox" checked={selecionado.obrigatorio === true} onChange={e => setCriterios(lista => lista.map(c => c.campoCadastro === fonte.campo ? {...c, obrigatorio: e.target.checked} : c))} />{fonte.campo === 'areas' ? 'Exigir pelo menos uma área em comum' : 'Exigir pelo menos um horário em comum'}</label>}
+                </div>;
+              })}
+              <p>Preferência de gênero tem peso nos dois sentidos. ProUni e mudança de cidade valorizam a vivência compartilhada. Dados não informados continuam desconhecidos.</p>
+            </fieldset>
             <div className="matching-config-head">
               <h3>Pares de critérios</h3>
               <button
@@ -713,6 +766,7 @@ function ConfiguracaoMatching({ programa, visao, onSalvo }) {
               </p>
             )}
             {criterios.map((criterio, index) => {
+              if (criterio.campoCadastro) return null;
               const metaP = disponiveis.find((c) => c.id === Number(criterio.criterioPadrinhoId));
               return (
                 <div className="matching-config-row" key={`${index}-${criterio.criterioPadrinhoId}`}>
@@ -740,7 +794,7 @@ function ConfiguracaoMatching({ programa, visao, onSalvo }) {
                       required
                     >
                       <option value="" disabled>Selecione</option>
-                      {disponiveis.map((c) => (
+                      {disponiveis.filter(c => c.id === Number(criterio.criterioPadrinhoId)).map((c) => (
                         <option key={`a-${c.id}`} value={c.id} disabled={!c.ativo && !c.coletadoApadrinhado}>
                           {c.nome}
                           {c.habilitavel ? '' : c.coletadoApadrinhado ? ' (só apadrinhado)' : ' (não coletado)'}
@@ -755,24 +809,26 @@ function ConfiguracaoMatching({ programa, visao, onSalvo }) {
                         <option
                           key={op.valor}
                           value={op.valor}
-                          disabled={op.valor !== 'igualdade' && metaP?.tipo === 'sim_nao'}
+                          disabled={metaP?.tipo === 'multipla_escolha' ? op.valor === 'igualdade' : op.valor !== 'igualdade'}
                         >
                           {op.rotulo}
                         </option>
                       ))}
                     </select>
                   </label>
-                  <label>Peso<input type="number" min="1" max="100" value={criterio.peso} onChange={(e) => alterar(index, 'peso', e.target.value)} /></label>
+                  <label><input type="checkbox" checked={criterio.obrigatorio === true} onChange={e => setCriterios(lista => lista.map((c, i) => i === index ? {...c, obrigatorio: e.target.checked} : c))} />Correspondência obrigatória</label>
+                  <label>Peso<input type="number" min="1" max="100" required value={criterio.peso} onChange={(e) => alterar(index, 'peso', e.target.value)} /></label>
                   <button type="button" className="mini-btn danger" aria-label="Remover critério" onClick={() => setCriterios((lista) => lista.filter((_, i) => i !== index))}><Icon name="trash" size={14} /></button>
                 </div>
               );
             })}
             {!criterios.length && <p className="empty-copy">Adicione ao menos um par de critérios do catálogo.</p>}
-            <p className="matching-help">Respostas ausentes são ignoradas no denominador do score; não são tratadas como incompatibilidade.</p>
+            <p className="matching-help">Aderência e cobertura dos dados aparecem separadamente. Condições obrigatórias não atendidas ou desconhecidas impedem a sugestão. O equilíbrio desempata soluções de mesma qualidade.</p>
             {erro && <p className="form-error" role="alert">{erro}</p>}
+            {conflito && <button type="button" className="outline-button" onClick={() => {setAberto(false); onSalvo();}}>Carregar configuração atual</button>}
             <div className="modal-actions matching-inline-actions">
               <button type="button" className="ghost-button" onClick={() => setAberto(false)}>Cancelar</button>
-              <button type="submit" className="primary-button inline" disabled={salvando || !criterios.length}>{salvando ? 'Salvando…' : 'Salvar nova versão'}</button>
+              <button type="submit" className="primary-button inline" disabled={salvando || conflito || !criterios.length}>{salvando ? 'Salvando…' : 'Salvar nova versão'}</button>
             </div>
           </form>
         </Modal>
@@ -783,7 +839,10 @@ function ConfiguracaoMatching({ programa, visao, onSalvo }) {
 
 export default function MatchingPage() {
   const { programaQ } = useOutletContext();
-  const programa = programaQ;
+  return <MatchingPorPrograma key={programaQ || ''} programa={programaQ} />;
+}
+
+function MatchingPorPrograma({ programa }) {
   const toast = useToast();
   const [aba, setAba] = useState('operacao');
   const [visao, setVisao] = useState(null);
@@ -793,11 +852,19 @@ export default function MatchingPage() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
   const [executando, setExecutando] = useState(false);
+  const [acompanhamento, setAcompanhamento] = useState(null);
   const [confirmarExecucao, setConfirmarExecucao] = useState(false);
   const [detalheId, setDetalheId] = useState(null);
+  const ativo = useRef(true);
+  const sequencia = useRef(0);
+  const retomada = useRef(null);
+  const intencaoOperacao = useRef(null);
 
   const carregar = useCallback(async () => {
-    if (!programa) return;
+    if (!programa || !ativo.current) return;
+    const pedido = ++sequencia.current;
+    const token = getStoredToken();
+    const vigente = () => ativo.current && pedido === sequencia.current && getStoredToken() === token;
     setCarregando(true);
     setErro('');
     try {
@@ -806,34 +873,109 @@ export default function MatchingPage() {
         api.execucoesMatching(programa),
         api.sugestoesMatching(programa, status),
       ]);
+      if (!vigente()) return;
       setVisao(v);
       setExecucoes(e);
       setSugestoes(s);
+      return e;
     } catch (e) {
+      if (!vigente()) return;
       setErro(e.message || 'Não foi possível carregar o matching.');
     } finally {
-      setCarregando(false);
+      if (vigente()) setCarregando(false);
     }
   }, [programa, status]);
 
-  useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => {
+    ativo.current = true;
+    carregar();
+    return () => {
+      ativo.current = false;
+      sequencia.current++;
+    };
+  }, [carregar]);
 
   async function executar() {
+    const operacaoId = intencaoOperacao.current ?? crypto.randomUUID();
+    intencaoOperacao.current = operacaoId;
+    const token = getStoredToken();
+    const vigente = () => ativo.current && getStoredToken() === token;
     setExecutando(true);
     setConfirmarExecucao(false);
     setErro('');
     try {
-      const resposta = await api.executarMatching(programa);
+      const resposta = await api.executarMatching(programa, operacaoId);
+      if (!vigente()) return;
+      if (resposta.status === 'executando') {
+        setAcompanhamento({ operacaoId, execucaoId: resposta.id });
+        return;
+      }
+      intencaoOperacao.current = null;
+      if (resposta.status === 'falha') {
+        await carregar();
+        if (vigente()) setErro(resposta.erro || 'A execução falhou.');
+        return;
+      }
       toast(`Execução concluída: ${resposta.totalSugestoes || 0} sugestão(ões).`, 'sucesso');
       setStatus('pendente');
-      await carregar();
+      if (status === 'pendente') await carregar();
     } catch (e) {
-      setErro(e.message || 'A execução falhou.');
-      await carregar();
+      if (!vigente()) return;
+      const atuais = await carregar();
+      if (!vigente()) return;
+      const minhaRodada = atuais?.find(r => r.operacaoId === operacaoId);
+      if (minhaRodada || e.status === 0 || e.status >= 500) {
+        setAcompanhamento({ operacaoId, execucaoId: minhaRodada?.id });
+      } else {
+        intencaoOperacao.current = null;
+        setErro(e.message || 'A execução falhou.');
+      }
     } finally {
-      setExecutando(false);
+      if (vigente()) setExecutando(false);
     }
   }
+
+  const emCurso = execucoes.find(e => e.status === 'executando');
+  const aguardando = executando || !!acompanhamento || !!emCurso;
+
+  // O estado do ciclo continua sendo consultado após expirar a confirmação local.
+  useEffect(() => {
+    if (!executando && !acompanhamento && emCurso && retomada.current !== emCurso.id) {
+      retomada.current = emCurso.id;
+      setAcompanhamento({ execucaoId: emCurso.id, operacaoId: emCurso.operacaoId, ciclo: true });
+    }
+  }, [acompanhamento, emCurso, executando]);
+
+  useEffect(() => {
+    if (!acompanhamento) return;
+    let cancelado = false;
+    const token = getStoredToken();
+    const vigente = () => !cancelado && ativo.current && getStoredToken() === token;
+    acompanharMatching({
+      ...acompanhamento,
+      consultar: () => api.execucoesMatching(programa),
+      ativo: vigente,
+      atualizar: e => { setExecucoes(e); setErro(''); },
+      erroRede: () => setErro('Ainda não foi possível confirmar o resultado. Acompanhando a rodada…'),
+    }).then(async rodada => {
+      if (!rodada || !vigente()) return;
+      await carregar();
+      if (!vigente()) return;
+      setStatus('pendente');
+      setAcompanhamento(null);
+      const minhaOperacao = !!intencaoOperacao.current && rodada.operacaoId === intencaoOperacao.current;
+      if (minhaOperacao) intencaoOperacao.current = null;
+      if (rodada.status === 'falha') setErro(rodada.erro || 'A execução falhou.');
+      else if (!acompanhamento.ciclo || minhaOperacao) toast('Rodada concluída. Sugestões atualizadas.', 'sucesso');
+    }).catch(e => {
+      if (!vigente()) return;
+      retomada.current = acompanhamento.execucaoId;
+      setExecucoes(atuais => atuais.filter(r => r.id !== acompanhamento.execucaoId));
+      setAcompanhamento(null);
+      setErro(e.message || 'Não foi possível acompanhar a rodada.');
+    });
+    return () => { cancelado = true; };
+  }, [acompanhamento, programa, carregar, toast]);
 
   const totais = visao?.totais || {};
   const ultimaExecucao = execucoes[0];
@@ -857,8 +999,8 @@ export default function MatchingPage() {
             <Link to={`/coordenacao/matching/manual?programa=${encodeURIComponent(programa || '')}`} className="mini-btn">
               Gerenciar vínculos manualmente
             </Link>
-            <button type="button" className="primary-button inline" disabled={!visao?.podeExecutar || executando} onClick={() => setConfirmarExecucao(true)}>
-              <Icon name="spark" size={16} /> {executando ? 'Executando…' : 'Gerar sugestões'}
+            <button type="button" className="primary-button inline" disabled={!visao?.podeExecutar || aguardando} onClick={() => setConfirmarExecucao(true)}>
+              <Icon name="spark" size={16} /> {aguardando ? 'Executando…' : 'Gerar sugestões'}
             </button>
           </div>
         )}
@@ -878,6 +1020,7 @@ export default function MatchingPage() {
       {aba === 'operacao' && (
         <>
           {erro && <div className="dash-inline-error" role="alert">{erro}<button type="button" onClick={carregar}>Tentar novamente</button></div>}
+          {aguardando && <p role="status">Acompanhando a execução do matching até a conclusão…</p>}
           {carregando && !visao && <p className="empty-copy" role="status">Carregando matching…</p>}
 
           {visao && (
@@ -899,7 +1042,11 @@ export default function MatchingPage() {
               </div>
 
               <ConfiguracaoMatching programa={programa} visao={visao} onSalvo={carregar} />
+              <DiagnosticoMatching dados={visao.diagnosticoDados} />
 
+              <RelatorioMatching relatorio={ultimaExecucao?.configSnapshot?.relatorio} />
+              <ParesRecusadosMatching programa={programa} atualizacao={visao} onReconsiderado={carregar} />
+              <GruposMatching programa={programa} atualizacao={visao} onAlterado={carregar} />
               <section className="matching-results">
                 <div className="matching-results-head">
                   <div>
@@ -932,7 +1079,7 @@ export default function MatchingPage() {
                         <Icon name="link" size={20} />
                         <div><small>Apadrinhado</small><strong>{nomePessoa(sugestao.apadrinhado)}</strong><span>{sugestao.apadrinhado?.curso || 'Curso não informado'}</span></div>
                       </div>
-                      <div className="matching-row-score"><strong>{percentual(sugestao.score)}</strong><span>score calculado</span></div>
+                      <div className="matching-row-score"><strong>{percentual(sugestao.explicacao?.score ?? sugestao.score)}</strong><span>{sugestao.explicacao?.politicaVersao ? 'aderência comprovada' : 'score histórico'}</span>{sugestao.explicacao?.cobertura != null && <small>Dados conhecidos: {percentual(sugestao.explicacao.cobertura)}</small>}</div>
                       <span className={`status-pill ${sugestao.status === 'aprovada' ? 'aprovada' : sugestao.status === 'recusada' ? 'rejeitada' : sugestao.status === 'obsoleta' ? 'sem-vinculo' : 'analise'}`}>{sugestao.status}</span>
                       <button type="button" className="mini-btn" onClick={() => setDetalheId(sugestao.id)}><Icon name="eye" size={15} /> Comparar</button>
                     </article>
@@ -957,10 +1104,10 @@ export default function MatchingPage() {
             </>
           )}
         >
-          <p className="matching-help">O algoritmo maximiza primeiro a quantidade de pares viáveis e depois a compatibilidade total, respeitando capacidade em ambos os lados e desempate estável.</p>
+          <p className="matching-help">A rodada respeita as condições obrigatórias, prioriza novos alunos e maximiza a aderência comprovada. Entre soluções de mesma qualidade, equilibra a ocupação total dos padrinhos. Vínculos confirmados permanecem preservados.</p>
         </Modal>
       )}
-      {detalheId && <DetalheSugestao id={detalheId} onFechar={() => setDetalheId(null)} onAlterado={carregar} />}
+      {detalheId && <DetalheSugestao key={detalheId} id={detalheId} onFechar={() => setDetalheId(null)} onAlterado={carregar} />}
     </section>
   );
 }

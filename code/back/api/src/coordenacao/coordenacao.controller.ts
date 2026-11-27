@@ -100,10 +100,15 @@ export class CoordenacaoController {
 
   @Post('candidaturas/:id/vinculos/:vinculoId/encerrar')
   encerrarVinculo(
+    @Req() requisicao: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
     @Param('vinculoId', ParseIntPipe) vinculoId: number,
   ) {
-    return this.coordenacaoService.encerrarVinculo(id, vinculoId);
+    return this.coordenacaoService.encerrarVinculo(
+      id,
+      vinculoId,
+      requisicao.user.email,
+    );
   }
 
   @Post('candidaturas/:id/aprovar')
@@ -131,8 +136,14 @@ export class CoordenacaoController {
   }
 
   @Post('candidaturas/:id/desvincular')
-  desvincular(@Param('id', ParseIntPipe) id: number) {
-    return this.coordenacaoService.desvincularCandidatura(id);
+  desvincular(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() requisicao: AuthenticatedRequest,
+  ) {
+    return this.coordenacaoService.desvincularCandidatura(
+      id,
+      requisicao.user.email,
+    );
   }
 
   @Post('candidaturas/:id/revogar')

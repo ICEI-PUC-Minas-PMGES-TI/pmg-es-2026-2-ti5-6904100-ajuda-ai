@@ -41,7 +41,23 @@ export const somenteMapa: AccessTokenPayload = {
 export function criarFeedTeste() {
   const programa = ParticipacoesService.programaAtual();
   const tabelas: Record<string, any[]> = {
-    ProgramaEntity: [{ codigo: programa, etapaAtual: 'andamento' }],
+    ProgramaEntity: [
+      {
+        id: 1,
+        codigo: programa,
+        etapaAtual: 'andamento',
+        inscricoesAbertas: false,
+      },
+    ],
+    MatchingVinculoEntity: [
+      {
+        id: 1,
+        programaId: 1,
+        padrinhoParticipacaoId: 1,
+        apadrinhadoParticipacaoId: 2,
+        ativo: true,
+      },
+    ],
     ParticipacaoEntity: [
       {
         id: 1,
@@ -135,6 +151,8 @@ export function criarFeedTeste() {
     getRepository: (entity: { name: string }) => repos[entity.name],
   };
   const dados = {
+    isInitialized: true,
+    manager,
     getRepository: manager.getRepository,
     transaction: async (acao: any) => {
       const snapshot = structuredClone(tabelas);
@@ -152,7 +170,11 @@ export function criarFeedTeste() {
     urls: (chaves: string[]) => chaves,
   } as unknown as FeedMidiasService;
   const permissoes = new PermissoesAlunoService(
-    new ParticipacoesService(repos.ParticipacaoEntity, repos.ProgramaEntity),
+    new ParticipacoesService(
+      repos.ParticipacaoEntity,
+      repos.ProgramaEntity,
+      dados,
+    ),
     new ProgramasService(repos.ProgramaEntity),
   );
   const policy = new FeedPolicy(permissoes);

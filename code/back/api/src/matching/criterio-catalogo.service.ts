@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, ILike } from 'typeorm';
+import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
+import { isDeepStrictEqual } from 'node:util';
 import { FormularioEntity } from '../formularios/entities/formulario.entity.js';
 import {
   AtualizarCriterioCatalogoDto,
@@ -98,7 +100,14 @@ export class CriterioCatalogoService {
         const antigo = anteriores?.find(
           (a) => a.rotulo.toLowerCase() === chave,
         );
-        id = antigo?.id ?? slugAlternativa(rotulo, usados);
+        if (antigo) {
+          if (usados.has(antigo.id))
+            throw new BadRequestException(
+              'Identificador de alternativa repetido.',
+            );
+          id = antigo.id;
+          usados.add(id);
+        } else id = slugAlternativa(rotulo, usados);
       } else {
         usados.add(id);
         if (porIdAnterior.has(id) === false && anteriores?.length) {
@@ -242,7 +251,10 @@ export class CriterioCatalogoService {
   ) {
     return this.dados.transaction(async (manager) => {
       const repo = manager.getRepository(MatchingCriterioEntity);
-      const criterio = await repo.findOne({ where: { id } });
+      const criterio = await repo.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!criterio) throw new NotFoundException('Critério não encontrado.');
       const versaoAtual = await this.versaoAtual(manager, id);
       if (!versaoAtual)
@@ -296,7 +308,12 @@ export class CriterioCatalogoService {
           dto.enunciadoPadrao !== undefined ||
           dto.tipo !== undefined);
 
-      if (estrutural) {
+      if (
+        estrutural ||
+        (soRotulos &&
+          (!isDeepStrictEqual(versaoAtual.alternativas, alternativas) ||
+            versaoAtual.enunciadoPadrao !== enunciado))
+      ) {
         const usos = await this.usosPorCriterio([id], manager);
         const uso = usos.get(id);
         if (
@@ -343,7 +360,7 @@ export class CriterioCatalogoService {
     return this.dados.transaction(async (manager) => {
       const criterio = await manager
         .getRepository(MatchingCriterioEntity)
-        .findOne({ where: { id } });
+        .findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
       if (!criterio) throw new NotFoundException('Critério não encontrado.');
       const usos = await this.usosPorCriterio([id], manager);
       const uso = usos.get(id);
@@ -448,6 +465,21 @@ export class CriterioCatalogoService {
       }
     }
 
+    const participacoes = await manager
+      .getRepository(ParticipacaoEntity)
+      .find();
+    for (const participacao of participacoes) {
+      const snapshot = participacao.respostas?._servidor?.formulario;
+      for (const pergunta of snapshot?.perguntas ?? []) {
+        const id = Number((pergunta as { criterioId?: unknown })?.criterioId);
+        if (mapa.has(id))
+          mapa.get(id)!.formularios.push({
+            programa: participacao.programa,
+            tipo: snapshot!.tipo ?? participacao.papel,
+            versao: snapshot!.versao ?? 0,
+          });
+      }
+    }
     const configs = await manager
       .getRepository(MatchingConfiguracaoEntity)
       .find();

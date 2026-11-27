@@ -1,3 +1,4 @@
+import { MatchingModule } from '../matching/matching.module.js';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module.js';
@@ -11,6 +12,7 @@ import { PermissoesAlunoService } from './permissoes-aluno.service.js';
 @Module({
   imports: [
     AuthModule,
+    MatchingModule,
     ProgramasModule,
     TypeOrmModule.forFeature([ParticipacaoEntity, ProgramaEntity]),
   ],

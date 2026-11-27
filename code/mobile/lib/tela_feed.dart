@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 
 import 'services/api_config.dart';
 import 'services/feed_events.dart';
+import 'services/feed_access.dart';
 import 'services/feed_image_save.dart';
 import 'services/feed_media.dart';
 import 'widgets/app_feedback.dart';
@@ -80,6 +81,14 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   final _consultas = <int, Future<void>>{};
   final _pendentes = <int>{};
   bool _podePublicar = false;
+  bool _podeLer = false;
+  bool _emPrimeiroPlano = true;
+  int _geracaoFeed = 0;
+  int _consultaPermissoes = 0;
+  late FeedAccess _acesso;
+  String? _tokenConta;
+  Timer? _timerAcesso;
+  BuildContext? _editorContext;
   bool _consultaAtiva = false;
   bool _consultaPendente = false;
   String _estadoTempoReal = 'Conectando às atualizações…';
@@ -89,21 +98,89 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     if (_token != null) 'authorization': 'Bearer $_token',
   };
 
+  bool _vigente(int geracao, String? token) =>
+      mounted &&
+      geracao == _geracaoFeed &&
+      token == _token &&
+      token == _tokenConta &&
+      _podeLer;
+
+  bool _respostaAtual(http.Response r, int geracao, String? token) {
+    if (!_vigente(geracao, token)) return false;
+    if (r.statusCode == 401 || r.statusCode == 403) {
+      unawaited(_carregarPermissoes(reconciliar: true));
+      return false;
+    }
+    return true;
+  }
+
+  void _limparAcesso() {
+    if (!mounted) return;
+    _geracaoFeed++;
+    _acesso.invalidar();
+    _eventos.fechar();
+    setState(() {
+      _podeLer = _podePublicar = false;
+      _publicacoes.clear();
+      _curtidoresEmCache.clear();
+      for (final fonte in _fontes.values) {
+        fonte.dispose();
+      }
+      _fontes.clear();
+      for (final card in _cards.values) {
+        card.dispose();
+      }
+      _cards.clear();
+      _carregandoPublicacoes = false;
+      _estadoTempoReal = 'O feed é dos participantes aprovados do ciclo atual.';
+    });
+    final painel = _editorContext;
+    if (painel != null &&
+        painel.mounted &&
+        ModalRoute.of(painel)?.isCurrent == true) {
+      Navigator.of(painel).pop();
+    }
+    _mudancas.value++;
+  }
+
+  void _sessaoMudou() {
+    if (_tokenConta != _token) {
+      _limparAcesso();
+      _tokenConta = _token;
+      unawaited(_carregarPermissoes());
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     diagNav('feed: initState (abre o SSE)');
     _deveFecharClient = widget.client == null;
     _client = widget.client ?? http.Client();
+    _tokenConta = _token;
+    _acesso = FeedAccess(
+      client: _client,
+      baseUrl: _apiBaseUrl,
+      token: () => _token,
+    );
+    if (widget.accessToken == null) {
+      SessaoUsuario.atual.mudancas.addListener(_sessaoMudou);
+    }
     WidgetsBinding.instance.addObserver(this);
     _eventos = FeedEvents(
       token: () => _token,
       baseUrl: _apiBaseUrl,
       clientFactory: widget.eventsClientFactory,
+      programa: () => widget.coordenacao ? _semestre : null,
+      onSemAcesso: _limparAcesso,
       onEstado: (estado) {
         if (mounted) setState(() => _estadoTempoReal = estado);
       },
       onEvento: (tipo, dados) {
+        if (tipo == 'feed.permissions') {
+          unawaited(_carregarPermissoes());
+          return;
+        }
         final id = (dados['publicacaoId'] as num?)?.toInt();
         if (tipo == 'feed.post.deleted' && id != null) {
           if (mounted) {
@@ -117,14 +194,28 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
         }
       },
     );
-    _eventos.iniciar();
     _carregarPermissoes();
-    _carregarPublicacoes();
+    _timerAcesso = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (_emPrimeiroPlano) unawaited(_carregarPermissoes(reconciliar: true));
+    });
     if (widget.coordenacao) unawaited(_carregarSemestres());
   }
 
   @override
+  void didUpdateWidget(covariant FeedPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.accessToken != widget.accessToken) _sessaoMudou();
+  }
+
+  @override
   void dispose() {
+    _geracaoFeed++;
+    _consultaPermissoes++;
+    _acesso.invalidar();
+    _timerAcesso?.cancel();
+    if (widget.accessToken == null) {
+      SessaoUsuario.atual.mudancas.removeListener(_sessaoMudou);
+    }
     WidgetsBinding.instance.removeObserver(this);
     _eventos.fechar();
     _mudancas.dispose();
@@ -140,31 +231,52 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _emPrimeiroPlano = state == AppLifecycleState.resumed;
     if (state == AppLifecycleState.resumed) {
-      _eventos.fechar();
-      _eventos.iniciar();
-    } else if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
+      unawaited(
+        _carregarPermissoes(reconciliar: true).then((_) {
+          if (mounted && _podeLer && _emPrimeiroPlano) _eventos.iniciar();
+        }),
+      );
+    } else {
       _eventos.fechar();
     }
   }
 
-  Future<void> _carregarPermissoes() async {
-    try {
-      final resposta = await _client
-          .get(
-            Uri.parse('$_apiBaseUrl/publicacoes/permissoes'),
-            headers: _identidade(),
-          )
-          .timeout(const Duration(seconds: 10));
-      if (resposta.statusCode == 200 && mounted) {
-        final dados = jsonDecode(resposta.body);
-        if (dados is Map) {
-          setState(() => _podePublicar = dados['podePublicar'] == true);
-        }
+  Future<void> _carregarPermissoes({bool reconciliar = false}) async {
+    final consulta = ++_consultaPermissoes;
+    final revisao = _acesso.revisao;
+    final tinhaLeitura = _podeLer;
+    final aplicada = await _acesso.atualizar();
+    if (!mounted || consulta != _consultaPermissoes) return;
+    if (!_acesso.podeLer) {
+      if (aplicada) _limparAcesso();
+      if (!aplicada && !_podeLer) {
+        setState(() {
+          _carregandoPublicacoes = false;
+          _falhaAoCarregar = true;
+          _estadoTempoReal = 'Não foi possível verificar o acesso ao feed.';
+        });
       }
-    } catch (_) {
-      /* O servidor verifica a permissão novamente no comando. */
+      return;
+    }
+    final mudou = revisao != _acesso.revisao || !tinhaLeitura;
+    setState(() {
+      _podeLer = _acesso.podeLer;
+      _podePublicar = _acesso.podePublicar;
+    });
+    if (!_podePublicar) {
+      final painel = _editorContext;
+      if (painel != null &&
+          painel.mounted &&
+          ModalRoute.of(painel)?.isCurrent == true) {
+        Navigator.of(painel).pop();
+      }
+    }
+    _mudancas.value++;
+    if (!tinhaLeitura && _emPrimeiroPlano) _eventos.iniciar();
+    if (mudou || reconciliar) {
+      await _carregarPublicacoes(silencioso: tinhaLeitura);
     }
   }
 
@@ -193,19 +305,27 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   void _trocarSemestre(String semestre) {
     final novo = semestre == _semestreAtual ? '' : semestre;
     if (novo == _semestre) return;
+    _geracaoFeed++;
+    _publicacoes.clear();
+    _curtidoresEmCache.clear();
+    _mudancas.value++;
     setState(() {
       _semestre = novo;
       _filtroSelecionado = 'Para você';
     });
+    _eventos.iniciar();
     unawaited(_carregarPublicacoes());
   }
 
   Future<void> _carregarPublicacoes({bool silencioso = false}) async {
+    if (!_podeLer) return;
     if (_consultaAtiva) {
       _consultaPendente = true;
       return;
     }
     _consultaAtiva = true;
+    final geracao = _geracaoFeed;
+    final token = _token;
     if (mounted && !silencioso) {
       setState(() {
         _carregandoPublicacoes = true;
@@ -222,13 +342,18 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
             headers: _identidade(),
           )
           .timeout(const Duration(seconds: 15));
+      if (!_vigente(geracao, token)) return;
+      if (resposta.statusCode == 401 || resposta.statusCode == 403) {
+        _limparAcesso();
+        return;
+      }
       if (resposta.statusCode != 200) throw Exception('Falha ao carregar feed');
       final dados = jsonDecode(resposta.body) as List<dynamic>;
       final publicacoes = dados
           .whereType<Map<String, dynamic>>()
           .map(_lerPublicacao)
           .toList();
-      if (!mounted) return;
+      if (!_vigente(geracao, token)) return;
       setState(() {
         _publicacoes
           ..clear()
@@ -241,7 +366,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
       });
       _mudancas.value++;
     } catch (_) {
-      if (!mounted) return;
+      if (!_vigente(geracao, token)) return;
       setState(() {
         if (!silencioso) _publicacoes.clear();
         _carregandoPublicacoes = false;
@@ -257,12 +382,18 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   }
 
   Future<_Publicacao> _salvarNoBackend(_Publicacao publicacao) async {
+    if (!_podePublicar) throw StateError('A permissão para publicar mudou.');
+    final geracao = _geracaoFeed;
+    final token = _token;
     final corpo = jsonEncode({
       'texto': publicacao.texto,
       'categoria': publicacao.categoria,
       'imagens': await _enviarImagens(publicacao.midias),
     });
     final headers = {'Content-Type': 'application/json', ..._identidade()};
+    if (!_vigente(geracao, token) || !_podePublicar) {
+      throw StateError('A sessão mudou.');
+    }
     final resposta = await executarRequisicao(
       () => publicacao.id == null
           ? _client.post(
@@ -277,10 +408,16 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
             ),
       erroPadrao: 'Não foi possível salvar a publicação',
     );
+    if (!_respostaAtual(resposta, geracao, token)) {
+      throw StateError('Atualize o acesso ao feed.');
+    }
     return _lerPublicacao(jsonDecode(resposta.body) as Map<String, dynamic>);
   }
 
   Future<bool> _removerDoBackend(_Publicacao publicacao) async {
+    if (!_podeLer) return false;
+    final geracao = _geracaoFeed;
+    final token = _token;
     final id = publicacao.id;
     if (id == null) return true;
     try {
@@ -288,7 +425,9 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
         Uri.parse('$_apiBaseUrl/publicacoes/$id'),
         headers: _identidade(),
       );
-      return resposta.statusCode >= 200 && resposta.statusCode < 300;
+      return _respostaAtual(resposta, geracao, token) &&
+          resposta.statusCode >= 200 &&
+          resposta.statusCode < 300;
     } catch (_) {
       return false;
     }
@@ -299,6 +438,9 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     String comentario,
     int? paiId,
   ) async {
+    if (!_acesso.podeInteragir) return null;
+    final geracao = _geracaoFeed;
+    final token = _token;
     final id = publicacao.id;
     if (id == null) return null;
     try {
@@ -307,7 +449,11 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
         headers: {'Content-Type': 'application/json', ..._identidade()},
         body: jsonEncode({'texto': comentario, 'paiId': ?paiId}),
       );
-      if (resposta.statusCode < 200 || resposta.statusCode >= 300) return null;
+      if (!_respostaAtual(resposta, geracao, token) ||
+          resposta.statusCode < 200 ||
+          resposta.statusCode >= 300) {
+        return null;
+      }
       return _lerPublicacao(jsonDecode(resposta.body) as Map<String, dynamic>);
     } catch (_) {
       return null;
@@ -318,6 +464,9 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     _Publicacao publicacao,
     int delta,
   ) async {
+    if (!_acesso.podeInteragir) return null;
+    final geracao = _geracaoFeed;
+    final token = _token;
     final id = publicacao.id;
     if (id == null) return null;
     try {
@@ -326,7 +475,11 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
         headers: {'Content-Type': 'application/json', ..._identidade()},
         body: jsonEncode({'delta': delta}),
       );
-      if (resposta.statusCode < 200 || resposta.statusCode >= 300) return null;
+      if (!_respostaAtual(resposta, geracao, token) ||
+          resposta.statusCode < 200 ||
+          resposta.statusCode >= 300) {
+        return null;
+      }
       return _lerPublicacao(jsonDecode(resposta.body) as Map<String, dynamic>);
     } catch (_) {
       return null;
@@ -334,6 +487,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   }
 
   void _atualizarPublicacao(_Publicacao atualizada) {
+    if (!_podeLer || _tokenConta != _token) return;
     final indice = _publicacoes.indexWhere((item) => item.id == atualizada.id);
     if (!mounted) return;
     if (indice < 0) {
@@ -382,6 +536,9 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   }
 
   Future<void> _consultarUma(int id) async {
+    if (!_podeLer) return;
+    final geracao = _geracaoFeed;
+    final token = _token;
     try {
       do {
         _pendentes.remove(id);
@@ -391,7 +548,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
               headers: _identidade(),
             )
             .timeout(const Duration(seconds: 15));
-        if (!mounted) return;
+        if (!_respostaAtual(r, geracao, token)) return;
         if (r.statusCode == 404) {
           setState(() => _publicacoes.removeWhere((p) => p.id == id));
           _mudancas.value++;
@@ -409,6 +566,9 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   }
 
   Future<bool> _acaoComentario(_Publicacao p, int id, {int? delta}) async {
+    if (!_podeLer || (delta != null && !_acesso.podeInteragir)) return false;
+    final geracao = _geracaoFeed;
+    final token = _token;
     try {
       final uri = Uri.parse(
         '$_apiBaseUrl/publicacoes/${p.id}/comentarios/$id${delta == null ? '' : '/curtidas'}',
@@ -420,7 +580,11 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
               headers: {'Content-Type': 'application/json', ..._identidade()},
               body: jsonEncode({'delta': delta}),
             );
-      if (r.statusCode < 200 || r.statusCode >= 300 || !mounted) return false;
+      if (!_respostaAtual(r, geracao, token) ||
+          r.statusCode < 200 ||
+          r.statusCode >= 300) {
+        return false;
+      }
       _atualizarPublicacao(
         _lerPublicacao(jsonDecode(r.body) as Map<String, dynamic>),
       );
@@ -435,11 +599,15 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     int postId, [
     int? comentarioId,
   ]) async {
+    if (!_podeLer) throw StateError('Sem acesso ao feed.');
+    final geracao = _geracaoFeed;
+    final token = _token;
     final uri = Uri.parse(
       '$_apiBaseUrl/publicacoes/$postId'
       '${comentarioId == null ? '' : '/comentarios/$comentarioId'}/curtidas',
     );
     final r = await _client.get(uri, headers: _identidade());
+    if (!_respostaAtual(r, geracao, token)) throw StateError('A sessão mudou.');
     if (r.statusCode < 200 || r.statusCode >= 300) {
       throw Exception('Falha ao carregar curtidas (${r.statusCode}).');
     }
@@ -498,35 +666,44 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
       isDismissible: false,
       enableDrag: false,
       backgroundColor: Colors.transparent,
-      builder: (_) => _CriarPublicacaoSheet(
-        original: original,
-        categorias: {
-          ..._categoriasFeed,
-          ..._publicacoes.map((p) => p.categoria),
-        }.toList(),
-        nomeAutor: widget.nomeAutor ?? _nomeAutorAtual(),
-        onSalvar: (rascunho) async {
-          final salva = await _salvarNoBackend(rascunho);
-          if (!mounted) return;
-          setState(() {
-            final indice = _publicacoes.indexWhere((p) => p.id == salva.id);
-            if (indice >= 0) {
-              _publicacoes[indice] = salva;
-            } else {
-              _publicacoes.insert(0, salva);
-            }
-            _estadoCard(salva).value = salva;
-            _filtroSelecionado = 'Para você';
-          });
-          _mudancas.value++;
-        },
-      ),
+      builder: (painel) {
+        _editorContext = painel;
+        return _CriarPublicacaoSheet(
+          original: original,
+          categorias: {
+            ..._categoriasFeed,
+            ..._publicacoes.map((p) => p.categoria),
+          }.toList(),
+          nomeAutor: widget.nomeAutor ?? _nomeAutorAtual(),
+          onSalvar: (rascunho) async {
+            final salva = await _salvarNoBackend(rascunho);
+            if (!mounted) return;
+            setState(() {
+              final indice = _publicacoes.indexWhere((p) => p.id == salva.id);
+              if (indice >= 0) {
+                _publicacoes[indice] = salva;
+              } else {
+                _publicacoes.insert(0, salva);
+              }
+              _estadoCard(salva).value = salva;
+              _filtroSelecionado = 'Para você';
+            });
+            _mudancas.value++;
+          },
+        );
+      },
     );
+    _editorContext = null;
   }
 
   Future<List<String>> _enviarImagens(List<String> imagens) async {
+    final geracao = _geracaoFeed;
+    final token = _token;
     final chaves = <String>[];
     for (final imagem in imagens) {
+      if (!_vigente(geracao, token) || !_podePublicar) {
+        throw StateError('A permissão para publicar mudou.');
+      }
       if (!imagem.startsWith('data:')) {
         chaves.add(imagem);
         continue;
@@ -549,6 +726,9 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
           .send(pedido)
           .then(http.Response.fromStream)
           .timeout(const Duration(seconds: 60));
+      if (!_respostaAtual(resposta, geracao, token)) {
+        throw StateError('Atualize o acesso ao feed.');
+      }
       if (resposta.statusCode != 201) {
         throw Exception('Não foi possível enviar a imagem.');
       }
@@ -567,6 +747,14 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
       backgroundColor: Colors.transparent,
       builder: (_) => FeedCommentsSheet(
         podeInteragir: publicacao.podeInteragir,
+        podeInteragirAtual: () =>
+            _podeLer &&
+            _acesso.podeInteragir &&
+            (_publicacoes
+                    .where((p) => p.id == publicacao.id)
+                    .firstOrNull
+                    ?.podeInteragir ??
+                false),
         mudancas: _mudancas,
         comentarios: () =>
             _publicacoes
@@ -738,7 +926,9 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
           else if (_falhaAoCarregar)
             SliverFillRemaining(
               hasScrollBody: false,
-              child: _FeedErro(onRetry: _carregarPublicacoes),
+              child: _FeedErro(
+                onRetry: () => _carregarPermissoes(reconciliar: true),
+              ),
             )
           else if (publicacoesVisiveis.isEmpty)
             const SliverFillRemaining(hasScrollBody: false, child: _FeedVazio())

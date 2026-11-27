@@ -216,10 +216,51 @@ void main() {
     expect(find.text('Thiago Moreira'), findsOneWidget);
   });
 
+  testWidgets('perfil preserva todos os padrinhos do ciclo', (tester) async {
+    final dados = situacaoApadrinhadoAtivo();
+    dados['padrinhos'] = [
+      {...dados['padrinho'] as Map, 'vinculoId': 11, 'grupoId': 21},
+      {
+        ...dados['padrinho'] as Map,
+        'nome': 'Pedro Santos',
+        'email': 'pedro@pucminas.edu.br',
+        'vinculoId': 12,
+        'grupoId': 22,
+      },
+    ];
+    api.situacao = dados;
+    SessaoUsuario.atual.definir(
+      dadosCadastro: _camila,
+      escolha: Participacao.apadrinhado,
+    );
+    await tester.pumpWidget(const MaterialApp(home: ProfilePage()));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Padrinhos: Thiago Moreira, Pedro Santos'),
+      findsOneWidget,
+    );
+    expect(find.text('Padrinhos'), findsOneWidget);
+    expect(SessaoUsuario.atual.situacao?.padrinhosAtuais, hasLength(2));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('aguardando padrinho mostra o card e o aviso do mapa', (
     tester,
   ) async {
-    api.situacao = {'situacao': 'apadrinhado_aguardando', 'registro': null};
+    api.situacao = {
+      'situacao': 'apadrinhado_aguardando',
+      'programa': {
+        'codigo': '2026/2',
+        'etapaAtual': 'formacao',
+        'inscricoesAbertas': false,
+      },
+      'registro': {
+        'id': 5,
+        'programa': '2026/2',
+        'papel': 'apadrinhado',
+        'status': 'aprovado',
+      },
+    };
     SessaoUsuario.atual.definir(
       dadosCadastro: _camila,
       escolha: Participacao.apadrinhado,
@@ -229,7 +270,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.pumpAndSettle();
 
-    expect(find.text('Aguardando padrinho'), findsOneWidget);
+    expect(find.text('Aprovado — aguardando matching'), findsOneWidget);
     expect(find.text('Minha jornada'), findsOneWidget);
 
     await tester.scrollUntilVisible(

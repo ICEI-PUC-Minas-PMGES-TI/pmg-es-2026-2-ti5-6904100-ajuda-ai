@@ -126,6 +126,9 @@ export class FeedRabbitService implements OnModuleInit, OnModuleDestroy {
         tipo: evento.tipo,
         publicacaoId: evento.publicacaoId,
         ocorridoEm: evento.ocorridoEm,
+        ...(evento.programaCodigo
+          ? { programaCodigo: evento.programaCodigo }
+          : {}),
       });
       canal.ack(mensagem);
     } catch {

@@ -1,206 +1,264 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
 import 'api_config.dart';
 
-class ChatParticipante {
-  const ChatParticipante({
-    required this.participacaoId,
-    required this.nome,
-    required this.email,
-    required this.papel,
-  });
-
-  final int participacaoId;
-  final String nome;
-  final String email;
-  final String papel;
-
-  factory ChatParticipante.fromJson(Map<String, dynamic> json) {
-    final id = json['participacaoId'];
-    if (id is! num) throw const ApiException('Participante de chat inválido.');
-    return ChatParticipante(
-      participacaoId: id.toInt(),
-      nome: json['nome'] as String? ?? '',
-      email: json['email'] as String? ?? '',
-      papel: json['papel'] as String? ?? '',
-    );
-  }
-}
-
-class ConversaChat {
-  const ConversaChat({
-    required this.id,
-    required this.minhaParticipacaoId,
-    required this.programa,
-    required this.participantes,
-  });
-
-  final int id;
-  final int minhaParticipacaoId;
-  final String programa;
-  final List<ChatParticipante> participantes;
-
-  ChatParticipante? get outraPessoa {
-    for (final participante in participantes) {
-      if (participante.participacaoId != minhaParticipacaoId) {
-        return participante;
-      }
-    }
-    return null;
-  }
-
-  factory ConversaChat.fromJson(Map<String, dynamic> json) {
-    final id = json['id'];
-    final minhaParticipacaoId = json['minhaParticipacaoId'];
-    final participantes = json['participantes'];
-    if (id is! num || minhaParticipacaoId is! num || participantes is! List) {
-      throw const ApiException('Conversa recebida da API é inválida.');
-    }
-    return ConversaChat(
-      id: id.toInt(),
-      minhaParticipacaoId: minhaParticipacaoId.toInt(),
-      programa: json['programa'] as String? ?? '',
-      participantes: participantes
-          .whereType<Map>()
-          .map(
-            (item) =>
-                ChatParticipante.fromJson(Map<String, dynamic>.from(item)),
-          )
-          .toList(),
-    );
-  }
-}
-
-class MensagemChat {
-  const MensagemChat({
-    required this.id,
-    required this.remetenteParticipacaoId,
-    required this.texto,
-    required this.estado,
-    this.imagemUrl,
-    this.criadaEm,
-  });
-
-  final int id;
-  final int remetenteParticipacaoId;
-  final String texto;
-  final String estado;
-  final String? imagemUrl;
-  final DateTime? criadaEm;
-
-  factory MensagemChat.fromJson(Map<String, dynamic> json) {
-    final id = json['id'];
-    final remetenteId = json['remetenteParticipacaoId'];
-    if (id is! num || remetenteId is! num) {
-      throw const ApiException('Mensagem recebida da API é inválida.');
-    }
-    return MensagemChat(
-      id: id.toInt(),
-      remetenteParticipacaoId: remetenteId.toInt(),
-      texto: json['texto'] as String? ?? '',
-      estado: json['estado'] as String? ?? '',
-      imagemUrl: json['imagemUrl'] as String?,
-      criadaEm: DateTime.tryParse('${json['criadaEm'] ?? ''}'),
-    );
-  }
-}
-
-class PaginaMensagensChat {
-  const PaginaMensagensChat({required this.mensagens, required this.temMais});
-
-  final List<MensagemChat> mensagens;
-  final bool temMais;
-
-  factory PaginaMensagensChat.fromJson(Map<String, dynamic> json) {
-    final mensagens = json['mensagens'];
-    if (mensagens is! List) {
-      throw const ApiException('Lista de mensagens recebida é inválida.');
-    }
-    return PaginaMensagensChat(
-      mensagens: mensagens
-          .whereType<Map>()
-          .map((item) => MensagemChat.fromJson(Map<String, dynamic>.from(item)))
-          .toList(),
-      temMais: json['temMais'] == true,
-    );
-  }
+String novoIdMensagemChat() {
+  final random = Random.secure();
+  final b = List.generate(16, (_) => random.nextInt(256));
+  b[6] = (b[6] & 15) | 64;
+  b[8] = (b[8] & 63) | 128;
+  final h = b.map((v) => v.toRadixString(16).padLeft(2, '0')).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
 }
 
 class ChatApi {
   ChatApi({
-    http.Client? client,
-    required this.accessToken,
+    required this.token,
     this.baseUrl = apiBaseUrl,
-  }) : _client = client ?? http.Client();
-
-  final http.Client _client;
-  final String? accessToken;
+    http.Client? client,
+    http.Client Function()? streamClientFactory,
+  }) : _client = client ?? http.Client(),
+       _proprio = client == null,
+       _streamClientFactory = streamClientFactory ?? http.Client.new;
+  final String? Function() token;
   final String baseUrl;
-
-  Uri _uri(String path) {
-    final base = baseUrl.endsWith('/')
-        ? baseUrl.substring(0, baseUrl.length - 1)
-        : baseUrl;
-    return Uri.parse('$base$path');
-  }
-
-  Map<String, String> _headers({bool json = false}) {
-    final token = accessToken?.trim();
-    if (token == null || token.isEmpty) {
-      throw const ApiException('Entre na sua conta para acessar as conversas.');
+  final http.Client _client;
+  final bool _proprio;
+  final http.Client Function() _streamClientFactory;
+  Map<String, String> _headers({bool sse = false}) {
+    final atual = token();
+    if (atual == null || atual.isEmpty) {
+      throw const ApiException(
+        'Sua sessão expirou. Entre novamente.',
+        statusCode: 401,
+      );
     }
     return {
-      'accept': 'application/json',
-      if (json) 'content-type': 'application/json',
-      'authorization': 'Bearer $token',
+      'authorization': 'Bearer $atual',
+      'accept': sse ? 'text/event-stream' : 'application/json',
+      if (!sse) 'content-type': 'application/json',
     };
   }
 
+  Uri _uri(String path, [Map<String, String>? query]) =>
+      Uri.parse('${baseUrl.replaceFirst(RegExp(r'/$'), '')}$path')
+          .replace(queryParameters: query?.isEmpty == true ? null : query);
   Future<dynamic> _request(
-    String method,
     String path, {
+    Map<String, String>? query,
     Map<String, dynamic>? body,
   }) async {
-    final headers = _headers(json: body != null);
-    final resposta = await executarRequisicao(
-      () => method == 'GET'
-          ? _client.get(_uri(path), headers: headers)
-          : _client.post(_uri(path), headers: headers, body: jsonEncode(body)),
-      erroPadrao: 'Não foi possível carregar/salvar a conversa',
+    final headers = _headers();
+    final response = await executarRequisicao(
+      () => body == null
+          ? _client.get(_uri(path, query), headers: headers)
+          : _client.post(
+              _uri(path, query),
+              headers: headers,
+              body: jsonEncode(body),
+            ),
+      erroPadrao: 'Não foi possível consultar a conversa',
     );
-    return decodificarJson(resposta);
-  }
-
-  Future<List<ConversaChat>> listar() async {
-    final resposta = await _request('GET', '/chats');
-    if (resposta is! List) {
-      throw const ApiException('Lista de conversas recebida é inválida.');
+    if (!responseOk(response.statusCode)) {
+      throw ApiException(
+        mensagemErroApi(response, 'Não foi possível consultar a conversa'),
+        statusCode: response.statusCode,
+      );
     }
-    return resposta
-        .whereType<Map>()
-        .map((item) => ConversaChat.fromJson(Map<String, dynamic>.from(item)))
-        .toList();
+    return jsonDecode(utf8.decode(response.bodyBytes));
   }
 
-  Future<PaginaMensagensChat> listarMensagens(int chatId) async {
-    final resposta = await _request('GET', '/chats/$chatId/mensagens');
-    if (resposta is! Map) {
-      throw const ApiException('Resposta de mensagens recebida é inválida.');
+  Future<List<Map<String, dynamic>>> listar(String programa) async =>
+      ((await _request(
+        '/chats',
+        query: {if (programa.isNotEmpty) 'programa': programa},
+      )) as List).map((c) => Map<String, dynamic>.from(c as Map)).toList();
+  Future<Map<String, dynamic>> mensagens(
+    int id, {
+    int? antesDe,
+    int? depoisDe,
+  }) async => Map<String, dynamic>.from(
+    await _request(
+      '/chats/$id/mensagens',
+      query: {
+        if (antesDe != null) 'antesDe': '$antesDe',
+        if (depoisDe != null) 'depoisDe': '$depoisDe',
+      },
+    ) as Map,
+  );
+  Future<Map<String, dynamic>> recibos(
+    int id,
+    int depoisDaRevisao,
+    int ateMensagemId,
+  ) async => Map<String, dynamic>.from(
+    await _request(
+      '/chats/$id/recibos',
+      query: {
+        'depoisDaRevisao': '$depoisDaRevisao',
+        'ateMensagemId': '$ateMensagemId',
+      },
+    ) as Map,
+  );
+
+  Future<Map<String, dynamic>> enviar(
+    int id,
+    String texto,
+    String clientId,
+  ) async => Map<String, dynamic>.from(
+    await _request(
+      '/chats/$id/mensagens',
+      body: {'texto': texto, 'clientId': clientId},
+    ) as Map,
+  );
+
+  Stream<Map<String, dynamic>> observar(int id) {
+    late StreamController<Map<String, dynamic>> controller;
+    StreamSubscription<String>? linhas;
+    http.Client? client;
+    var terminou = false;
+    Future<void> cancelar() async {
+      final cancelarFonte = !terminou;
+      terminou = true;
+      client?.close();
+      client = null;
+      if (cancelarFonte) await linhas?.cancel();
     }
-    return PaginaMensagensChat.fromJson(Map<String, dynamic>.from(resposta));
-  }
 
-  Future<MensagemChat> enviarMensagem(int chatId, String texto) async {
-    final resposta = await _request(
-      'POST',
-      '/chats/$chatId/mensagens',
-      body: {'texto': texto},
+    void concluir([Object? erro, StackTrace? stack]) {
+      if (terminou) return;
+      terminou = true;
+      client?.close();
+      client = null;
+      if (erro != null) unawaited(linhas?.cancel());
+      if (erro != null) controller.addError(erro, stack);
+      unawaited(controller.close());
+    }
+
+    Future<void> abrir() async {
+      try {
+        final headers = _headers(sse: true);
+        client = _streamClientFactory();
+        final request = http.Request('GET', _uri('/chats/$id/events'))
+          ..headers.addAll(headers);
+        final response = await client!
+            .send(request)
+            .timeout(const Duration(seconds: 12));
+        if (terminou) return;
+        if (!responseOk(response.statusCode)) {
+          throw ApiException(
+            'Não foi possível atualizar a conversa.',
+            statusCode: response.statusCode,
+          );
+        }
+        var tipo = 'message', tamanho = 0;
+        final dados = <String>[];
+        linhas = response.stream
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .listen(
+              (linha) {
+                if (terminou) return;
+                try {
+                  tamanho += linha.length;
+                  if (tamanho > 65536) {
+                    throw const ApiException('Evento de conversa inválido.');
+                  }
+                  if (linha.isEmpty) {
+                    if (dados.isNotEmpty) {
+                      controller.add({
+                        'tipo': tipo,
+                        'dados': jsonDecode(dados.join('\n')),
+                      });
+                    }
+                    tipo = 'message';
+                    dados.clear();
+                    tamanho = 0;
+                  } else if (linha.startsWith('event:')) {
+                    tipo = linha.substring(6).trim();
+                  } else if (linha.startsWith('data:')) {
+                    dados.add(linha.substring(5).trimLeft());
+                  }
+                } catch (erro, stack) {
+                  concluir(erro, stack);
+                }
+              },
+              onError: (Object erro, StackTrace stack) => concluir(erro, stack),
+              onDone: concluir,
+            );
+      } catch (erro, stack) {
+        concluir(
+          erro is TimeoutException ? const ApiIndisponivelException() : erro,
+          stack,
+        );
+      }
+    }
+
+    controller = StreamController<Map<String, dynamic>>(
+      onListen: () {
+        unawaited(abrir());
+      },
+      onCancel: cancelar,
+      onPause: () => linhas?.pause(),
+      onResume: () => linhas?.resume(),
     );
-    if (resposta is! Map) {
-      throw const ApiException('Resposta do envio da mensagem é inválida.');
-    }
-    return MensagemChat.fromJson(Map<String, dynamic>.from(resposta));
+    return controller.stream;
   }
+
+  void fechar() {
+    if (_proprio) _client.close();
+  }
+}
+
+List<Map<String, dynamic>> mesclarMensagensChat(
+  List<Map<String, dynamic>> atuais,
+  List<Map<String, dynamic>> novas,
+) {
+  const ordem = {'enviada': 0, 'entregue': 1, 'lida': 2};
+  final porId = {for (final m in atuais) m['id']: m};
+  for (final nova in novas) {
+    final antiga = porId[nova['id']];
+    final estado =
+        antiga != null &&
+            (ordem[antiga['estado']] ?? 0) > (ordem[nova['estado']] ?? 0)
+        ? antiga['estado']
+        : nova['estado'];
+    final recibosAntigos = antiga?['recibos'] as Map?;
+    final recibosNovos = nova['recibos'] as Map?;
+    final recibos = recibosAntigos == null && recibosNovos == null
+        ? null
+        : {
+            ...?recibosAntigos,
+            ...?recibosNovos,
+            'lidas': max(
+              (recibosAntigos?['lidas'] as num? ?? 0),
+              (recibosNovos?['lidas'] as num? ?? 0),
+            ),
+            'entregues': max(
+              (recibosAntigos?['entregues'] as num? ?? 0),
+              (recibosNovos?['entregues'] as num? ?? 0),
+            ),
+          };
+    porId[nova['id']] = {
+      ...?antiga,
+      ...nova,
+      'estado': estado,
+      'recibos': ?recibos,
+    };
+  }
+  return porId.values.toList()
+    ..sort((a, b) => (a['id'] as num).compareTo(b['id'] as num));
+}
+
+String tituloConversaChat(Map<String, dynamic> chat) {
+  if (chat['tipo'] == 'coletivo') {
+    return '${chat['titulo'] ?? 'Conversa do grupo'}';
+  }
+  final pessoas = (chat['participantes'] as List? ?? []).whereType<Map>().where(
+    (p) => p['participacaoId'] != chat['minhaParticipacaoId'],
+  );
+  return pessoas.isEmpty ? 'Conversa privada' : '${pessoas.first['nome']}';
 }

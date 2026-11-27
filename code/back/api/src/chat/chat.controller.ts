@@ -24,8 +24,11 @@ export class ChatController {
   constructor(private readonly chats: ChatService) {}
 
   @Get()
-  listar(@Req() req: AuthenticatedRequest) {
-    return this.chats.listar(req.user.email);
+  listar(
+    @Req() req: AuthenticatedRequest,
+    @Query('programa') programa?: string,
+  ) {
+    return this.chats.listar(req.user.email, programa);
   }
 
   @Get(':id/participantes')
@@ -41,9 +44,38 @@ export class ChatController {
     @Param('id', ParseIntPipe) id: number,
     @Query('antesDe') antesDe: string | undefined,
     @Req() req: AuthenticatedRequest,
+    @Query('depoisDe') depoisDe?: string,
   ) {
     const cursor = antesDe === undefined ? undefined : Number(antesDe);
-    return this.chats.listarMensagens(id, req.user.email, cursor);
+    return this.chats.listarMensagens(
+      id,
+      req.user.email,
+      cursor,
+      depoisDe === undefined ? undefined : Number(depoisDe),
+    );
+  }
+
+  @Get(':id/recibos')
+  recibos(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('depoisDaRevisao', ParseIntPipe) revisao: number,
+    @Query('ateMensagemId', ParseIntPipe) ate: number,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.chats.listarRecibos(id, req.user.email, revisao, ate);
+  }
+
+  @Sse(':id/events')
+  eventos(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const exp = (req.user as typeof req.user & { exp?: number }).exp;
+    return this.chats.observarMensagens(
+      id,
+      req.user.email,
+      exp ? exp * 1000 : Date.now() + 3600_000,
+    );
   }
 
   @Sse(':id/events')
@@ -62,7 +94,12 @@ export class ChatController {
     @Body() dto: EnviarMensagemDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.chats.enviarMensagem(id, req.user.email, dto.texto);
+    return this.chats.enviarMensagem(
+      id,
+      req.user.email,
+      dto.texto,
+      dto.clientId,
+    );
   }
 
   @Post(':id/imagens')

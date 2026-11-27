@@ -177,35 +177,38 @@ void main() {
       expect(find.byType(EntradaAlunoPage), findsNothing);
     },
   );
-  testWidgets('vários ciclos solicitam seleção mesmo havendo um vigente', (
-    tester,
-  ) async {
-    backend.programas = [ciclo('2026/2'), ciclo('2026/1')];
-    await abrir(tester, backend);
-    expect(
-      find.text('Selecione um programa/ciclo para administrar.'),
-      findsOneWidget,
-    );
-    expect(backend.pedidos('/coordenacao/dashboard'), isEmpty);
-    expect(backend.pedidos('/coordenacao/candidaturas'), isEmpty);
-    await selecionar(tester, '2026/1');
-    expect(
-      backend
-          .pedidos('/coordenacao/dashboard')
-          .single
-          .url
-          .queryParameters['programa'],
-      '2026/1',
-    );
-    expect(
-      backend
-          .pedidos('/coordenacao/candidaturas')
-          .single
-          .url
-          .queryParameters['programa'],
-      '2026/1',
-    );
-  });
+  testWidgets(
+    'ciclo vigente é selecionado e a coordenação pode consultar outro',
+    (tester) async {
+      backend.programas = [ciclo('2026/2'), ciclo('2026/1')];
+      await abrir(tester, backend);
+      expect(
+        backend
+            .pedidos('/coordenacao/dashboard')
+            .last
+            .url
+            .queryParameters['programa'],
+        '2026/2',
+      );
+      await selecionar(tester, '2026/1');
+      expect(
+        backend
+            .pedidos('/coordenacao/dashboard')
+            .last
+            .url
+            .queryParameters['programa'],
+        '2026/1',
+      );
+      expect(
+        backend
+            .pedidos('/coordenacao/candidaturas')
+            .last
+            .url
+            .queryParameters['programa'],
+        '2026/1',
+      );
+    },
+  );
   testWidgets(
     'troca de ciclo atualiza dashboard e lista sem restaurar dados antigos',
     (tester) async {
@@ -268,12 +271,12 @@ void main() {
     await abrir(tester, backend);
     await tester.tap(find.text('Mais'));
     await tester.pumpAndSettle();
-    for (final destino in ['Usuários', 'Matching', 'Formulários']) {
+    for (final destino in ['Usuários', 'Matching automático', 'Formulários']) {
       await tester.tap(find.text(destino));
       await tester.pumpAndSettle();
       final paths = {
         'Usuários': '/coordenacao/usuarios',
-        'Matching': '/coordenacao/matching',
+        'Matching automático': '/coordenacao/matching',
         'Formulários': '/coordenacao/formularios/apadrinhado',
       };
       expect(
@@ -493,6 +496,11 @@ void main() {
       );
       await tester.tap(find.text('Entrar como usuário de teste'));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Renata Martins'),
+        400,
+        scrollable: find.byType(Scrollable).last,
+      );
       await tester.tap(find.text('Renata Martins'));
       await tester.pumpAndSettle();
       expect(find.byType(TelaCoordenacao), findsOneWidget);

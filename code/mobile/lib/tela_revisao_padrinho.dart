@@ -78,6 +78,12 @@ class _RevisaoPadrinhoPageState extends State<RevisaoPadrinhoPage> {
                 title: Text(entrada.value),
                 subtitle: Text(_valor(respostas[entrada.key])),
               ),
+            ListTile(
+              title: const Text('Preferência de gênero'),
+              subtitle: Text(
+                dados.preferenciaGenero?.descricao ?? 'Não informado',
+              ),
+            ),
             for (final pergunta in widget.perguntas)
               ListTile(
                 title: Text(pergunta.enunciado),

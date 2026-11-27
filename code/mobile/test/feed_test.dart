@@ -16,7 +16,12 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
-  Widget app(http.Client client) => MaterialApp(home: FeedPage(client: client));
+  Widget app(http.Client client) => MaterialApp(
+    home: FeedPage(
+      client: client,
+      accessToken: SessaoUsuario.atual.accessToken ?? 'jwt-aluno-teste',
+    ),
+  );
 
   testWidgets('feed vazio nao exibe publicacoes ficticias', (tester) async {
     configurarTela(tester);
@@ -160,7 +165,11 @@ class _FeedBackendFake {
     expect(request.headers['x-user-id'], isNot('1'));
 
     if (request.url.path == '/publicacoes/permissoes') {
-      return _json(200, {'podePublicar': podePublicar});
+      return _json(200, {
+        'podeLer': true,
+        'podeInteragir': true,
+        'podePublicar': podePublicar,
+      });
     }
 
     if (request.method == 'GET' && request.url.path == '/publicacoes') {
