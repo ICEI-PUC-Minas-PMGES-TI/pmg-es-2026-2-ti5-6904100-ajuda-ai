@@ -4,6 +4,14 @@ import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { dataCurta } from './comum';
+import {
+  ajusteDoPendente,
+  formularioDoPendente,
+  gravarPendente,
+  lerPendente,
+  limparPendente,
+  respostaIncerta,
+} from './ajustePendente';
 
 /** Iguais aos do servidor (`LIMITES.ajusteAdmin` e motivo do ajuste). */
 export const LIMITES_AJUSTE_XP = { max: 200, motivoMin: 3, motivoMax: 300 };
@@ -31,9 +39,10 @@ export function validarAjusteXp({ sentido, quantidade, motivo }, moedas) {
   const n = Number(t);
   if (n > LIMITES_AJUSTE_XP.max) return `Cada ajuste vai até ${LIMITES_AJUSTE_XP.max} pontos.`;
   if (sentido === 'debito' && typeof moedas === 'number' && n > moedas) return `O aluno tem ${moedas} moedas; o débito não pode passar disso.`;
-  const m = String(motivo ?? '').trim();
-  if (m.length < LIMITES_AJUSTE_XP.motivoMin) return `Escreva o motivo (mínimo ${LIMITES_AJUSTE_XP.motivoMin} caracteres).`;
-  if (m.length > LIMITES_AJUSTE_XP.motivoMax) return `Motivo com no máximo ${LIMITES_AJUSTE_XP.motivoMax} caracteres.`;
+  // Como o banco conta (`char_length`): pontos de código, sem as pontas.
+  const m = [...String(motivo ?? '').trim()].length;
+  if (m < LIMITES_AJUSTE_XP.motivoMin) return `Escreva o motivo (mínimo ${LIMITES_AJUSTE_XP.motivoMin} caracteres).`;
+  if (m > LIMITES_AJUSTE_XP.motivoMax) return `Motivo com no máximo ${LIMITES_AJUSTE_XP.motivoMax} caracteres.`;
   return '';
 }
 
@@ -44,6 +53,11 @@ export function corpoAjusteXp({ sentido, quantidade, motivo }, chave) {
 }
 
 const sinal = (n) => (n > 0 ? `+${n.toLocaleString('pt-BR')}` : n.toLocaleString('pt-BR'));
+
+/** Aviso ao reabrir: descreve o ajuste que o extrato mostra gravado com a chave pendente. */
+export function avisoAjusteJaRegistrado(gravado) {
+  return `O ajuste enviado antes (${sinal(gravado.quantidade)}: ${gravado.motivo}) já estava registrado. Nada foi lançado de novo.`;
+}
 
 export function ListaParticipantesXp({ participantes, onAbrir }) {
   return (
@@ -93,10 +107,14 @@ export function ExtratoXp({ participante, onFechar, onAjustado }) {
   const [tocado, setTocado] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
-  const chave = useRef(novaChave());
+  const id = participante.usuario.id;
+  // Envio anterior sem resposta conclusiva (fechar/reabrir ou recarregar a
+  // página não gera outra chave para a mesma intenção).
+  const [pendente, setPendente] = useState(() => lerPendente(id));
+  const [aviso, setAviso] = useState('');
+  const chave = useRef(pendente?.chave ?? novaChave());
   const trava = useRef(false);
   const base = useId();
-  const id = participante.usuario.id;
 
   const carregar = useCallback(async () => {
     setErroCarga('');
@@ -104,11 +122,44 @@ export function ExtratoXp({ participante, onFechar, onAjustado }) {
       const dados = await api.xpParticipante(id, { limite: 20 });
       setExtrato(dados);
       setMais(dados.movimentacoes.length === 20);
+      return dados;
     } catch (error) {
       setErroCarga(error.message || 'Não foi possível carregar o extrato.');
+      return null;
     }
   }, [id]);
-  useEffect(() => { carregar(); }, [carregar]);
+
+  /** Confere no extrato se a intenção pendente já foi gravada. */
+  const reconciliar = useCallback((dados, atual) => {
+    if (!dados || !atual) return;
+    // O aviso descreve o ajuste que o servidor gravou com a chave, não os
+    // dados guardados no navegador (um reenvio pode ter sido editado).
+    const gravado = ajusteDoPendente(atual, dados.ajustes);
+    if (gravado) {
+      limparPendente(id);
+      setPendente(null);
+      chave.current = novaChave();
+      setForm({ sentido: 'credito', quantidade: '', motivo: '' });
+      setAviso(avisoAjusteJaRegistrado(gravado));
+    } else {
+      setForm(formularioDoPendente(atual));
+      setAviso('');
+    }
+  }, [id]);
+
+  useEffect(() => {
+    let vivo = true;
+    carregar().then((dados) => { if (vivo) reconciliar(dados, lerPendente(id)); });
+    return () => { vivo = false; };
+  }, [carregar, reconciliar, id]);
+
+  function descartarPendente() {
+    limparPendente(id);
+    setPendente(null);
+    chave.current = novaChave();
+    setForm({ sentido: 'credito', quantidade: '', motivo: '' });
+    setErro('');
+  }
 
   async function carregarMais() {
     const ultimo = extrato?.movimentacoes.at(-1)?.id;
@@ -134,15 +185,48 @@ export function ExtratoXp({ participante, onFechar, onAjustado }) {
     if (erroValidacao || salvando || trava.current) return;
     trava.current = true;
     setSalvando(true);
+    setAviso('');
+    // Enquanto houver intenção pendente, o reenvio usa a mesma chave: se os
+    // dados mudaram e a anterior entrou, o servidor responde 409 e nada dobra.
+    // `gravarPendente` preserva o envio pendente e guarda este só como `ultimo`.
+    const corpo = corpoAjusteXp(form, chave.current);
+    // Havia um envio anterior sem resposta? Um erro que não prova nada sobre
+    // ele (400, 401, 403…) não pode apagá-lo.
+    const haviaPendente = Boolean(pendente);
+    gravarPendente(id, corpo);
     try {
-      const resposta = await api.ajustarXp(id, corpoAjusteXp(form, chave.current));
+      const resposta = await api.ajustarXp(id, corpo);
+      limparPendente(id);
+      setPendente(null);
       chave.current = novaChave();
       setForm({ sentido: 'credito', quantidade: '', motivo: '' });
       setTocado(false);
       await carregar();
       onAjustado?.(resposta);
     } catch (error) {
-      setErro(error.message || 'Não foi possível registrar o ajuste.');
+      if (respostaIncerta(error)) {
+        // Pode ter entrado: guarda a intenção e a chave para o reenvio.
+        setPendente(lerPendente(id));
+        setErro(`${error.message || 'Sem resposta do servidor.'} O ajuste pode ter sido registrado: reenvie (não duplica) ou confira o extrato.`);
+      } else if (error.status === 409) {
+        // A chave já pertence a um ajuste gravado: a intenção está resolvida.
+        limparPendente(id);
+        setPendente(null);
+        chave.current = novaChave();
+        await carregar();
+        setErro(error.message || 'Esta chave já foi usada em outro ajuste.');
+      } else if (error.status === 422 || !haviaPendente) {
+        // 422 só sai quando NÃO há ajuste com esta chave (o servidor procura a
+        // chave antes de validar saldo); sem pendente anterior, este envio
+        // também não gravou nada. A chave continua valendo para corrigir e reenviar.
+        limparPendente(id);
+        setPendente(null);
+        setErro(error.message || 'Não foi possível registrar o ajuste.');
+      } else {
+        // Erro que não diz se o envio anterior entrou: mantém a intenção.
+        setPendente(lerPendente(id));
+        setErro(error.message || 'Não foi possível registrar o ajuste.');
+      }
     } finally {
       trava.current = false;
       setSalvando(false);
@@ -171,6 +255,13 @@ export function ExtratoXp({ participante, onFechar, onAjustado }) {
 
           <form className="pucstop-form" onSubmit={salvar} noValidate>
             <h3 className="recompensa-historico-titulo">Novo ajuste</h3>
+            {aviso && <p className="detail-muted small" role="status">{aviso}</p>}
+            {pendente && (
+              <div className="dash-inline-error" role="alert">
+                Um envio anterior deste ajuste ficou sem resposta. Reenvie para confirmar: com a mesma chave ele não é lançado duas vezes.
+                <button type="button" onClick={descartarPendente} disabled={salvando}>Descartar</button>
+              </div>
+            )}
             <div className="editor-grid pucstop-grid">
               <label className="editor-field" htmlFor={`${base}-sentido`}>
                 <span>Tipo</span>
@@ -186,7 +277,7 @@ export function ExtratoXp({ participante, onFechar, onAjustado }) {
             </div>
             <label className="editor-field" htmlFor={`${base}-motivo`}>
               <span>Motivo</span>
-              <input id={`${base}-motivo`} maxLength={LIMITES_AJUSTE_XP.motivoMax} placeholder="Ex.: participou do mutirão; crédito duplicado por erro" value={form.motivo} onChange={(e) => campo('motivo', e.target.value)} />
+              <input id={`${base}-motivo`} maxLength={LIMITES_AJUSTE_XP.motivoMax * 2} placeholder="Ex.: participou do mutirão; crédito duplicado por erro" value={form.motivo} onChange={(e) => campo('motivo', e.target.value)} />
             </label>
             <p className="field-hint">Até {LIMITES_AJUSTE_XP.max} por ajuste. Fica registrado com você como responsável; lançamentos anteriores não são apagados.</p>
             {tocado && erroValidacao && <p className="detail-muted small" role="status">{erroValidacao}</p>}

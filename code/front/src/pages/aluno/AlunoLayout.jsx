@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { Link, NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api, getAlunoSession, clearAlunoSession, programaAluno, selecionarProgramaAluno } from '../../api/client';
 import {resolverAluno} from '../../auth/resolverAluno';
 import { consultarContextoAluno } from '../../auth/contextoAluno';
@@ -10,6 +10,17 @@ import {
 } from '../../auth/sessaoAluno';
 import Icon from '../../components/Icon';
 import { formatarData } from './util';
+import {
+  ICONE_NOTIFICACAO,
+  juntarPagina,
+  marcarLidaLocal,
+  marcarTodasLocal,
+  NOTIFICACOES_VAZIAS,
+  cicloParaAbrir,
+  destinoNoApp,
+  rotaDaNotificacao,
+  tempoRelativo,
+} from './notificacoes';
 
 const VISTOS_KEY = 'ajudaai.aluno.avisosVistos';
 
@@ -219,6 +230,9 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, 
   const [contaAberta, setContaAberta] = useState(false);
   const [cicloAberto, setCicloAberto] = useState(false);
   const [vistos, setVistos] = useState(() => lerVistos());
+  const [notificacoes, setNotificacoes] = useState(NOTIFICACOES_VAZIAS);
+  const [erroNotificacoes, setErroNotificacoes] = useState(false);
+  const navigate = useNavigate();
   const prefs = lerPreferencias();
   const painelId = useId();
   const contaId = useId();
@@ -237,6 +251,82 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, 
       .catch(() => { if (ativo) setErroAvisos(true); });
     return () => { ativo = false; };
   }, [publico, pronto]);
+
+  const carregarNotificacoes = useCallback(async () => {
+    try {
+      const dados = await api.notificacoes(20);
+      setNotificacoes({ naoLidas: dados?.naoLidas ?? 0, itens: Array.isArray(dados?.itens) ? dados.itens : [], temMais: Boolean(dados?.temMais) });
+      setErroNotificacoes(false);
+    } catch (error) {
+      if (error.status === 401 || error.status === 403) setNotificacoes(NOTIFICACOES_VAZIAS);
+      else setErroNotificacoes(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!pronto) return undefined;
+    carregarNotificacoes();
+    function aoFocar() { if (document.visibilityState !== 'hidden') carregarNotificacoes(); }
+    window.addEventListener('focus', aoFocar);
+    document.addEventListener('visibilitychange', aoFocar);
+    return () => {
+      window.removeEventListener('focus', aoFocar);
+      document.removeEventListener('visibilitychange', aoFocar);
+    };
+  }, [pronto, email, carregarNotificacoes]);
+
+  async function abrirNotificacao(n) {
+    if (!n.lida) {
+      setNotificacoes((atual) => marcarLidaLocal(atual, n.id));
+      try {
+        const resposta = await api.marcarNotificacaoLida(n.id);
+        setNotificacoes((atual) => marcarLidaLocal(atual, n.id, resposta));
+      } catch {
+        carregarNotificacoes();
+      }
+    }
+    const rota = rotaDaNotificacao(n.link);
+    if (rota) {
+      const outroCiclo = cicloParaAbrir(n.link, ciclo, programas);
+      if (outroCiclo) onCiclo?.(outroCiclo);
+      setAberto(false);
+      navigate(rota);
+    }
+  }
+
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  async function carregarMaisNotificacoes() {
+    const ultimo = notificacoes.itens.at(-1)?.id;
+    if (!ultimo || carregandoMais) return;
+    setCarregandoMais(true);
+    try {
+      const pagina = await api.notificacoes(20, ultimo);
+      setNotificacoes((atual) => juntarPagina(atual, pagina));
+    } catch {
+      setErroNotificacoes(true);
+    } finally {
+      setCarregandoMais(false);
+    }
+  }
+
+  async function marcarTodas() {
+    // Só até a mais recente que está na tela: um aviso que chegou depois
+    // da última leitura continua não lido.
+    const ateId = notificacoes.itens[0]?.id;
+    setNotificacoes((atual) => marcarTodasLocal(atual));
+    if (avisos.length) {
+      const ids = Array.from(new Set([...vistos, ...avisos.map((a) => a.id)]));
+      setVistos(ids);
+      gravarVistos(ids);
+    }
+    if (!ateId) return;
+    try {
+      const resposta = await api.marcarNotificacoesLidas(ateId);
+      if (resposta?.naoLidas > 0) carregarNotificacoes();
+    } catch {
+      carregarNotificacoes();
+    }
+  }
 
   useEffect(() => {
     if (!aberto && !contaAberta && !cicloAberto) return undefined;
@@ -260,13 +350,15 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, 
     };
   }, [aberto, contaAberta, cicloAberto]);
 
-  const naoLidos = avisos.filter((a) => !vistos.includes(a.id)).length;
+  const avisosNovos = avisos.filter((a) => !vistos.includes(a.id)).length;
+  const naoLidos = notificacoes.naoLidas + avisosNovos;
 
   function abrirAvisos() {
     const novo = !aberto;
     setAberto(novo);
     setCicloAberto(false);
     setContaAberta(false);
+    if (novo) carregarNotificacoes();
     if (novo && avisos.length) {
       const ids = Array.from(new Set([...vistos, ...avisos.map((a) => a.id)]));
       setVistos(ids);
@@ -365,13 +457,39 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, 
             <div id={painelId} className="notif-panel" role="region" aria-label="Notificações">
               <div className="notif-head">
                 <strong>Notificações</strong>
-                <span>{avisos.length} comunicado(s)</span>
+                {notificacoes.naoLidas > 0
+                  ? <button type="button" className="notif-marcar" onClick={marcarTodas}>Marcar todas como lidas</button>
+                  : <span>{notificacoes.itens.length + avisos.length} no total</span>}
               </div>
-              {erroAvisos ? (
+              {erroNotificacoes && notificacoes.itens.length === 0 && (
                 <p className="notif-empty">Não foi possível carregar as notificações agora.</p>
-              ) : avisos.length === 0 ? (
-                <p className="notif-empty">Nenhum comunicado por enquanto.</p>
-              ) : (
+              )}
+              {notificacoes.itens.length > 0 && (
+                <ul className="notif-list">
+                  {notificacoes.itens.map((n) => (
+                    <li key={n.id} className={n.lida ? 'lida' : 'nao-lida'}>
+                      <button type="button" className="notif-item" onClick={() => abrirNotificacao(n)} aria-label={`${n.titulo}${n.lida ? '' : ' (não lida)'}`}>
+                        <span className="notif-icon" aria-hidden="true"><Icon name={ICONE_NOTIFICACAO[n.tipo] ?? 'bell'} size={16} /></span>
+                        <span className="notif-copy">
+                          <strong>{n.titulo}</strong>
+                          <span>{n.mensagem}</span>
+                          {destinoNoApp(n.link) && <small>{destinoNoApp(n.link)}</small>}
+                          <small>{tempoRelativo(n.criadoEm)}</small>
+                        </span>
+                        {!n.lida && <span className="notif-dot" aria-hidden="true" />}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {notificacoes.temMais && (
+                <button type="button" className="notif-marcar notif-mais" onClick={carregarMaisNotificacoes} disabled={carregandoMais}>
+                  {carregandoMais ? 'Carregando…' : 'Ver notificações anteriores'}
+                </button>
+              )}
+              {erroAvisos ? (
+                <p className="notif-empty">Não foi possível carregar os comunicados agora.</p>
+              ) : avisos.length > 0 ? (
                 <ul className="notif-list">
                   {avisos.map((aviso) => (
                     <li key={aviso.id}>
@@ -384,6 +502,9 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, 
                     </li>
                   ))}
                 </ul>
+              ) : null}
+              {!erroNotificacoes && notificacoes.itens.length === 0 && !erroAvisos && avisos.length === 0 && (
+                <p className="notif-empty">Nenhuma notificação por enquanto.</p>
               )}
               {!prefs.notificacoesApp && <p className="notif-foot">Os alertas de novidades estão desativados nas Configurações.</p>}
             </div>

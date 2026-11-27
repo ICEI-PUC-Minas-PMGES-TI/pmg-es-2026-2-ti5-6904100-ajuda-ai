@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
-import { api } from '../../api/client';
+import { api, getStoredToken } from '../../api/client';
+import { acompanharMatching } from './acompanharMatching';
 import { textoPreferenciaGenero } from '../../components/PreferenciaGenero';
 import Icon from '../../components/Icon';
 import ParesRecusadosMatching, {HistoricoParMatching, ValidadeSugestaoMatching} from '../../components/ParesRecusadosMatching';
@@ -851,14 +852,18 @@ function MatchingPorPrograma({ programa }) {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
   const [executando, setExecutando] = useState(false);
+  const [acompanhamento, setAcompanhamento] = useState(null);
   const [confirmarExecucao, setConfirmarExecucao] = useState(false);
   const [detalheId, setDetalheId] = useState(null);
   const ativo = useRef(true);
   const sequencia = useRef(0);
+  const retomada = useRef(null);
 
   const carregar = useCallback(async () => {
     if (!programa || !ativo.current) return;
     const pedido = ++sequencia.current;
+    const token = getStoredToken();
+    const vigente = () => ativo.current && pedido === sequencia.current && getStoredToken() === token;
     setCarregando(true);
     setErro('');
     try {
@@ -867,15 +872,16 @@ function MatchingPorPrograma({ programa }) {
         api.execucoesMatching(programa),
         api.sugestoesMatching(programa, status),
       ]);
-      if (!ativo.current || pedido !== sequencia.current) return;
+      if (!vigente()) return;
       setVisao(v);
       setExecucoes(e);
       setSugestoes(s);
+      return e;
     } catch (e) {
-      if (!ativo.current || pedido !== sequencia.current) return;
+      if (!vigente()) return;
       setErro(e.message || 'Não foi possível carregar o matching.');
     } finally {
-      if (ativo.current && pedido === sequencia.current) setCarregando(false);
+      if (vigente()) setCarregando(false);
     }
   }, [programa, status]);
 
@@ -889,23 +895,70 @@ function MatchingPorPrograma({ programa }) {
   }, [carregar]);
 
   async function executar() {
+    const anteriorId = execucoes[0]?.id;
+    const token = getStoredToken();
+    const vigente = () => ativo.current && getStoredToken() === token;
     setExecutando(true);
     setConfirmarExecucao(false);
     setErro('');
     try {
       const resposta = await api.executarMatching(programa);
-      if (!ativo.current) return;
+      if (!vigente()) return;
       toast(`Execução concluída: ${resposta.totalSugestoes || 0} sugestão(ões).`, 'sucesso');
       setStatus('pendente');
       if (status === 'pendente') await carregar();
     } catch (e) {
-      if (!ativo.current) return;
-      await carregar();
-      if (ativo.current) setErro(e.message || 'A execução falhou.');
+      if (!vigente()) return;
+      const atuais = await carregar();
+      if (!vigente()) return;
+      const emCurso = atuais?.find(r => r.status === 'executando');
+      if (emCurso || e.status === 0 || e.status >= 500) {
+        setAcompanhamento({ anteriorId, execucaoId: emCurso?.id });
+      } else {
+        setErro(e.message || 'A execução falhou.');
+      }
     } finally {
-      if (ativo.current) setExecutando(false);
+      if (vigente()) setExecutando(false);
     }
   }
+
+  const emCurso = execucoes.find(e => e.status === 'executando');
+  const aguardando = executando || !!acompanhamento || !!emCurso;
+
+  useEffect(() => {
+    if (!acompanhamento && emCurso && retomada.current !== emCurso.id) {
+      retomada.current = emCurso.id;
+      setAcompanhamento({ execucaoId: emCurso.id });
+    }
+  }, [acompanhamento, emCurso]);
+
+  useEffect(() => {
+    if (!acompanhamento) return;
+    let cancelado = false;
+    const token = getStoredToken();
+    const vigente = () => !cancelado && ativo.current && getStoredToken() === token;
+    acompanharMatching({
+      ...acompanhamento,
+      consultar: () => api.execucoesMatching(programa),
+      ativo: vigente,
+      atualizar: e => { setExecucoes(e); setErro(''); },
+      erroRede: () => setErro('Ainda não foi possível confirmar o resultado. Acompanhando a rodada…'),
+    }).then(async rodada => {
+      if (!rodada || !vigente()) return;
+      await carregar();
+      if (!vigente()) return;
+      setStatus('pendente');
+      setAcompanhamento(null);
+      if (rodada.status === 'falha') setErro(rodada.erro || 'A execução falhou.');
+      else toast('Rodada concluída. Sugestões atualizadas.', 'sucesso');
+    }).catch(e => {
+      if (!vigente()) return;
+      retomada.current = acompanhamento.execucaoId;
+      setAcompanhamento(null);
+      setErro(e.message || 'Não foi possível acompanhar a rodada.');
+    });
+    return () => { cancelado = true; };
+  }, [acompanhamento, programa, carregar, toast]);
 
   const totais = visao?.totais || {};
   const ultimaExecucao = execucoes[0];
@@ -929,8 +982,8 @@ function MatchingPorPrograma({ programa }) {
             <Link to={`/coordenacao/matching/manual?programa=${encodeURIComponent(programa || '')}`} className="mini-btn">
               Gerenciar vínculos manualmente
             </Link>
-            <button type="button" className="primary-button inline" disabled={!visao?.podeExecutar || executando} onClick={() => setConfirmarExecucao(true)}>
-              <Icon name="spark" size={16} /> {executando ? 'Executando…' : 'Gerar sugestões'}
+            <button type="button" className="primary-button inline" disabled={!visao?.podeExecutar || aguardando} onClick={() => setConfirmarExecucao(true)}>
+              <Icon name="spark" size={16} /> {aguardando ? 'Executando…' : 'Gerar sugestões'}
             </button>
           </div>
         )}
@@ -950,6 +1003,7 @@ function MatchingPorPrograma({ programa }) {
       {aba === 'operacao' && (
         <>
           {erro && <div className="dash-inline-error" role="alert">{erro}<button type="button" onClick={carregar}>Tentar novamente</button></div>}
+          {aguardando && <p role="status">Acompanhando a execução do matching até a conclusão…</p>}
           {carregando && !visao && <p className="empty-copy" role="status">Carregando matching…</p>}
 
           {visao && (

@@ -15,7 +15,12 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
 import { Roles } from '../../auth/roles.decorator.js';
 import { RolesGuard } from '../../auth/roles.guard.js';
 import { responsavelDoToken } from '../gamificacao.js';
-import { AjustarXpDto, ExtratoXpQuery, ListarXpQuery } from './xp-admin.dto.js';
+import {
+  AjustarXpDto,
+  ExtratoXpQuery,
+  ListarXpQuery,
+  type ResultadoAjusteXpDto,
+} from './xp-admin.dto.js';
 import { XpAdminService } from './xp-admin.service.js';
 
 /** XP dos participantes pela coordenação (F26): consulta e ajustes. */
@@ -50,7 +55,7 @@ export class XpAdminController {
     @Req() requisicao: AuthenticatedRequest,
     @Param('usuarioId', ParseIntPipe) usuarioId: number,
     @Body() dados: AjustarXpDto,
-  ) {
+  ): Promise<ResultadoAjusteXpDto> {
     return this.xp.ajustar(
       usuarioId,
       dados,

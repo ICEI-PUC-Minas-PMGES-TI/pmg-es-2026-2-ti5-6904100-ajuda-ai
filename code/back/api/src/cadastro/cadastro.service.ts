@@ -361,9 +361,9 @@ export class CadastroService {
   }
 
   /** POST /cadastro: registra e já devolve a sessão do aluno. */
-  async cadastrar(dados: DadosCadastro) {
+  async cadastrar(dados: DadosCadastro, expiraAte?: number) {
     const { usuario, participacao } = await this.registrar(dados);
-    const sessao = await this.authService.emitirSessao(usuario);
+    const sessao = await this.authService.emitirSessao(usuario, expiraAte);
     return { ...sessao, participacao: serializarParticipacao(participacao) };
   }
 

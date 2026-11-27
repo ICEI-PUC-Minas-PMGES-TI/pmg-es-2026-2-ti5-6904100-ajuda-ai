@@ -1,5 +1,7 @@
 # Matching — execução do plano
 
+Atualização em 27/11/2026: integração com a Sprint-6 e correções da revisão do PR #73 concluídas e verificadas localmente. Resultados atuais, comparação com a base e limitações em [integracao-sprint-6-pr-73.md](integracao-sprint-6-pr-73.md). Os resultados abaixo registram a execução anterior, de 24/11.
+
 Atualizado em 24/11/2026. Este acompanhamento complementa o [plano original](plano-original.md), preservado integralmente. O plano registra decisões acordadas, propostas e decisões ainda abertas; não representa funcionalidades já implementadas.
 
 ## Mapa completo

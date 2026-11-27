@@ -164,24 +164,27 @@ class _ProfilePageState extends State<ProfilePage> {
   void _participacaoMudou() {
     if (!mounted) return;
     final conta = _sessao.identidade?.email;
-    setState(() {
-      if (conta != _contaExibida) {
-        _contaExibida = conta;
-        _editando = false;
-        _salvando = false;
-        for (final controller in [
-          _nomeController,
-          _cursoController,
-          _periodoController,
-          _emailController,
-          _sobreController,
-          _turnoController,
-          _interessesController,
-        ]) {
-          controller.clear();
+    Future.microtask(() {
+      if (!mounted) return;
+      setState(() {
+        if (conta != _contaExibida) {
+          _contaExibida = conta;
+          _editando = false;
+          _salvando = false;
+          for (final controller in [
+            _nomeController,
+            _cursoController,
+            _periodoController,
+            _emailController,
+            _sobreController,
+            _turnoController,
+            _interessesController,
+          ]) {
+            controller.clear();
+          }
         }
-      }
-      if (!_editando) _dados = _dadosDaSessao();
+        if (!_editando) _dados = _dadosDaSessao();
+      });
     });
   }
 

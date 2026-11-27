@@ -1,0 +1,344 @@
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
+import type { QueryRunner } from 'typeorm';
+import { SCHEMA_MAPA, SRID } from '../../mapa/postgis.js';
+import { SCHEMA_GAMIFICACAO } from '../gamificacao.js';
+import { PRECISAO_MAXIMA_METROS } from '../pucstops/pucstops.service.js';
+import {
+  CHECKIN_ANTECEDENCIA_MIN,
+  COMENTARIO_MISSAO_MIN,
+  JANELA_TENTATIVAS_CODIGO,
+  joinsEvento,
+  MENSAGEM_MISSAO_MIN,
+  normalizarCodigo,
+  PUBLICACAO_MISSAO_MIN,
+  RAIO_EVENTO_METROS,
+  type RequisitoMissao,
+  sqlLocalEvento,
+  TENTATIVAS_CODIGO_POR_HORA,
+} from './missoes.js';
+
+const g = `"${SCHEMA_GAMIFICACAO}"`;
+const mp = `"${SCHEMA_MAPA}"`;
+
+export const PARAMS_PROGRESSO = 3;
+
+/**
+ * Período em que a ação conta: da primeira publicação (ou do início, se
+ * for depois) até o fim; nas semanais, só a semana corrente. O que o aluno
+ * fez com a missão ainda em rascunho não conta. GREATEST ignora NULL; sem
+ * publicação (rascunho) o limite é NULL e nada conta. PucStops não usam a
+ * janela: a coleta vale uma vez por ciclo e conta a do ciclo todo.
+ */
+function janela(m: string, coluna: string): string {
+  const semana = `($3::date::timestamp AT TIME ZONE 'America/Sao_Paulo')`;
+  const desde = `GREATEST(${m}."inicio", ${m}."publicada_em", CASE WHEN ${m}."tipo" = 'SEMANAL' THEN ${semana} END)`;
+  const ate = `COALESCE(LEAST(${m}."fim", CASE WHEN ${m}."tipo" = 'SEMANAL' THEN ${semana} + interval '7 days' END), 'infinity'::timestamptz)`;
+  return `${coluna} >= ${desde} AND ${coluna} < ${ate}`;
+}
+
+export function sqlProgresso(m: string, u: string): string {
+  return (
+    `CASE ${m}."requisito" ` +
+    `WHEN 'PUCSTOPS' THEN (SELECT count(DISTINCT c."pucstop_id") FROM ${g}."pucstop_coletas" c ` +
+    `WHERE c."usuario_id" = $1 AND c."ciclo" = ${m}."ciclo" AND (${m}."pucstops" IS NULL OR c."pucstop_id" = ANY(${m}."pucstops")) ` +
+    `) ` +
+    `WHEN 'FEED_PUBLICACOES' THEN (SELECT count(*) FROM ${u}."publicacoes" p ` +
+    `WHERE lower(p."owner_id") = $2 AND p."programa_codigo" = ${m}."ciclo" ` +
+    `AND (char_length(btrim(COALESCE(p."texto", ''))) >= ${PUBLICACAO_MISSAO_MIN} OR COALESCE(cardinality(p."imagens"), 0) > 0) ` +
+    `AND ${janela(m, 'p."criado_em"')}) ` +
+    // Posts diferentes: vários comentários no mesmo post contam uma vez.
+    `WHEN 'FEED_COMENTARIOS' THEN (SELECT count(DISTINCT k."publicacao_id") FROM ${u}."comentarios" k JOIN ${u}."publicacoes" p ON p."id" = k."publicacao_id" ` +
+    `WHERE lower(k."autor_id") = $2 AND lower(p."owner_id") <> $2 AND p."programa_codigo" = ${m}."ciclo" ` +
+    `AND char_length(btrim(k."texto")) >= ${COMENTARIO_MISSAO_MIN} ` +
+    `AND ${janela(m, 'k."criado_em"')}) ` +
+    `WHEN 'FEED_CURTIDAS' THEN (SELECT count(DISTINCT k."publicacao_id") FROM ${u}."curtidas" k JOIN ${u}."publicacoes" p ON p."id" = k."publicacao_id" ` +
+    `WHERE lower(k."usuario_id") = $2 AND lower(p."owner_id") <> $2 AND p."programa_codigo" = ${m}."ciclo" ` +
+    `AND ${janela(m, 'k."criado_em"')} ` +
+    // Descurtir apaga a curtida; sem isto, descurtir e curtir os mesmos
+    // posts toda semana cumpriria a semanal de novo.
+    `AND (${m}."tipo" <> 'SEMANAL' OR (${janela(m, 'p."criado_em"')}))) ` +
+    `WHEN 'CHAT_MENSAGENS' THEN (SELECT count(*) FROM ${u}."mensagens_chat" x JOIN ${u}."participacoes" pa ON pa."id" = x."remetente_participacao_id" ` +
+    `WHERE lower(pa."usuario_id") = $2 AND pa."programa" = ${m}."ciclo" AND char_length(btrim(x."texto")) >= ${MENSAGEM_MISSAO_MIN} ` +
+    `AND ${janela(m, 'x."criada_em"')}) ` +
+    `ELSE 0 END`
+  );
+}
+
+/**
+ * PucStops ativos que o aluno ainda não coletou (no roteiro, só os dele).
+ * Um ponto desativado não pode mais ser coletado: fica fora da meta.
+ */
+export function sqlPucstopsDisponiveis(m: string): string {
+  return (
+    `(SELECT count(*) FROM ${mp}."pucstops" p WHERE p."ativo" ` +
+    `AND (${m}."pucstops" IS NULL OR p."id" = ANY(${m}."pucstops")) ` +
+    `AND NOT EXISTS (SELECT 1 FROM ${g}."pucstop_coletas" c ` +
+    `WHERE c."usuario_id" = $1 AND c."ciclo" = ${m}."ciclo" AND c."pucstop_id" = p."id"))`
+  );
+}
+
+/**
+ * Meta que o aluno ainda consegue cumprir. Nos PucStops, um ponto
+ * desativado depois da publicação deixa de contar (o que o aluno já
+ * coletou continua valendo), senão a missão ficaria impossível. Pelo menos
+ * 1: sem ponto ativo nem coletado, a missão não se cumpre sozinha.
+ */
+export function metaEfetiva(
+  requisito: RequisitoMissao,
+  quantidade: number,
+  atual: number,
+  disponiveis: number,
+): number {
+  if (requisito !== 'PUCSTOPS') return quantidade;
+  return Math.max(1, Math.min(quantidade, atual + disponiveis));
+}
+
+export function recusa(
+  motivo: string,
+  message: string,
+  extra: Record<string, unknown> = {},
+): UnprocessableEntityException {
+  return new UnprocessableEntityException({
+    statusCode: 422,
+    message,
+    motivo,
+    ...extra,
+  });
+}
+
+const FALTA: Record<
+  Exclude<RequisitoMissao, 'EVENTO' | 'CODIGO'>,
+  (n: number, semanal: boolean) => string
+> = {
+  PUCSTOPS: (n) =>
+    n === 1 ? 'Colete mais 1 PucStop.' : `Colete mais ${n} PucStops.`,
+  FEED_PUBLICACOES: (n) =>
+    n === 1
+      ? 'Faça mais 1 publicação no feed.'
+      : `Faça mais ${n} publicações no feed.`,
+  FEED_COMENTARIOS: (n) =>
+    n === 1
+      ? 'Comente em mais 1 post de colegas.'
+      : `Comente em mais ${n} posts diferentes de colegas.`,
+  FEED_CURTIDAS: (n, semanal) => {
+    const desta = semanal ? (n === 1 ? ' feita' : ' feitas') + ' nesta semana' : '';
+    return n === 1
+      ? `Curta mais 1 publicação de colegas${desta}.`
+      : `Curta mais ${n} publicações de colegas${desta}.`;
+  },
+  CHAT_MENSAGENS: (n) =>
+    n === 1
+      ? 'Envie mais 1 mensagem no chat do grupo.'
+      : `Envie mais ${n} mensagens no chat do grupo.`,
+};
+
+export interface MissaoParaVerificar {
+  id: string;
+  tipo: string;
+  requisito: RequisitoMissao;
+  quantidade: number;
+  alvo_id: string | null;
+  codigo: string | null;
+  /** O código está dentro do tempo liberado pela coordenação. */
+  codigo_liberado?: boolean;
+}
+
+export interface LeituraConclusao {
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+  codigo?: string;
+}
+
+export class CodigoErrado extends UnprocessableEntityException {
+  constructor() {
+    super({
+      statusCode: 422,
+      message: 'Código incorreto. Confira com a coordenação.',
+      motivo: 'codigo-incorreto',
+    });
+  }
+}
+
+export async function verificarContagem(
+  qr: QueryRunner,
+  u: string,
+  missao: MissaoParaVerificar,
+  usuarioId: number,
+  email: string,
+  semana: string,
+): Promise<{ atual: number; meta: number }> {
+  const [contagem] = (await qr.query(
+    `SELECT (${sqlProgresso('m', u)})::int AS atual, ` +
+      `(CASE WHEN m."requisito" = 'PUCSTOPS' THEN ${sqlPucstopsDisponiveis('m')} ELSE 0 END)::int AS disponiveis ` +
+      `FROM ${g}."missoes" m WHERE m."id" = $4`,
+    [usuarioId, email, semana, missao.id],
+  )) as Array<{ atual: number; disponiveis: number }>;
+  const atual = Number(contagem.atual);
+  const disponiveis = Number(contagem.disponiveis);
+  if (missao.requisito === 'PUCSTOPS' && atual + disponiveis === 0) {
+    throw new NotFoundException('Missão não encontrada.');
+  }
+  const meta = metaEfetiva(
+    missao.requisito,
+    missao.quantidade,
+    atual,
+    disponiveis,
+  );
+  if (atual < meta) {
+    const requisito = missao.requisito as keyof typeof FALTA;
+    const semanal = missao.tipo === 'SEMANAL';
+    throw recusa('requisito-pendente', FALTA[requisito](meta - atual, semanal), {
+      progresso: { atual, meta },
+    });
+  }
+  return { atual: Math.min(atual, meta), meta };
+}
+
+export async function verificarEvento(
+  qr: QueryRunner,
+  geo: string,
+  missao: MissaoParaVerificar,
+  leitura: LeituraConclusao,
+): Promise<{ distanciaMetros: number; eventoId: string }> {
+  const numero = (v: unknown): v is number =>
+    typeof v === 'number' && Number.isFinite(v);
+  if (!numero(leitura.latitude) || !numero(leitura.longitude)) {
+    throw new BadRequestException({
+      statusCode: 400,
+      message: 'Envie sua localização para fazer o check-in no evento.',
+      motivo: 'localizacao-obrigatoria',
+    });
+  }
+  if (!numero(leitura.accuracy)) {
+    throw new BadRequestException({
+      statusCode: 400,
+      message: 'Envie a precisão da localização para fazer o check-in.',
+      motivo: 'localizacao-obrigatoria',
+    });
+  }
+  if (leitura.accuracy > PRECISAO_MAXIMA_METROS) {
+    throw recusa(
+      'precisao-insuficiente',
+      'Localização imprecisa demais. Tente de novo perto de uma janela ou ao ar livre.',
+    );
+  }
+  const ponto = `${geo}.ST_SetSRID(${geo}.ST_MakePoint($2, $3), ${SRID})::${geo}.geography`;
+  const local = sqlLocalEvento('e');
+  const [evento] = (await qr.query(
+    `SELECT e."id", e."titulo", e."ativo", e."inicio", e."fim", ` +
+      `now() >= e."inicio" - interval '${CHECKIN_ANTECEDENCIA_MIN} minutes' AS abriu, now() < e."fim" AS aberto, ` +
+      `${local} IS NOT NULL AS tem_local, ` +
+      `${geo}.ST_Distance(${local}::${geo}.geography, ${ponto}) AS distancia ` +
+      `FROM ${mp}."eventos" e ${joinsEvento('e')} WHERE e."id" = $1`,
+    [missao.alvo_id, leitura.longitude, leitura.latitude],
+  )) as Array<{
+    id: string;
+    titulo: string;
+    ativo: boolean;
+    inicio: Date;
+    fim: Date;
+    abriu: boolean;
+    aberto: boolean;
+    tem_local: boolean;
+    distancia: number | null;
+  }>;
+  if (!evento || !evento.ativo || !evento.tem_local) {
+    throw recusa(
+      'evento-indisponivel',
+      'Este evento não está mais disponível para check-in.',
+    );
+  }
+  if (!evento.abriu) {
+    throw recusa(
+      'evento-nao-comecou',
+      `O check-in abre ${CHECKIN_ANTECEDENCIA_MIN} minutos antes do evento.`,
+      { inicio: evento.inicio.toISOString() },
+    );
+  }
+  if (!evento.aberto) {
+    throw recusa('evento-encerrado', 'Este evento já terminou.', {
+      fim: evento.fim.toISOString(),
+    });
+  }
+  const distancia = evento.distancia === null ? NaN : Number(evento.distancia);
+  if (!Number.isFinite(distancia)) {
+    throw recusa(
+      'fora-do-local',
+      'Não foi possível medir sua distância até o evento. Tente de novo.',
+    );
+  }
+  const distanciaMetros = Math.round(distancia);
+  if (distanciaMetros > RAIO_EVENTO_METROS) {
+    throw recusa(
+      'fora-do-local',
+      'Você precisa estar no local do evento para fazer o check-in.',
+      { distanciaMetros, raioMetros: RAIO_EVENTO_METROS },
+    );
+  }
+  return { distanciaMetros, eventoId: evento.id };
+}
+
+export async function exigirTentativasDeCodigo(
+  qr: QueryRunner,
+  missaoId: string,
+  usuarioId: number,
+): Promise<void> {
+  const [{ erros }] = (await qr.query(
+    `SELECT count(*)::int AS erros FROM ${g}."missoes_tentativas_codigo" ` +
+      `WHERE "missao_id" = $1 AND "usuario_id" = $2 AND "criado_em" > now() - interval '${JANELA_TENTATIVAS_CODIGO}'`,
+    [missaoId, usuarioId],
+  )) as Array<{ erros: number }>;
+  if (erros >= TENTATIVAS_CODIGO_POR_HORA) {
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message:
+          'Muitas tentativas com código errado. Tente de novo em uma hora.',
+        motivo: 'muitas-tentativas',
+      },
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
+  }
+}
+
+/**
+ * O código só vale enquanto a coordenação o deixa liberado, na hora da
+ * atividade: repassado depois, não serve. Fechado, nem confere o código
+ * (não gasta tentativa nem revela se estava certo).
+ */
+export function exigirCodigoLiberado(missao: MissaoParaVerificar): void {
+  if (!missao.codigo_liberado) {
+    throw recusa(
+      'codigo-fechado',
+      'O código não está liberado agora. Ele só vale na hora da atividade, enquanto a coordenação deixa liberado.',
+    );
+  }
+}
+
+export function verificarCodigo(
+  missao: MissaoParaVerificar,
+  leitura: LeituraConclusao,
+): void {
+  if (!leitura.codigo?.trim()) {
+    throw new BadRequestException({
+      statusCode: 400,
+      message: 'Digite o código que a coordenação mostrou na atividade.',
+      motivo: 'codigo-obrigatorio',
+    });
+  }
+  const esperado = Buffer.from(missao.codigo ?? '');
+  const digitado = Buffer.from(normalizarCodigo(leitura.codigo));
+  const igual =
+    esperado.length > 0 &&
+    esperado.length === digitado.length &&
+    timingSafeEqual(esperado, digitado);
+  if (!igual) throw new CodigoErrado();
+}

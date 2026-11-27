@@ -2,7 +2,7 @@ import type { RespostasCadastro } from '../participacoes/entities/participacao.e
 import {
   GENEROS_PREFERENCIA,
   validarPreferenciaGenero,
-} from '../participacoes/preferencia-genero.js';
+} from '../participacoes/preferencia-genero.ts';
 
 /** Fontes canônicas: não exigem perguntas adicionais repetidas no catálogo. */
 export const CRITERIOS_CADASTRO = [

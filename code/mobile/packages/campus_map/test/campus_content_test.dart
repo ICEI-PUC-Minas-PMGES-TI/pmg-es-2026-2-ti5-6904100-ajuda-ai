@@ -810,6 +810,8 @@ void main() {
       await mount(tester);
       await open(tester, comer);
       await pick(tester, _cantina);
+      await tester.ensureVisible(find.byKey(const Key('campus-content-menu')));
+      await tester.pump();
       await tester.tap(find.byKey(const Key('campus-content-menu')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('campus-menu-image')), findsOneWidget);
@@ -830,6 +832,8 @@ void main() {
       await mount(tester);
       await open(tester, comer);
       await pick(tester, _cantina);
+      await tester.ensureVisible(find.byKey(const Key('campus-content-menu')));
+      await tester.pump();
       await tester.tap(find.byKey(const Key('campus-content-menu')));
       await tester.pumpAndSettle();
       expect(abertos, [Uri.parse('https://cdn.test/cardapios/cantina.pdf')]);
@@ -858,6 +862,8 @@ void main() {
       await mount(tester);
       await open(tester, comer);
       await pick(tester, _cantina);
+      await tester.ensureVisible(find.byKey(const Key('campus-content-menu')));
+      await tester.pump();
       await tester.tap(find.byKey(const Key('campus-content-menu')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('campus-menu-link')), findsOneWidget);
@@ -876,12 +882,16 @@ void main() {
       await mount(tester);
       await open(tester, comer);
       await pick(tester, _cantina);
+      await tester.ensureVisible(find.byKey(const Key('campus-content-menu')));
+      await tester.pump();
       await tester.tap(find.byKey(const Key('campus-content-menu')));
       await tester.pumpAndSettle();
       expect(find.text('Sem cardápio publicado para hoje.'), findsOneWidget);
       service.menuError = const CampusContentException(
         CampusContentFailure.offline,
       );
+      await tester.ensureVisible(find.byKey(const Key('campus-content-menu')));
+      await tester.pump();
       await tester.tap(find.byKey(const Key('campus-content-menu')));
       await tester.pumpAndSettle();
       expect(

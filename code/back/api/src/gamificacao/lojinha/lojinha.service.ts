@@ -136,6 +136,34 @@ export class LojinhaService {
     }
   }
 
+  /**
+   * Programa (ciclo) da troca, gravado no resgate e nunca recalculado (F29):
+   * - recompensa restrita: o programa dela NESTE momento;
+   * - recompensa aberta a todos: o programa da participação ativa que deu
+   *   acesso à lojinha (a mais recente, se houver mais de uma), desde que
+   *   o programa exista em `programas` (a coluna tem FK).
+   * Editar a recompensa depois não muda em qual programa a troca aparece.
+   */
+  private async programaDaTroca(
+    qr: QueryRunner,
+    aluno: Aluno,
+    recompensaId: string,
+  ): Promise<string | null> {
+    const s = schemaUsuarios(this.db);
+    const [linha] = (await qr.query(
+      `SELECT COALESCE(r."programa_codigo", (` +
+        `SELECT p."programa" FROM ${s}."participacoes" p ` +
+        `JOIN ${s}."programas" pr ON pr."codigo" = p."programa" ` +
+        `WHERE p."usuario_id" IN ($2::text, $3) ` +
+        `AND (p."papel" = $1 OR ($1 = 'padrinho' AND p."papel" = 'candidato')) ` +
+        `AND p."status" IN ('aprovado', 'em_andamento') ` +
+        `ORDER BY p."criado_em" DESC, p."id" DESC LIMIT 1` +
+        `)) AS "codigo" FROM ${g}."recompensas" r WHERE r."id" = $4`,
+      [aluno.perfil, aluno.id, aluno.email, recompensaId],
+    )) as Array<{ codigo: string | null }>;
+    return linha?.codigo ?? null;
+  }
+
   async listar(aluno: Aluno): Promise<Recompensa[]> {
     await this.exigirParticipacao(this.db, aluno);
     return this.db.query(
@@ -262,10 +290,11 @@ export class LojinhaService {
         `UPDATE ${g}."recompensas" SET "estoque_comprometido" = "estoque_comprometido" + 1 WHERE "id" = $1`,
         [recompensaId],
       );
+      const programa = await this.programaDaTroca(qr, aluno, recompensaId);
       const [resgate] = (await qr.query(
         `INSERT INTO ${g}."resgates" ` +
-          `("id", "usuario_id", "recompensa_id", "versao", "movimentacao_id", "chave_idempotencia", "nome", "descricao", "custo_xp", "condicoes_retirada") ` +
-          `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ` +
+          `("id", "usuario_id", "recompensa_id", "versao", "movimentacao_id", "chave_idempotencia", "nome", "descricao", "custo_xp", "condicoes_retirada", "programa_codigo") ` +
+          `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ` +
           `RETURNING "id", "codigo", "recompensa_id" AS "recompensaId", "versao", "nome", "descricao", "custo_xp" AS "custoXp", ` +
           `"condicoes_retirada" AS "condicoesRetirada", "criado_em" AS "criadoEm"`,
         [
@@ -279,6 +308,7 @@ export class LojinhaService {
           item.descricao,
           item.custoXp,
           item.condicoesRetirada,
+          programa,
         ],
       )) as Resgate[];
       await qr.commitTransaction();

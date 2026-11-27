@@ -7,6 +7,7 @@ import 'campus_content.dart';
 import 'campus_content_format.dart';
 import 'campus_map_controller.dart';
 import 'campus_map_controls.dart';
+import 'campus_map_widgets.dart';
 import 'campus_route.dart';
 
 const campusEventColor = Color(0xFF7C3AED);
@@ -310,9 +311,6 @@ class CampusContentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final muted = text.bodySmall?.copyWith(color: colors.onSurfaceVariant);
     final item = this.item;
     final location = item.location;
     final hasRoute = canRoute && location?.routeTarget != null;
@@ -325,154 +323,214 @@ class CampusContentCard extends StatelessWidget {
       CampusRestaurant(:final description) => description,
     };
     final route = this.route;
+    final category = switch (item) {
+      CampusEvent() => 'Evento',
+      CampusRestaurant() => 'Restaurante',
+    };
+    // Mesmo padrão visual do card dos prédios (`_PlaceCard`): cabeçalho com ícone
+    // circular, título em azul institucional, categoria, divisor e ações em cartões.
     return Material(
       key: const Key('campus-content-card'),
-      color: colors.surface,
+      color: Colors.white,
       elevation: 3,
       borderRadius: BorderRadius.circular(16),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight:
-              MediaQuery.sizeOf(context).height *
-              CampusMapDefaults.contentCardHeightFraction,
-        ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 4, 4, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(icon, size: 20, color: color),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      item.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.titleSmall,
-                    ),
-                  ),
-                  IconButton(
-                    key: const Key('campus-content-close'),
-                    tooltip: 'Fechar',
-                    onPressed: onClose,
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      clipBehavior: Clip.antiAlias,
+      child: ClipRect(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight:
+                MediaQuery.sizeOf(context).height *
+                CampusMapDefaults.contentCardHeightFraction,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
                   children: [
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: campusContentBadges(item),
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(icon, color: color, size: 26),
                     ),
-                    const SizedBox(height: 4),
-                    Text(switch (item) {
-                      CampusEvent() => campusEventSchedule(item, now: now),
-                      CampusRestaurant() => campusRestaurantHoursToday(
-                        item,
-                        now: now,
-                      ),
-                    }, style: text.bodyMedium),
-                    if (location?.name case final name?
-                        when name.trim().isNotEmpty)
-                      Text(name, style: muted),
-                    if (location == null || !location.hasPosition)
-                      Text(
-                        'Local sem posição no mapa.',
-                        key: const Key('campus-content-no-position'),
-                        style: muted,
-                      ),
-                    if (description != null && description.trim().isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          description,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.bodySmall,
-                        ),
-                      ),
-                    if (route != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          campusRouteSummary(route),
-                          key: const Key('campus-content-route-summary'),
-                          style: text.bodyMedium?.copyWith(
-                            color: colors.primary,
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              color: CampusMapStyle.brand,
+                            ),
                           ),
-                        ),
+                          Text(
+                            category,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: CampusMapStyle.muted,
+                            ),
+                          ),
+                        ],
                       ),
+                    ),
+                    IconButton(
+                      key: const Key('campus-content-close'),
+                      tooltip: 'Fechar',
+                      onPressed: onClose,
+                      icon: const Icon(
+                        Icons.close,
+                        color: CampusMapStyle.muted,
+                        size: 24,
+                      ),
+                    ),
                   ],
                 ),
-              ),
-              if (hasRoute)
-                SwitchListTile(
-                  key: const Key('campus-content-accessible'),
-                  dense: true,
-                  contentPadding: const EdgeInsets.only(right: 12),
-                  title: const Text('Rota acessível'),
-                  value: accessible,
-                  onChanged: routing ? null : onAccessible,
-                )
-              else
                 const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: Wrap(
-                  spacing: 8,
+                Wrap(
+                  spacing: 6,
                   runSpacing: 4,
-                  children: [
-                    if (location?.hasPosition == true)
-                      OutlinedButton.icon(
-                        key: const Key('campus-content-focus'),
-                        onPressed: onFocus,
-                        icon: const Icon(Icons.center_focus_strong_outlined),
-                        label: const Text('Ver no mapa'),
-                      ),
-                    if (hasRoute)
-                      FilledButton.icon(
-                        key: const Key('campus-content-trace'),
-                        onPressed: routing ? null : onTrace,
-                        icon: routing
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.directions_walk),
-                        label: Text(
-                          routing ? 'Calculando rota' : 'Traçar rota',
-                        ),
-                      ),
-                    if (item is CampusRestaurant)
-                      OutlinedButton.icon(
-                        key: const Key('campus-content-menu'),
-                        onPressed: loadingMenu ? null : onMenu,
-                        icon: loadingMenu
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.menu_book_outlined),
-                        label: const Text('Ver cardápio'),
-                      ),
-                  ],
+                  children: campusContentBadges(item),
                 ),
-              ),
-            ],
+                const SizedBox(height: 6),
+                Text(
+                  switch (item) {
+                    CampusEvent() => campusEventSchedule(item, now: now),
+                    CampusRestaurant() => campusRestaurantHoursToday(
+                      item,
+                      now: now,
+                    ),
+                  },
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: CampusMapStyle.text,
+                  ),
+                ),
+                if (location?.name case final name? when name.trim().isNotEmpty)
+                  Text(
+                    name,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: CampusMapStyle.muted,
+                    ),
+                  ),
+                if (location == null || !location.hasPosition)
+                  const Text(
+                    'Local sem posição no mapa.',
+                    key: Key('campus-content-no-position'),
+                    style: TextStyle(fontSize: 13, color: CampusMapStyle.muted),
+                  ),
+                if (description != null && description.trim().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      description,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                        color: CampusMapStyle.text,
+                      ),
+                    ),
+                  ),
+                if (route != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: CampusMapStyle.brand.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            route.accessible
+                                ? Icons.accessible
+                                : Icons.directions_walk,
+                            color: CampusMapStyle.brand,
+                            size: 22,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              campusRouteSummary(route),
+                              key: const Key('campus-content-route-summary'),
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: CampusMapStyle.brand,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                if (hasRoute)
+                  SwitchListTile(
+                    key: const Key('campus-content-accessible'),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Rota acessível'),
+                    value: accessible,
+                    onChanged: routing ? null : onAccessible,
+                  ),
+                const SizedBox(height: 8),
+                if (hasRoute) ...[
+                  CampusPlaceActionButton(
+                    key: const Key('campus-content-trace'),
+                    icon: Icons.near_me_rounded,
+                    label: routing ? 'Calculando rota' : 'Traçar rota',
+                    subtitle: accessible
+                        ? 'Da minha localização atual · rota acessível'
+                        : 'Da minha localização atual',
+                    color: CampusMapStyle.brand,
+                    loading: routing,
+                    onTap: routing ? null : onTrace,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (location?.hasPosition == true) ...[
+                  CampusPlaceActionButton(
+                    key: const Key('campus-content-focus'),
+                    icon: Icons.center_focus_strong_outlined,
+                    label: 'Ver no mapa',
+                    subtitle: 'Centralizar o local no campus',
+                    color: CampusMapStyle.origin,
+                    onTap: onFocus,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (item is CampusRestaurant)
+                  CampusPlaceActionButton(
+                    key: const Key('campus-content-menu'),
+                    icon: Icons.menu_book_outlined,
+                    label: 'Ver cardápio',
+                    subtitle: 'Cardápio e horários do local',
+                    color: campusRestaurantColor,
+                    loading: loadingMenu,
+                    onTap: loadingMenu ? null : onMenu,
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -480,7 +538,6 @@ class CampusContentCard extends StatelessWidget {
   }
 }
 
-/// Cardápio em imagem, em tela cheia, com zoom.
 class CampusMenuImageViewer extends StatelessWidget {
   const CampusMenuImageViewer({
     super.key,

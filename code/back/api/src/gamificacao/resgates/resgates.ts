@@ -30,3 +30,9 @@ export const COLUNAS_SITUACAO =
   `CASE WHEN d."tipo" = 'entregue' THEN d."criado_em" END AS "entregueEm", ` +
   `CASE WHEN d."tipo" = 'cancelado' THEN d."criado_em" END AS "canceladoEm", ` +
   `d."motivo" AS "motivoCancelamento"`;
+
+/**
+ * Paginação da fila da coordenação. Filtros e busca rodam no SQL ANTES do
+ * limite; o cursor (keyset em `criado_em DESC, id DESC`) percorre o resto.
+ */
+export const PAGINA_RESGATES = { padrao: 50, max: 200 } as const;

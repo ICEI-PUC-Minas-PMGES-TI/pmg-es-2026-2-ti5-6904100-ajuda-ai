@@ -61,8 +61,8 @@ describe.skipIf(
         espera = new Promise<void>((r) => {
           liberar = r;
         });
-      const real = executor.alocarMatchingAssincrono;
-      vi.spyOn(executor, 'alocarMatchingAssincrono').mockImplementationOnce(
+      const real = executor.calcularMatchingAssincrono;
+      vi.spyOn(executor, 'calcularMatchingAssincrono').mockImplementationOnce(
         async (...args) => {
           iniciou();
           await espera;

@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'models/notificacao.dart';
 import 'models/situacao_participacao.dart';
+import 'services/notificacoes_api.dart';
 import 'sessao_usuario.dart';
 import 'tela_resgatar.dart';
 import 'main.dart' show estiloBarraClara;
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
 import 'widgets/navegacao_app.dart';
+import 'widgets/painel_notificacoes.dart';
 import 'widgets/progresso_gamificacao.dart';
 import 'widgets/abrir_conversas.dart';
 
@@ -98,8 +101,57 @@ class _Brilhos extends StatelessWidget {
   );
 }
 
-class _LinhaMarca extends StatelessWidget {
+class _LinhaMarca extends StatefulWidget {
   const _LinhaMarca();
+
+  @override
+  State<_LinhaMarca> createState() => _LinhaMarcaState();
+}
+
+class _LinhaMarcaState extends State<_LinhaMarca> with WidgetsBindingObserver {
+  AppDestination? _abaAnterior;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    CentralNotificacoes.atual.atualizar();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final aba = AppShell.of(context)?.atual;
+    if (aba == AppDestination.inicio &&
+        _abaAnterior != null &&
+        _abaAnterior != aba) {
+      CentralNotificacoes.atual.atualizar();
+    }
+    _abaAnterior = aba;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      CentralNotificacoes.atual.atualizar();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  Future<void> _abrir() async {
+    await mostrarNotificacoes(
+      context,
+      publico: SessaoUsuario.atual.ehPadrinhoAtivo
+          ? 'padrinhos'
+          : 'apadrinhados',
+    );
+    CentralNotificacoes.atual.atualizar();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -124,9 +176,15 @@ class _LinhaMarca extends StatelessWidget {
           icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
           tooltip: 'Conversas',
         ),
-        _SinoNotificacoes(
-          quantidade: 3,
-          onPressed: () => _emBreve(context, 'Notificações'),
+        ValueListenableBuilder<Notificacoes>(
+          valueListenable: CentralNotificacoes.atual.estado,
+          builder: (context, dados, _) => _SinoNotificacoes(
+            quantidade:
+                SessaoUsuario.atual.preferencias['notificacoesAvisos'] == false
+                ? 0
+                : dados.naoLidas,
+            onPressed: _abrir,
+          ),
         ),
       ],
     );
@@ -142,7 +200,9 @@ class _SinoNotificacoes extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: 'Notificações',
+      message: quantidade > 0
+          ? 'Notificações ($quantidade não lidas)'
+          : 'Notificações',
       child: InkResponse(
         onTap: onPressed,
         radius: 26,
@@ -157,28 +217,30 @@ class _SinoNotificacoes extends StatelessWidget {
                 color: Colors.white,
               ),
             ),
-            Positioned(
-              top: -2,
-              right: -2,
-              child: Container(
-                width: 20,
-                height: 20,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF8B5CF6),
-                  shape: BoxShape.circle,
-                ),
-                child: Text(
-                  '$quantidade',
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+            if (quantidade > 0)
+              Positioned(
+                top: -2,
+                right: -2,
+                child: Container(
+                  width: 20,
+                  height: 20,
+                  alignment: Alignment.center,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF8B5CF6),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text(
+                    key: const Key('sino-contagem'),
+                    quantidade > 9 ? '9+' : '$quantidade',
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -718,9 +780,4 @@ class _BarraInferior extends StatelessWidget {
           navegarDestino(context, destination, atual: AppDestination.inicio),
     );
   }
-}
-
-void _emBreve(BuildContext context, String funcionalidade) {
-  ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text('$funcionalidade: em breve!')));
 }

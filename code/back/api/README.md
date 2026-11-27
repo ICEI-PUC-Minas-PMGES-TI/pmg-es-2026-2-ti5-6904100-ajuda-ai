@@ -139,13 +139,22 @@ A API fica disponível em `http://localhost:3000`.
 | `GET`       | `/me/lojinha`                                           | Lojinha do aluno: publicadas, na vigência, do seu público/programa (`estoque` disponível; `null` = ilimitado). |
 | `POST`      | `/me/lojinha/:id/resgatar`                              | Resgata com moedas (`{ chaveIdempotencia, versao, custoXp }`); 404 indisponível, 409 esgotada/limite/recompensa alterada, 422 saldo insuficiente. |
 | `GET`       | `/me/lojinha/resgates`                                  | Histórico de resgates do aluno, com as condições da versão resgatada e a situação (`aguardando_entrega`, `entregue`, `cancelado`). |
-| `GET`       | `/coordenacao/resgates`                                 | Resgates (F29) com participante, recompensa, custo, data e situação (`?situacao=`, `programa=`, `recompensaId=`, `busca=` nome/e-mail/código). |
+| `GET`       | `/coordenacao/resgates`                                 | Fila de resgates (F29), filtrada no banco antes de paginar: `{ itens, proximoCursor, contagem }` (`?situacao=`, `programa=` da troca, `semPrograma=true`, `recompensaId=`, `busca=` nome/e-mail/código/recompensa, `limite=` até 200, `cursor=`). |
 | `GET`       | `/coordenacao/resgates/:id`                             | Um resgate, no mesmo formato da lista; 404 se não existe. |
 | `POST`      | `/coordenacao/resgates/:id/entregar`                    | Registra a entrega com responsável e data; 409 se já entregue ou cancelado. |
 | `POST`      | `/coordenacao/resgates/:id/cancelar`                    | Cancela antes da entrega (`{ motivo }`), devolve as moedas e a unidade; 409 se já entregue ou cancelado. |
 | `GET`       | `/coordenacao/xp`                                       | Moedas, XP acumulado e nível dos participantes (F26; `?busca=` nome/e-mail). |
 | `GET`       | `/coordenacao/xp/:usuarioId`                            | Resumo como em `/me/xp`, extrato paginado (`limite`, `antes`) e ajustes da coordenação. |
-| `POST`      | `/coordenacao/xp/:usuarioId/ajustes`                    | Ajuste justificado (`{ quantidade, motivo, chaveIdempotencia }`); até ±200; mexe em XP e moedas; nunca deixa negativo (422). |
+| `POST`      | `/coordenacao/xp/:usuarioId/ajustes`                    | Ajuste justificado (`{ quantidade, motivo, chaveIdempotencia }`); até ±200; mexe em XP e moedas; nunca deixa negativo (422). Mesma chave e mesmos dados devolvem o ajuste já feito; mesma chave com outros dados dá 409 `chave-reutilizada`. |
+| `GET`       | `/coordenacao/missoes`                                  | Missões do ciclo com conclusões e XP creditado (`?status=ativa\|inativa&ciclo=`). |
+| `GET`       | `/coordenacao/missoes/:id`                              | Detalhe de uma missão, com conclusões e XP creditado. |
+| `POST`      | `/coordenacao/missoes`                                  | Cria no ciclo atual (`titulo`, `descricao`, `tipo` `UNICA\|SEMANAL`, `xp` até 100, semanal até 60; opcionais `inicio`, `fim`, `ativar`); 400 se o ciclo não foi aberto em Programas. |
+| `PATCH`     | `/coordenacao/missoes/:id`                              | Edita com `atualizadoEm`; 409 `missao-alterada` ou `missao-com-conclusoes` (tipo). |
+| `POST`      | `/coordenacao/missoes/:id/ativar` \| `desativar`        | Liga ou desliga a missão (idempotente). |
+| `GET`       | `/me/missoes`                                           | Missões ativas do ciclo com status, `xpPrevisto` e uso dos tetos semanal e do ciclo. |
+| `POST`      | `/me/missoes/:id/concluir`                              | Conclui e credita XP e moedas pelo ledger; 409 `ja-concluida`, 422 `fora-do-periodo`. |
+| `GET`       | `/me/notificacoes`                                      | Notificações do usuário (`?limite=1..50`) e `naoLidas`; antes de listar, avisa o participante das missões que ele já pode ver. |
+| `PATCH`     | `/me/notificacoes/:id/lida` \| `/me/notificacoes/lidas` | Marca uma ou todas como lidas. |
 | `POST`      | `/coordenacao/comunicados`                              | Publica um comunicado para todos, padrinhos ou apadrinhados.                                                                          |
 | `GET`       | `/publicacoes`                                          | Lista as publicações persistidas no backend.                                                                                          |
 | `POST`      | `/publicacoes`                                          | Cria uma publicação com zero curtidas e zero comentários.                                                                             |

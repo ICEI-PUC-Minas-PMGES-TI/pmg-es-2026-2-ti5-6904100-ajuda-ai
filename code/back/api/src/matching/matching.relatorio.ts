@@ -1,6 +1,6 @@
 import type { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import type { ArestaMatching } from './matching.algorithm.js';
-import { POLITICA_MATCHING } from './matching.politica.js';
+import { POLITICA_MATCHING } from './matching.politica.ts';
 
 interface AvaliacaoPar {
   score: number;

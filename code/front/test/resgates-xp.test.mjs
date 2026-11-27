@@ -12,6 +12,7 @@ after(() => server.close());
 const client = await server.ssrLoadModule('/src/api/client.js');
 const resgates = await server.ssrLoadModule('/src/pages/coordenacao/ResgatesPage.jsx');
 const xp = await server.ssrLoadModule('/src/pages/coordenacao/XpPage.jsx');
+const pendente = await server.ssrLoadModule('/src/pages/coordenacao/ajustePendente.js');
 
 const ID = '6f1c2b8e-3a4d-4e5f-9a0b-1c2d3e4f5a6b';
 const resgate = (extra = {}) => ({
@@ -47,15 +48,38 @@ test('cliente: rotas de resgates e de XP da coordenação', async () => {
   }
 });
 
-test('resgates: motivo obrigatório e filtro por situação e busca', () => {
+test('resgates: motivo obrigatório', () => {
   assert.match(resgates.validarMotivo('  '), /motivo/);
   assert.match(resgates.validarMotivo('x'.repeat(301)), /300/);
   assert.equal(resgates.validarMotivo('Sem retirada'), '');
-  const lista = [resgate(), resgate({ id: 'b', codigo: 'FFFF000011', situacao: 'entregue', participante: { id: 8, nome: 'João', email: 'joao@x' } })];
-  assert.equal(resgates.filtrarResgates(lista, { situacao: 'entregue' }).length, 1);
-  assert.equal(resgates.filtrarResgates(lista, { busca: 'camila' }).length, 1);
-  assert.equal(resgates.filtrarResgates(lista, { busca: 'a1b2' }).length, 1);
-  assert.equal(resgates.filtrarResgates(lista, { busca: 'caneca' }).length, 2);
+});
+
+test('resgates: filtros vão para o servidor, que filtra antes de paginar', async () => {
+  client.persistSession({ accessToken: 'jwt-coord', usuario: { papel: 'coordenador' } });
+  const urls = [];
+  globalThis.fetch = async (url) => { urls.push(new URL(url)); return new Response('{}', { status: 200 }); };
+  const enviado = async (filtros) => {
+    urls.length = 0;
+    await client.api.resgatesCoordenacao(resgates.consultaResgates(filtros));
+    assert.equal(urls.length, 1);
+    assert.equal(urls[0].pathname, '/coordenacao/resgates');
+    return Object.fromEntries(urls[0].searchParams);
+  };
+  const limite = String(resgates.PAGINA_RESGATES);
+  // Sem filtro: só o tamanho da página; nada de filtrar a página no navegador.
+  assert.deepEqual(await enviado({}), { limite });
+  assert.deepEqual(await enviado({ situacao: 'entregue' }), { situacao: 'entregue', limite });
+  // A busca vai aparada e vazia não é enviada.
+  assert.deepEqual(await enviado({ busca: '  camila  ' }), { busca: 'camila', limite });
+  assert.deepEqual(await enviado({ busca: '   ' }), { limite });
+  assert.deepEqual(await enviado({ programa: 'PUCSTOPS' }), { programa: 'PUCSTOPS', limite });
+  // "Sem programa" vira semPrograma=true, sem mandar o marcador interno como programa.
+  assert.deepEqual(await enviado({ programa: resgates.SEM_PROGRAMA }), { semPrograma: 'true', limite });
+  // Próxima página: os mesmos filtros e o cursor.
+  assert.deepEqual(
+    await enviado({ situacao: 'aguardando_entrega', programa: 'PUCSTOPS', busca: 'a1b2', cursor: 'abc' }),
+    { situacao: 'aguardando_entrega', programa: 'PUCSTOPS', busca: 'a1b2', limite, cursor: 'abc' },
+  );
 });
 
 test('resgates: só o aguardando tem ações; concluídos mostram quem e quando', () => {
@@ -94,4 +118,53 @@ test('lista de XP mostra nível, XP acumulado e moedas', () => {
   assert.match(html, /8 · Guia do campus/);
   assert.match(html, /1\.500 XP/);
   assert.match(html, /1\.200/);
+});
+
+test('ajuste pendente: reenvio editado não troca o envio pendente e o aviso vem do extrato', () => {
+  const mem = new Map();
+  const loja = { getItem: k => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: k => mem.delete(k) };
+  const motivo = 'Mutirão';
+  // 1º envio: crédito de 50, gravado no servidor, mas a resposta se perde.
+  const primeiro = xp.corpoAjusteXp({ sentido: 'credito', quantidade: '50', motivo }, ID);
+  pendente.gravarPendente(7, primeiro, loja);
+  // Reenvio com a MESMA chave, editado para 80; a resposta também se perde.
+  const reenvio = xp.corpoAjusteXp({ sentido: 'credito', quantidade: '80', motivo }, ID);
+  pendente.gravarPendente(7, reenvio, loja);
+
+  const guardado = pendente.lerPendente(7, loja);
+  assert.equal(guardado.chave, ID);
+  assert.deepEqual(guardado.corpo, primeiro, 'o envio pendente original é preservado');
+  assert.deepEqual(guardado.ultimo, reenvio);
+  // Ainda sem confirmação, o formulário volta com o que foi enviado por último.
+  assert.deepEqual(pendente.formularioDoPendente(guardado), { sentido: 'credito', quantidade: '80', motivo });
+
+  // Ao reabrir, o extrato mostra o crédito de 50 com a chave: o aviso confirma 50, não 80.
+  const ajustes = [{ id: 'a1', chaveIdempotencia: ID, quantidade: 50, motivo, responsavel: { id: 3, email: 'c@x' }, saldoApos: 50, criadoEm: '2026-11-20T10:00:00.000Z' }];
+  const gravado = pendente.ajusteDoPendente(guardado, ajustes);
+  assert.equal(gravado.quantidade, 50);
+  const aviso = xp.avisoAjusteJaRegistrado(gravado);
+  assert.match(aviso, /\(\+50: Mutirão\) já estava registrado/);
+  assert.doesNotMatch(aviso, /80/);
+
+  // Chave ausente do extrato: nada confirmado.
+  assert.equal(pendente.ajusteDoPendente(guardado, [{ ...ajustes[0], chaveIdempotencia: 'outra' }]), null);
+  assert.equal(pendente.ajusteDoPendente(null, ajustes), null);
+});
+
+test('ajuste pendente: chave nova substitui; registro adulterado é descartado', () => {
+  const mem = new Map();
+  const loja = { getItem: k => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: k => mem.delete(k) };
+  const OUTRA = '00000000-0000-4000-8000-000000000000';
+  pendente.gravarPendente(7, xp.corpoAjusteXp({ sentido: 'credito', quantidade: '50', motivo: 'Mutirão' }, ID), loja);
+  const novo = xp.corpoAjusteXp({ sentido: 'debito', quantidade: '5', motivo: 'Erro' }, OUTRA);
+  pendente.gravarPendente(7, novo, loja);
+  const substituido = pendente.lerPendente(7, loja);
+  assert.equal(substituido.chave, OUTRA);
+  assert.deepEqual(substituido.corpo, novo);
+  assert.equal(substituido.ultimo, undefined);
+  // `ultimo` com outra chave não é aceito: o registro inteiro sai.
+  const [k] = mem.keys();
+  mem.set(k, JSON.stringify({ chave: OUTRA, corpo: novo, ultimo: { ...novo, chaveIdempotencia: ID }, em: Date.now() }));
+  assert.equal(pendente.lerPendente(7, loja), null);
+  assert.equal(mem.size, 0);
 });

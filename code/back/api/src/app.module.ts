@@ -23,6 +23,7 @@ import { UsuariosModule } from './usuarios/usuarios.module.js';
 import { PublicacoesModule } from './publicacoes/publicacoes.module.js';
 import { StorageModule } from './storage/storage.module.js';
 import { ChatModule } from './chat/chat.module.js';
+import { NotificacoesModule } from './notificacoes/notificacoes.module.js';
 
 function obterSsl(configuracao: ConfigService) {
   if (configuracao.get<string>('DB_SSL', 'true') !== 'true') return false;
@@ -131,6 +132,7 @@ async function garantirSchema(opcoes: DataSourceOptions): Promise<void> {
     MatchingModule,
     MapaModule,
     GamificacaoModule,
+    NotificacoesModule,
     CampusModule,
   ],
 })

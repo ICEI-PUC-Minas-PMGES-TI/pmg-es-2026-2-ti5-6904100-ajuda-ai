@@ -25,7 +25,7 @@ describe.skipIf(
     await api?.app.close();
     await banco?.limpar();
   }, 30_000);
-  it('conversa entre contas, preserva rascunho na atualização e transfere pela coordenação', async () => {
+  it('conversa entre contas, transfere pela coordenação e acompanha rodada após timeout', async () => {
     banco = await bancoMatchingIsolado();
     const c = await semearCenarioMatching(banco.dados);
     await c.operacoes.vincular(c.a[0].id, c.p[0].id, 'coord@teste.local');
@@ -160,6 +160,32 @@ describe.skipIf(
       .getByRole('button')
       .filter({ has: aluno.locator('strong', { hasText: 'Padrinho 1' }) })
       .waitFor();
+    // A resposta do POST se perde, mas a execução persistida continua e termina.
+    let resultadoRodada: any;
+    let consultasRodada = 0;
+    await coord.route('**/coordenacao/matching/executar', async (rota: any) => {
+      const resposta = await rota.fetch();
+      resultadoRodada = await resposta.json();
+      await new Promise(r => setTimeout(r, 13_000));
+      await rota.fulfill({ response: resposta }).catch(() => undefined);
+    });
+    await coord.route('**/coordenacao/matching/execucoes?**', async (rota: any) => {
+      const resposta = await rota.fetch();
+      const rodadas = await resposta.json();
+      consultasRodada++;
+      await rota.fulfill({ response: resposta, json: consultasRodada <= 2
+        ? rodadas.map((r: any) => r.id === resultadoRodada?.id ? { ...r, status: 'executando' } : r)
+        : rodadas });
+    });
+    const inicioRodada = Date.now();
+    await coord.getByRole('button', { name: 'Gerar sugestões', exact: true }).click();
+    await coord.getByRole('button', { name: 'Executar matching', exact: true }).click();
+    await coord.getByText('Acompanhando a execução do matching até a conclusão…', { exact: true }).waitFor();
+    await coord.getByText('Rodada concluída. Sugestões atualizadas.', { exact: true }).waitFor();
+    expect(Date.now() - inicioRodada).toBeGreaterThanOrEqual(12_000);
+    expect(resultadoRodada.status).toBe('concluida');
+    expect(consultasRodada).toBeGreaterThanOrEqual(3);
+    expect(await coord.locator('.dash-inline-error').count()).toBe(0);
     expect(falhas).toEqual([]);
   }, 120_000);
 });
