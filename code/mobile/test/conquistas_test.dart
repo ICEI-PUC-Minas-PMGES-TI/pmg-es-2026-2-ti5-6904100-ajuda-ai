@@ -172,6 +172,24 @@ void main() {
       expect(pedidos, 3);
     });
 
+    test('troca de conta no meio: para, e o lote enviado usa o token de quem carregou', () async {
+      final tokens = <String?>[];
+      var contaAtiva = 'tk-A';
+      final api = ConquistasApi(
+        client: MockClient((pedido) async {
+          tokens.add(pedido.headers['authorization']);
+          contaAtiva = 'tk-B'; // a pessoa entra em outra conta no 1º lote
+          return http.Response('{"marcadas":0}', 200, headers: _json);
+        }),
+      );
+      await api.confirmarVistas(
+        'tk-A',
+        vistas,
+        continuar: () => contaAtiva == 'tk-A',
+      );
+      expect(tokens, ['Bearer tk-A']);
+    });
+
     test('nada a confirmar: nenhum pedido', () async {
       var pedidos = 0;
       final api = ConquistasApi(

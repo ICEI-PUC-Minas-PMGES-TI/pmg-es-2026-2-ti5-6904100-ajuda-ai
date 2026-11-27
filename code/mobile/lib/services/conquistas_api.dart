@@ -39,12 +39,18 @@ class ConquistasApi {
   /// aqui eles continuam em `novas`: ler a coleção não consome o aviso.
   /// Em lotes de [vistasPorLote], um depois do outro: a falha de um lote não
   /// impede os demais. Se algum falhar, lança o primeiro erro no fim.
+  ///
+  /// [token] é o da sessão que carregou a coleção, usado em todos os lotes.
+  /// [continuar] é conferido antes de cada lote: se a pessoa trocou de conta
+  /// (ou saiu), o envio para.
   Future<void> confirmarVistas(
     String token,
-    List<Map<String, String>> vistas,
-  ) async {
+    List<Map<String, String>> vistas, {
+    bool Function()? continuar,
+  }) async {
     Object? primeiroErro;
     for (var i = 0; i < vistas.length; i += vistasPorLote) {
+      if (continuar != null && !continuar()) break;
       final fim = i + vistasPorLote < vistas.length
           ? i + vistasPorLote
           : vistas.length;

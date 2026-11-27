@@ -126,14 +126,47 @@ test('mais de 200 avisos: confirma em lotes de até 200; um lote com falha não 
   assert.deepEqual(aluno.lotesDeVistas(vistas).map((l) => l.length), [200, 200, 50]);
   assert.deepEqual(aluno.lotesDeVistas([]), []);
   const enviados = [];
-  const confirmados = await aluno.confirmarEmLotes(vistas, async (lote) => {
-    enviados.push(lote.length);
-    if (enviados.length === 2) throw new Error('falha simulada no 2º lote');
+  const conta = { email: 'a@pucminas.edu.br', contaAtiva: () => 'a@pucminas.edu.br' };
+  const confirmados = await aluno.confirmarEmLotes(vistas, {
+    ...conta,
+    enviar: async (lote) => {
+      enviados.push(lote.length);
+      if (enviados.length === 2) throw new Error('falha simulada no 2º lote');
+    },
   });
   assert.deepEqual(enviados, [200, 200, 50]);
   assert.equal(confirmados, 250);
   // Todos os avisos foram enviados, cada um uma vez.
   const todos = [];
-  await aluno.confirmarEmLotes(vistas, async (lote) => { todos.push(...lote); });
+  await aluno.confirmarEmLotes(vistas, { ...conta, enviar: async (lote) => { todos.push(...lote); } });
   assert.deepEqual(todos, vistas);
 });
+
+test('troca de conta no meio da confirmação: para, e nunca envia os avisos de A com a sessão de B', async () => {
+  const client = await server.ssrLoadModule('/src/api/client.js');
+  const entrar = (email, accessToken) => client.persistAlunoSession({ accessToken, expiresIn: 3600, usuario: { email, nome: email } });
+  const fetchOriginal = globalThis.fetch;
+  const autorizacoes = [];
+  try {
+    entrar('a@pucminas.edu.br', 'token-de-A');
+    globalThis.fetch = async (_url, opcoes) => {
+      autorizacoes.push(opcoes.headers.Authorization);
+      // Durante o 1º lote, a pessoa entra na conta B.
+      entrar('b@pucminas.edu.br', 'token-de-B');
+      return new Response('{"marcadas":200}', { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    const vistas = Array.from({ length: 450 }, (_, i) => ({ id: `id-${i}`, contexto: '2026/2' }));
+    const confirmados = await aluno.confirmarEmLotes(vistas, { email: 'a@pucminas.edu.br' });
+    assert.deepEqual(autorizacoes, ['Bearer token-de-A']);
+    assert.equal(confirmados, 200);
+    // Mesmo chamada direto, a API do cliente recusa a conta errada antes de enviar.
+    await assert.rejects(client.api.confirmarConquistasVistas(vistas.slice(0, 1), 'a@pucminas.edu.br'), { status: 401 });
+    assert.deepEqual(autorizacoes, ['Bearer token-de-A']);
+    // Sem conta que carregou a coleção, nada é enviado.
+    assert.equal(await aluno.confirmarEmLotes(vistas, {}), 0);
+  } finally {
+    globalThis.fetch = fetchOriginal;
+    client.clearAlunoSession();
+  }
+});
+

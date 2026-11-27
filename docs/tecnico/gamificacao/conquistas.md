@@ -140,7 +140,10 @@ JWT de aluno cadastrado. Resposta:
 Corpo `{ "vistas": [{ "id", "contexto" }] }`, até `VISTAS_POR_LOTE` = 200
 por pedido (acima disso, 400). Com mais avisos, web (`confirmarEmLotes`) e app
 (`ConquistasApi.confirmarVistas`) mandam lotes de até 200, um depois do outro;
-a falha de um lote não impede os demais. Web e app chamam
+a falha de um lote não impede os demais. Todos os lotes vão pela conta que
+carregou a coleção (web: o e-mail da sessão na carga; app: o token da
+carga), e o envio para se a pessoa trocar de conta no meio: nunca se marcam
+os avisos de uma conta com a sessão de outra. Web e app chamam
 depois de exibir o aviso "Nova!". Grava em `conquistas_desbloqueios_vistos`
 (migration `1795400000000`, só de inserção, PK no desbloqueio): idempotente,
 e só marca desbloqueios do próprio aluno. Resposta `{ "marcadas": n }`.

@@ -559,12 +559,16 @@ export const api = {
     return request(`/coordenacao/conquistas/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
   /** Aluno: coleção (obtidas, disponíveis com progresso e as desbloqueadas agora). */
-  conquistasAluno() {
-    return request('/me/conquistas', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  conquistasAluno(email = getAlunoSession()?.email) {
+    return request('/me/conquistas', { aluno: email || '__sem_sessao__' });
   },
-  /** Confirma que o aviso "Nova!" destes desbloqueios ({ id, contexto }) foi exibido. */
-  confirmarConquistasVistas(vistas) {
-    return request('/me/conquistas/vistas', { method: 'POST', body: { vistas }, aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  /**
+   * Confirma que o aviso "Nova!" destes desbloqueios ({ id, contexto }) foi
+   * exibido. `email`: a conta que carregou a coleção (obrigatório). Se a
+   * sessão ativa for de outra conta, o pedido é recusado antes de sair.
+   */
+  confirmarConquistasVistas(vistas, email) {
+    return request('/me/conquistas/vistas', { method: 'POST', body: { vistas }, aluno: email || '__sem_sessao__' });
   },
   /** `antes`: id da última notificação carregada, para buscar as mais antigas. */
   notificacoes(limite, antes) {

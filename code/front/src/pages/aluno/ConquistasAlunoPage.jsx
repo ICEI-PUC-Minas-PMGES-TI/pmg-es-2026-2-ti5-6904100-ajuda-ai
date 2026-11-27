@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../../api/client';
+import { api, getAlunoSession } from '../../api/client';
 import Icon from '../../components/Icon';
 import { useToast } from '../../components/Toast';
 import { formatarData } from './util';
@@ -33,12 +33,21 @@ export function lotesDeVistas(vistas, tamanho = VISTAS_POR_LOTE) {
 }
 
 /**
- * Confirma em lotes, um depois do outro. A falha de um lote não impede os
- * demais (o que falhou volta como aviso na próxima visita). Nunca rejeita.
+ * Confirma em lotes, um depois do outro, sempre pela conta `email` que
+ * carregou a coleção. Antes de cada lote confere a sessão ativa: se a pessoa
+ * trocou de conta (ou saiu), para, e nada é enviado com a sessão de outra
+ * pessoa. A falha de um lote não impede os demais (o que falhou volta como
+ * aviso na próxima visita). Nunca rejeita.
  */
-export async function confirmarEmLotes(vistas, enviar = api.confirmarConquistasVistas) {
+export async function confirmarEmLotes(vistas, {
+  email,
+  enviar = (lote) => api.confirmarConquistasVistas(lote, email),
+  contaAtiva = () => getAlunoSession()?.email,
+} = {}) {
   let confirmados = 0;
+  if (!email) return confirmados;
   for (const lote of lotesDeVistas(vistas)) {
+    if (contaAtiva() !== email) break;
     try {
       await enviar(lote);
       confirmados += lote.length;
@@ -91,15 +100,17 @@ export default function ConquistasAlunoPage() {
 
   const carregar = useCallback(async () => {
     setErro('');
+    // A conta que carrega a coleção é a mesma que confirma os avisos.
+    const email = getAlunoSession()?.email;
     try {
-      const dados = await api.conquistasAluno();
+      const dados = await api.conquistasAluno(email);
       setColecao(dados);
       const aviso = textoNovas(dados);
       if (aviso) {
         mostrarToast(aviso, 'sucesso');
         // Em lotes (limite da API). Falha não atrapalha a tela: o aviso do
         // lote que falhou só volta na próxima visita.
-        confirmarEmLotes(vistasParaConfirmar(dados));
+        confirmarEmLotes(vistasParaConfirmar(dados), { email });
       }
     } catch (error) {
       setErro(error.message || 'Não foi possível carregar suas conquistas.');
