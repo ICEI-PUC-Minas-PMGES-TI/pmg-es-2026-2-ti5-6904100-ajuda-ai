@@ -11,6 +11,7 @@ import {
   repositorioEmMemoria,
 } from './repositorio-memoria.js';
 import { ChatService } from '../../src/chat/chat.service.js';
+import type { AzureBlobStorageService } from '../../src/storage/azure-blob-storage.service.js';
 import { MatchingService } from '../../src/matching/matching.service.js';
 import { VinculosService } from '../../src/matching/vinculos.service.js';
 import {
@@ -193,6 +194,25 @@ export function cenarioMatching(
   }
   conectarRepositorios(repos);
   const manager = repos.ProgramaEntity.manager;
+  const armazenamento: Pick<
+    AzureBlobStorageService,
+    'enviar' | 'excluir' | 'sasLeitura'
+  > = {
+    enviar: async (container, blobName) => ({
+      container,
+      blobName,
+      chave: `${container}/${blobName}`,
+      url: null,
+    }),
+    excluir: async () => {},
+    sasLeitura: (container, blobName) => ({
+      container,
+      blobName,
+      chave: `${container}/${blobName}`,
+      url: `https://storage.test/${container}/${blobName}`,
+      expiraEm: new Date(),
+    }),
+  };
   let falharChat = false;
   const chats: number[] = [];
   const chat = {
@@ -220,9 +240,10 @@ export function cenarioMatching(
       return resultado;
     },
   } as unknown as DataSource;
-  const servicoChat = new ChatService(dados);
+  const servicoChat = new ChatService(dados, armazenamento);
   return {
     servicoChat,
+    armazenamento,
     conversas,
     membros,
     periodos,

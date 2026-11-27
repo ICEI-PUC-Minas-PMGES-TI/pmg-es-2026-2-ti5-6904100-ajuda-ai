@@ -1,5 +1,6 @@
 import { OperacaoExecucaoMatching1795300000000 } from '../../src/migrations/1795300000000-OperacaoExecucaoMatching.js';
 import { RevisaoRecibosChat1795400000000 } from '../../src/migrations/1795400000000-RevisaoRecibosChat.js';
+import { ChatMensagensImagem1795500000000 } from '../../src/migrations/1795500000000-ChatMensagensImagem.js';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { ENTIDADES_MATCHING } from '../../src/matching/matching.module.js';
@@ -114,6 +115,7 @@ export const MIGRACOES_MATCHING_NOVO = [
   ChatGruposAcesso1794500000000,
   OperacaoExecucaoMatching1795300000000,
   RevisaoRecibosChat1795400000000,
+  ChatMensagensImagem1795500000000,
 ];
 export const ENTIDADES_TESTE_MATCHING = [
   ...new Set([

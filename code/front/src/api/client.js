@@ -1,27 +1,7 @@
-import { consumirEventosChat } from './chatStream';
-
 const API_BASE =
   import.meta.env.VITE_API_URL?.replace(/\/$/, '') || 'http://localhost:3000';
 
 export const feedEventsUrl = `${API_BASE}/publicacoes/events`;
-export async function streamChatMessages(chatId, email, onEvent, signal) {
-  const token = getAlunoToken(email);
-  if (!token) throw Object.assign(new Error('Sua sessão expirou. Entre novamente.'), { status: 401 });
-  const controller = new AbortController();
-  const cancelar = () => controller.abort();
-  if (signal?.aborted) cancelar();
-  signal?.addEventListener('abort', cancelar, { once: true });
-  const prazo = setTimeout(cancelar,12000);
-  try {
-    const response = await fetch(`${API_BASE}/chats/${chatId}/events`, { headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` }, signal: controller.signal });
-    clearTimeout(prazo);
-    if (!response.ok) throw Object.assign(new Error('Não foi possível atualizar a conversa.'), { status: response.status });
-    await consumirEventosChat(response, onEvent, controller.signal);
-  } finally {
-    clearTimeout(prazo); signal?.removeEventListener('abort',cancelar); controller.abort();
-  }
-}
-
 function exigirEmailChat(email) {
   const alvo = email || getAlunoSession()?.email;
   if (!alvo) throw Object.assign(new Error('Entre na sua conta de aluno.'), {status:401});
@@ -255,18 +235,6 @@ export async function streamChatMessages(chatId, email, onEvent, signal, onStatu
 }
 
 export const api = {
-  chats(email) { return request('/chats', { aluno: email }); },
-  mensagensChat(id, email, antesDe) {
-    return request(`/chats/${id}/mensagens${query({ antesDe })}`, { aluno: email });
-  },
-  enviarMensagemChat(id, texto, email) {
-    return request(`/chats/${id}/mensagens`, { method: 'POST', body: { texto }, aluno: email });
-  },
-  enviarImagemChat(id, arquivo, email) {
-    const body = new FormData();
-    body.append('arquivo', arquivo);
-    return requestMapa(`/chats/${id}/imagens`, { method: 'POST', body, aluno: email });
-  },
   feed(email, programa) { return request(`/publicacoes${programa ? `?programa=${encodeURIComponent(programa)}` : ''}`, { aluno: email }); },
   feedCiclos() { return request('/publicacoes/ciclos'); },
   permissoesFeed(email) { return request('/publicacoes/permissoes', { aluno: email }); },
@@ -447,6 +415,11 @@ export const api = {
   },
   enviarMensagemChat(id, texto, email, clientId) {
     return request(`/chats/${id}/mensagens`, { method: 'POST', body: { texto, clientId }, aluno: exigirEmailChat(email) });
+  },
+  enviarImagemChat(id, arquivo, email) {
+    const body = new FormData();
+    body.append('arquivo', arquivo);
+    return requestMapa(`/chats/${id}/imagens`, { method: 'POST', body, aluno: exigirEmailChat(email) });
   },
   gruposMatching(programa) {
     return request(`/coordenacao/matching/grupos${query({ programa })}`);

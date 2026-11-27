@@ -8,9 +8,9 @@ import {
   Query,
   Req,
   Sse,
+  UploadedFile,
   UseGuards,
   UseInterceptors,
-  UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
@@ -63,19 +63,6 @@ export class ChatController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.chats.listarRecibos(id, req.user.email, revisao, ate);
-  }
-
-  @Sse(':id/events')
-  eventos(
-    @Param('id', ParseIntPipe) id: number,
-    @Req() req: AuthenticatedRequest,
-  ) {
-    const exp = (req.user as typeof req.user & { exp?: number }).exp;
-    return this.chats.observarMensagens(
-      id,
-      req.user.email,
-      exp ? exp * 1000 : Date.now() + 3600_000,
-    );
   }
 
   @Sse(':id/events')

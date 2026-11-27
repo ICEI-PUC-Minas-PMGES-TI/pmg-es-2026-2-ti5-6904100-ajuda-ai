@@ -63,6 +63,33 @@ class StreamChat extends http.BaseClient {
 }
 
 void main() {
+  testWidgets('exibe imagens recebidas nas conversas', (tester) async {
+    final api = ChatApi(
+      token: () => 'jwt',
+      baseUrl: '',
+      client: MockClient((request) async {
+        expect(request.headers['authorization'], 'Bearer jwt');
+        return json({
+          ...conversa(pode: false),
+          'mensagens': [
+            {
+              ...mensagem(1, 'Imagem'),
+              'imagemUrl': 'https://storage.test/chat/image.png',
+            },
+          ],
+          'temMais': false,
+        });
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(home: TelaConversaChat(api: api, chat: conversa(pode: false))),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(Image), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    api.fechar();
+  });
+
   testWidgets('envio 102 não pula mensagem 101 recebida durante o POST', (
     tester,
   ) async {

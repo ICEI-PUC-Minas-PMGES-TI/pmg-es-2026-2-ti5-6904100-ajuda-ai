@@ -601,7 +601,23 @@ class _TelaConversaChatState extends State<TelaConversaChat>
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                            Text('${m['texto']}'),
+                            if (m['imagemUrl']
+                                case final String imagemUrl
+                                when imagemUrl.isNotEmpty)
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 260,
+                                  maxHeight: 240,
+                                ),
+                                child: Image.network(
+                                  imagemUrl,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      const Text('Imagem indisponível.'),
+                                ),
+                              )
+                            else
+                              Text('${m['texto']}'),
                             Text(
                               '${m['criadaEm'] ?? ''}',
                               style: const TextStyle(fontSize: 10),

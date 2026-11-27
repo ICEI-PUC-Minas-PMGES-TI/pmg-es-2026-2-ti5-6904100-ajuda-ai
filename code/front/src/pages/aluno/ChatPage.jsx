@@ -12,6 +12,9 @@ import {
 } from "./chatDados";
 import "./chat.css";
 
+const TAMANHO_MAXIMO_IMAGEM = 5 * 1024 * 1024;
+const TIPOS_IMAGEM = ["image/png", "image/jpeg", "image/webp"];
+
 export function EstadoMensagem({ estado, recibos }) {
   const descricao =
     estado === "lida"
@@ -76,7 +79,23 @@ export function MensagensChat({ mensagens, meusIds }) {
       >
         <div className="chat-bubble">
           {!minha && m.remetenteNome && <strong>{m.remetenteNome}</strong>}
-          <p>{m.texto}</p>
+          {m.imagemUrl ? (
+            <a
+              href={m.imagemUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Abrir imagem enviada"
+            >
+              <img
+                className="chat-message-image"
+                src={m.imagemUrl}
+                alt="Imagem enviada na conversa"
+                loading="lazy"
+              />
+            </a>
+          ) : (
+            <p>{m.texto}</p>
+          )}
           <span className="chat-bubble-meta">
             <time>{horarioMensagem(m.criadaEm)}</time>
             {minha && <EstadoMensagem estado={m.estado} recibos={m.recibos} />}
@@ -105,7 +124,8 @@ function Thread({ chat, email, onVoltar, onAtualizarLista }) {
     recibosRevisao = useRef(0),
     intencao = useRef(null),
     envioRef = useRef(false),
-    listaRef = useRef(null);
+    listaRef = useRef(null),
+    arquivoRef = useRef(null);
   const atualizarMensagens = useCallback((novas) => {
     mensagensRef.current = mesclarMensagens(mensagensRef.current, novas);
     setMensagens(mensagensRef.current);
@@ -265,6 +285,34 @@ function Thread({ chat, email, onVoltar, onAtualizarLista }) {
       if (vivo.current) setEnviando(false);
     }
   }
+  async function enviarImagem(event) {
+    const arquivo = event.target.files?.[0];
+    event.target.value = "";
+    if (!arquivo || !acesso.podeEnviar || envioRef.current) return;
+    if (!TIPOS_IMAGEM.includes(arquivo.type)) {
+      setErro("Escolha uma imagem PNG, JPEG ou WebP.");
+      return;
+    }
+    if (!arquivo.size || arquivo.size > TAMANHO_MAXIMO_IMAGEM) {
+      setErro("A imagem deve ter até 5 MB.");
+      return;
+    }
+    envioRef.current = true;
+    setEnviando(true);
+    setErro("");
+    try {
+      const mensagem = await api.enviarImagemChat(chat.id, arquivo, email);
+      if (!vivo.current) return;
+      atualizarMensagens([mensagem]);
+      await carregar();
+      onAtualizarLista();
+    } catch (error) {
+      if (vivo.current) bloquear(error);
+    } finally {
+      envioRef.current = false;
+      if (vivo.current) setEnviando(false);
+    }
+  }
   const ids = acesso.minhasParticipacoesIds || [acesso.minhaParticipacaoId];
   return (
     <section
@@ -335,6 +383,28 @@ function Thread({ chat, email, onVoltar, onAtualizarLista }) {
           <p>Uma nova tentativa envia a mesma mensagem, sem duplicá-la.</p>
         )}
         <form className="chat-composer" onSubmit={enviar}>
+          <label className="sr-only" htmlFor="chat-image">
+            Enviar imagem
+          </label>
+          <input
+            id="chat-image"
+            ref={arquivoRef}
+            className="chat-image-input"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={enviarImagem}
+            disabled={!acesso.podeEnviar || enviando || incerta}
+          />
+          <button
+            type="button"
+            className="chat-image-button"
+            onClick={() => arquivoRef.current?.click()}
+            disabled={!acesso.podeEnviar || enviando || incerta}
+            aria-label="Anexar imagem"
+            title="Enviar imagem (até 5 MB)"
+          >
+            <span aria-hidden="true">＋</span>
+          </button>
           <label className="sr-only" htmlFor="chat-message">
             Digite uma mensagem
           </label>
@@ -355,6 +425,9 @@ function Thread({ chat, email, onVoltar, onAtualizarLista }) {
             <Icon name="send" size={18} />
           </button>
         </form>
+        <p className="chat-compose-hint">
+          Imagens PNG, JPEG ou WebP até 5 MB.
+        </p>
       </div>
     </section>
   );
