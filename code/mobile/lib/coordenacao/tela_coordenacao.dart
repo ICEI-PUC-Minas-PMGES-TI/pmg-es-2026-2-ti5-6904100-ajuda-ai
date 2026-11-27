@@ -16,6 +16,7 @@ import 'tela_matching_coord.dart';
 import 'tela_matching_manual_coord.dart';
 import 'tela_mais_coord.dart';
 import 'tela_programas_coord.dart';
+import 'tela_recompensas_coord.dart';
 import 'tela_totens_coord.dart';
 import 'tela_usuarios_coord.dart';
 
@@ -244,6 +245,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
         destino != 'configuracoes' &&
         destino != 'feed' &&
         destino != 'totens' &&
+        destino != 'lojinha' &&
         destino != 'mapa') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -295,6 +297,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       'matching_manual' => TelaMatchingManualCoord(api: api, programa: _programa!),
       'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
       'totens' => TelaTotensCoord(api: api),
+      'lojinha' => TelaRecompensasCoord(api: api),
       'mapa' => MapaPage(
         coordenadorAccessToken: _sessao!.accessToken,
         coordenadorBaseUrl: api.baseUrl,

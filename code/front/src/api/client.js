@@ -493,6 +493,30 @@ export const api = {
     return request('/me/notificacoes/lidas', { method: 'PATCH', body: ateId ? { ateId } : {}, aluno: getAlunoSession()?.email || '__sem_sessao__' });
   },
 
+  /* ===== Lojinha do aluno (F28) ===== */
+  lojinhaAluno() {
+    return request('/me/lojinha', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  saldoLojinhaAluno() {
+    return request('/me/xp', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  detalheLojinhaAluno(id) {
+    return request(`/me/lojinha/${encodeURIComponent(id)}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  historicoLojinhaAluno() {
+    return request('/me/lojinha/resgates', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  comprovanteLojinhaAluno(id) {
+    return request(`/me/lojinha/resgates/${encodeURIComponent(id)}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  resgatarLojinhaAluno(id, dados) {
+    return request(`/me/lojinha/${encodeURIComponent(id)}/resgatar`, {
+      method: 'POST',
+      body: dados,
+      aluno: getAlunoSession()?.email || '__sem_sessao__',
+    });
+  },
+
   /* ===== Lojinha: recompensas (coordenação; F27) ===== */
   /** Todas as recompensas (`status` opcional: rascunho, publicada, inativa, arquivada). */
   recompensas(status) {

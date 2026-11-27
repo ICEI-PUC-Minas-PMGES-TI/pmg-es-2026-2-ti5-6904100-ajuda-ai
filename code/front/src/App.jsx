@@ -7,6 +7,7 @@ import AlunoLayout from './pages/aluno/AlunoLayout';
 import ConfiguracoesAlunoPage from './pages/aluno/ConfiguracoesAlunoPage';
 import EditarCandidaturaPage from './pages/aluno/EditarCandidaturaPage';
 import HistoricoPage from './pages/aluno/HistoricoPage';
+import LojinhaPage from './pages/aluno/LojinhaPage';
 import PadrinhoPage from './pages/aluno/PadrinhoPage';
 import PerfilEditarPage from './pages/aluno/PerfilEditarPage';
 import PerfilAlunoPage from './pages/aluno/PerfilAlunoPage';
@@ -53,6 +54,7 @@ export default function App() {
               <Route path="padrinho" element={<PadrinhoPage />} />
               <Route path="chat" element={<ChatPage />} />
               <Route path="historico" element={<HistoricoPage />} />
+              <Route path="lojinha" element={<LojinhaPage />} />
               <Route path="configuracoes" element={<ConfiguracoesAlunoPage />} />
               <Route path="mapa" element={<CampusMapPage />} />
             </Route>

@@ -69,6 +69,12 @@ class TelaMaisCoord extends StatelessWidget {
       'totens',
     ),
     (
+      Icons.storefront_outlined,
+      'Lojinha',
+      'Cadastrar, editar e gerenciar recompensas',
+      'lojinha',
+    ),
+    (
       Icons.map_outlined,
       'Mapa do campus',
       'Consultar locais e editar descrições e imagens',

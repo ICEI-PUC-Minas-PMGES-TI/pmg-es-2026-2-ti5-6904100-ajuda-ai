@@ -731,10 +731,17 @@
 .recompensa-form textarea { width: 100%; }
 .recompensa-seletor, .recompensa-data { min-width: 0; }
 .recompensa-gatilho { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--ink); background: #fff; font-size: .88rem; text-align: left; cursor: pointer; }
+.recompensa-data-controles { display: grid; grid-template-columns: minmax(0, 1fr) 42px; gap: 8px; }
+.recompensa-data-input { min-width: 0; cursor: text; }
+.recompensa-data-input::placeholder { color: var(--muted); opacity: 1; }
+.recompensa-calendario-abrir { justify-content: center; padding: 0; }
 .recompensa-gatilho:hover, .recompensa-gatilho[aria-expanded="true"] { border-color: #9587e8; background: #fcfbff; }
 .recompensa-gatilho > span { min-width: 0; overflow: hidden; color: inherit; font-size: inherit; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .recompensa-gatilho > .icon { flex: none; color: var(--purple); }
 .recompensa-gatilho.vazio { color: var(--muted); }
+.recompensa-obrigatorio { color: #b42318; }
+.recompensa-erro-campo { display: block; margin-top: 5px; color: #b42318; font-size: .76rem; line-height: 1.4; }
+.recompensa-form [aria-invalid="true"], .recompensa-gatilho[aria-invalid="true"] { border-color: #df718d; }
 .recompensa-popup { position: fixed; z-index: 55; padding: 6px; border: 1px solid #d9d5ef; border-radius: 14px; background: #fff; box-shadow: 0 18px 40px rgba(23, 18, 94, .2); }
 .recompensa-opcoes { max-height: min(240px, calc(100dvh - 24px)); overflow-y: auto; }
 .recompensa-opcoes button { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 42px; padding: 8px 10px; border: 0; border-radius: 8px; color: var(--ink); background: transparent; font-size: .84rem; text-align: left; cursor: pointer; }

@@ -90,6 +90,7 @@ export default function AlunoLayout() {
   const papel = resolucao.candidatura || resolucao.estado === 'padrinho_ativo' ? 'padrinho' : resolucao.estado?.startsWith('apadrinhado') ? 'apadrinhado' : null;
   const nav = [
     ...(resolucao.participante ? [{to: '/aluno/feed', label: 'Feed', icon: 'megaphone'}] : []),
+    ...(resolucao.participante ? [{to: '/aluno/lojinha', label: 'Lojinha', icon: 'tag'}] : []),
     {to: '/aluno/perfil', label: 'Meu perfil', icon: 'home'},
     {to: '/aluno/mapa', label: 'Mapa do campus', icon: 'map'},
     ...(resolucao.candidatura ? [{to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard'}] : []),

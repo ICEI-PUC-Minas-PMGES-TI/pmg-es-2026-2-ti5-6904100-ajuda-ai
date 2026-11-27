@@ -66,36 +66,124 @@ export function formDaRecompensa(r) {
 }
 
 /** Primeira inconsistência do formulário, ou '' se pode ser enviado. */
-export function validarRecompensa(form, { criando = false, agora = Date.now() } = {}) {
+export function errosCamposRecompensa(form, { criando = false, agora = Date.now() } = {}) {
   const L = LIMITES_RECOMPENSA;
+  const erros = {};
   const nome = String(form.nome ?? '').trim();
-  if (!nome) return 'Informe o nome da recompensa.';
-  if (nome.length > L.nomeMax) return `O nome deve ter no máximo ${L.nomeMax} caracteres.`;
-  if (!String(form.descricao ?? '').trim()) return 'Informe a descrição da recompensa.';
-  if (String(form.descricao ?? '').trim().length > L.descricaoMax) return `A descrição deve ter no máximo ${L.descricaoMax} caracteres.`;
+  if (!nome) erros.nome = 'Informe o nome da recompensa.';
+  else if (nome.length > L.nomeMax) erros.nome = `O nome deve ter no máximo ${L.nomeMax} caracteres.`;
+  const descricao = String(form.descricao ?? '').trim();
+  if (!descricao) erros.descricao = 'Informe a descrição da recompensa.';
+  else if (descricao.length > L.descricaoMax) erros.descricao = `A descrição deve ter no máximo ${L.descricaoMax} caracteres.`;
   const imagem = String(form.imagemUrl ?? '').trim();
-  if (imagem && !/^https:\/\/\S+$/i.test(imagem)) return 'A imagem deve ser um endereço https://.';
-  if (imagem.length > L.imagemMax) return `O endereço da imagem deve ter no máximo ${L.imagemMax} caracteres.`;
+  if (imagem && !/^https:\/\/\S+$/i.test(imagem)) erros.imagemUrl = 'A imagem deve ser um endereço https://.';
+  else if (imagem.length > L.imagemMax) erros.imagemUrl = `O endereço da imagem deve ter no máximo ${L.imagemMax} caracteres.`;
   const custo = inteiro(form.custoXp);
-  if (!Number.isInteger(custo) || custo < L.custoMin || custo > L.custoMax) return `O custo deve ser um número inteiro de ${L.custoMin} a ${L.custoMax} moedas.`;
+  if (!Number.isInteger(custo) || custo < L.custoMin || custo > L.custoMax) erros.custoXp = `O custo deve ser um número inteiro de ${L.custoMin} a ${L.custoMax} moedas.`;
   const condicoes = String(form.condicoesRetirada ?? '').trim();
-  if (!condicoes) return 'Informe as condições de retirada.';
-  if (condicoes.length > L.condicoesMax) return `As condições devem ter no máximo ${L.condicoesMax} caracteres.`;
+  if (!condicoes) erros.condicoesRetirada = 'Informe as condições de retirada.';
+  else if (condicoes.length > L.condicoesMax) erros.condicoesRetirada = `As condições devem ter no máximo ${L.condicoesMax} caracteres.`;
   if (criando && !form.estoqueIlimitado) {
     const estoque = inteiro(form.estoqueInicial);
-    if (!Number.isInteger(estoque) || estoque > L.estoqueMax) return `Informe o estoque inicial (0 a ${L.estoqueMax}) ou marque estoque ilimitado.`;
+    if (!Number.isInteger(estoque) || estoque < 0 || estoque > L.estoqueMax) erros.estoqueInicial = `Informe o estoque inicial (0 a ${L.estoqueMax}) ou marque estoque ilimitado.`;
   }
   if (String(form.limitePorAluno ?? '').trim()) {
     const limite = inteiro(form.limitePorAluno);
-    if (!Number.isInteger(limite) || limite < L.limiteMin || limite > L.limiteMax) return `O limite por aluno deve ser de ${L.limiteMin} a ${L.limiteMax} (ou vazio, sem limite).`;
+    if (!Number.isInteger(limite) || limite < L.limiteMin || limite > L.limiteMax) erros.limitePorAluno = `O limite por aluno deve ser de ${L.limiteMin} a ${L.limiteMax} (ou vazio, sem limite).`;
   }
-  const de = paraIso(form.disponivelDe);
-  const ate = paraIso(form.disponivelAte);
-  if (form.disponivelDe && !de) return 'Data de início inválida.';
-  if (form.disponivelAte && !ate) return 'Data de fim inválida.';
-  if (de && ate && new Date(de) >= new Date(ate)) return 'O início da disponibilidade deve ser anterior ao fim.';
-  if (criando && form.publicar && ate && new Date(ate).getTime() <= agora) return 'A vigência já terminou: ajuste a data final para publicar.';
-  return '';
+  const de = paraIsoRecompensa(form.disponivelDe);
+  const ate = paraIsoRecompensa(form.disponivelAte);
+  if (form.disponivelDe && !de) erros.disponivelDe = 'Data e hora inicial inválidas.';
+  if (form.disponivelAte && !ate) erros.disponivelAte = 'Data e hora final inválidas.';
+  if (de && ate && new Date(de) >= new Date(ate)) {
+    erros.disponivelAte = 'A data e hora final deve ser posterior à inicial.';
+  }
+  if (criando && form.publicar && ate && new Date(ate).getTime() <= agora) {
+    erros.disponivelAte = 'A vigência já terminou: ajuste a data final para publicar.';
+  }
+  return erros;
+}
+
+export function validarRecompensa(form, opcoes) {
+  return Object.values(errosCamposRecompensa(form, opcoes))[0] || '';
+}
+
+/** Rejeita datas normalizadas pelo JavaScript, como 31 de fevereiro. */
+function validarDataHoraLocal(valor) {
+  const partes = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(valor || '');
+  if (!partes) return null;
+  const [, ano, mes, dia, hora, minuto] = partes.map(Number);
+  const data = new Date(ano, mes - 1, dia, hora, minuto);
+  if (
+    Number.isNaN(data.getTime())
+    || data.getFullYear() !== ano
+    || data.getMonth() !== mes - 1
+    || data.getDate() !== dia
+    || data.getHours() !== hora
+    || data.getMinutes() !== minuto
+  ) return null;
+  return valor;
+}
+
+export function combinarDataHoraRecompensa(dia, hora, minuto) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia || '') || !/^\d{1,2}$/.test(hora || '') || !/^\d{1,2}$/.test(minuto || '')) return null;
+  return validarDataHoraLocal(`${dia}T${String(Number(hora)).padStart(2, '0')}:${String(Number(minuto)).padStart(2, '0')}`);
+}
+
+function dataHoraCanonica(valor) {
+  const local = validarDataHoraLocal(valor);
+  if (local) return local;
+  const partes = /^(\d{2})\/(\d{2})\/(\d{4})\s+(?:às\s+)?(\d{2}):(\d{2})$/i.exec(valor || '');
+  if (!partes) return null;
+  const [, dia, mes, ano, hora, minuto] = partes;
+  return combinarDataHoraRecompensa(
+    `${ano}-${mes}-${dia}`,
+    hora,
+    minuto,
+  );
+}
+
+export function textoDataHoraRecompensa(valor) {
+  if (!valor) return '';
+  const canonica = dataHoraCanonica(valor);
+  if (!canonica) return valor;
+  const [data, hora] = canonica.split('T');
+  const [ano, mes, dia] = data.split('-');
+  return `${dia}/${mes}/${ano} às ${hora}`;
+}
+
+export function paraIsoRecompensa(valor) {
+  const canonica = dataHoraCanonica(valor);
+  return canonica ? paraIso(canonica) : null;
+}
+
+function mascaraDataHora(digitos) {
+  const valor = digitos.slice(0, 12);
+  if (valor.length <= 2) return valor;
+  if (valor.length <= 4) return `${valor.slice(0, 2)}/${valor.slice(2)}`;
+  if (valor.length <= 8) return `${valor.slice(0, 2)}/${valor.slice(2, 4)}/${valor.slice(4)}`;
+  if (valor.length <= 10) return `${valor.slice(0, 2)}/${valor.slice(2, 4)}/${valor.slice(4, 8)} às ${valor.slice(8)}`;
+  return `${valor.slice(0, 2)}/${valor.slice(2, 4)}/${valor.slice(4, 8)} às ${valor.slice(8, 10)}:${valor.slice(10)}`;
+}
+
+function posicaoAposDigitos(valor, quantidade) {
+  if (!quantidade) return 0;
+  let encontrados = 0;
+  for (let indice = 0; indice < valor.length; indice += 1) {
+    if (/\d/.test(valor[indice]) && ++encontrados === quantidade) return indice + 1;
+  }
+  return valor.length;
+}
+
+export function formatarEntradaDataHoraRecompensa(valor, posicao = valor.length) {
+  const cursorOriginal = Math.max(0, Math.min(posicao, valor.length));
+  const quantidadeAntes = (valor.slice(0, cursorOriginal).match(/\d/g) || []).length;
+  const digitos = valor.replace(/\D/g, '').slice(0, 12);
+  const texto = mascaraDataHora(digitos);
+  return {
+    texto,
+    posicao: posicaoAposDigitos(texto, Math.min(quantidadeAntes, digitos.length)),
+  };
 }
 
 /** Corpo do POST de criação. */
@@ -114,8 +202,8 @@ export function corpoCriacao(form) {
   if (!form.estoqueIlimitado) corpo.estoqueInicial = inteiro(form.estoqueInicial);
   if (String(form.limitePorAluno ?? '').trim()) corpo.limitePorAluno = inteiro(form.limitePorAluno);
   if (form.programaCodigo) corpo.programaCodigo = form.programaCodigo;
-  const de = paraIso(form.disponivelDe);
-  const ate = paraIso(form.disponivelAte);
+  const de = paraIsoRecompensa(form.disponivelDe);
+  const ate = paraIsoRecompensa(form.disponivelAte);
   if (de) corpo.disponivelDe = de;
   if (ate) corpo.disponivelAte = ate;
   return corpo;
@@ -137,8 +225,8 @@ export function camposAlterados(original, form) {
   if ((form.publico || 'todos') !== original.publico) alterados.publico = form.publico || 'todos';
   const programa = form.programaCodigo || null;
   if (programa !== (original.programaCodigo ?? null)) alterados.programaCodigo = programa;
-  if (form.disponivelDe !== paraDatetimeLocal(original.disponivelDe)) alterados.disponivelDe = paraIso(form.disponivelDe);
-  if (form.disponivelAte !== paraDatetimeLocal(original.disponivelAte)) alterados.disponivelAte = paraIso(form.disponivelAte);
+  if (form.disponivelDe !== paraDatetimeLocal(original.disponivelDe)) alterados.disponivelDe = paraIsoRecompensa(form.disponivelDe);
+  if (form.disponivelAte !== paraDatetimeLocal(original.disponivelAte)) alterados.disponivelAte = paraIsoRecompensa(form.disponivelAte);
   return alterados;
 }
 
@@ -389,26 +477,32 @@ function ListaRecompensa({ id, rotulo, valor, opcoes, onChange }) {
 }
 
 function dataHoraPartes(valor) {
-  const partes = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(valor || '');
-  return partes ? { dia: `${partes[1]}-${partes[2]}-${partes[3]}`, hora: partes[4], minuto: partes[5] } : null;
+  const canonica = dataHoraCanonica(valor);
+  if (!canonica) return null;
+  const [dia, horario] = canonica.split('T');
+  const [hora, minuto] = horario.split(':');
+  return { dia, hora, minuto };
 }
 
-function CalendarioRecompensa({ id, rotulo, valor, onChange }) {
+function CalendarioRecompensa({ id, rotulo, valor, onChange, erro }) {
   const popup = usePopupRecompensa(326, 408);
+  const campoRef = useRef(null);
   const [mes, setMes] = useState(() => new Date());
   const [dia, setDia] = useState('');
   const [hora, setHora] = useState('12');
   const [minuto, setMinuto] = useState('00');
-  const partes = dataHoraPartes(valor);
-  const texto = partes ? `${partes.dia.slice(8, 10)}/${partes.dia.slice(5, 7)}/${partes.dia.slice(0, 4)} ${partes.hora}:${partes.minuto}` : 'Selecionar data e hora';
+  const [textoDigitado, setTextoDigitado] = useState(() => textoDataHoraRecompensa(valor));
   const ano = mes.getFullYear();
   const numeroMes = mes.getMonth();
   const inicio = (new Date(ano, numeroMes, 1).getDay() + 6) % 7;
   const total = new Date(ano, numeroMes + 1, 0).getDate();
   const hoje = new Date();
   const hojeIso = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
-  const horaValida = /^\d{1,2}$/.test(hora) && Number(hora) <= 23;
-  const minutoValido = /^\d{1,2}$/.test(minuto) && Number(minuto) <= 59;
+  const dataHoraAplicada = combinarDataHoraRecompensa(dia, hora, minuto);
+
+  useEffect(() => {
+    setTextoDigitado(textoDataHoraRecompensa(valor));
+  }, [valor]);
 
   function abrir() {
     const atual = dataHoraPartes(valor);
@@ -421,18 +515,57 @@ function CalendarioRecompensa({ id, rotulo, valor, onChange }) {
   }
 
   function aplicar() {
-    if (!dia || !horaValida || !minutoValido) return;
-    onChange(`${dia}T${String(Number(hora)).padStart(2, '0')}:${String(Number(minuto)).padStart(2, '0')}`);
+    if (!dataHoraAplicada) return;
+    onChange(dataHoraAplicada);
     popup.fechar(true);
   }
 
   return (
     <div className="editor-field recompensa-data">
       <span id={`${id}-rotulo`}>{rotulo}</span>
-      <button type="button" ref={popup.gatilho} className={`recompensa-gatilho${partes ? '' : ' vazio'}`} aria-labelledby={`${id}-rotulo ${id}-valor`} aria-haspopup="dialog" aria-expanded={popup.aberto} onClick={() => popup.aberto ? popup.fechar() : abrir()} onKeyDown={(event) => { if (popup.aberto && event.key === 'Escape') { event.stopPropagation(); popup.fechar(); } }}>
-        <span id={`${id}-valor`}>{texto}</span>
-        <Icon name="calendar" size={17} />
-      </button>
+      <div className="recompensa-data-controles">
+        <input
+          id={`${id}-valor`}
+          ref={campoRef}
+          className="recompensa-gatilho recompensa-data-input"
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          placeholder="DD/MM/AAAA às HH:mm"
+          value={textoDigitado}
+          aria-labelledby={`${id}-rotulo`}
+          aria-invalid={Boolean(erro) || undefined}
+          aria-describedby={erro ? `${id}-erro` : undefined}
+          onChange={(event) => {
+            const digitado = event.currentTarget.value;
+            const mascarado = formatarEntradaDataHoraRecompensa(
+              digitado,
+              event.currentTarget.selectionStart ?? digitado.length,
+            );
+            setTextoDigitado(mascarado.texto);
+            onChange(mascarado.texto ? dataHoraCanonica(mascarado.texto) ?? mascarado.texto : '');
+            window.requestAnimationFrame(() => {
+              const campo = campoRef.current;
+              if (campo && document.activeElement === campo) {
+                campo.setSelectionRange(mascarado.posicao, mascarado.posicao);
+              }
+            });
+          }}
+        />
+        <button
+          type="button"
+          ref={popup.gatilho}
+          className="recompensa-gatilho recompensa-calendario-abrir"
+          aria-label={`Abrir calendário de ${rotulo.toLowerCase()}`}
+          aria-haspopup="dialog"
+          aria-expanded={popup.aberto}
+          onClick={() => popup.aberto ? popup.fechar() : abrir()}
+          onKeyDown={(event) => { if (popup.aberto && event.key === 'Escape') { event.stopPropagation(); popup.fechar(); } }}
+        >
+          <Icon name="calendar" size={17} />
+        </button>
+      </div>
+      {erro && <span id={`${id}-erro`} className="recompensa-erro-campo" role="alert">{erro}</span>}
       {popup.aberto && (
         <div ref={popup.painel} className="recompensa-popup recompensa-calendario" role="dialog" aria-label={`Escolher ${rotulo.toLowerCase()}`} style={popup.posicao} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); popup.fechar(true); } }}>
           <div className="recompensa-calendario-topo">
@@ -458,7 +591,7 @@ function CalendarioRecompensa({ id, rotulo, valor, onChange }) {
           </div>
           <div className="recompensa-calendario-acoes">
             <button type="button" onClick={() => { onChange(''); popup.fechar(true); }}>Limpar</button>
-            <button type="button" className="aplicar" disabled={!dia || !horaValida || !minutoValido} onClick={aplicar}>Aplicar</button>
+            <button type="button" className="aplicar" disabled={!dataHoraAplicada} onClick={aplicar}>Aplicar</button>
           </div>
         </div>
       )}
@@ -472,16 +605,17 @@ export function FormularioRecompensa({ original, programas = [], onCancelar, onS
   const [form, setForm] = useState(() => formDaRecompensa(original));
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
+  const [tentouSalvar, setTentouSalvar] = useState(false);
   const trava = useRef(false);
   const base = useId();
   const formId = `${base}-form`;
   const L = LIMITES_RECOMPENSA;
 
-  const erroValidacao = validarRecompensa(form, { criando });
+  const errosCampos = errosCamposRecompensa(form, { criando });
   const alterados = criando ? null : camposAlterados(original, form);
   const semAlteracoes = !criando && Object.keys(alterados).length === 0;
   const novaVersao = !criando && CAMPOS_VERSIONADOS.some((c) => c in alterados);
-  const podeSalvar = !salvando && !erroValidacao && !semAlteracoes;
+  const podeSalvar = !salvando && !semAlteracoes;
 
   function campo(chave, valor) {
     setForm((atual) => ({ ...atual, [chave]: valor }));
@@ -490,7 +624,8 @@ export function FormularioRecompensa({ original, programas = [], onCancelar, onS
 
   async function salvar(event) {
     event.preventDefault();
-    if (!podeSalvar || trava.current) return;
+    setTentouSalvar(true);
+    if (!podeSalvar || Object.keys(errosCampos).length || trava.current) return;
     trava.current = true;
     setSalvando(true);
     setErro('');
@@ -527,26 +662,31 @@ export function FormularioRecompensa({ original, programas = [], onCancelar, onS
     >
       <form id={formId} className="pucstop-form recompensa-form" onSubmit={salvar} noValidate>
         <label className="editor-field" htmlFor={`${base}-nome`}>
-          <span>Nome</span>
-          <input id={`${base}-nome`} value={form.nome} maxLength={L.nomeMax} required data-autofocus placeholder="Ex.: Caneca Ajuda-aí" onChange={(e) => campo('nome', e.target.value)} />
+          <span>Nome <strong className="recompensa-obrigatorio" aria-hidden="true">*</strong></span>
+          <input id={`${base}-nome`} value={form.nome} maxLength={L.nomeMax} required aria-required="true" aria-invalid={Boolean(tentouSalvar && errosCampos.nome) || undefined} aria-describedby={tentouSalvar && errosCampos.nome ? `${base}-nome-erro` : undefined} data-autofocus placeholder="Ex.: Caneca Ajuda-aí" onChange={(e) => campo('nome', e.target.value)} />
+          {tentouSalvar && errosCampos.nome && <span id={`${base}-nome-erro`} className="recompensa-erro-campo">{errosCampos.nome}</span>}
         </label>
         <label className="editor-field" htmlFor={`${base}-descricao`}>
-          <span>Descrição</span>
-          <textarea id={`${base}-descricao`} className="detail-textarea" rows={2} maxLength={L.descricaoMax} required value={form.descricao} onChange={(e) => campo('descricao', e.target.value)} />
+          <span>Descrição <strong className="recompensa-obrigatorio" aria-hidden="true">*</strong></span>
+          <textarea id={`${base}-descricao`} className="detail-textarea" rows={2} maxLength={L.descricaoMax} required aria-required="true" aria-invalid={Boolean(tentouSalvar && errosCampos.descricao) || undefined} aria-describedby={tentouSalvar && errosCampos.descricao ? `${base}-descricao-erro` : undefined} value={form.descricao} onChange={(e) => campo('descricao', e.target.value)} />
+          {tentouSalvar && errosCampos.descricao && <span id={`${base}-descricao-erro`} className="recompensa-erro-campo">{errosCampos.descricao}</span>}
         </label>
         <div className="editor-grid pucstop-grid">
           <label className="editor-field" htmlFor={`${base}-custo`}>
-            <span>Custo em moedas</span>
-            <input id={`${base}-custo`} type="number" inputMode="numeric" min={L.custoMin} max={L.custoMax} step="1" value={form.custoXp} required onChange={(e) => campo('custoXp', e.target.value)} />
+            <span>Custo em moedas <strong className="recompensa-obrigatorio" aria-hidden="true">*</strong></span>
+            <input id={`${base}-custo`} type="number" inputMode="numeric" min={L.custoMin} max={L.custoMax} step="1" value={form.custoXp} required aria-required="true" aria-invalid={Boolean(tentouSalvar && errosCampos.custoXp) || undefined} aria-describedby={tentouSalvar && errosCampos.custoXp ? `${base}-custo-erro` : undefined} onChange={(e) => campo('custoXp', e.target.value)} />
+            {tentouSalvar && errosCampos.custoXp && <span id={`${base}-custo-erro`} className="recompensa-erro-campo">{errosCampos.custoXp}</span>}
           </label>
           <label className="editor-field" htmlFor={`${base}-imagem`}>
             <span>Imagem (URL https, opcional)</span>
-            <input id={`${base}-imagem`} type="url" inputMode="url" maxLength={L.imagemMax} placeholder="https://…" value={form.imagemUrl} onChange={(e) => campo('imagemUrl', e.target.value)} />
+            <input id={`${base}-imagem`} type="url" inputMode="url" maxLength={L.imagemMax} placeholder="https://…" value={form.imagemUrl} aria-invalid={Boolean(tentouSalvar && errosCampos.imagemUrl) || undefined} aria-describedby={tentouSalvar && errosCampos.imagemUrl ? `${base}-imagem-erro` : undefined} onChange={(e) => campo('imagemUrl', e.target.value)} />
+            {tentouSalvar && errosCampos.imagemUrl && <span id={`${base}-imagem-erro`} className="recompensa-erro-campo">{errosCampos.imagemUrl}</span>}
           </label>
         </div>
         <label className="editor-field" htmlFor={`${base}-condicoes`}>
-          <span>Condições de retirada</span>
-          <textarea id={`${base}-condicoes`} className="detail-textarea" rows={2} maxLength={L.condicoesMax} required placeholder="Ex.: retirar na coordenação, seg a sex, 9h–17h, com documento." value={form.condicoesRetirada} onChange={(e) => campo('condicoesRetirada', e.target.value)} />
+          <span>Condições de retirada <strong className="recompensa-obrigatorio" aria-hidden="true">*</strong></span>
+          <textarea id={`${base}-condicoes`} className="detail-textarea" rows={2} maxLength={L.condicoesMax} required aria-required="true" aria-invalid={Boolean(tentouSalvar && errosCampos.condicoesRetirada) || undefined} aria-describedby={tentouSalvar && errosCampos.condicoesRetirada ? `${base}-condicoes-erro` : undefined} placeholder="Ex.: retirar na coordenação, seg a sex, 9h–17h, com documento." value={form.condicoesRetirada} onChange={(e) => campo('condicoesRetirada', e.target.value)} />
+          {tentouSalvar && errosCampos.condicoesRetirada && <span id={`${base}-condicoes-erro`} className="recompensa-erro-campo">{errosCampos.condicoesRetirada}</span>}
         </label>
         {!criando && (
           <p className="field-hint">
@@ -563,8 +703,9 @@ export function FormularioRecompensa({ original, programas = [], onCancelar, onS
             </div>
             {!form.estoqueIlimitado && (
               <label className="editor-field" htmlFor={`${base}-estoque`}>
-                <span>Estoque inicial</span>
-                <input id={`${base}-estoque`} type="number" inputMode="numeric" min="0" max={L.estoqueMax} step="1" value={form.estoqueInicial} onChange={(e) => campo('estoqueInicial', e.target.value)} />
+                <span>Estoque inicial <strong className="recompensa-obrigatorio" aria-hidden="true">*</strong></span>
+                <input id={`${base}-estoque`} type="number" inputMode="numeric" min="0" max={L.estoqueMax} step="1" value={form.estoqueInicial} required aria-required="true" aria-invalid={Boolean(tentouSalvar && errosCampos.estoqueInicial) || undefined} aria-describedby={tentouSalvar && errosCampos.estoqueInicial ? `${base}-estoque-erro` : undefined} onChange={(e) => campo('estoqueInicial', e.target.value)} />
+                {tentouSalvar && errosCampos.estoqueInicial && <span id={`${base}-estoque-erro`} className="recompensa-erro-campo">{errosCampos.estoqueInicial}</span>}
               </label>
             )}
           </fieldset>
@@ -575,11 +716,12 @@ export function FormularioRecompensa({ original, programas = [], onCancelar, onS
           <div className="editor-grid pucstop-grid">
             <ListaRecompensa id={`${base}-publico`} rotulo="Público" valor={form.publico} opcoes={Object.entries(ROTULO_PUBLICO).map(([valor, rotulo]) => ({ valor, rotulo }))} onChange={(valor) => campo('publico', valor)} />
             <ListaRecompensa id={`${base}-programa`} rotulo="Programa" valor={form.programaCodigo} opcoes={[{ valor: '', rotulo: 'Todos os programas' }, ...(form.programaCodigo && !programas.some((p) => p.codigo === form.programaCodigo) ? [{ valor: form.programaCodigo, rotulo: form.programaCodigo }] : []), ...programas.map((p) => ({ valor: p.codigo, rotulo: p.titulo ? `${p.codigo} — ${p.titulo}` : p.codigo }))]} onChange={(valor) => campo('programaCodigo', valor)} />
-            <CalendarioRecompensa id={`${base}-de`} rotulo="Disponível a partir de" valor={form.disponivelDe} onChange={(valor) => campo('disponivelDe', valor)} />
-            <CalendarioRecompensa id={`${base}-ate`} rotulo="Disponível até" valor={form.disponivelAte} onChange={(valor) => campo('disponivelAte', valor)} />
+            <CalendarioRecompensa id={`${base}-de`} rotulo="Data e hora de início" valor={form.disponivelDe} erro={tentouSalvar ? errosCampos.disponivelDe : ''} onChange={(valor) => campo('disponivelDe', valor)} />
+            <CalendarioRecompensa id={`${base}-ate`} rotulo="Data e hora de fim" valor={form.disponivelAte} erro={tentouSalvar ? errosCampos.disponivelAte : ''} onChange={(valor) => campo('disponivelAte', valor)} />
             <label className="editor-field" htmlFor={`${base}-limite`}>
               <span>Limite por aluno (opcional)</span>
-              <input id={`${base}-limite`} type="number" inputMode="numeric" min={L.limiteMin} max={L.limiteMax} step="1" placeholder="Sem limite" value={form.limitePorAluno} onChange={(e) => campo('limitePorAluno', e.target.value)} />
+              <input id={`${base}-limite`} type="number" inputMode="numeric" min={L.limiteMin} max={L.limiteMax} step="1" placeholder="Sem limite" value={form.limitePorAluno} aria-invalid={Boolean(tentouSalvar && errosCampos.limitePorAluno) || undefined} aria-describedby={tentouSalvar && errosCampos.limitePorAluno ? `${base}-limite-erro` : undefined} onChange={(e) => campo('limitePorAluno', e.target.value)} />
+              {tentouSalvar && errosCampos.limitePorAluno && <span id={`${base}-limite-erro`} className="recompensa-erro-campo">{errosCampos.limitePorAluno}</span>}
             </label>
           </div>
           <p className="field-hint">Datas vazias: sem prazo. A recompensa só aparece na lojinha publicada e dentro da vigência.</p>
@@ -592,8 +734,8 @@ export function FormularioRecompensa({ original, programas = [], onCancelar, onS
         )}
 
         {erro && <p className="form-error" role="alert"><Icon name="alert" size={15} /> {erro}</p>}
-        {!erro && (erroValidacao || semAlteracoes) && (
-          <p className="detail-muted small" role="status">{erroValidacao || 'Nenhuma alteração para salvar.'}</p>
+        {!erro && semAlteracoes && (
+          <p className="detail-muted small" role="status">Nenhuma alteração para salvar.</p>
         )}
       </form>
     </Modal>

@@ -431,6 +431,91 @@ class CoordenacaoApi {
     ),
   );
 
+  Future<List<Map<String, dynamic>>> recompensas({String? status}) async =>
+      _lista(
+        await _enviar(
+          'GET',
+          '/coordenacao/recompensas',
+          query: {'status': status},
+          erro: 'Falha ao carregar recompensas',
+        ),
+      );
+
+  Future<Map<String, dynamic>> recompensa(String id) async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/recompensas/${Uri.encodeComponent(id)}',
+      erro: 'Falha ao carregar a recompensa',
+    ),
+  );
+
+  Future<Map<String, dynamic>> criarRecompensa(
+    Map<String, dynamic> dados,
+  ) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/recompensas',
+      corpo: dados,
+      erro: 'Falha ao cadastrar a recompensa',
+    ),
+  );
+
+  Future<Map<String, dynamic>> atualizarRecompensa(
+    String id,
+    Map<String, dynamic> dados,
+  ) async => _mapa(
+    await _enviar(
+      'PATCH',
+      '/coordenacao/recompensas/${Uri.encodeComponent(id)}',
+      corpo: dados,
+      erro: 'Falha ao atualizar a recompensa',
+    ),
+  );
+
+  Future<Map<String, dynamic>> ajustarEstoqueRecompensa(
+    String id,
+    Map<String, dynamic> dados,
+  ) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/recompensas/${Uri.encodeComponent(id)}/estoque',
+      corpo: dados,
+      erro: 'Falha ao ajustar o estoque',
+    ),
+  );
+
+  Future<Map<String, dynamic>> publicarRecompensa(String id) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/recompensas/${Uri.encodeComponent(id)}/publicar',
+      erro: 'Falha ao publicar a recompensa',
+    ),
+  );
+
+  Future<Map<String, dynamic>> desativarRecompensa(String id) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/recompensas/${Uri.encodeComponent(id)}/desativar',
+      erro: 'Falha ao desativar a recompensa',
+    ),
+  );
+
+  Future<Map<String, dynamic>> arquivarRecompensa(String id) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/recompensas/${Uri.encodeComponent(id)}/arquivar',
+      erro: 'Falha ao arquivar a recompensa',
+    ),
+  );
+
+  Future<Map<String, dynamic>> excluirRecompensa(String id) async => _mapa(
+    await _enviar(
+      'DELETE',
+      '/coordenacao/recompensas/${Uri.encodeComponent(id)}',
+      erro: 'Falha ao excluir a recompensa',
+    ),
+  );
+
   Future<void> excluirPrograma(String codigo, String confirmacao) async {
     await _enviar(
       'DELETE',
