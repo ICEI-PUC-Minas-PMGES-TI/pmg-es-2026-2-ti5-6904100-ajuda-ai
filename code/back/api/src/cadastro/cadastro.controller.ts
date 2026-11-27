@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   NotFoundException,
@@ -157,6 +158,13 @@ export class MeController {
       if (erro instanceof ServiceUnavailableException) return { url: null };
       throw erro;
     }
+  }
+
+  @Delete('foto')
+  async removerFoto(@Req() requisicao: AuthenticatedRequest) {
+    const chave = await this.chaveFoto(requisicao);
+    await this.storage.removerFotoPerfil(chave);
+    return { url: null };
   }
 
   /** Padrinho ↔ apadrinhados: só para cadastros aprovados. */

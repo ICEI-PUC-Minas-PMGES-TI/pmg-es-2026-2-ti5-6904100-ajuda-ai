@@ -46,6 +46,7 @@ function Avatar({ participante, pequeno = false }) {
       className={`chat-avatar${pequeno ? " small" : ""}`}
       aria-hidden="true"
     >
+      {participante.fotoUrl && <img src={participante.fotoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
       {participante.iniciais}
     </span>
   );

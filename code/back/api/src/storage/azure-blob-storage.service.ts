@@ -138,6 +138,25 @@ export class AzureBlobStorageService {
     }
   }
 
+  async removerFotoPerfil(blobName: string): Promise<void> {
+    if (!/^usuarios\/[1-9][0-9]*\/avatar\.img$/.test(blobName))
+      throw new BadRequestException('Chave de perfil inválida.');
+    const cliente = await this.garantirContainer('profiles');
+    try {
+      await cliente.getBlockBlobClient(validarNomeBlob(blobName)).deleteIfExists();
+    } catch (erro) {
+      this.propagar(erro, 'remover foto de perfil');
+    }
+  }
+
+  async urlFotoPerfil(usuarioId: number): Promise<string | null> {
+    if (!Number.isSafeInteger(usuarioId) || usuarioId < 1)
+      throw new BadRequestException('Identificador de perfil inválido.');
+    const blobName = `usuarios/${usuarioId}/avatar.img`;
+    if (!(await this.existe('profiles', blobName))) return null;
+    return this.sasLeitura('profiles', blobName).url;
+  }
+
   async excluir(
     container: ContainerArmazenamento,
     blobName: string,

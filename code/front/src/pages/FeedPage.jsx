@@ -320,7 +320,10 @@ export function FeedView({
         {visiveis.map((post) => (
           <article className="dash-card feed-post" key={post.id}>
             <header>
-              <span className="feed-avatar">{post.iniciais}</span>
+              <span className="feed-avatar" aria-hidden="true">
+                {post.fotoUrl && <img src={post.fotoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
+                {post.iniciais}
+              </span>
               <div>
                 <strong>{post.autor}</strong>
                 <small>
@@ -420,6 +423,7 @@ export function FeedView({
               {post.comentariosDetalhes.map((c) => (
                 <li key={c.id}>
                   <span className="feed-avatar small" aria-hidden="true">
+                    {c.autor?.fotoUrl && <img src={c.autor.fotoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
                     {(c.autor?.nome || "?").trim().charAt(0).toUpperCase()}
                   </span>
                   <div className="feed-comment-body">
@@ -527,6 +531,7 @@ export function FeedView({
             {(curtidores.itens ?? []).map((c, i) => (
               <li key={`${c.autor.id}-${i}`}>
                 <span className="feed-avatar small" aria-hidden="true">
+                  {c.autor.fotoUrl && <img src={c.autor.fotoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
                   {c.autor.nome.trim().charAt(0).toUpperCase()}
                 </span>
                 <strong>{c.autor.nome}</strong>

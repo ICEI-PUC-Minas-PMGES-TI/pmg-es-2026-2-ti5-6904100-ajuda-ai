@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../../api/client';
 import Icon from '../../components/Icon';
+import AvatarCropper from '../../components/AvatarCropper';
 import MenuSelect from '../../components/MenuSelect';
 import { iniciaisDe } from '../../auth/sessaoAluno';
 import { CURSOS, Field, INTERESSES, TURNOS } from '../cadastro/partes';
@@ -12,8 +13,10 @@ export default function PerfilEditarPage() {
   const navigate = useNavigate();
   const [dados, setDados] = useState(perfil || {});
   const [foto, setFoto] = useState(null);
+  const [arquivoParaCorte, setArquivoParaCorte] = useState(null);
   const [previewLocal, setPreviewLocal] = useState(null);
   const [url, setUrl] = useState(null);
+  const [removerFoto, setRemoverFoto] = useState(false);
   const [erro, setErro] = useState('');
   const [erroFoto, setErroFoto] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -48,7 +51,7 @@ export default function PerfilEditarPage() {
     return atual && !CURSOS.includes(atual) ? [atual, ...CURSOS] : CURSOS;
   }, [dados.curso]);
 
-  const fotoExibida = previewLocal || url;
+  const fotoExibida = previewLocal || (removerFoto ? null : url);
   const interesses = Array.isArray(dados.interesses) ? dados.interesses : [];
   const disponiveis = INTERESSES.filter((item) => !interesses.includes(item));
 
@@ -58,9 +61,29 @@ export default function PerfilEditarPage() {
 
   function onFoto(e) {
     const file = e.target.files?.[0] || null;
-    setFoto(file);
+    e.target.value = '';
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setErroFoto('Escolha uma imagem PNG, JPG ou WEBP.');
+      return;
+    }
+    setErroFoto('');
+    setArquivoParaCorte(file);
+  }
+
+  function confirmarCorte(arquivo) {
     if (previewLocal) URL.revokeObjectURL(previewLocal);
-    setPreviewLocal(file ? URL.createObjectURL(file) : null);
+    setFoto(arquivo);
+    setPreviewLocal(URL.createObjectURL(arquivo));
+    setRemoverFoto(false);
+    setArquivoParaCorte(null);
+  }
+
+  function descartarFoto() {
+    if (previewLocal) URL.revokeObjectURL(previewLocal);
+    setFoto(null);
+    setPreviewLocal(null);
+    setRemoverFoto(true);
   }
 
   function toggleInteresse(item) {
@@ -87,11 +110,22 @@ export default function PerfilEditarPage() {
         turno: dados.turno,
         interesses: Array.isArray(dados.interesses) ? dados.interesses : [],
       });
-      if (foto) {
+      if (removerFoto) {
+        try {
+          await api.removerFoto();
+          setUrl(null);
+          setRemoverFoto(false);
+          setErroFoto('');
+        } catch (err) {
+          setErroFoto(`Dados salvos. A foto não foi removida: ${err.message}`);
+          return;
+        }
+      } else if (foto) {
         try {
           const f = await api.salvarFoto(foto);
           setUrl(f.url);
           setFoto(null);
+          setPreviewLocal(null);
           setErroFoto('');
         } catch (err) {
           if (/Azure Blob Storage|AZURE_STORAGE/i.test(err.message || '')) {
@@ -159,7 +193,17 @@ export default function PerfilEditarPage() {
                 <Icon name="camera" size={16} />
                 {fotoExibida ? 'Trocar foto' : 'Adicionar foto'}
               </button>
-              <p className="perfil-edit-photo-meta">* PNG, JPG ou WEBP</p>
+              {fotoExibida && (
+                <button type="button" className="text-link perfil-edit-remove-photo" onClick={descartarFoto}>
+                  Remover foto
+                </button>
+              )}
+              {removerFoto && url && (
+                <button type="button" className="text-link perfil-edit-remove-photo" onClick={() => setRemoverFoto(false)}>
+                  Desfazer remoção
+                </button>
+              )}
+              <p className="perfil-edit-photo-meta">PNG, JPG ou WEBP · a foto será aplicada ao salvar as alterações.</p>
             </div>
             {erroFoto && <p className="profile-foto-aviso" role="alert">{erroFoto}</p>}
           </div>
@@ -269,6 +313,13 @@ export default function PerfilEditarPage() {
           </div>
         </div>
       </form>
+      {arquivoParaCorte && (
+        <AvatarCropper
+          arquivo={arquivoParaCorte}
+          onCancelar={() => setArquivoParaCorte(null)}
+          onConfirmar={confirmarCorte}
+        />
+      )}
     </div>
   );
 }

@@ -135,6 +135,10 @@ class ParticipacoesApi {
     return (decodificarJson(r) as Map)['url'] as String?;
   }
 
+  Future<void> removerFoto() async {
+    await _json('/me/foto', method: 'DELETE');
+  }
+
   Future<Map<String, dynamic>> _json(
     String path, {
     String method = 'GET',

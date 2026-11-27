@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
@@ -19,6 +21,7 @@ import 'widgets/aviso_mapa.dart';
 import 'widgets/navegacao_app.dart';
 import 'widgets/progresso_gamificacao.dart';
 import 'widgets/perfil_componentes.dart';
+import 'widgets/avatar_cropper.dart';
 
 const _borda = corBordaPerfil;
 const _bordaLilas = corBordaLilasPerfil;
@@ -90,6 +93,8 @@ class _ProfilePageState extends State<ProfilePage> {
   late _DadosPerfil _dados;
   bool _editando = false;
   bool _salvando = false;
+  Uint8List? _fotoPendente;
+  bool _removerFotoPendente = false;
   String? _erro;
   String? _erroFoto;
   bool _detalhesCandidaturaAbertos = false;
@@ -172,18 +177,17 @@ class _ProfilePageState extends State<ProfilePage> {
       );
       final bytes = resultado?.files.single.bytes;
       if (bytes == null || !mounted) return;
-      setState(() => _salvando = true);
-      final url = await _sessao.participacoesApi.enviarFoto(bytes);
-      if (mounted) {
-        setState(() {
-          _sessao.fotoUrl = url;
-          _erroFoto = null;
-        });
-      }
+      final recorte = await AvatarCropper.mostrar(context, bytes);
+      if (recorte == null || !mounted) return;
+      setState(() {
+        _fotoPendente = recorte;
+        _removerFotoPendente = false;
+        _erroFoto = null;
+      });
     } catch (erro) {
-      if (mounted) setState(() => _erroFoto = 'Foto não salva: $erro');
-    } finally {
-      if (mounted) setState(() => _salvando = false);
+      if (mounted) {
+        setState(() => _erroFoto = 'Não foi possível ajustar a foto: $erro');
+      }
     }
   }
 
@@ -232,7 +236,12 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() => _editando = true);
   }
 
-  void _cancelarEdicao() => setState(() => _editando = false);
+  void _cancelarEdicao() => setState(() {
+    _editando = false;
+    _fotoPendente = null;
+    _removerFotoPendente = false;
+    _erroFoto = null;
+  });
 
   Future<void> _confirmarEdicao() async {
     if (_salvando || _sessao.dados == null) return;
@@ -259,15 +268,28 @@ class _ProfilePageState extends State<ProfilePage> {
           limparSobre: _sobreController.text.trim().isEmpty,
         ),
       );
+      if (_removerFotoPendente) {
+        await _sessao.participacoesApi.removerFoto();
+        _sessao.fotoUrl = null;
+      } else if (_fotoPendente != null) {
+        _sessao.fotoUrl = await _sessao.participacoesApi.enviarFoto(
+          _fotoPendente!,
+        );
+      }
       if (mounted) {
         setState(() {
           _dados = _dadosDaSessao();
           _editando = false;
           _erro = null;
+          _erroFoto = null;
+          _fotoPendente = null;
+          _removerFotoPendente = false;
         });
       }
     } catch (erro) {
-      if (mounted) setState(() => _erro = '$erro');
+      if (mounted) {
+        setState(() => _erroFoto = 'Não foi possível salvar a foto: $erro');
+      }
     } finally {
       if (mounted) setState(() => _salvando = false);
     }
@@ -372,36 +394,26 @@ class _ProfilePageState extends State<ProfilePage> {
                     }
                   },
                 ),
-              if (_sessao.fotoUrl != null)
-                Image.network(
-                  _sessao.fotoUrl!,
-                  width: 72,
-                  height: 72,
-                  errorBuilder: (_, erro, stack) =>
-                      const Text('Foto indisponível'),
-                ),
-              if (_erroFoto != null) Text(_erroFoto!),
-              TextButton(
-                onPressed: _salvando ? null : _escolherFoto,
-                child: const Text('Selecionar ou substituir foto'),
-              ),
-              const Padding(
-                padding: EdgeInsets.only(top: 4),
-                child: Text(
-                  'PNG, JPG ou WEBP · até 2 MB',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    color: AppColors.muted,
-                  ),
-                ),
-              ),
+              if (_erroFoto != null)
+                Text(_erroFoto!, style: const TextStyle(color: Colors.red)),
               _Identidade(
                 dados: _dados,
                 editando: _editando,
                 nomeController: _nomeController,
                 onEditar: _editando ? null : _iniciarEdicao,
                 interesses: _sessao.dados?.interesses ?? const [],
+                fotoUrl: _removerFotoPendente ? null : _sessao.fotoUrl,
+                fotoPendente: _fotoPendente,
+                onSelecionarFoto: _editando && !_salvando
+                    ? _escolherFoto
+                    : null,
+                fotoRemovida: _removerFotoPendente,
+                onRemoverFoto: _editando && !_salvando
+                    ? () => setState(() {
+                        _fotoPendente = null;
+                        _removerFotoPendente = !_removerFotoPendente;
+                      })
+                    : null,
               ),
               if (!_editando) const _XpGlobal(),
               if (_editando) ...[
@@ -671,6 +683,11 @@ class _Identidade extends StatelessWidget {
     required this.nomeController,
     required this.onEditar,
     this.interesses = const [],
+    this.fotoUrl,
+    this.fotoPendente,
+    this.onSelecionarFoto,
+    this.fotoRemovida = false,
+    this.onRemoverFoto,
   });
 
   final _DadosPerfil dados;
@@ -678,32 +695,78 @@ class _Identidade extends StatelessWidget {
   final TextEditingController nomeController;
   final VoidCallback? onEditar;
   final List<String> interesses;
+  final String? fotoUrl;
+  final Uint8List? fotoPendente;
+  final VoidCallback? onSelecionarFoto;
+  final bool fotoRemovida;
+  final VoidCallback? onRemoverFoto;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 72,
-          height: 72,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: const Color(0xFFEDE6FA),
-            border: Border.all(
-              color: AppColors.primary.withValues(alpha: 0.35),
-              width: 1.5,
+        Column(
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              alignment: Alignment.center,
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFFEDE6FA),
+                border: Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.35),
+                  width: 1.5,
+                ),
+              ),
+              child: fotoPendente != null
+                  ? Image.memory(
+                      fotoPendente!,
+                      width: 72,
+                      height: 72,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) =>
+                          _iniciaisAvatar(dados.iniciais),
+                    )
+                  : fotoUrl != null
+                  ? Image.network(
+                      fotoUrl!,
+                      width: 72,
+                      height: 72,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) =>
+                          _iniciaisAvatar(dados.iniciais),
+                    )
+                  : _iniciaisAvatar(dados.iniciais),
             ),
-          ),
-          child: Text(
-            dados.iniciais,
-            style: const TextStyle(
-              color: AppColors.primary,
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
+            if (editando && onSelecionarFoto != null) ...[
+              TextButton(
+                onPressed: onSelecionarFoto,
+                child: Text(
+                  fotoUrl != null || fotoPendente != null
+                      ? 'Trocar foto'
+                      : 'Adicionar foto',
+                ),
+              ),
+              if (fotoUrl != null || fotoPendente != null || fotoRemovida)
+                TextButton(
+                  onPressed: onRemoverFoto,
+                  child: Text(
+                    fotoRemovida ? 'Desfazer remoção' : 'Remover foto',
+                  ),
+                ),
+              const Text(
+                'PNG, JPG ou WEBP',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  color: AppColors.muted,
+                ),
+              ),
+            ],
+          ],
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -774,6 +837,17 @@ class _Identidade extends StatelessWidget {
     );
   }
 }
+
+Widget _iniciaisAvatar(String iniciais) => Center(
+  child: Text(
+    iniciais,
+    style: const TextStyle(
+      color: AppColors.primary,
+      fontSize: 22,
+      fontWeight: FontWeight.w800,
+    ),
+  ),
+);
 
 class _DetalhesCandidatura extends StatelessWidget {
   const _DetalhesCandidatura({required this.dados});

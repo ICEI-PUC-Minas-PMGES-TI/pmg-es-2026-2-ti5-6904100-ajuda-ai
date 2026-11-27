@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   Req,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
@@ -16,6 +17,7 @@ import { RolesGuard } from '../auth/roles.guard.js';
 import { ProgramasService } from '../programas/programas.service.js';
 import { montarEtapas, ROTULOS_STATUS_PROGRAMA } from '../programas/etapas.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
+import { AzureBlobStorageService } from '../storage/azure-blob-storage.service.js';
 import { ParticipacoesService } from './participacoes.service.js';
 import { perfilDoRegistro, serializarParticipacao } from './perfil.js';
 
@@ -27,7 +29,25 @@ export class ParticipacoesController {
     private readonly participacoesService: ParticipacoesService,
     private readonly programasService: ProgramasService,
     private readonly usuariosService: UsuariosService,
+    private readonly storage: AzureBlobStorageService,
   ) {}
+
+  private async incluirFoto<T extends { email?: string; fotoUrl?: string | null }>(
+    pessoa: T,
+  ): Promise<T> {
+    if (!pessoa.email) return pessoa;
+    const usuario = await this.usuariosService.buscarPorEmail(pessoa.email);
+    if (!usuario) return pessoa;
+    try {
+      return {
+        ...pessoa,
+        fotoUrl: (await this.storage.urlFotoPerfil(usuario.id)) ?? pessoa.fotoUrl ?? null,
+      };
+    } catch (erro) {
+      if (erro instanceof ServiceUnavailableException) return pessoa;
+      throw erro;
+    }
+  }
 
   @Get()
   async listar(
@@ -116,7 +136,10 @@ export class ParticipacoesController {
           grupo,
         );
       if (registroPadrinho) {
-        padrinho = { ...perfilDoRegistro(registroPadrinho), grupo };
+        padrinho = await this.incluirFoto({
+          ...perfilDoRegistro(registroPadrinho),
+          grupo,
+        });
       }
     }
     if (aprovado && registro && grupo && registro.papel === 'padrinho') {
@@ -124,10 +147,11 @@ export class ParticipacoesController {
         programa.codigo,
         grupo,
       );
-      apadrinhados = lista.map((item) => ({
-        ...perfilDoRegistro(item),
-        grupo,
-      }));
+      apadrinhados = await Promise.all(
+        lista.map((item) =>
+          this.incluirFoto({ ...perfilDoRegistro(item), grupo }),
+        ),
+      );
     }
 
     return {

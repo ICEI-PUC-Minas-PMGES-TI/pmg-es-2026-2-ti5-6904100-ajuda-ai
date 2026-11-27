@@ -221,6 +221,18 @@ describe('operações no container', () => {
     expect(sas.expiraEm.getTime()).toBeGreaterThan(Date.now());
   });
 
+  it('remove foto de perfil sem falhar quando ela já não existe', async () => {
+    const { service, deleteIfExists } = servicoMockado();
+    deleteIfExists.mockResolvedValue({ succeeded: false });
+    await expect(
+      service.removerFotoPerfil('usuarios/42/avatar.img'),
+    ).resolves.toBeUndefined();
+    expect(deleteIfExists).toHaveBeenCalledTimes(1);
+    await expect(
+      service.removerFotoPerfil('outro/avatar.img'),
+    ).rejects.toThrow(/Chave/);
+  });
+
   it('recusa foto sem assinatura de imagem, chave arbitrária e tamanho excessivo', async () => {
     const { service, uploadData } = servicoMockado();
     await expect(
@@ -239,6 +251,16 @@ describe('operações no container', () => {
       ),
     ).rejects.toThrow(/5 MB/);
     expect(uploadData).not.toHaveBeenCalled();
+  });
+
+  it('emite URL de leitura apenas para foto de perfil existente', async () => {
+    const { service, exists } = servicoMockado();
+    await expect(service.urlFotoPerfil(42)).resolves.toContain(
+      '/usuarios/42/avatar.img?',
+    );
+    exists.mockResolvedValueOnce(false);
+    await expect(service.urlFotoPerfil(42)).resolves.toBeNull();
+    await expect(service.urlFotoPerfil(0)).rejects.toThrow(/Identificador/);
   });
 
   it('não cria container ausente e não envia o blob', async () => {

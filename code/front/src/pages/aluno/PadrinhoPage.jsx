@@ -9,7 +9,8 @@ function PessoaCard({ pessoa, destaque = false }) {
   return (
     <article className={`person-card${destaque ? ' featured' : ''}`}>
       <span className="person-avatar" aria-hidden="true">
-        {pessoa.fotoUrl ? <img src={pessoa.fotoUrl} alt="" /> : pessoa.iniciais}
+        {pessoa.fotoUrl && <img src={pessoa.fotoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
+        {pessoa.iniciais}
       </span>
       <div className="person-copy">
         <h2>{pessoa.nome}</h2>

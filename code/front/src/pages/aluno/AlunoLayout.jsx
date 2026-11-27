@@ -45,6 +45,7 @@ export default function AlunoLayout() {
   const location = useLocation();
   const [sessao, setSessao] = useState(() => getAlunoSession());
   const [perfil, setPerfil] = useState({nome: '', interesses: []});
+  const [fotoUrl, setFotoUrl] = useState(null);
   const [situacao, setSituacao] = useState(null);
   const [programas, setProgramas] = useState([]);
   const [codigo, setCodigo] = useState(programaAluno);
@@ -74,6 +75,13 @@ export default function AlunoLayout() {
     } finally {if (consulta === consultaAtual.current) setCarregando(false);}
   }, [email, codigo]);
   useEffect(() => { aplicarAparencia(); recarregar(); return () => {consultaAtual.current++;}; }, [recarregar, location.pathname]);
+  useEffect(() => {
+    let ativo = true;
+    api.fotoAluno()
+      .then((foto) => { if (ativo) setFotoUrl(foto?.url || null); })
+      .catch(() => { if (ativo) setFotoUrl(null); });
+    return () => { ativo = false; };
+  }, [email]);
   useEffect(() => {setMenuAberto(false);}, [location.pathname]);
   const resolucao = resolverAluno(perfil, situacao, programas.find(p => p.codigo === codigo));
   if (!sessao) return <Navigate to="/login" replace />;
@@ -103,6 +111,7 @@ export default function AlunoLayout() {
   return <div className="aluno-shell">
     <AlunoTopbar
       nome={perfil.nome}
+      fotoUrl={fotoUrl}
       email={email}
       pronto={!carregando}
       publico={resolucao.ativo ? `${papel}s` : undefined}
@@ -190,7 +199,7 @@ function AlunoDrawer({ itens, onFechar }) {
   );
 }
 
-function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, programas = [], onCiclo, cicloDesabilitado }) {
+function AlunoTopbar({ nome, fotoUrl, email, publico, pronto, menuAberto, onMenu, ciclo, programas = [], onCiclo, cicloDesabilitado }) {
   const [avisos, setAvisos] = useState([]);
   const [erroAvisos, setErroAvisos] = useState(false);
   const [aberto, setAberto] = useState(false);
@@ -479,7 +488,10 @@ function AlunoTopbar({ nome, email, publico, pronto, menuAberto, onMenu, ciclo, 
         </div>
         <div className="account-menu" ref={contaRef}>
           <button type="button" className="account-trigger" aria-haspopup="true" aria-expanded={contaAberta} aria-controls={contaId} onClick={() => { setContaAberta((v) => !v); setCicloAberto(false); setAberto(false); }}>
-            <span className="account-avatar" aria-hidden="true">{iniciaisDe(nome)}</span>
+            <span className="account-avatar" aria-hidden="true">
+              {fotoUrl && <img src={fotoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
+              {iniciaisDe(nome)}
+            </span>
             <span className="account-name">{nome}</span>
             <Icon name="chevronDown" size={16} />
           </button>

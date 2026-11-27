@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/coordenacao_api.dart';
 import '../theme/colors.dart';
 import 'componentes_coord.dart';
+import '../widgets/avatar_usuario.dart';
 
 /// Pool de participantes para vínculos manuais, disponível após liberar matching.
 class TelaMatchingManualCoord extends StatefulWidget {
@@ -16,7 +17,8 @@ class TelaMatchingManualCoord extends StatefulWidget {
   final String programa;
 
   @override
-  State<TelaMatchingManualCoord> createState() => _TelaMatchingManualCoordState();
+  State<TelaMatchingManualCoord> createState() =>
+      _TelaMatchingManualCoordState();
 }
 
 class _TelaMatchingManualCoordState extends State<TelaMatchingManualCoord> {
@@ -428,12 +430,10 @@ class _AvatarParticipante extends StatelessWidget {
         .take(2)
         .map((parte) => parte[0].toUpperCase())
         .join();
-    return CircleAvatar(
-      backgroundColor: const Color(0xFFEBE4FF),
-      foregroundImage: foto is String && foto.isNotEmpty
-          ? NetworkImage(foto)
-          : null,
-      child: Text(iniciais),
+    return AvatarUsuario(
+      iniciais: iniciais,
+      fotoUrl: foto is String ? foto : null,
+      tamanho: 40,
     );
   }
 }

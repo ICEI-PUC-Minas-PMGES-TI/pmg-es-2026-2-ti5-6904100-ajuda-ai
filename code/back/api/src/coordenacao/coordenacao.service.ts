@@ -3,6 +3,8 @@ import {
   Injectable,
   NotFoundException,
   OnModuleInit,
+  Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -33,6 +35,7 @@ import { CriterioCatalogoService } from '../matching/criterio-catalogo.service.j
 import { MatchingService } from '../matching/matching.service.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
 import type { EntradaVerificacao } from '../participacoes/verificacao-academica.js';
+import { AzureBlobStorageService } from '../storage/azure-blob-storage.service.js';
 /** "Situação da análise" na listagem: conferência acadêmica registrada ou não. */
 const FILTROS_CONFERENCIA = [
   'pendente',
@@ -53,6 +56,7 @@ export class CoordenacaoService implements OnModuleInit {
     private readonly criterioCatalogoService: CriterioCatalogoService,
     @InjectRepository(ParticipacaoEntity)
     private readonly participacoes: Repository<ParticipacaoEntity>,
+    @Optional() private readonly storage?: AzureBlobStorageService,
   ) {}
 
   /** Base demo (ciclos, requisitos, participações): só com SEED_DEMO_DATA=true. */
@@ -289,13 +293,13 @@ export class CoordenacaoService implements OnModuleInit {
     const candidaturasInscritas =
       pendentes + emAnalise + rejeitadas + aprovadas;
 
-    const recentes = [...candidatos]
+    const recentes = await Promise.all([...candidatos]
       .sort(
         (a, b) =>
           new Date(b.criadoEm).getTime() - new Date(a.criadoEm).getTime(),
       )
       .slice(0, 6)
-      .map((item) => this.enriquecerCandidatura(item));
+      .map((item) => this.enriquecerCandidatura(item)));
 
     const semVinculoLista: ParticipacaoEntity[] = [];
     for (const apadrinhado of apadrinhados) {
@@ -422,7 +426,7 @@ export class CoordenacaoService implements OnModuleInit {
       publico === 'apadrinhado'
         ? await this.apadrinhadosPorStatus(programa, status)
         : await this.candidatosPorStatus(programa, status);
-    return registros
+    return Promise.all(registros
       .filter((r) =>
         !conf
           ? true
@@ -430,7 +434,7 @@ export class CoordenacaoService implements OnModuleInit {
             ? !r.verificacao?.atual
             : r.verificacao?.atual?.resultado === conf,
       )
-      .map((item) => this.enriquecerCandidatura(item));
+      .map((item) => this.enriquecerCandidatura(item)));
   }
 
   private async candidatosPorStatus(programa: string, status?: string) {
@@ -508,8 +512,9 @@ export class CoordenacaoService implements OnModuleInit {
     );
   }
 
-  private enriquecerCandidatura(item: ParticipacaoEntity) {
+  private async enriquecerCandidatura(item: ParticipacaoEntity) {
     const perfil = perfilDoRegistro(item);
+    const fotoUrl = await this.fotoPerfil(perfil.email, perfil.fotoUrl);
     return {
       id: item.id,
       usuarioId: item.usuarioId,
@@ -523,12 +528,27 @@ export class CoordenacaoService implements OnModuleInit {
       email: perfil.email,
       curso: perfil.curso,
       periodo: perfil.periodo,
-      fotoUrl: perfil.fotoUrl,
+      fotoUrl,
       iniciais: perfil.iniciais,
       statusRotulo: this.rotuloStatus(item),
       /** Resultado da última conferência acadêmica; null = não conferida. */
       conferencia: item.verificacao?.atual?.resultado ?? null,
     };
+  }
+
+  private async fotoPerfil(
+    email: string,
+    fallback?: string | null,
+  ): Promise<string | null> {
+    if (!this.storage) return fallback ?? null;
+    const usuario = await this.usuariosService.buscarPorEmail(email);
+    if (!usuario) return fallback ?? null;
+    try {
+      return (await this.storage.urlFotoPerfil(usuario.id)) ?? fallback ?? null;
+    } catch (erro) {
+      if (erro instanceof ServiceUnavailableException) return fallback ?? null;
+      throw erro;
+    }
   }
 
   private rotuloStatus(item: ParticipacaoEntity): string {
@@ -753,7 +773,7 @@ export class CoordenacaoService implements OnModuleInit {
       (await this.programasService.requisitosPadrinho(item.programa)).map(
         (r) => ({ ...r, cumpre: null }),
       );
-    const resumo = this.enriquecerCandidatura(item);
+    const resumo = await this.enriquecerCandidatura(item);
     return {
       ...resumo,
       conferencia: {
@@ -801,7 +821,7 @@ export class CoordenacaoService implements OnModuleInit {
    * registros antigos, o grupo legado. Precisam ser tratados antes de revogar.
    */
   private async vinculosDe(item: ParticipacaoEntity) {
-    const pessoa = (p: ParticipacaoEntity) => {
+    const pessoa = async (p: ParticipacaoEntity) => {
       const perfil = perfilDoRegistro(p);
       return {
         participacaoId: p.id,
@@ -809,22 +829,33 @@ export class CoordenacaoService implements OnModuleInit {
         nome: perfil.nome,
         email: perfil.email,
         curso: perfil.curso,
+        fotoUrl: await this.fotoPerfil(perfil.email, perfil.fotoUrl),
         iniciais: perfil.iniciais,
       };
     };
     const lista: Array<
-      ReturnType<typeof pessoa> & {
+      {
+        participacaoId: number;
+        papel: string;
+        nome: string;
+        email: string;
+        curso: string;
+        fotoUrl: string | null;
+        iniciais: string;
+      } & {
         vinculoId: number | null;
         origem: 'matching' | 'grupo';
         grupo: string | null;
       }
-    > = (await this.participacoesService.listarVinculados(item)).map(
-      ({ participacao, vinculoId }) => ({
-        ...pessoa(participacao),
-        vinculoId,
-        origem: 'matching',
-        grupo: null,
-      }),
+    > = await Promise.all(
+      (await this.participacoesService.listarVinculados(item)).map(
+        async ({ participacao, vinculoId }) => ({
+          ...(await pessoa(participacao)),
+          vinculoId,
+          origem: 'matching',
+          grupo: null,
+        }),
+      ),
     );
     const grupo = item.grupo?.trim();
     if (grupo && (item.papel === 'padrinho' || item.papel === 'apadrinhado')) {
@@ -845,7 +876,7 @@ export class CoordenacaoService implements OnModuleInit {
       for (const membro of membros) {
         if (lista.some((v) => v.participacaoId === membro.id)) continue;
         lista.push({
-          ...pessoa(membro),
+          ...(await pessoa(membro)),
           vinculoId: null,
           origem: 'grupo',
           grupo,
@@ -943,8 +974,8 @@ export class CoordenacaoService implements OnModuleInit {
     const { apadrinhado, padrinho } =
       await this.participacoesService.desvincular(id);
     return {
-      apadrinhado: this.enriquecerCandidatura(apadrinhado),
-      padrinho: padrinho ? this.enriquecerCandidatura(padrinho) : null,
+      apadrinhado: await this.enriquecerCandidatura(apadrinhado),
+      padrinho: padrinho ? await this.enriquecerCandidatura(padrinho) : null,
     };
   }
 
@@ -1073,7 +1104,7 @@ export class CoordenacaoService implements OnModuleInit {
         .map(async (r) => {
           const usuario = usuarios.get(r.usuarioId);
           return {
-            ...this.enriquecerCandidatura(r),
+            ...(await this.enriquecerCandidatura(r)),
             situacao: await this.participacoesService.situacaoDoRegistro(r),
             usuarioCadastroId: usuario?.id ?? null,
             statusCadastro: usuario?.statusCadastro ?? null,
@@ -1098,8 +1129,8 @@ export class CoordenacaoService implements OnModuleInit {
       responsavel,
     );
     return {
-      apadrinhado: this.enriquecerCandidatura(apadrinhado),
-      padrinho: this.enriquecerCandidatura(padrinho),
+      apadrinhado: await this.enriquecerCandidatura(apadrinhado),
+      padrinho: await this.enriquecerCandidatura(padrinho),
     };
   }
 
@@ -1262,11 +1293,15 @@ export class CoordenacaoService implements OnModuleInit {
         ParticipacoesService.programaAtual(),
       ),
       matchingLiberado: true,
-      padrinhos: padrinhos.map((r) => this.enriquecerCandidatura(r)),
-      apadrinhados: apadrinhados.map((r) => ({
-        ...this.enriquecerCandidatura(r),
-        vinculado: ParticipacoesService.vinculoValido(r, registros),
-      })),
+      padrinhos: await Promise.all(
+        padrinhos.map((r) => this.enriquecerCandidatura(r)),
+      ),
+      apadrinhados: await Promise.all(
+        apadrinhados.map(async (r) => ({
+          ...(await this.enriquecerCandidatura(r)),
+          vinculado: ParticipacoesService.vinculoValido(r, registros),
+        })),
+      ),
     };
   }
   obterFormulario(tipo: string, programa?: string) {

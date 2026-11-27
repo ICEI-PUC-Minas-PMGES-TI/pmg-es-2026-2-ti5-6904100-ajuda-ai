@@ -8,6 +8,7 @@ import { MatchingModule } from '../matching/matching.module.js';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { ParticipacoesModule } from '../participacoes/participacoes.module.js';
 import { ProgramasModule } from '../programas/programas.module.js';
+import { StorageModule } from '../storage/storage.module.js';
 import { CoordenacaoController } from './coordenacao.controller.js';
 import { CoordenacaoService } from './coordenacao.service.js';
 
@@ -20,6 +21,7 @@ import { CoordenacaoService } from './coordenacao.service.js';
     MatchingModule,
     ProgramasModule,
     ParticipacoesModule,
+    StorageModule,
     TypeOrmModule.forFeature([ParticipacaoEntity]),
   ],
   controllers: [CoordenacaoController],

@@ -87,7 +87,8 @@ export function RequisitosDeclarados({ requisitos, respondidos = true, legado, p
 export function Avatar({ pessoa, tamanho = 'sm' }) {
   return (
     <span className={`coord-avatar ${tamanho}`} aria-hidden="true">
-      {pessoa?.fotoUrl ? <img src={pessoa.fotoUrl} alt="" /> : pessoa?.iniciais}
+      {pessoa?.fotoUrl && <img src={pessoa.fotoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
+      {pessoa?.iniciais}
     </span>
   );
 }

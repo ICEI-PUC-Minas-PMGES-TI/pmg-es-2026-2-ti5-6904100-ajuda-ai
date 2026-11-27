@@ -13,6 +13,7 @@ import 'services/feed_media.dart';
 import 'widgets/app_feedback.dart';
 import 'widgets/feed_comments_sheet.dart';
 import 'widgets/feed_curtidores_sheet.dart';
+import 'widgets/avatar_usuario.dart';
 import 'models/feed_comment.dart';
 import 'sessao_usuario.dart';
 import 'main.dart' show estiloBarraClara;
@@ -1156,7 +1157,11 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
             padding: const EdgeInsets.fromLTRB(14, 14, 10, 12),
             child: Row(
               children: [
-                _Avatar(iniciais: post.iniciais, cor: post.corAvatar),
+                _Avatar(
+                  iniciais: post.iniciais,
+                  cor: post.corAvatar,
+                  fotoUrl: post.fotoUrl,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -1713,26 +1718,19 @@ class _ImagemFeed extends StatelessWidget {
 }
 
 class _Avatar extends StatelessWidget {
-  const _Avatar({required this.iniciais, required this.cor});
+  const _Avatar({required this.iniciais, required this.cor, this.fotoUrl});
 
   final String iniciais;
   final Color cor;
+  final String? fotoUrl;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 42,
-      height: 42,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: cor.withValues(alpha: 0.13),
-        shape: BoxShape.circle,
-        border: Border.all(color: cor.withValues(alpha: 0.3), width: 1.5),
-      ),
-      child: Text(
-        iniciais,
-        style: TextStyle(color: cor, fontSize: 14, fontWeight: FontWeight.w800),
-      ),
+    return AvatarUsuario(
+      iniciais: iniciais,
+      fotoUrl: fotoUrl,
+      tamanho: 42,
+      cor: cor,
     );
   }
 }
@@ -2402,10 +2400,12 @@ class _Publicacao {
     this.comentariosDetalhes = const [],
     this.curtidoPeloUsuario = false,
     this.curtidoresRecentes = const [],
+    this.fotoUrl,
   });
 
   final int? id;
   final String autor;
+  final String? fotoUrl;
   final String iniciais;
   final String descricaoAutor;
   final String tempo;
@@ -2442,6 +2442,7 @@ class _Publicacao {
     return _Publicacao(
       id: (json['id'] as num?)?.toInt(),
       autor: json['autor'] as String? ?? '',
+      fotoUrl: json['fotoUrl'] as String?,
       iniciais: json['iniciais'] as String? ?? '',
       descricaoAutor: json['descricaoAutor'] as String? ?? '',
       tempo: json['tempo'] as String? ?? 'agora',
@@ -2509,6 +2510,7 @@ class _Publicacao {
     curtidas: curtidas ?? this.curtidas,
     curtidoPeloUsuario: curtidoPeloUsuario ?? this.curtidoPeloUsuario,
     curtidoresRecentes: curtidoresRecentes,
+    fotoUrl: fotoUrl,
     comentarios: comentarios ?? this.comentarios,
     corAvatar: corAvatar,
     verificado: verificado,

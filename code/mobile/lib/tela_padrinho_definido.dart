@@ -5,6 +5,7 @@ import 'sessao_usuario.dart';
 import 'theme/colors.dart';
 import 'widgets/cabecalho_logos.dart';
 import 'widgets/campos_cadastro.dart';
+import 'widgets/avatar_usuario.dart';
 
 class Padrinho {
   const Padrinho({
@@ -16,6 +17,7 @@ class Padrinho {
     this.email = '',
     this.periodo,
     this.grupo,
+    this.fotoUrl,
   });
 
   factory Padrinho.daPessoa(PessoaVinculo pessoa) => Padrinho(
@@ -24,6 +26,7 @@ class Padrinho {
     email: pessoa.email,
     periodo: pessoa.periodo,
     grupo: pessoa.grupo,
+    fotoUrl: pessoa.fotoUrl,
     interesses: pessoa.interesses,
     sobre: pessoa.interesses.isEmpty
         ? 'Padrinho do programa Ajuda-aí.'
@@ -38,6 +41,7 @@ class Padrinho {
   final String email;
   final int? periodo;
   final String? grupo;
+  final String? fotoUrl;
 
   String get iniciais => nome
       .split(' ')
@@ -217,17 +221,10 @@ class _PerfilPadrinhoSheet extends StatelessWidget {
           children: [
             Row(
               children: [
-                CircleAvatar(
-                  radius: 28,
-                  backgroundColor: AppAccents.tileLilas,
-                  child: Text(
-                    padrinho.iniciais,
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
+                AvatarUsuario(
+                  iniciais: padrinho.iniciais,
+                  fotoUrl: padrinho.fotoUrl,
+                  tamanho: 56,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -387,17 +384,10 @@ class _CardPadrinho extends StatelessWidget {
         children: [
           Stack(
             children: [
-              CircleAvatar(
-                radius: 34,
-                backgroundColor: AppAccents.tileLilas,
-                child: Text(
-                  padrinho.iniciais,
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
+              AvatarUsuario(
+                iniciais: padrinho.iniciais,
+                fotoUrl: padrinho.fotoUrl,
+                tamanho: 68,
               ),
               if (padrinho.online)
                 Positioned(

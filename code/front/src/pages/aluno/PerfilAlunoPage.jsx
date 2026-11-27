@@ -221,7 +221,7 @@ function SituacaoCard({ dados, perfil, resolucao }) {
         {apadrinhados.length > 0 && (
           <ul className="status-people" aria-label="Seus apadrinhados">
             {apadrinhados.map((p) => (
-              <li key={p.email}><span className="mini-avatar" aria-hidden="true">{p.iniciais}</span><span><strong>{p.nome}</strong><small>{p.curso}{p.periodo ? ` · ${p.periodo}º período` : ''}</small></span></li>
+              <li key={p.email}><span className="mini-avatar" aria-hidden="true">{p.fotoUrl && <img src={p.fotoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}{p.iniciais}</span><span><strong>{p.nome}</strong><small>{p.curso}{p.periodo ? ` · ${p.periodo}º período` : ''}</small></span></li>
             ))}
           </ul>
         )}

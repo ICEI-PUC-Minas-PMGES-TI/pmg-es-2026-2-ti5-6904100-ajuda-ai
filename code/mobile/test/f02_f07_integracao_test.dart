@@ -116,6 +116,14 @@ void main() {
         await SessaoUsuario.atual.participacoesApi.foto(),
         contains('storage.test'),
       );
+      await SessaoUsuario.atual.participacoesApi.removerFoto();
+      expect(await SessaoUsuario.atual.participacoesApi.foto(), isNull);
+      expect(
+        api.requisicoes.any(
+          (r) => r.method == 'DELETE' && r.url.path == '/me/foto',
+        ),
+        isTrue,
+      );
       final foto = api.requisicoes.singleWhere(
         (r) => r.method == 'PUT' && r.url.path == '/me/foto',
       );

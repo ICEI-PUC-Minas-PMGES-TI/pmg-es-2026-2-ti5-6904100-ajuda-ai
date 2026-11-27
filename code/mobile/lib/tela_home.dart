@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -12,6 +14,7 @@ import 'widgets/app_bottom_navigation.dart';
 import 'widgets/navegacao_app.dart';
 import 'widgets/painel_notificacoes.dart';
 import 'widgets/progresso_gamificacao.dart';
+import 'widgets/avatar_usuario.dart';
 
 const double _gutter = 20;
 
@@ -364,11 +367,35 @@ class _BotaoResgatar extends StatelessWidget {
   }
 }
 
-class _AvatarPerfil extends StatelessWidget {
+class _AvatarPerfil extends StatefulWidget {
   const _AvatarPerfil({required this.iniciais, required this.papel});
 
   final String iniciais;
   final String papel;
+
+  @override
+  State<_AvatarPerfil> createState() => _AvatarPerfilState();
+}
+
+class _AvatarPerfilState extends State<_AvatarPerfil> {
+  String? _fotoUrl = SessaoUsuario.atual.fotoUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_fotoUrl == null) unawaited(_carregarFoto());
+  }
+
+  Future<void> _carregarFoto() async {
+    try {
+      final url = await SessaoUsuario.atual.participacoesApi.foto();
+      if (!mounted) return;
+      SessaoUsuario.atual.fotoUrl = url;
+      setState(() => _fotoUrl = url);
+    } catch (erro) {
+      debugPrint('Não foi possível carregar o avatar: $erro');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -378,23 +405,11 @@ class _AvatarPerfil extends StatelessWidget {
       child: Stack(
         alignment: Alignment.topCenter,
         children: [
-          Container(
-            width: 84,
-            height: 84,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.lavender,
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFF9B5DE5), width: 3),
-            ),
-            child: Text(
-              iniciais,
-              style: const TextStyle(
-                color: AppColors.primary,
-                fontSize: 34,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
+          AvatarUsuario(
+            iniciais: widget.iniciais,
+            fotoUrl: _fotoUrl,
+            tamanho: 84,
+            cor: const Color(0xFF9B5DE5),
           ),
           Positioned(
             bottom: 0,
@@ -421,7 +436,7 @@ class _AvatarPerfil extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    papel,
+                    widget.papel,
                     style: const TextStyle(
                       fontFamily: 'Inter',
                       color: AppColors.ink,
@@ -638,23 +653,10 @@ class _LinhaPessoa extends StatelessWidget {
         ],
       ),
     );
-    final avatar = Container(
-      width: 60,
-      height: 60,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: AppColors.lavender,
-        shape: BoxShape.circle,
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
-      ),
-      child: Text(
-        _iniciais,
-        style: const TextStyle(
-          color: AppColors.primary,
-          fontSize: 20,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
+    final avatar = AvatarUsuario(
+      iniciais: _iniciais,
+      fotoUrl: pessoa.fotoUrl,
+      tamanho: 60,
     );
 
     return LayoutBuilder(

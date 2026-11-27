@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/api_config.dart';
 import '../services/coordenacao_api.dart';
 import '../theme/colors.dart';
+import '../widgets/avatar_usuario.dart';
 
 const corFundoCoord = Color(0xFFF6F5FB);
 const corTextoSecundarioCoord = Color(0xFF5C5678);
@@ -279,14 +280,10 @@ class AvatarCoord extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CircleAvatar(
-      radius: raio,
-      backgroundColor: const Color(0xFFEBE4FF),
-      foregroundColor: AppColors.primary,
-      child: Text(
-        '${item['iniciais'] ?? '?'}',
-        style: TextStyle(fontWeight: FontWeight.w700, fontSize: raio * 0.6),
-      ),
+    return AvatarUsuario(
+      iniciais: '${item['iniciais'] ?? '?'}',
+      fotoUrl: item['fotoUrl'] as String?,
+      tamanho: raio * 2,
     );
   }
 }

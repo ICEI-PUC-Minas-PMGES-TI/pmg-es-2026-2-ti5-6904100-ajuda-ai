@@ -97,6 +97,7 @@ class ApiFalsa {
     }
     if (caminho == '/me/foto') {
       if (requisicao.method == 'PUT') fotoUrl = 'https://storage.test/avatar';
+      if (requisicao.method == 'DELETE') fotoUrl = null;
       return _json({'url': fotoUrl});
     }
     if (caminho == '/participacoes/programas') {

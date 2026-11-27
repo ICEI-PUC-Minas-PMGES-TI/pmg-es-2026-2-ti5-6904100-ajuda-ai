@@ -1,0 +1,48 @@
+.avatar-crop-modal .modal-body {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+}
+
+.avatar-crop-area {
+  position: relative;
+  width: min(280px, 72vw);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 3px solid #6b35c8;
+  border-radius: 50%;
+  background: #f3f0ff;
+  cursor: grab;
+  touch-action: none;
+}
+
+.avatar-crop-area:active {
+  cursor: grabbing;
+}
+
+.avatar-crop-image {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  transform-origin: center;
+}
+
+.avatar-crop-zoom {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  color: #514765;
+  font-size: .9rem;
+}
+
+.avatar-crop-zoom input {
+  width: 100%;
+  accent-color: #6032ad;
+}
+
+.avatar-crop-modal .modal-actions .primary-button {
+  white-space: normal;
+}

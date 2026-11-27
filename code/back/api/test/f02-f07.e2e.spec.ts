@@ -40,6 +40,7 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
   };
   const storage = {
     substituirFotoPerfil: vi.fn().mockResolvedValue(undefined),
+    removerFotoPerfil: vi.fn().mockResolvedValue(undefined),
     existe: vi.fn().mockResolvedValue(true),
     sasLeitura: vi.fn((container: string, chave: string) => ({
       container,
@@ -763,6 +764,11 @@ describe('F02/F07: contratos, isolamento de ciclos e matching', () => {
       .expect(200);
     expect(leitura.body.container).toBe('profiles');
     expect(leitura.body.chave).toBe(chave);
+    await http()
+      .delete('/me/foto')
+      .set('Authorization', `Bearer ${token()}`)
+      .expect(200, { url: null });
+    expect(storage.removerFotoPerfil).toHaveBeenCalledWith(chave);
     await http()
       .put('/me/foto?usuarioId=' + id)
       .set('Authorization', `Bearer ${token('outro@pucminas.edu.br')}`)

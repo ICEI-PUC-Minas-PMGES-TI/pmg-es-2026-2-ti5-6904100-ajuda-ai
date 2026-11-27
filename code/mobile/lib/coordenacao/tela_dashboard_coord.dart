@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/coordenacao_api.dart';
 import '../services/api_config.dart';
 import '../theme/colors.dart';
+import 'componentes_coord.dart';
 
 class TelaDashboardCoord extends StatefulWidget {
   const TelaDashboardCoord({
@@ -514,10 +515,8 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                 _AcaoRapida(
                   label: 'Formulários',
                   icon: Icons.dynamic_form_outlined,
-                  onTap: () => widget.onAbrirDestino?.call(
-                    'formularios',
-                    const {},
-                  ),
+                  onTap: () =>
+                      widget.onAbrirDestino?.call('formularios', const {}),
                 ),
                 if (resumo['encerrado'] == true) ...[
                   const SizedBox(height: 8),
@@ -547,18 +546,7 @@ class _TelaDashboardCoordState extends State<TelaDashboardCoord> {
                           (item) => ListTile(
                             contentPadding: EdgeInsets.zero,
                             dense: true,
-                            leading: CircleAvatar(
-                              radius: 18,
-                              backgroundColor: const Color(0xFFEBE4FF),
-                              foregroundColor: AppColors.primary,
-                              child: Text(
-                                '${item['iniciais'] ?? '?'}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ),
+                            leading: AvatarCoord(item: item, raio: 18),
                             title: Text(
                               '${item['nome'] ?? ''}',
                               style: const TextStyle(

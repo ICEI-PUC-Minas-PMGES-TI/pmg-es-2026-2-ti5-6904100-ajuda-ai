@@ -5,6 +5,8 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { AuthService } from '../auth/auth.service.js';
 import { buscarCoordenadorPorEmail } from '../dados/dados.js';
@@ -31,6 +33,7 @@ import {
   serializarUsuario,
   UsuariosService,
 } from '../usuarios/usuarios.service.js';
+import { AzureBlobStorageService } from '../storage/azure-blob-storage.service.js';
 
 export interface DadosCadastro {
   email: string;
@@ -67,6 +70,7 @@ export class CadastroService {
     private readonly participacoesService: ParticipacoesService,
     private readonly authService: AuthService,
     private readonly programasService: ProgramasService,
+    @Optional() private readonly storage?: AzureBlobStorageService,
   ) {}
 
   /**
@@ -383,11 +387,13 @@ export class CadastroService {
       const canonicos =
         await this.participacoesService.listarVinculados(registro);
       if (canonicos.length)
-        return canonicos.map(({ participacao, vinculoId }) => ({
-          ...perfilDoRegistro(participacao),
-          grupo: null,
-          vinculoId,
-        }));
+        return Promise.all(
+          canonicos.map(async ({ participacao, vinculoId }) => ({
+            ...(await this.perfilComFoto(perfilDoRegistro(participacao))),
+            grupo: null,
+            vinculoId,
+          })),
+        );
     }
     const grupo = registro?.grupo?.trim();
     if (
@@ -401,16 +407,40 @@ export class CadastroService {
         programa,
         grupo,
       );
-      return padrinho ? [{ ...perfilDoRegistro(padrinho), grupo }] : [];
+      return padrinho
+        ? [{ ...(await this.perfilComFoto(perfilDoRegistro(padrinho))), grupo }]
+        : [];
     }
     if (registro.papel === 'padrinho') {
       const lista = await this.participacoesService.listarApadrinhadosDoGrupo(
         programa,
         grupo,
       );
-      return lista.map((item) => ({ ...perfilDoRegistro(item), grupo }));
+      return Promise.all(
+        lista.map(async (item) => ({
+          ...(await this.perfilComFoto(perfilDoRegistro(item))),
+          grupo,
+        })),
+      );
     }
     return [];
+  }
+
+  private async perfilComFoto<T extends { email: string; fotoUrl?: string | null }>(
+    perfil: T,
+  ): Promise<T> {
+    if (!this.storage) return perfil;
+    const usuario = await this.usuariosService.buscarPorEmail(perfil.email);
+    if (!usuario) return perfil;
+    try {
+      return {
+        ...perfil,
+        fotoUrl: (await this.storage.urlFotoPerfil(usuario.id)) ?? perfil.fotoUrl ?? null,
+      };
+    } catch (erro) {
+      if (erro instanceof ServiceUnavailableException) return perfil;
+      throw erro;
+    }
   }
 
   /* ===================== Coordenação ===================== */

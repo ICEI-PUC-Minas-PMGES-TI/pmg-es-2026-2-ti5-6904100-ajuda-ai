@@ -424,6 +424,7 @@ export class PublicacoesService {
   private async autores(itens: PublicacaoEntity[]) {
     return this.autoresPorEmails(
       itens.flatMap((p) => [
+        p.ownerId,
         ...(p.comentarios ?? []).map((c) => c.autorId),
         ...this.ultimasCurtidas(p).map((c) => c.usuarioId),
       ]),
@@ -548,6 +549,7 @@ export class PublicacoesService {
     return {
       id: item.id,
       autor: item.autor,
+      fotoUrl: autores.get(item.ownerId)?.fotoUrl ?? null,
       iniciais: item.iniciais,
       descricaoAutor: item.descricaoAutor,
       criadoEm: item.criadoEm,

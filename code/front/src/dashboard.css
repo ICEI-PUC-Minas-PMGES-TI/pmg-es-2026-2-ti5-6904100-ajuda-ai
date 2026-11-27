@@ -107,6 +107,10 @@
 .coord-user-card strong { display: block; color: var(--ink); font-size: 0.9rem; }
 .coord-user-card span { color: var(--muted); font-size: 0.75rem; }
 .coord-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
   width: 40px;
   height: 40px;
   border-radius: 50%;

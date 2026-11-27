@@ -207,6 +207,7 @@ export const api = {
   },
   fotoAluno() { return request('/me/foto', {aluno: getAlunoSession()?.email || '__sem_sessao__'}); },
   salvarFoto(file) { const body = new FormData(); body.append('foto', file); return request('/me/foto', {method: 'PUT', body, aluno: getAlunoSession()?.email || '__sem_sessao__'}); },
+  removerFoto() { return request('/me/foto', {method: 'DELETE', aluno: getAlunoSession()?.email || '__sem_sessao__'}); },
   programasAluno() { return request('/participacoes/programas', {aluno: getAlunoSession()?.email || '__sem_sessao__'}); },
 
   /* ===== Autenticação (coordenação) ===== */

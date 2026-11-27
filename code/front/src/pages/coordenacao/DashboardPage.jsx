@@ -300,7 +300,10 @@ export default function DashboardPage() {
               {candidaturasRecentes.map((item) => (
                 <li key={item.id}>
                   <button type="button" className="recent-item" onClick={() => setDetalhe(item)}>
-                    <span className="coord-avatar sm" aria-hidden="true">{item.iniciais}</span>
+                    <span className="coord-avatar sm" aria-hidden="true">
+                      {item.fotoUrl && <img src={item.fotoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
+                      {item.iniciais}
+                    </span>
                     <span className="recent-copy">
                       <strong>{item.nome}</strong>
                       <span>{item.curso}{item.periodo ? ` · ${item.periodo}º período` : ''}</span>
