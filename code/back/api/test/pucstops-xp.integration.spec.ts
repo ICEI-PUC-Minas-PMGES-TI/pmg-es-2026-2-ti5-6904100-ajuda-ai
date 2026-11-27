@@ -9,12 +9,15 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { JwtModule, JwtService } from '@nestjs/jwt';
+import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import pg from 'pg';
 import request from 'supertest';
 import { DataSource, type MigrationInterface } from 'typeorm';
 import { permissoesPeloToken } from './helpers/permissoes.js';
 import { JwtAuthGuard } from '../src/auth/jwt-auth.guard.js';
+import { DelegacaoGuard } from '../src/coordenacao/delegacoes/delegacao.guard.js';
+import { DelegacoesService } from '../src/coordenacao/delegacoes/delegacoes.service.js';
 import { RolesGuard } from '../src/auth/roles.guard.js';
 import { PucStopsAdminController } from '../src/gamificacao/pucstops/pucstops-admin.controller.js';
 import {
@@ -45,6 +48,7 @@ import {
   travarCarteira,
 } from '../src/gamificacao/gamificacao.js';
 import { PucStopsEXpGlobal1792279161187 } from '../src/migrations/1792279161187-PucStopsEXpGlobal.js';
+import { CriaDelegacoes1795500000000 } from '../src/migrations/1795500000000-CriaDelegacoes.js';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
 const CICLO = ParticipacoesService.programaAtual();
@@ -123,7 +127,10 @@ async function admin(sql: string): Promise<void> {
 }
 
 const criados: string[] = [];
-async function bancoMigrado(nome: string): Promise<DataSource> {
+async function bancoMigrado(
+  nome: string,
+  comDelegacoes = false,
+): Promise<DataSource> {
   const banco = `pucstops_${nome}`;
   await admin(`DROP DATABASE IF EXISTS ${banco} WITH (FORCE)`);
   await admin(`CREATE DATABASE ${banco}`);
@@ -132,7 +139,9 @@ async function bancoMigrado(nome: string): Promise<DataSource> {
     type: 'postgres',
     url: urlDo(banco),
     schema: 'feed',
-    migrations: MIGRATIONS,
+    migrations: comDelegacoes
+      ? [...MIGRATIONS, CriaDelegacoes1795500000000]
+      : MIGRATIONS,
     migrationsTableName: 'migrations',
     installExtensions: false,
     // Pool maior que o número de coletas simultâneas do teste de concorrência.
@@ -246,7 +255,7 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
   }
 
   beforeAll(async () => {
-    ds = await bancoMigrado('api');
+    ds = await bancoMigrado('api', true);
     for (const [nome, email] of USUARIOS) {
       const [{ id }] = await ds.query(
         `INSERT INTO feed.usuarios (nome, email, curso, periodo, tipo_participacao, status_cadastro) ` +
@@ -272,6 +281,9 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
         XpService,
         JwtAuthGuard,
         RolesGuard,
+        DelegacaoGuard,
+        DelegacoesService,
+        Reflector,
         permissoesPeloToken(),
         { provide: DataSource, useValue: ds },
       ],

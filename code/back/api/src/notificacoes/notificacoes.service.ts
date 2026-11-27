@@ -145,6 +145,20 @@ export class NotificacoesService {
     }
   }
 
+  async criarParaUsuarios(
+    executor: Pick<DataSource, 'query'>,
+    usuarios: readonly number[],
+    nova: NovaNotificacao,
+  ): Promise<void> {
+    await executor.query(
+      `INSERT INTO ${this.tabela} ("usuario_id", "tipo", "titulo", "mensagem", "link", "chave", "criado_em")
+       SELECT usuario_id, $2, $3, $4, $5, $6, clock_timestamp()
+       FROM unnest($1::int[]) AS destinatarios(usuario_id)
+       ON CONFLICT ("usuario_id", "chave") DO NOTHING`,
+      [usuarios, nova.tipo, nova.titulo, nova.mensagem, nova.link, nova.chave],
+    );
+  }
+
   /**
    * Para quem é conhecido pelo e-mail (participações). Sem conta ainda,
    * não há sino para avisar. Nunca derruba quem chamou.

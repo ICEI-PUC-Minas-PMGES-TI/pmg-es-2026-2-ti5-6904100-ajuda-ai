@@ -184,6 +184,24 @@ function query(params) {
 }
 
 export const api = {
+  minhasDelegacoes(aluno) { return request('/me/delegacoes', { aluno }); },
+  alunos(busca) { return request(`/coordenacao/alunos${query({ busca })}`); },
+  aluno(id) { return request(`/coordenacao/alunos/${encodeURIComponent(id)}`); },
+  concederDelegacao(id, funcionalidade) {
+    return request(`/coordenacao/alunos/${encodeURIComponent(id)}/delegacoes`, { method: 'POST', body: { funcionalidade } });
+  },
+  revogarDelegacao(id, funcionalidade) {
+    return request(`/coordenacao/alunos/${encodeURIComponent(id)}/delegacoes/${encodeURIComponent(funcionalidade)}`, { method: 'DELETE' });
+  },
+  regrasXp() { return request('/coordenacao/regras-xp'); },
+  regraXp(id) { return request(`/coordenacao/regras-xp/${encodeURIComponent(id)}`); },
+  criarRegraXp(body) { return request('/coordenacao/regras-xp', { method: 'POST', body }); },
+  editarRegraXp(id, body) {
+    return request(`/coordenacao/regras-xp/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+  },
+  definirStatusRegraXp(id, ativo) {
+    return request(`/coordenacao/regras-xp/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { ativo } });
+  },
   feed(email, programa) { return request(`/publicacoes${programa ? `?programa=${encodeURIComponent(programa)}` : ''}`, { aluno: email }); },
   feedCiclos() { return request('/publicacoes/ciclos'); },
   permissoesFeed(email) { return request('/publicacoes/permissoes', { aluno: email }); },
@@ -421,37 +439,37 @@ export const api = {
 
   /* ===== PucStops (coordenação; não dependem de programa/ciclo) ===== */
   /** Todos os PucStops, ativos e inativos, ordenados por nome. */
-  pucstops() {
-    return requestMapa('/coordenacao/pucstops');
+  pucstops(aluno) {
+    return requestMapa('/coordenacao/pucstops', { aluno });
   },
   /** Economia dos totens: ativos, XP potencial e teto por aluno e semestre. */
-  orcamentoPucStops() {
-    return requestMapa('/coordenacao/pucstops/orcamento');
+  orcamentoPucStops(aluno) {
+    return requestMapa('/coordenacao/pucstops/orcamento', { aluno });
   },
   /** Progresso do aluno logado: nível, XP acumulado, moedas e tetos (BL-50). */
   progressoAluno() {
     return request('/me/xp', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
   },
   /** Área do campus onde o servidor aceita PucStops (limite, bbox e centro). */
-  campusPucStops() {
-    return requestMapa('/coordenacao/pucstops/campus');
+  campusPucStops(aluno) {
+    return requestMapa('/coordenacao/pucstops/campus', { aluno });
   },
-  pucstop(id) {
-    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}`);
+  pucstop(id, aluno) {
+    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}`, { aluno });
   },
-  criarPucStop(dados) {
-    return requestMapa('/coordenacao/pucstops', { method: 'POST', body: dados });
+  criarPucStop(dados, aluno) {
+    return requestMapa('/coordenacao/pucstops', { method: 'POST', body: dados, aluno });
   },
   /** Envie só os campos alterados; latitude e longitude vão sempre juntas. */
-  atualizarPucStop(id, dados) {
-    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  atualizarPucStop(id, dados, aluno) {
+    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados, aluno });
   },
   /** "Excluir" = desativação lógica: some do mapa dos alunos, histórico preservado. */
-  desativarPucStop(id) {
-    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  desativarPucStop(id, aluno) {
+    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/desativar`, { method: 'POST', aluno });
   },
-  ativarPucStop(id) {
-    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  ativarPucStop(id, aluno) {
+    return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/ativar`, { method: 'POST', aluno });
   },
 
   missoesCoordenacao(status) {
@@ -578,20 +596,20 @@ export const api = {
   rotaMapa(dados) {
     return requestMapa('/mapa/rotas', { method: 'POST', body: dados, anonimo: true });
   },
-  atualizarInformacoesLocal(id, descricao) {
-    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}`, { method: 'PATCH', body: { descricao } });
+  atualizarInformacoesLocal(id, descricao, aluno) {
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}`, { method: 'PATCH', body: { descricao }, aluno });
   },
-  adicionarImagensLocal(id, arquivos) {
+  adicionarImagensLocal(id, arquivos, aluno) {
     const body = new FormData();
     arquivos.forEach((arquivo) => body.append('arquivos', arquivo));
-    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens`, { method: 'POST', body });
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens`, { method: 'POST', body, aluno });
   },
-  substituirImagemLocal(id, imagemId, arquivo) {
+  substituirImagemLocal(id, imagemId, arquivo, aluno) {
     const body = new FormData(); body.append('arquivo', arquivo);
-    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens/${encodeURIComponent(imagemId)}`, { method: 'PATCH', body });
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens/${encodeURIComponent(imagemId)}`, { method: 'PATCH', body, aluno });
   },
-  removerImagemLocal(id, imagemId) {
-    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens/${encodeURIComponent(imagemId)}`, { method: 'DELETE' });
+  removerImagemLocal(id, imagemId, aluno) {
+    return requestMapa(`/coordenacao/mapa/predios/${encodeURIComponent(id)}/imagens/${encodeURIComponent(imagemId)}`, { method: 'DELETE', aluno });
   },
   /** Áreas da versão ativa do mapa, com a geometria (público). */
   areas() {

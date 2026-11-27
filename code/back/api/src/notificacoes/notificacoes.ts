@@ -8,6 +8,9 @@ export const TIPOS_NOTIFICACAO = [
   'CANDIDATURA_APROVADA',
   'CANDIDATURA_NAO_APROVADA',
   'VINCULO_CONFIRMADO',
+  'CONVITE_ENCONTRO',
+  'ENCONTRO_ALTERADO',
+  'ENCONTRO_CANCELADO',
 ] as const;
 export type TipoNotificacao = (typeof TIPOS_NOTIFICACAO)[number];
 
@@ -171,5 +174,61 @@ export function notificacaoVinculo(
     mensagem,
     link: linkDoCiclo('/dupla', programa),
     chave: `${prefixoVinculo(programa)}${parceiroId}`,
+  };
+}
+
+function quandoDoEncontro(inicio: Date): string {
+  const partes = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(inicio);
+  const parte = (tipo: string) =>
+    partes.find((p) => p.type === tipo)?.value ?? '';
+  return `${parte('day')}/${parte('month')} às ${parte('hour')}:${parte('minute')}`;
+}
+
+export interface EncontroParaAviso {
+  id: string;
+  inicio: Date;
+  local: string;
+}
+
+export function notificacaoConviteEncontro(
+  encontro: EncontroParaAviso,
+): NovaNotificacao {
+  return {
+    tipo: 'CONVITE_ENCONTRO',
+    titulo: 'Convite para um encontro',
+    mensagem: `Seu padrinho marcou um encontro em ${encontro.local}, ${quandoDoEncontro(encontro.inicio)}. Responda se você vai.`,
+    link: `/encontros/${encontro.id}`,
+    chave: `encontro-convite:${encontro.id}`,
+  };
+}
+
+export function notificacaoEncontroAlterado(
+  encontro: EncontroParaAviso,
+  alteradoEm: string,
+): NovaNotificacao {
+  return {
+    tipo: 'ENCONTRO_ALTERADO',
+    titulo: 'Encontro remarcado',
+    mensagem: `O encontro passou para ${encontro.local}, ${quandoDoEncontro(encontro.inicio)}. Confirme de novo se você vai.`,
+    link: `/encontros/${encontro.id}`,
+    chave: `encontro-alterado:${encontro.id}:${alteradoEm}`,
+  };
+}
+
+export function notificacaoEncontroCancelado(
+  encontro: EncontroParaAviso,
+): NovaNotificacao {
+  return {
+    tipo: 'ENCONTRO_CANCELADO',
+    titulo: 'Encontro cancelado',
+    mensagem: `O encontro de ${quandoDoEncontro(encontro.inicio)} em ${encontro.local} foi cancelado.`,
+    link: `/encontros/${encontro.id}`,
+    chave: `encontro-cancelado:${encontro.id}`,
   };
 }

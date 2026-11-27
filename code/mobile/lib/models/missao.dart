@@ -44,6 +44,7 @@ enum RequisitoMissao {
   feedComentarios,
   feedCurtidas,
   chatMensagens,
+  encontro,
   codigo,
   desconhecido;
 
@@ -54,6 +55,7 @@ enum RequisitoMissao {
     'FEED_COMENTARIOS' => feedComentarios,
     'FEED_CURTIDAS' => feedCurtidas,
     'CHAT_MENSAGENS' => chatMensagens,
+    'ENCONTRO' => encontro,
     'CODIGO' => codigo,
     _ => desconhecido,
   };

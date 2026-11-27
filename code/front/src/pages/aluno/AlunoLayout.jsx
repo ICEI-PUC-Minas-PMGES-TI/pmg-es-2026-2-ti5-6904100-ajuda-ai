@@ -51,6 +51,7 @@ export default function AlunoLayout() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
   const [menuAberto, setMenuAberto] = useState(false);
+  const [mapaDelegado, setMapaDelegado] = useState(false);
   const consultaAtual = useRef(0);
   const email = sessao?.email || '';
   const recarregar = useCallback(async () => {
@@ -74,6 +75,15 @@ export default function AlunoLayout() {
     } finally {if (consulta === consultaAtual.current) setCarregando(false);}
   }, [email, codigo]);
   useEffect(() => { aplicarAparencia(); recarregar(); return () => {consultaAtual.current++;}; }, [recarregar, location.pathname]);
+  useEffect(() => {
+    if (!email) return undefined;
+    let ativo = true;
+    api.minhasDelegacoes(email).then(
+      (delegacoes) => { if (ativo) setMapaDelegado(delegacoes.includes('mapa')); },
+      () => { if (ativo) setMapaDelegado(false); },
+    );
+    return () => { ativo = false; };
+  }, [email, location.pathname]);
   useEffect(() => {setMenuAberto(false);}, [location.pathname]);
   const resolucao = resolverAluno(perfil, situacao, programas.find(p => p.codigo === codigo));
   if (!sessao) return <Navigate to="/login" replace />;
@@ -84,13 +94,14 @@ export default function AlunoLayout() {
     ...(resolucao.participante ? [{to: '/aluno/feed', label: 'Feed', icon: 'megaphone'}] : []),
     {to: '/aluno/perfil', label: 'Meu perfil', icon: 'home'},
     {to: '/aluno/mapa', label: 'Mapa do campus', icon: 'map'},
+    ...(mapaDelegado ? [{to: '/aluno/pucstops', label: 'Gerenciar totens', icon: 'pin'}] : []),
     ...(resolucao.candidatura ? [{to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard'}] : []),
     ...(resolucao.ativo ? [{to: '/aluno/padrinho', label: papel === 'padrinho' ? 'Meus apadrinhados' : 'Meu padrinho', icon: 'users'}] : []),
     {to: '/aluno/chat', label: 'Conversas', icon: 'chat'},
     {to: '/aluno/historico', label: 'Histórico', icon: 'history'},
     {to: '/aluno/configuracoes', label: 'Configurações', icon: 'settings'},
   ];
-  const contexto = {email, sessao, perfil, situacao, carregando, erro, recarregar, papel, resolucao, programa: codigo,
+  const contexto = {email, mapaDelegado, sessao, perfil, situacao, carregando, erro, recarregar, papel, resolucao, programa: codigo,
     atualizarSessao: parcial => setSessao(atual => ({...atual, ...parcial}))};
   function trocarCiclo(novo) {
     if (novo === codigo) return;

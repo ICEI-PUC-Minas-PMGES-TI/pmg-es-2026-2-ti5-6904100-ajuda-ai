@@ -26,12 +26,14 @@ import MatchingPage from './pages/coordenacao/MatchingPage';
 import MatchingManualPage from './pages/coordenacao/MatchingManualPage';
 import MissoesPage from './pages/coordenacao/MissoesPage';
 import ProgramasPage from './pages/coordenacao/ProgramasPage';
-import PucStopsPage from './pages/coordenacao/PucStopsPage';
+import PucStopsPage, { PucStopsDelegadoPage } from './pages/coordenacao/PucStopsPage';
 import RecompensasPage from './pages/coordenacao/RecompensasPage';
 import ResgatesPage from './pages/coordenacao/ResgatesPage';
 import XpPage from './pages/coordenacao/XpPage';
 import RestaurantesPage from './pages/coordenacao/RestaurantesPage';
 import UsuariosPage from './pages/coordenacao/UsuariosPage';
+import AlunosPage from './pages/coordenacao/AlunosPage';
+import RegrasXpPage from './pages/coordenacao/RegrasXpPage';
 import CampusMapPage from './pages/CampusMapPage';
 
 export default function App() {
@@ -55,6 +57,7 @@ export default function App() {
               <Route path="historico" element={<HistoricoPage />} />
               <Route path="configuracoes" element={<ConfiguracoesAlunoPage />} />
               <Route path="mapa" element={<CampusMapPage />} />
+              <Route path="pucstops" element={<PucStopsDelegadoPage />} />
             </Route>
             <Route path="/coordenacao" element={<CoordLayout />}>
               <Route index element={<DashboardPage />} />
@@ -63,6 +66,8 @@ export default function App() {
               <Route path="candidaturas" element={<CandidaturasPage />} />
               <Route path="matching" element={<MatchingPage />} />
               <Route path="usuarios" element={<UsuariosPage />} />
+              <Route path="alunos" element={<AlunosPage />} />
+              <Route path="regras-xp" element={<RegrasXpPage />} />
               <Route path="programas" element={<ProgramasPage />} />
               <Route path="matching" element={<MatchingPage />} />
               <Route path="matching/manual" element={<MatchingManualPage />} />

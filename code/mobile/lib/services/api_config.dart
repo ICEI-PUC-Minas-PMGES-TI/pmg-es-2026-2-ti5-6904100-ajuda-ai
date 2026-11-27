@@ -79,10 +79,11 @@ bool responseOk(int status) => status >= 200 && status < 300;
 
 /// Erro devolvido pela API (resposta HTTP fora de 2xx).
 class ApiException implements Exception {
-  const ApiException(this.mensagem, {this.statusCode});
+  const ApiException(this.mensagem, {this.statusCode, this.motivo});
 
   final String mensagem;
   final int? statusCode;
+  final String? motivo;
 
   @override
   String toString() => mensagem;
@@ -133,9 +134,19 @@ Future<http.Response> executarRequisicao(
     throw ApiIndisponivelException(e);
   }
   if (!responseOk(resposta.statusCode)) {
+    String? motivo;
+    try {
+      final corpo = jsonDecode(resposta.body);
+      if (corpo is Map && corpo['motivo'] is String) {
+        motivo = corpo['motivo'] as String;
+      }
+    } on FormatException {
+      motivo = null;
+    }
     throw ApiException(
       mensagemErroApi(resposta, erroPadrao),
       statusCode: resposta.statusCode,
+      motivo: motivo,
     );
   }
   return resposta;

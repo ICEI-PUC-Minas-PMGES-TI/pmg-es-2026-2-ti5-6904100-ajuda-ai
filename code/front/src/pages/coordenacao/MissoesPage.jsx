@@ -17,6 +17,7 @@ export const REQUISITOS = {
   FEED_CURTIDAS: { rotulo: 'Curtir posts de colegas', curto: 'Curtidas', contado: true, dica: 'Uma curtida por post; curtir o próprio post não conta. Na semanal, só contam posts publicados na semana.' },
   FEED_PUBLICACOES: { rotulo: 'Publicar no feed', curto: 'Publicações', contado: true, dica: 'Publicação com pelo menos 10 caracteres ou com foto. Só padrinhos com dupla publicam: os demais nem veem esta missão.' },
   CHAT_MENSAGENS: { rotulo: 'Mensagens no chat da dupla', curto: 'Chat', contado: true, dica: 'Só quem já tem dupla vê esta missão. Mensagem com menos de 10 caracteres não conta.' },
+  ENCONTRO: { rotulo: 'Participar de encontros confirmados', curto: 'Encontros', contado: true, dica: 'Conta encontros realizados em que o aluno confirmou presença.' },
   CODIGO: { rotulo: 'Código da atividade presencial', curto: 'Código', dica: 'Mostre o código na atividade (telão, monitor, estande) e libere por alguns minutos no menu da missão (Liberar código): fora desse tempo ele não vale, então repassar depois não adianta. 5 erros por hora bloqueiam o aluno. Na semanal, troque o código toda semana: o mesmo código não vale duas vezes para o mesmo aluno.' },
 };
 

@@ -18,9 +18,11 @@ import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { DataSource } from 'typeorm';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
-import { Roles } from '../auth/roles.decorator.js';
-import { RolesGuard } from '../auth/roles.guard.js';
 import { CARDAPIO_TAMANHO_MAX } from '../campus/campus.js';
+import {
+  DelegacaoGuard,
+  PermiteDelegacao,
+} from '../coordenacao/delegacoes/delegacao.guard.js';
 import { usuarioDoTokenOuNulo } from '../gamificacao/gamificacao.js';
 import { BuscaMapaQuery } from './dto/mapa.dto.js';
 import {
@@ -77,10 +79,13 @@ export class MapaController {
   }
 }
 
-/** Edição editorial de locais; toda mutação exige coordenador. */
+/**
+ * Edição editorial de locais: coordenação, ou quem recebeu a delegação de
+ * `mapa` (F03).
+ */
 @Controller('coordenacao/mapa/predios')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('coordenador')
+@UseGuards(JwtAuthGuard, DelegacaoGuard)
+@PermiteDelegacao('mapa')
 export class MapaLocaisAdminController {
   constructor(
     private readonly conteudo: LocalConteudoService,

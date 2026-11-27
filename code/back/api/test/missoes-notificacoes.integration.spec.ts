@@ -61,6 +61,7 @@ import {
   TENTATIVAS_CODIGO_POR_HORA,
 } from '../src/gamificacao/missoes/missoes.js';
 import { MissoesService } from '../src/gamificacao/missoes/missoes.service.js';
+import { RegrasXpService } from '../src/gamificacao/regras-xp/regras-xp.service.js';
 import { PucStopsAdminService } from '../src/gamificacao/pucstops/pucstops-admin.service.js';
 import {
   MinhasColetasController,
@@ -636,6 +637,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       ],
       providers: [
         MissoesService,
+        RegrasXpService,
         MissoesAdminService,
         NotificacoesService,
         ParticipacoesService,
@@ -1092,7 +1094,10 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         ),
       ).toBe(0);
 
-      await criarMissao({ ...base, fim: new Date(inicio - 29 * MIN).toISOString() });
+      await criarMissao({
+        ...base,
+        fim: new Date(inicio - 29 * MIN).toISOString(),
+      });
       await criarMissao({ ...base, inicio: new Date(fim - MIN).toISOString() });
 
       const rascunho = await criarMissao({ ...base, ativar: false });
@@ -1114,7 +1119,10 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         .get(`/coordenacao/missoes/${rascunho.id}`)
         .set('Authorization', coord())
         .expect(200);
-      expect(depois.body).toMatchObject({ estado: 'rascunho', publicadaEm: null });
+      expect(depois.body).toMatchObject({
+        estado: 'rascunho',
+        publicadaEm: null,
+      });
     });
 
     it('evento remarcado para depois do prazo ou desativado: some para quem não fez e não avisa; quem fez continua vendo', async () => {
@@ -1138,7 +1146,9 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         alvoId: roda.id,
         fim: new Date(agora + 3 * HORA).toISOString(),
       });
-      await concluir(fez, m.id, { ...noPredio('P34'), accuracy: 10 }).expect(201);
+      await concluir(fez, m.id, { ...noPredio('P34'), accuracy: 10 }).expect(
+        201,
+      );
       expect(await itemDe(naoFez, m.id)).toBeDefined();
 
       await eventos.atualizar(roda.id, {
@@ -1850,7 +1860,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
   describe('PUCSTOPS: só conta coleta real do semestre', () => {
     it('coleta feita antes da missão existir conta: o totem só se coleta uma vez', async () => {
       const a = await novoAluno();
-      await coletar(a, totens.CANTINA).expect(201);
+      const coleta = await coletar(a, totens.CANTINA).expect(201);
       const m = await criarMissao({
         titulo: 'Colete o PucStop da Cantina',
         tipo: 'UNICA',
@@ -1859,7 +1869,50 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         alvoId: totens.CANTINA.id,
       });
       expect((await itemDe(a, m.id))!.progresso).toEqual({ atual: 1, meta: 1 });
-      await concluir(a, m.id).expect(201);
+      const primeira = await concluir(a, m.id).expect(201);
+      expect(primeira.body.xp).toBe(Math.max(0, 15 - coleta.body.xpGanho));
+
+      const outra = await criarMissao({
+        titulo: 'Revise o caminho para a Cantina',
+        tipo: 'UNICA',
+        xp: 20,
+        requisito: 'PUCSTOPS',
+        alvoId: totens.CANTINA.id,
+      });
+      const segunda = await concluir(a, outra.id).expect(201);
+      expect(coleta.body.xpGanho + primeira.body.xp + segunda.body.xp).toBe(
+        Math.max(20, coleta.body.xpGanho),
+      );
+    });
+
+    it('soma XP da visita e da missão quando a regra permite a combinação', async () => {
+      const regras = new RegrasXpService(ds);
+      const regra = await regras.criar(
+        {
+          acao: 'VISITA_PUCSTOP',
+          valorXp: 10,
+          elegibilidade: 'todos',
+          combinavelCom: ['MISSAO_PUCSTOPS'],
+        },
+        'coordenacao@pucminas.br',
+      );
+      await regras.definirAtivo(regra.id, true);
+      try {
+        const a = await novoAluno();
+        const coleta = await coletar(a, totens.CANTINA).expect(201);
+        expect(coleta.body.xpGanho).toBeGreaterThan(0);
+        const m = await criarMissao({
+          titulo: 'Visite a Cantina com XP cumulativo',
+          tipo: 'UNICA',
+          xp: 15,
+          requisito: 'PUCSTOPS',
+          alvoId: totens.CANTINA.id,
+        });
+        const resultado = await concluir(a, m.id).expect(201);
+        expect(resultado.body.xp).toBe(15);
+      } finally {
+        await regras.definirAtivo(regra.id, false);
+      }
     });
 
     it('missão de PucStop semanal é recusada: os totens acabariam', async () => {
@@ -2293,7 +2346,11 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       });
       const a = await novoAluno();
       await comentar(a, posts[0], 'Primeira semana foi corrida, mas valeu!');
-      await comentar(a, posts[1], 'Valeu pela lista, vou entrar no de Cálculo.');
+      await comentar(
+        a,
+        posts[1],
+        'Valeu pela lista, vou entrar no de Cálculo.',
+      );
       await http()
         .post(`/coordenacao/missoes/${m.id}/ativar`)
         .set('Authorization', coord())
@@ -2303,8 +2360,16 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         meta: 2,
       });
       await concluir(a, m.id).expect(422);
-      await comentar(a, posts[2], 'Eu vou! Alguém quer ir junto depois da aula?');
-      await comentar(a, posts[0], 'Segunda semana já está mais tranquila aqui.');
+      await comentar(
+        a,
+        posts[2],
+        'Eu vou! Alguém quer ir junto depois da aula?',
+      );
+      await comentar(
+        a,
+        posts[0],
+        'Segunda semana já está mais tranquila aqui.',
+      );
       expect((await itemDe(a, m.id))!.pronta).toBe(true);
       await concluir(a, m.id).expect(201);
     });
@@ -2406,7 +2471,11 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         message: 'Comente em mais 1 post de colegas.',
         progresso: { atual: 1, meta: 2 },
       });
-      await comentar(a, posts[1], 'Valeu pela lista, vou entrar no de Cálculo.');
+      await comentar(
+        a,
+        posts[1],
+        'Valeu pela lista, vou entrar no de Cálculo.',
+      );
       await concluir(a, m.id).expect(201);
     });
 
@@ -2796,7 +2865,12 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       expect(
         (await liberar(agendada.id, { minutos: 10 }).expect(422)).body.motivo,
       ).toBe('fora-do-periodo');
-      for (const corpo of [{}, { minutos: 0 }, { minutos: 121 }, { minutos: 1.5 }]) {
+      for (const corpo of [
+        {},
+        { minutos: 0 },
+        { minutos: 121 },
+        { minutos: 1.5 },
+      ]) {
         await liberar(rascunho.id, corpo).expect(400);
       }
       const a = await novoAluno();
@@ -3364,9 +3438,9 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         .post(`/coordenacao/missoes/${m.id}/ativar`)
         .set('Authorization', coord())
         .expect(200);
-      expect(deNovo.body.pontos.map((p: { ativo: boolean }) => p.ativo)).toEqual(
-        [true, true, false],
-      );
+      expect(
+        deNovo.body.pontos.map((p: { ativo: boolean }) => p.ativo),
+      ).toEqual([true, true, false]);
 
       // Sem nenhum ponto ativo, nem a republicação passa.
       await http()
@@ -3390,7 +3464,12 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         posicao: noPredio('P13'),
         id: (
           await pucstopsAdmin.criar(
-            { nome: 'PucStop do Ginásio', ...noPredio('P13'), xp: 10, raioMetros: 30 },
+            {
+              nome: 'PucStop do Ginásio',
+              ...noPredio('P13'),
+              xp: 10,
+              raioMetros: 30,
+            },
             null,
           )
         ).id,
@@ -3420,7 +3499,9 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         ),
       ).toBe(0);
 
-      expect(await itemDe(concluiu, m.id)).toMatchObject({ status: 'concluida' });
+      expect(await itemDe(concluiu, m.id)).toMatchObject({
+        status: 'concluida',
+      });
       await concluir(concluiu, m.id).expect(409);
       expect(await itemDe(coletou, m.id)).toMatchObject({
         progresso: { atual: 1, meta: 1 },
@@ -4121,7 +4202,11 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       await ds.query(
         `INSERT INTO feed.matching_vinculos (programa_id, padrinho_participacao_id, apadrinhado_participacao_id, origem, confirmado_por) ` +
           `VALUES ((SELECT id FROM feed.programas WHERE codigo = $1), $2, $3, 'manual', 'renata.coordenacao@pucminas.br')`,
-        [CICLO, await participacaoDe(padrinho), await participacaoDe(apadrinhado)],
+        [
+          CICLO,
+          await participacaoDe(padrinho),
+          await participacaoDe(apadrinhado),
+        ],
       );
     }
 
@@ -4185,7 +4270,10 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       await sino(novo);
       expect(
         (await avisosDe(novo, 'VINCULO_CONFIRMADO')).map((n) => n.titulo),
-      ).toEqual(['Seu apadrinhamento começou!', 'Você tem um novo apadrinhado!']);
+      ).toEqual([
+        'Seu apadrinhamento começou!',
+        'Você tem um novo apadrinhado!',
+      ]);
 
       // O padrinho antigo ficou sem dupla: nada de aviso novo.
       await sino(d.padrinho);
@@ -4198,10 +4286,16 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         programa: CICLO,
         em: '2026-11-20T15:00:00.000Z',
       });
-      await notificacoesServico.criarParaEmail(a.email.toUpperCase(), reprovada);
+      await notificacoesServico.criarParaEmail(
+        a.email.toUpperCase(),
+        reprovada,
+      );
       await notificacoesServico.criarParaEmail(a.email, reprovada);
       await expect(
-        notificacoesServico.criarParaEmail('sem.conta@sga.pucminas.br', reprovada),
+        notificacoesServico.criarParaEmail(
+          'sem.conta@sga.pucminas.br',
+          reprovada,
+        ),
       ).resolves.toBeUndefined();
       expect(await avisosDe(a, 'CANDIDATURA_NAO_APROVADA')).toEqual([
         {
@@ -4236,17 +4330,26 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     });
 
     async function conferido(): Promise<Aluno> {
-      const aluno = await novoAluno({ papel: 'apadrinhado', status: 'pendente' });
+      const aluno = await novoAluno({
+        papel: 'apadrinhado',
+        status: 'pendente',
+      });
       await ds.query(
         `UPDATE feed.participacoes SET respostas = $3 WHERE usuario_id = $1 AND programa = $2`,
         [
           aluno.email,
           CICLO,
-          JSON.stringify({ nome: aluno.nome, periodo: 1, declaraPrimeiroPeriodo: true }),
+          JSON.stringify({
+            nome: aluno.nome,
+            periodo: 1,
+            declaraPrimeiroPeriodo: true,
+          }),
         ],
       );
       const r = await http()
-        .put(`/coordenacao/candidaturas/${await participacaoDe(aluno)}/verificacao`)
+        .put(
+          `/coordenacao/candidaturas/${await participacaoDe(aluno)}/verificacao`,
+        )
         .set('Authorization', coord())
         .send({
           itens: [
@@ -4263,7 +4366,9 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         .post(caminho)
         .set('Authorization', coord())
         .send(corpo);
-      expect(r.status, `${caminho} ${JSON.stringify(r.body)}`).toBeLessThan(300);
+      expect(r.status, `${caminho} ${JSON.stringify(r.body)}`).toBeLessThan(
+        300,
+      );
     }
 
     async function decisaoEm(a: Aluno): Promise<string> {
@@ -4277,16 +4382,27 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     it('decisão pela tela de Cadastros ou pela rejeição manual avisa como a de Candidaturas, uma vez só', async () => {
       const ciclo = encodeURIComponent(CICLO);
       const aprovadoCadastros = await conferido();
-      await decidir(`/coordenacao/cadastros/${aprovadoCadastros.id}/aprovar?programa=${ciclo}`);
-      const recusadoCadastros = await novoAluno({ papel: 'apadrinhado', status: 'pendente' });
-      await decidir(`/coordenacao/cadastros/${recusadoCadastros.id}/rejeitar?programa=${ciclo}`, {
-        motivo: 'Matrícula não confirmada no sistema da faculdade.',
+      await decidir(
+        `/coordenacao/cadastros/${aprovadoCadastros.id}/aprovar?programa=${ciclo}`,
+      );
+      const recusadoCadastros = await novoAluno({
+        papel: 'apadrinhado',
+        status: 'pendente',
       });
+      await decidir(
+        `/coordenacao/cadastros/${recusadoCadastros.id}/rejeitar?programa=${ciclo}`,
+        {
+          motivo: 'Matrícula não confirmada no sistema da faculdade.',
+        },
+      );
       const aprovadoCandidaturas = await conferido();
       await decidir(
         `/coordenacao/candidaturas/${await participacaoDe(aprovadoCandidaturas)}/aprovar`,
       );
-      const recusadoManual = await novoAluno({ papel: 'apadrinhado', status: 'pendente' });
+      const recusadoManual = await novoAluno({
+        papel: 'apadrinhado',
+        status: 'pendente',
+      });
       await decidir('/participacoes/rejeitar-candidatura', {
         usuarioId: recusadoManual.email,
         programa: CICLO,
@@ -4295,9 +4411,17 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
 
       for (const [aluno, tipo, titulo] of [
         [aprovadoCadastros, 'CANDIDATURA_APROVADA', 'Candidatura aprovada'],
-        [recusadoCadastros, 'CANDIDATURA_NAO_APROVADA', 'Candidatura não aprovada'],
+        [
+          recusadoCadastros,
+          'CANDIDATURA_NAO_APROVADA',
+          'Candidatura não aprovada',
+        ],
         [aprovadoCandidaturas, 'CANDIDATURA_APROVADA', 'Candidatura aprovada'],
-        [recusadoManual, 'CANDIDATURA_NAO_APROVADA', 'Candidatura não aprovada'],
+        [
+          recusadoManual,
+          'CANDIDATURA_NAO_APROVADA',
+          'Candidatura não aprovada',
+        ],
       ] as const) {
         expect(await avisosDe(aluno, tipo), aluno.email).toEqual([
           {

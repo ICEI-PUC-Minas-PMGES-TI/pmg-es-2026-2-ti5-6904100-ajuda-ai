@@ -13,8 +13,10 @@ import {
 import { DataSource } from 'typeorm';
 import type { AuthenticatedRequest } from '../../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
-import { Roles } from '../../auth/roles.decorator.js';
-import { RolesGuard } from '../../auth/roles.guard.js';
+import {
+  DelegacaoGuard,
+  PermiteDelegacao,
+} from '../../coordenacao/delegacoes/delegacao.guard.js';
 import { usuarioDoTokenOuNulo } from '../gamificacao.js';
 import { AtualizarPucStopDto, CriarPucStopDto } from './pucstops-admin.dto.js';
 import { PucStopsAdminService } from './pucstops-admin.service.js';
@@ -22,13 +24,14 @@ import { PucStopsAdminService } from './pucstops-admin.service.js';
 const UUID = new ParseUUIDPipe({ version: '4' });
 
 /**
- * Administração dos PucStops pela coordenação (mesmos guards de
- * `/coordenacao`). Nada de DELETE: "excluir" é `POST :id/desativar`, que
- * preserva coletas e ledger. A leitura pública continua em `/mapa/pucstops`.
+ * Administração dos PucStops pela coordenação, ou por quem recebeu a
+ * delegação de `mapa` (F03). Nada de DELETE: "excluir" é
+ * `POST :id/desativar`, que preserva coletas e ledger. A leitura pública
+ * continua em `/mapa/pucstops`.
  */
 @Controller('coordenacao/pucstops')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('coordenador')
+@UseGuards(JwtAuthGuard, DelegacaoGuard)
+@PermiteDelegacao('mapa')
 export class PucStopsAdminController {
   constructor(
     private readonly pucstops: PucStopsAdminService,

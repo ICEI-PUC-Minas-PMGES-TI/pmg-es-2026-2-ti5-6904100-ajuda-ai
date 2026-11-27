@@ -6,6 +6,7 @@ import '../services/lojinha_api.dart';
 import '../services/notificacoes_api.dart';
 import '../sessao_usuario.dart';
 import '../status_participacao.dart';
+import '../tela_encontro_detalhe.dart';
 import '../tela_padrinho_definido.dart';
 import '../tela_resgates.dart';
 import '../tela_status_candidatura.dart';
@@ -29,6 +30,13 @@ const avisosOffline = [
 
 String? caminhoDaNotificacao(String? link) =>
     link == null ? null : Uri.tryParse(link)?.path;
+
+String? encontroDaNotificacao(String? link) {
+  final caminho = caminhoDaNotificacao(link);
+  return caminho == null
+      ? null
+      : RegExp(r'^/encontros/([0-9a-f-]{36})$').firstMatch(caminho)?.group(1);
+}
 
 String? cicloDaNotificacao(String? link) =>
     link == null ? null : Uri.tryParse(link)?.queryParameters['ciclo'];
@@ -140,6 +148,18 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
     final pai = widget.contextoPai;
     final sessao = SessaoUsuario.atual;
     final caminho = caminhoDaNotificacao(notificacao.link);
+    final encontroId = encontroDaNotificacao(notificacao.link);
+    if (encontroId != null) {
+      Navigator.of(context).pop();
+      if (pai.mounted) {
+        Navigator.of(pai).push(
+          MaterialPageRoute<void>(
+            builder: (_) => TelaEncontroDetalhe(id: encontroId),
+          ),
+        );
+      }
+      return;
+    }
     final ciclo = cicloDaNotificacao(notificacao.link);
     if (ciclo != null &&
         ciclo != sessao.programaAtual &&
@@ -454,6 +474,11 @@ class _ItemNotificacao extends StatelessWidget {
         Icons.handshake_outlined,
         AppAccents.tileVerde,
         AppAccents.iconeVerde,
+      ),
+      'CONVITE_ENCONTRO' || 'ENCONTRO_ALTERADO' || 'ENCONTRO_CANCELADO' => (
+        Icons.event_outlined,
+        AppAccents.tileAzul,
+        AppAccents.iconeAzul,
       ),
       _ => (
         Icons.notifications_none_rounded,

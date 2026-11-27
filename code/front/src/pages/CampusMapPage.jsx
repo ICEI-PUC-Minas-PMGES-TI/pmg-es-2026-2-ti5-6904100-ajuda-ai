@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import Icon from '../components/Icon';
@@ -39,7 +40,7 @@ export function VisualizadorImagem({ imagem, onFechar }) {
   </div>;
 }
 
-export function EditorLocal({ local, onFechar, onSalvo }) {
+export function EditorLocal({ aluno, local, onFechar, onSalvo }) {
   const [descricao, setDescricao] = useState(local.descricao || '');
   const [imagensAtuais, setImagensAtuais] = useState(local.imagens || []);
   const [novas, setNovas] = useState([]);
@@ -71,24 +72,24 @@ export function EditorLocal({ local, onFechar, onSalvo }) {
       // Libera vagas primeiro. Cada operação concluída sai da fila para que uma
       // nova tentativa após falha não repita upload, substituição ou remoção.
       for (const id of [...removidas]) {
-        const salvo = await api.removerImagemLocal(local.id, id);
+        const salvo = await api.removerImagemLocal(local.id, id, aluno);
         setImagensAtuais(salvo.imagens || []);
         setRemovidas(atual => { const proximo = new Set(atual); proximo.delete(id); return proximo; });
         setProgresso(++feitas / total);
       }
       for (const [id, arquivo] of Object.entries(substituicoes)) {
-        const salvo = await api.substituirImagemLocal(local.id, id, arquivo);
+        const salvo = await api.substituirImagemLocal(local.id, id, arquivo, aluno);
         setImagensAtuais(salvo.imagens || []);
         setSubstituicoes(atual => { const proximo = { ...atual }; delete proximo[id]; return proximo; });
         setProgresso(++feitas / total);
       }
       if (novas.length) {
-        const salvo = await api.adicionarImagensLocal(local.id, novas);
+        const salvo = await api.adicionarImagensLocal(local.id, novas, aluno);
         setImagensAtuais(salvo.imagens || []);
         setNovas([]);
         setProgresso(++feitas / total);
       }
-      const salvo = await api.atualizarInformacoesLocal(local.id, descricao); setProgresso(1); onSalvo(salvo);
+      const salvo = await api.atualizarInformacoesLocal(local.id, descricao, aluno); setProgresso(1); onSalvo(salvo);
     } catch (e2) { setErro(e2.message || 'Não foi possível salvar.'); setSalvando(false); }
   }
   return <Modal titulo="Editar informações" descricao={local.nome || local.codigo} onFechar={() => !salvando && onFechar()} tamanho="lg">
@@ -112,7 +113,9 @@ export function EditorLocal({ local, onFechar, onSalvo }) {
 
 export default function CampusMapPage({ coordenador = false }) {
   const { ehCoordenador } = useAuth();
-  const podeEditar = coordenador && ehCoordenador;
+  const contexto = useOutletContext();
+  const aluno = coordenador ? undefined : contexto?.email;
+  const podeEditar = coordenador ? ehCoordenador : contexto?.mapaDelegado === true;
   const container = useRef(null); const mapRef = useRef(null);
   const [predios, setPredios] = useState([]); const [local, setLocal] = useState(null);
   const [carregando, setCarregando] = useState(false); const [erro, setErro] = useState('');
@@ -171,6 +174,6 @@ export default function CampusMapPage({ coordenador = false }) {
       </>}</aside>}
     </div>
     {imagem && <VisualizadorImagem imagem={imagem} onFechar={() => setImagem(null)} />}
-    {editando && <EditorLocal local={local} onFechar={() => setEditando(false)} onSalvo={salvo => { setLocal(atual => ({ ...atual, ...salvo })); setEditando(false); }} />}
+    {editando && <EditorLocal aluno={aluno} local={local} onFechar={() => setEditando(false)} onSalvo={salvo => { setLocal(atual => ({ ...atual, ...salvo })); setEditando(false); }} />}
   </section>;
 }

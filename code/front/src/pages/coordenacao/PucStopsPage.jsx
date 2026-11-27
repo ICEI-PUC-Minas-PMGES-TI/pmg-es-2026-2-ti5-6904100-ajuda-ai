@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { api } from '../../api/client';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
@@ -237,7 +238,7 @@ export function SeletorPosicaoPucStop({ campus, erroCampus, inicial, raioMetros,
 }
 
 /** Formulário de criação/edição; o mapa 3D abre separado, em tela cheia. */
-export function FormularioPucStop({ original, campus, erroCampus, outros, orcamento = null, onCancelar, onSalvo }) {
+export function FormularioPucStop({ aluno, original, campus, erroCampus, outros, orcamento = null, onCancelar, onSalvo }) {
   const criando = !original;
   const [form, setForm] = useState(() => formDoPucStop(original));
   const [salvando, setSalvando] = useState(false);
@@ -265,8 +266,8 @@ export function FormularioPucStop({ original, campus, erroCampus, outros, orcame
     setErro('');
     try {
       const salvo = criando
-        ? await api.criarPucStop(corpoCriacao(form))
-        : await api.atualizarPucStop(original.id, alterados);
+        ? await api.criarPucStop(corpoCriacao(form), aluno)
+        : await api.atualizarPucStop(original.id, alterados, aluno);
       onSalvo(salvo, criando);
     } catch (error) {
       const mensagem = error.message || 'Não foi possível salvar o PucStop.';
@@ -414,7 +415,13 @@ export function ImpactoOrcamento({ orcamento, original, novoXp }) {
   );
 }
 
-export default function PucStopsPage() {
+export function PucStopsDelegadoPage() {
+  const { email, mapaDelegado } = useOutletContext();
+  if (!mapaDelegado) return <p role="status">Gerenciar totens requer a delegação de mapa.</p>;
+  return <PucStopsPage aluno={email} />;
+}
+
+export default function PucStopsPage({ aluno }) {
   const mostrarToast = useToast();
   const [pucstops, setPucstops] = useState(null);
   const [erro, setErro] = useState('');
@@ -432,11 +439,11 @@ export default function PucStopsPage() {
   // Orçamento é informativo: sem ele a página segue funcionando.
   const carregarOrcamento = useCallback(async () => {
     try {
-      setOrcamento(await api.orcamentoPucStops());
+      setOrcamento(await api.orcamentoPucStops(aluno));
     } catch {
       setOrcamento(null);
     }
-  }, []);
+  }, [aluno]);
   useEffect(() => {
     carregarOrcamento();
   }, [carregarOrcamento, pucstops]);
@@ -444,22 +451,22 @@ export default function PucStopsPage() {
   const carregar = useCallback(async () => {
     setErro('');
     try {
-      setPucstops(await api.pucstops());
+      setPucstops(await api.pucstops(aluno));
     } catch (error) {
       setErro(error.message || 'Não foi possível carregar os PucStops.');
     }
-  }, []);
+  }, [aluno]);
 
   const carregarCampus = useCallback(async () => {
     setErroCampus('');
     try {
-      setCampus(await api.campusPucStops());
+      setCampus(await api.campusPucStops(aluno));
     } catch (error) {
       setErroCampus(error.status === 503
         ? 'o mapa do campus ainda não tem uma versão ativa.'
         : error.message || 'não foi possível carregar a área do campus.');
     }
-  }, []);
+  }, [aluno]);
 
   useEffect(() => {
     carregar();
@@ -485,7 +492,7 @@ export default function PucStopsPage() {
     setOcupadoId(excluindo.id);
     setErroExclusao('');
     try {
-      const atualizado = await api.desativarPucStop(excluindo.id);
+      const atualizado = await api.desativarPucStop(excluindo.id, aluno);
       substituir(atualizado);
       setExcluindo(null);
       mostrarToast(`PucStop "${atualizado.nome}" desativado. O histórico de coletas foi preservado.`, 'sucesso');
@@ -503,7 +510,7 @@ export default function PucStopsPage() {
     setOcupadoId(pucstop.id);
     setErroAcao('');
     try {
-      const atualizado = await api.ativarPucStop(pucstop.id);
+      const atualizado = await api.ativarPucStop(pucstop.id, aluno);
       substituir(atualizado);
       mostrarToast(`PucStop "${atualizado.nome}" reativado.`, 'sucesso');
     } catch (error) {
@@ -562,6 +569,7 @@ export default function PucStopsPage() {
 
       {editando && (
         <FormularioPucStop
+          aluno={aluno}
           original={editando === 'novo' ? null : editando}
           campus={campus}
           erroCampus={erroCampus}

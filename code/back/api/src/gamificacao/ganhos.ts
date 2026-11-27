@@ -9,7 +9,7 @@ import {
 const g = `"${SCHEMA_GAMIFICACAO}"`;
 
 /** Origem de um ganho de atividade (decide qual teto se aplica). */
-export type FonteGanho = 'TOTEM' | 'MISSAO';
+export type FonteGanho = 'TOTEM' | 'MISSAO' | 'ENCONTRO';
 
 /** XP de atividades: totens e missões (ajustes e resgates ficam de fora). */
 const TIPOS_ATIVIDADE = `('PUCSTOP_CLAIM', 'MISSAO')`;

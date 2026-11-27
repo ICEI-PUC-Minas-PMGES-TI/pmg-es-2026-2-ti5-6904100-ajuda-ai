@@ -2082,6 +2082,8 @@ String comoConcluirMissao(Missao m) {
       'Faça ${_vezes(meta, 'publicação', 'publicações')} no feed (pelo menos 10 caracteres ou uma foto).',
     RequisitoMissao.chatMensagens =>
       'Envie ${_vezes(meta, 'mensagem', 'mensagens')} para sua dupla no chat (pelo menos 10 caracteres).',
+    RequisitoMissao.encontro =>
+      'Confirme presença em ${_vezes(meta, 'encontro realizado', 'encontros realizados')}.',
     RequisitoMissao.codigo =>
       'Digite o código mostrado na atividade pela coordenação.',
     RequisitoMissao.desconhecido =>
