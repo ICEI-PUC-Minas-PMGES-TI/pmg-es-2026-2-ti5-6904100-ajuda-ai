@@ -214,7 +214,9 @@ export interface ConquistasAlunoDto {
   /** Publicadas, do público do aluno, ainda não obtidas neste contexto. */
   disponiveis: ConquistaDisponivelDto[];
   /**
-   * Desbloqueadas nesta consulta (para o aviso na tela), com o contexto: a
+   * Desbloqueios que o aluno ainda não tinha visto na coleção (o aviso na
+   * tela), venham desta consulta ou de outra rota (feed, missão, totem).
+   * Marcados como vistos ao responder: saem uma vez só. Com o contexto: a
    * mesma conquista obtida em dois semestres aparece duas vezes em
    * `obtidas`, e só a deste desbloqueio é nova.
    */

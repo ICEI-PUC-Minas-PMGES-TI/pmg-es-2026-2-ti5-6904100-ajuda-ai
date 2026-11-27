@@ -47,9 +47,15 @@ export class PermissoesAlunoService {
   /**
    * Calculado a cada chamada (sem cache): uma participação encerrada no meio
    * da sessão corta o acesso na hora, sem esperar o JWT expirar.
+   *
+   * `programa` (padrão: o ciclo atual) resolve as permissões de outro ciclo:
+   * as conquistas do feed usam o ciclo da atividade, não o da conferência.
    */
-  doUsuario(usuario: AccessTokenPayload): Promise<PermissoesAluno> {
-    return this.calcular(usuario);
+  doUsuario(
+    usuario: AccessTokenPayload,
+    programa: string = ParticipacoesService.programaAtual(),
+  ): Promise<PermissoesAluno> {
+    return this.calcular(usuario, programa);
   }
 
   async exigir(
@@ -91,8 +97,8 @@ export class PermissoesAlunoService {
 
   private async calcular(
     usuario: AccessTokenPayload,
+    programa: string,
   ): Promise<PermissoesAluno> {
-    const programa = ParticipacoesService.programaAtual();
     // O papel de coordenador vem da lista de coordenadores no login (não de
     // `tipoParticipacao`), por isso ainda pode vir do token.
     if (usuario.perfil === 'coordenador')

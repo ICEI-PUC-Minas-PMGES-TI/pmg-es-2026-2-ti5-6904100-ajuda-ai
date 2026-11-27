@@ -26,12 +26,12 @@ export function permissoesPeloToken() {
   const ultimoPerfil = new Map<string, string>();
   const servico = new PermissoesAlunoService(participacoes, programas);
   const doUsuario = servico.doUsuario.bind(servico);
-  servico.doUsuario = (usuario: AccessTokenPayload) => {
+  servico.doUsuario = (usuario: AccessTokenPayload, programa?: string) => {
     const email = String(usuario.email ?? '');
     if (usuario.perfil === 'padrinho' || usuario.perfil === 'apadrinhado')
       ultimoPerfil.set(email, usuario.perfil);
     else ultimoPerfil.delete(email);
-    return doUsuario(usuario);
+    return doUsuario(usuario, programa);
   };
   return { provide: PermissoesAlunoService, useValue: servico };
 }

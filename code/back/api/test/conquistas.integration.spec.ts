@@ -29,6 +29,7 @@ import { XpController } from '../src/gamificacao/xp/xp.controller.js';
 import { XpService } from '../src/gamificacao/xp/xp.service.js';
 import { NotificacoesService } from '../src/notificacoes/notificacoes.service.js';
 import { ParticipacoesService } from '../src/participacoes/participacoes.service.js';
+import { PermissoesAlunoService } from '../src/participacoes/permissoes-aluno.service.js';
 import { permissoesPeloToken } from './helpers/permissoes.js';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
@@ -102,7 +103,8 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
   let app: INestApplication;
   let jwt: JwtService;
   let servico: ConquistasService;
-  const ids = { apadrinhado: 0, padrinho: 0, outro: 0, feed: 0, sino: 0, semestres: 0, cascata: 0 };
+  let permissoesAluno: PermissoesAlunoService;
+  const ids = { apadrinhado: 0, padrinho: 0, outro: 0, feed: 0, sino: 0, semestres: 0, cascata: 0, virada: 0, aviso: 0 };
   const http = () => request(app.getHttpServer());
 
   const coord = () =>
@@ -228,6 +230,7 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
     await app.init();
     jwt = modulo.get(JwtService);
     servico = modulo.get(ConquistasService);
+    permissoesAluno = modulo.get(PermissoesAlunoService);
   });
 
   afterAll(async () => {
@@ -570,6 +573,72 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       ).resolves.toEqual([]);
     });
 
+    /** Post de um colega no `ciclo` e um comentário válido de `quem` nele. */
+    async function comentarNoCiclo(quem: keyof typeof ids, ciclo: string) {
+      const [{ id: post }] = (await ds.query(
+        `INSERT INTO feed.publicacoes (autor, iniciais, descricao_autor, categoria, texto, owner_id, programa_codigo) ` +
+          `VALUES ('Padrinho', 'PA', 'Padrinho do programa', 'Geral', 'Encontro no fim do semestre!', 'padrinho@pucminas.edu.br', $1) RETURNING id`,
+        [ciclo],
+      )) as Array<{ id: number }>;
+      await ds.query(
+        `INSERT INTO feed.comentarios (publicacao_id, autor_id, texto) VALUES ($1, $2, 'Estarei lá, obrigado!')`,
+        [post, `${quem}@pucminas.edu.br`],
+      );
+    }
+
+    it('virada do semestre: a elegibilidade é a do ciclo da atividade, não a do semestre novo', async () => {
+      const c = await nova({ criterio: 'FEED_COMENTARIOS', meta: 1, xp: 10 });
+      await comentarNoCiclo('virada', CICLO_ANTERIOR);
+      // Participou do semestre que acabou; no novo, ainda não tem participação.
+      const espiao = vi
+        .spyOn(permissoesAluno, 'doUsuario')
+        .mockImplementation(async (_usuario, programa = CICLO) =>
+          PermissoesAlunoService.derivar(
+            programa,
+            programa === CICLO_ANTERIOR
+              ? ({ papel: 'apadrinhado', status: 'em_andamento', terminoEm: null } as never)
+              : null,
+            programa === CICLO_ANTERIOR ? 'apadrinhado_ativo' : 'nenhuma',
+          ),
+        );
+      try {
+        const novas = await servico.aposAtividadeNoFeed(
+          jwt.verify(token('virada', 'apadrinhado').slice(7)),
+          CICLO_ANTERIOR,
+        );
+        expect(novas).toContainEqual({ id: c.id, contexto: CICLO_ANTERIOR });
+        expect(espiao).toHaveBeenCalledWith(expect.anything(), CICLO_ANTERIOR);
+      } finally {
+        espiao.mockRestore();
+      }
+      expect(await desbloqueios(c.id, ids.virada)).toBe(1);
+      const [{ xp }] = (await ds.query(
+        `SELECT xp_creditado AS xp FROM gamificacao.conquistas_desbloqueios WHERE conquista_id = $1 AND usuario_id = $2`,
+        [c.id, ids.virada],
+      )) as Array<{ xp: number }>;
+      expect(xp).toBe(10);
+    });
+
+    it('desbloqueio pelo feed aparece como nova ao abrir a coleção, uma vez só', async () => {
+      const c = await nova({ criterio: 'FEED_COMENTARIOS', meta: 1 });
+      await comentarNoCiclo('aviso', CICLO);
+      const aluno = token('aviso', 'apadrinhado');
+      // Como o controller do feed faz depois do commit do comentário.
+      expect(
+        await servico.aposAtividadeNoFeed(jwt.verify(aluno.slice(7)), CICLO),
+      ).toContainEqual({ id: c.id, contexto: CICLO });
+      const vista = await colecao(aluno);
+      expect(vista.obtidas.map((o) => o.id)).toContain(c.id);
+      expect(vista.novas).toContainEqual({ id: c.id, contexto: CICLO });
+      // Duas consultas simultâneas depois: nenhuma repete o aviso.
+      const [a, b] = await Promise.all([colecao(aluno), colecao(aluno)]);
+      expect([...a.novas, ...b.novas].filter((n) => n.id === c.id)).toEqual([]);
+      // O banco barra apagar a marca de visto (só de inserção).
+      await expect(
+        ds.query(`DELETE FROM gamificacao.conquistas_desbloqueios_vistos`),
+      ).rejects.toThrow();
+    });
+
     it('se o aviso falha, o desbloqueio e o XP são desfeitos e a próxima consulta refaz tudo', async () => {
       const c = await nova({ meta: 1, xp: 20 });
       await concluirMissoes(ids.sino, 1);
@@ -612,6 +681,12 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       expect(
         await servico.sincronizar(ids.semestres, acessoApadrinhado, CICLO_ANTERIOR),
       ).toContainEqual({ id: c.id, contexto: CICLO_ANTERIOR });
+      // O aluno viu o aviso daquele semestre (e só aquele desbloqueio).
+      expect(
+        (await colecao(token('semestres', 'apadrinhado'))).novas.filter(
+          (n) => n.id === c.id,
+        ),
+      ).toEqual([{ id: c.id, contexto: CICLO_ANTERIOR }]);
       await concluirMissoes(ids.semestres, 1);
       const vista = await colecao(token('semestres', 'apadrinhado'));
       expect(

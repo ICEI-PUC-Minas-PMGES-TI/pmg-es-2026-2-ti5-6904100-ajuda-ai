@@ -84,9 +84,10 @@ export class ConquistasService {
     agora = new Date(),
   ): Promise<ConquistasAlunoDto> {
     const ciclo = ParticipacoesService.programaAtual(agora);
-    const novas = acesso.participante
-      ? await this.sincronizar(usuarioId, acesso, ciclo)
-      : [];
+    if (acesso.participante) await this.sincronizar(usuarioId, acesso, ciclo);
+    // Depois da conferência: entram também os desbloqueios feitos por outras
+    // rotas (feed, missão, totem) que o aluno ainda não viu na coleção.
+    const novas = await this.marcarVistas(usuarioId);
     const [obtidas, disponiveis] = await Promise.all([
       this.obtidas(usuarioId),
       acesso.participante
@@ -94,6 +95,25 @@ export class ConquistasService {
         : Promise.resolve([]),
     ]);
     return { ciclo, obtidas, disponiveis, novas };
+  }
+
+  /**
+   * Desbloqueios que o aluno ainda não viu na coleção, já marcados como
+   * vistos: o aviso "Nova!" aparece uma vez, qualquer que tenha sido a rota
+   * do desbloqueio. O PK de `conquistas_desbloqueios_vistos` garante que duas
+   * consultas simultâneas não anunciem o mesmo desbloqueio.
+   */
+  private async marcarVistas(usuarioId: number): Promise<NovaConquistaDto[]> {
+    const linhas = (await this.dataSource.query(
+      `WITH vistas AS (INSERT INTO ${g}."conquistas_desbloqueios_vistos" ("desbloqueio_id") ` +
+        `SELECT d."id" FROM ${g}."conquistas_desbloqueios" d WHERE d."usuario_id" = $1 ` +
+        `AND NOT EXISTS (SELECT 1 FROM ${g}."conquistas_desbloqueios_vistos" v WHERE v."desbloqueio_id" = d."id") ` +
+        `ON CONFLICT ("desbloqueio_id") DO NOTHING RETURNING "desbloqueio_id") ` +
+        `SELECT d."conquista_id" AS id, d."contexto" FROM vistas JOIN ${g}."conquistas_desbloqueios" d ON d."id" = vistas."desbloqueio_id" ` +
+        `ORDER BY d."criado_em", d."id"`,
+      [usuarioId],
+    )) as NovaConquistaDto[];
+    return linhas.map((l) => ({ id: l.id, contexto: l.contexto }));
   }
 
   /**
@@ -122,8 +142,13 @@ export class ConquistasService {
    * `FEED_*`, que não passam por missão nem totem). Confere no ciclo da
    * atividade, não no da próxima consulta: quem cumpre a meta no fim do
    * semestre e só volta no seguinte não perde a conquista nem o XP do
-   * semestre anterior. Coordenação e quem não é aluno cadastrado: nada a
-   * fazer. Nunca derruba a ação no feed.
+   * semestre anterior. A elegibilidade (participação, papel, publicar) também
+   * é a do ciclo da atividade: logo após a virada, quem não participa do
+   * semestre novo ainda recebe o que alcançou no anterior. Coordenação e
+   * quem não é aluno cadastrado: nada a fazer. Nunca derruba a ação no feed.
+   *
+   * O aviso na tela sai na próxima abertura da coleção (`marcarVistas`); o
+   * do sino já é gravado no desbloqueio.
    */
   async aposAtividadeNoFeed(
     usuario: AccessTokenPayload,
@@ -133,7 +158,8 @@ export class ConquistasService {
       if (!this.permissoes) return [];
       const usuarioId = await usuarioDoTokenOuNulo(this.dataSource, usuario);
       if (usuarioId === null) return [];
-      const p = await this.permissoes.doUsuario(usuario);
+      const cicloDaAtividade = ciclo ?? ParticipacoesService.programaAtual();
+      const p = await this.permissoes.doUsuario(usuario, cicloDaAtividade);
       return await this.sincronizarComSeguranca(
         usuarioId,
         {
@@ -141,7 +167,7 @@ export class ConquistasService {
           papel: p.papel ?? null,
           podePublicar: p.podePublicar === true,
         },
-        ciclo ?? undefined,
+        cicloDaAtividade,
       );
     } catch (erro) {
       this.logger.warn(

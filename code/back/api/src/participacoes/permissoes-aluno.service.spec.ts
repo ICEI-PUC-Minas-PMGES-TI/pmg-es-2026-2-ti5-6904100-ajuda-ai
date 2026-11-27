@@ -1,5 +1,8 @@
 import { ForbiddenException } from '@nestjs/common';
 import type { AccessTokenPayload } from '../auth/authenticated-request.js';
+import type { ParticipacoesService } from './participacoes.service.js';
+import { PermissoesAlunoService } from './permissoes-aluno.service.js';
+import type { ProgramasService } from '../programas/programas.service.js';
 import {
   aluno,
   coordenador,
@@ -155,5 +158,41 @@ describe('PermissoesAlunoService: permissões pela situação no ciclo atual', (
     expect((await permissoes.doUsuario(camila)).podeLerFeed).toBe(true);
     tabelas.ParticipacaoEntity[1].status = 'concluido';
     expect((await permissoes.doUsuario(camila)).podeLerFeed).toBe(false);
+  });
+});
+
+describe('PermissoesAlunoService: permissões de outro ciclo', () => {
+  it('resolve no ciclo pedido (conquistas do feed usam o ciclo da atividade)', async () => {
+    const registroPrincipal = vi.fn(async (_email: string, programa: string) =>
+      programa === '2026/1'
+        ? { papel: 'apadrinhado', status: 'em_andamento', terminoEm: null }
+        : null,
+    );
+    const buscarPorCodigo = vi.fn(async () => ({ etapaAtual: 'andamento' }));
+    const servico = new PermissoesAlunoService(
+      {
+        registroPrincipal,
+        situacaoDoRegistro: async (r: unknown) =>
+          r ? 'apadrinhado_ativo' : 'nenhuma',
+      } as unknown as ParticipacoesService,
+      { buscarPorCodigo } as unknown as ProgramasService,
+    );
+    const u = {
+      sub: '1',
+      email: 'aluna@pucminas.edu.br',
+      perfil: 'nenhuma',
+    } as AccessTokenPayload;
+    expect(await servico.doUsuario(u, '2026/1')).toMatchObject({
+      programa: '2026/1',
+      participante: true,
+      papel: 'apadrinhado',
+      podeColetarTotens: true,
+    });
+    expect(buscarPorCodigo).toHaveBeenCalledWith('2026/1');
+    expect(registroPrincipal).toHaveBeenCalledWith(
+      'aluna@pucminas.edu.br',
+      '2026/1',
+    );
+    expect(await servico.doUsuario(u, '2026/2')).toMatchObject(nada);
   });
 });
