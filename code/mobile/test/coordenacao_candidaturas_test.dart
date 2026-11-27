@@ -248,10 +248,10 @@ void main() {
       {'padrinho'},
     );
     // O padrinho já aprovado não entra na seleção.
-    expect(find.text('Selecionar todas (2)'), findsOneWidget);
+    expect(find.text('Selecionar pendentes (2)'), findsOneWidget);
     expect(find.textContaining('selecionada(s)'), findsNothing);
 
-    await tester.tap(find.text('Selecionar todas (2)'));
+    await tester.tap(find.text('Selecionar pendentes (2)'));
     await tester.pumpAndSettle();
     expect(find.text('2 selecionada(s)'), findsOneWidget);
 
@@ -337,9 +337,9 @@ void main() {
     expect(find.text('Masculino'), findsOneWidget);
     expect(find.text('Cálculo I — declarou que cumpre'), findsOneWidget);
     expect(find.text('AED I — declarou que NÃO cumpre'), findsOneWidget);
-    expect(find.text('Rejeitar candidatura'), findsOneWidget);
-    expect(find.text('Aprovar candidatura'), findsOneWidget);
-    expect(find.text('Solicitar revisão'), findsOneWidget);
+    expect(find.text('Rejeitar'), findsOneWidget);
+    expect(find.text('Aprovar'), findsOneWidget);
+    expect(find.text('Solicitar revisão'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -369,7 +369,8 @@ void main() {
 
     final vinculo = falsa.posts('/coordenacao/vinculos').single;
     expect(jsonDecode(vinculo.body), {'apadrinhadoId': 6, 'padrinhoId': 4});
-    expect(find.text('Vinculado ao Grupo 08.'), findsOneWidget);
+    expect(find.text('Desfazer vínculo'), findsOneWidget);
+    expect(find.text('Definir padrinho'), findsNothing);
   });
 
   testWidgets('aba Mais abre o editor de formulários e salva', (tester) async {

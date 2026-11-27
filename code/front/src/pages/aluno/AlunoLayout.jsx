@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api, getAlunoSession, clearAlunoSession, programaAluno, selecionarProgramaAluno } from '../../api/client';
-import {escolherCiclo, resolverAluno} from '../../auth/resolverAluno';
+import {resolverAluno} from '../../auth/resolverAluno';
+import { consultarContextoAluno } from '../../auth/contextoAluno';
 import {
   aplicarAparencia,
   iniciaisDe,
@@ -50,30 +51,60 @@ export default function AlunoLayout() {
   const [codigo, setCodigo] = useState(programaAluno);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
+  const [erroAtualizacao, setErroAtualizacao] = useState('');
+  const [podeLerFeed, setPodeLerFeed] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
   const consultaAtual = useRef(0);
+  const confirmada = useRef(false);
+  const emVoo = useRef(null);
   const email = sessao?.email || '';
-  const recarregar = useCallback(async () => {
+  const token = sessao?.accessToken;
+  const escopo = `${email}:${token}:${codigo}`;
+  const escopoAtual = useRef(escopo);
+  escopoAtual.current = escopo;
+  const recarregar = useCallback(async ({silencioso = false} = {}) => {
     if (!email) return;
+    const atual = getAlunoSession();
+    if (atual?.email !== email || atual?.accessToken !== token) {
+      consultaAtual.current++; confirmada.current = false;
+      setSituacao(null); setPerfil({nome: '', interesses: []}); setProgramas([]); setPodeLerFeed(false);
+      selecionarProgramaAluno(''); setCodigo(''); setSessao(atual); setCarregando(true);
+      return;
+    }
+    if (emVoo.current === escopo && silencioso) return;
     const consulta = ++consultaAtual.current;
-    setCarregando(true); setErro(''); setSituacao(null);
+    emVoo.current = escopo;
+    const vigente = () => consulta === consultaAtual.current && escopoAtual.current === escopo
+      && getAlunoSession()?.email === email && getAlunoSession()?.accessToken === token;
+    if (!silencioso || !confirmada.current) { setCarregando(true); setErro(''); }
+    setErroAtualizacao('');
     try {
-      const [p, ciclos] = await Promise.all([api.perfilAluno(), api.programasAluno()]);
-      if (consulta !== consultaAtual.current) return;
-      setPerfil(p); setProgramas(ciclos);
-      const alvo = codigo || escolherCiclo(ciclos);
-      selecionarProgramaAluno(alvo); setCodigo(alvo);
-      if (alvo || ciclos.length === 0) {
-        const retorno = await api.situacao(email, alvo);
-        if (consulta === consultaAtual.current) setSituacao(retorno);
-      }
+      const dados = await consultarContextoAluno({api, email, codigo, vigente});
+      if (!dados) return;
+      setPerfil(dados.perfil); setProgramas(dados.programas); setSituacao(dados.situacao);
+      setPodeLerFeed(dados.permissoesFeed.podeLer === true);
+      selecionarProgramaAluno(dados.programa); setCodigo(dados.programa);
+      confirmada.current = true;
+      setErro('');
     } catch (e) {
-      if (consulta !== consultaAtual.current) return;
-      setErro(e.message);
-      if (e.status === 401) {clearAlunoSession(); setSessao(null);}
-    } finally {if (consulta === consultaAtual.current) setCarregando(false);}
-  }, [email, codigo]);
-  useEffect(() => { aplicarAparencia(); recarregar(); return () => {consultaAtual.current++;}; }, [recarregar, location.pathname]);
+      if (!vigente()) return;
+      if (silencioso && confirmada.current) setErroAtualizacao(e.message);
+      else setErro(e.message);
+      if ([401,403].includes(e.status)) {clearAlunoSession(); setSessao(null); setSituacao(null); setPodeLerFeed(false);}
+    } finally {
+      if (emVoo.current === escopo) emVoo.current = null;
+      if (consulta === consultaAtual.current) setCarregando(false);
+    }
+  }, [email, codigo, token, escopo]);
+  useEffect(() => {
+    aplicarAparencia();
+    void recarregar({silencioso: confirmada.current});
+    const atualizar = () => { if (document.visibilityState !== 'hidden') void recarregar({silencioso: true}); };
+    const timer = setInterval(atualizar, 10000);
+    window.addEventListener('focus', atualizar);
+    document.addEventListener('visibilitychange', atualizar);
+    return () => {consultaAtual.current++; clearInterval(timer); window.removeEventListener('focus', atualizar); document.removeEventListener('visibilitychange', atualizar);};
+  }, [recarregar, location.pathname]);
   useEffect(() => {setMenuAberto(false);}, [location.pathname]);
   const resolucao = resolverAluno(perfil, situacao, programas.find(p => p.codigo === codigo));
   if (!sessao) return <Navigate to="/login" replace />;
@@ -81,11 +112,11 @@ export default function AlunoLayout() {
   if (!carregando && !erro && !resolucao.completo) return <Navigate to="/" replace />;
   const papel = resolucao.candidatura || resolucao.estado === 'padrinho_ativo' ? 'padrinho' : resolucao.estado?.startsWith('apadrinhado') ? 'apadrinhado' : null;
   const nav = [
-    ...(resolucao.participante ? [{to: '/aluno/feed', label: 'Feed', icon: 'megaphone'}] : []),
+    ...(podeLerFeed ? [{to: '/aluno/feed', label: 'Feed', icon: 'megaphone'}] : []),
     {to: '/aluno/perfil', label: 'Meu perfil', icon: 'home'},
     {to: '/aluno/mapa', label: 'Mapa do campus', icon: 'map'},
     ...(resolucao.candidatura ? [{to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard'}] : []),
-    ...(resolucao.ativo ? [{to: '/aluno/padrinho', label: papel === 'padrinho' ? 'Meus apadrinhados' : 'Meu padrinho', icon: 'users'}] : []),
+    ...(resolucao.ativo ? [{to: '/aluno/padrinho', label: papel === 'padrinho' ? 'Meus apadrinhados' : situacao?.padrinhos?.length > 1 ? 'Meus padrinhos' : 'Meu padrinho', icon: 'users'}] : []),
     {to: '/aluno/chat', label: 'Conversas', icon: 'chat'},
     {to: '/aluno/conquistas', label: 'Conquistas', icon: 'trophy'},
     {to: '/aluno/historico', label: 'Histórico', icon: 'history'},
@@ -96,6 +127,7 @@ export default function AlunoLayout() {
   function trocarCiclo(novo) {
     if (novo === codigo) return;
     consultaAtual.current++;
+    confirmada.current = false;
     setCarregando(true);
     setSituacao(null);
     selecionarProgramaAluno(novo);
@@ -117,6 +149,7 @@ export default function AlunoLayout() {
     <div className="aluno-body"><aside className="aluno-sidebar"><AlunoNav itens={nav}/><SidebarArt/></aside>
     {menuAberto && <AlunoDrawer itens={nav} onFechar={() => setMenuAberto(false)}/>}
     <main className="aluno-content" id="conteudo">
+      {erroAtualizacao && <p role="alert">Não foi possível atualizar sua participação: {erroAtualizacao} <button type="button" onClick={() => recarregar({silencioso: true})}>Tentar novamente</button></p>}
       {erro ? <div className="aluno-state error" role="alert"><p>{erro}</p><button type="button" className="outline-button" onClick={recarregar}>Tentar novamente</button></div>
         : carregando ? <p className="aluno-loading" role="status">Carregando perfil e situação…</p> : <Outlet context={contexto}/>}
     </main></div></div>;

@@ -1,7 +1,11 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import type { EntityManager } from 'typeorm';
+import { ParticipacaoEntity } from './entities/participacao.entity.js';
+import { ProgramaEntity } from '../programas/entities/programa.entity.js';
+import { matchingLiberado } from '../programas/etapas.js';
+import { registroPrincipalDos } from './vinculos-atuais.js';
 import type { AccessTokenPayload } from '../auth/authenticated-request.js';
 import { ProgramasService } from '../programas/programas.service.js';
-import type { ParticipacaoEntity } from './entities/participacao.entity.js';
 import {
   ParticipacoesService,
   type SituacaoAluno,
@@ -51,11 +55,12 @@ export class PermissoesAlunoService {
    * `programa` (padrão: o ciclo atual) resolve as permissões de outro ciclo:
    * as conquistas do feed usam o ciclo da atividade, não o da conferência.
    */
-  doUsuario(
+  async doUsuario(
     usuario: AccessTokenPayload,
+    manager?: EntityManager,
     programa: string = ParticipacoesService.programaAtual(),
   ): Promise<PermissoesAluno> {
-    return this.calcular(usuario, programa);
+    return (await this.contexto(usuario, manager, programa)).permissoes;
   }
 
   async exigir(
@@ -69,8 +74,9 @@ export class PermissoesAlunoService {
       | 'podeUsarLojinha'
     >,
     mensagem: string,
+    manager?: EntityManager,
   ): Promise<PermissoesAluno> {
-    const permissoes = await this.doUsuario(usuario);
+    const permissoes = await this.doUsuario(usuario, manager);
     if (!permissoes[permissao])
       throw new ForbiddenException({
         statusCode: 403,
@@ -86,36 +92,61 @@ export class PermissoesAlunoService {
    * DP-01/RN-002). Vazio para quem não é padrinho com vínculo.
    */
   async apadrinhadosDe(usuario: AccessTokenPayload): Promise<Set<string>> {
-    const permissoes = await this.doUsuario(usuario);
-    if (permissoes.papel !== 'padrinho') return new Set();
-    const registro = await this.participacoes.registroPrincipal(
-      String(usuario.email ?? ''),
-      permissoes.programa,
-    );
-    return this.participacoes.emailsApadrinhadosDe(registro);
+    return (await this.contexto(usuario)).apadrinhados;
   }
 
-  private async calcular(
+  async contexto(
     usuario: AccessTokenPayload,
-    programa: string,
-  ): Promise<PermissoesAluno> {
+    manager?: EntityManager,
+    programa: string = ParticipacoesService.programaAtual(),
+  ) {
     // O papel de coordenador vem da lista de coordenadores no login (não de
     // `tipoParticipacao`), por isso ainda pode vir do token.
     if (usuario.perfil === 'coordenador')
-      return PermissoesAlunoService.daCoordenacao(programa);
-    const ciclo = await this.programas.buscarPorCodigo(programa);
+      return {
+        permissoes: PermissoesAlunoService.daCoordenacao(programa),
+        apadrinhados: new Set<string>(),
+      };
+    const ciclo = manager
+      ? await manager
+          .getRepository(ProgramaEntity)
+          .findOne({ where: { codigo: programa } })
+      : await this.programas.buscarPorCodigo(programa);
+    const email = String(usuario.email ?? '')
+      .trim()
+      .toLowerCase();
     const registro =
       ciclo && ciclo.etapaAtual !== 'encerramento'
-        ? await this.participacoes.registroPrincipal(
-            String(usuario.email ?? ''),
-            programa,
-          )
+        ? manager
+          ? registroPrincipalDos(
+              await manager
+                .getRepository(ParticipacaoEntity)
+                .find({ where: { usuarioId: email, programa } }),
+            )
+          : await this.participacoes.registroPrincipal(email, programa)
         : null;
-    return PermissoesAlunoService.derivar(
+    const vinculados = await this.participacoes.vinculosAtuais(
+      registro,
+      manager,
+    );
+    const habilitado =
+      !!ciclo && matchingLiberado(ciclo) && !ciclo.inscricoesAbertas;
+    const permissoes = PermissoesAlunoService.derivar(
       programa,
       registro,
-      await this.participacoes.situacaoDoRegistro(registro),
+      ParticipacoesService.situacaoDe(
+        registro,
+        habilitado && vinculados.length > 0,
+      ),
     );
+    return {
+      permissoes,
+      apadrinhados: new Set(
+        permissoes.podePublicar
+          ? vinculados.map((v) => v.participacao.usuarioId)
+          : [],
+      ),
+    };
   }
 
   static daCoordenacao(programa: string): PermissoesAluno {

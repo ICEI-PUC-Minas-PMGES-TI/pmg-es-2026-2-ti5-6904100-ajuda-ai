@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../models/preferencia_genero.dart';
+
 import '../services/coordenacao_api.dart';
 import '../theme/colors.dart';
 import 'componentes_coord.dart';
@@ -377,6 +379,12 @@ class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
                       _linha('Áreas', _lista(r['areas'])),
                       _linha('Disponibilidade', _lista(r['disponibilidade'])),
                       _linha('Gênero', r['genero'] as String?),
+                      _linha(
+                        'Preferência de gênero',
+                        PreferenciaGenero.fromJson(r['preferenciaGenero'])
+                                ?.descricao ??
+                            'Não informado',
+                      ),
                       _linha('Bolsista ProUni', _simNao(r['bolsistaProuni'])),
                       _linha('De outra cidade', _simNao(r['deOutraCidade'])),
                       _linha('Interesses', _lista(d['interesses'])),

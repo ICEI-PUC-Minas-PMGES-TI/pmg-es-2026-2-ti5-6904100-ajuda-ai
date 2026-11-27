@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import type { RegistroVerificacao } from '../verificacao-academica.js';
+import type { PreferenciaGenero } from '../preferencia-genero.js';
 
 export type PapelParticipacao = 'padrinho' | 'apadrinhado' | 'candidato';
 export type StatusParticipacaoRegistro =
@@ -63,6 +64,7 @@ export interface RespostasCadastro {
   turno?: string;
   interesses?: string[];
   genero?: string;
+  preferenciaGenero?: PreferenciaGenero;
   bolsistaProuni?: boolean;
   deOutraCidade?: boolean;
   disponibilidade?: string[];

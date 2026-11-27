@@ -1,7 +1,7 @@
+import { cenarioMatching } from '../../test/helpers/matching-cenario.js';
 import { ParticipacaoEntity } from './entities/participacao.entity.js';
 import {
   repositorioEmMemoria,
-  conectarRepositorios,
 } from '../../test/helpers/repositorio-memoria.js';
 import { conferirTudo } from '../../test/helpers/conferencia-academica.js';
 import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
@@ -29,13 +29,16 @@ describe('ParticipacoesService', () => {
 
   beforeEach(() => {
     registros = [];
-    const repo = repositorioEmMemoria(registros);
-    const programas = ciclos();
-    conectarRepositorios({
-      ParticipacaoEntity: repo,
-      ProgramaEntity: programas,
+    const c = cenarioMatching({
+      participantes: registros,
+      programas: (ciclos() as any)._registros,
     });
-    service = new ParticipacoesService(repo, programas);
+    service = new ParticipacoesService(
+      c.repos.ParticipacaoEntity,
+      c.repos.ProgramaEntity,
+      undefined,
+      c.operacoes,
+    );
   });
 
   it('lista vazio quando o usuário não tem participações', async () => {
@@ -122,7 +125,13 @@ describe('ParticipacoesService', () => {
       programa: '2026/2',
       statusInicial: 'em_andamento',
     });
-    await service.vincular(apadrinhado.id, candidato.id);
+    for (const p of registros)
+      p.respostas = { ...p.respostas, areas: ['Tecnologia'] };
+    await service.vincular(
+      apadrinhado.id,
+      candidato.id,
+      'coord@pucminas.edu.br',
+    );
 
     // confirmação repetida não duplica
     await service.confirmarIngresso({

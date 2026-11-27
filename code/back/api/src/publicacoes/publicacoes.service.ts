@@ -24,6 +24,7 @@ import { novoEventoFeed, type TipoEventoFeed } from './feed-evento.js';
 import { FeedMidiasService } from './feed-midias.service.js';
 import { FeedPolicy } from './feed-policy.js';
 import { ParticipacoesService } from '../participacoes/participacoes.service.js';
+import { ProgramaEntity } from '../programas/entities/programa.entity.js';
 
 interface DadosPublicacao {
   texto?: string;
@@ -48,6 +49,7 @@ export class PublicacoesService {
    * recusado, e o feed deles é sempre o do semestre atual.
    */
   async listar(usuario: AccessTokenPayload, programa?: string) {
+    await this.policy.exigirLeitura(usuario);
     const atual = ParticipacoesService.programaAtual();
     const pedido = programa?.trim();
     if (pedido && pedido !== atual) {
@@ -78,6 +80,7 @@ export class PublicacoesService {
   }
 
   async obter(id: number, usuario: AccessTokenPayload) {
+    await this.policy.exigirLeitura(usuario);
     const item = await this.publicacoes.findOne({
       where: { id },
       relations: { curtidas: true, comentarios: true },
@@ -101,6 +104,8 @@ export class PublicacoesService {
       (await this.usuarios.buscarPorEmail(usuario.email));
     if (!autor) throw new ForbiddenException('Autor não encontrado.');
     const id = await this.dados.transaction(async (manager) => {
+      await this.bloquearCiclo(manager, usuario);
+      await this.policy.exigirPublicacao(usuario, manager);
       const repo = manager.getRepository(PublicacaoEntity);
       const item = await repo.save(
         repo.create({
@@ -120,7 +125,12 @@ export class PublicacoesService {
           programaCodigo: ParticipacoesService.programaAtual(),
         }),
       );
-      await this.evento(manager, 'feed.post.created', item.id);
+      await this.evento(
+        manager,
+        'feed.post.created',
+        item.id,
+        item.programaCodigo,
+      );
       return item.id;
     });
     return this.obter(id, usuario);
@@ -222,7 +232,7 @@ export class PublicacoesService {
       });
       if (!comentario)
         throw new NotFoundException('Comentário não encontrado.');
-      const apadrinhados = await this.policy.apadrinhadosDe(usuario);
+      const apadrinhados = await this.policy.apadrinhadosDe(usuario, manager);
       if (
         !this.policy.podeExcluirComentario(
           usuario,
@@ -276,6 +286,7 @@ export class PublicacoesService {
     id: number,
     usuario: AccessTokenPayload,
   ): Promise<CurtidorDto[]> {
+    await this.policy.exigirLeitura(usuario);
     const existe = await this.publicacoes.findOne({ where: { id } });
     if (!existe) throw new NotFoundException('Publicação não encontrada.');
     this.exigirDoCicloAtual(existe, usuario);
@@ -294,6 +305,7 @@ export class PublicacoesService {
     comentarioId: number,
     usuario: AccessTokenPayload,
   ): Promise<CurtidorDto[]> {
+    await this.policy.exigirLeitura(usuario);
     const post = await this.publicacoes.findOne({ where: { id } });
     if (!post) throw new NotFoundException('Publicação não encontrada.');
     this.exigirDoCicloAtual(post, usuario);
@@ -369,6 +381,9 @@ export class PublicacoesService {
     ) => Promise<void | false>,
   ) {
     await this.dados.transaction(async (manager) => {
+      // Mesma ordem das movimentações do matching: ciclo antes da publicação.
+      await this.bloquearCiclo(manager, usuario);
+      await this.policy.exigirInteracao(usuario, manager);
       // Serializa alterações concorrentes da publicação, inclusive curtidas repetidas.
       const item = await manager.getRepository(PublicacaoEntity).findOne({
         where: { id },
@@ -387,16 +402,33 @@ export class PublicacoesService {
           'Este semestre já encerrou: a publicação só pode ser consultada ou removida.',
         );
       if ((await acao(manager, item)) !== false)
-        await this.evento(manager, tipo, id);
+        await this.evento(manager, tipo, id, item.programaCodigo);
     });
+  }
+
+  private async bloquearCiclo(
+    manager: EntityManager,
+    usuario: AccessTokenPayload,
+  ) {
+    const ciclo = await manager.getRepository(ProgramaEntity).findOne({
+      where: { codigo: ParticipacoesService.programaAtual() },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!ciclo && !this.policy.podeAdministrar(usuario))
+      throw new ForbiddenException('O ciclo atual não está disponível.');
   }
 
   private async evento(
     manager: EntityManager,
     tipo: TipoEventoFeed,
     id: number,
+    programa?: string | null,
   ) {
-    const evento = novoEventoFeed(tipo, id);
+    const evento = novoEventoFeed(
+      tipo,
+      id,
+      programa ?? ParticipacoesService.programaAtual(),
+    );
     await manager
       .getRepository(FeedOutboxEntity)
       .save({ id: evento.id, evento, publicadoEm: null });
@@ -498,11 +530,7 @@ export class PublicacoesService {
 
   /** Uma consulta por requisição, reaproveitada em todos os posts da lista. */
   private async permissoesDe(usuario: AccessTokenPayload) {
-    const [podeInteragir, apadrinhados] = await Promise.all([
-      this.policy.podeInteragir(usuario),
-      this.policy.apadrinhadosDe(usuario),
-    ]);
-    return { podeInteragir, apadrinhados };
+    return this.policy.contexto(usuario);
   }
 
   private async apresentar(

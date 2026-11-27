@@ -1,3 +1,8 @@
+import {
+  MatchingGrupoEntity,
+  MatchingVinculoEventoEntity,
+} from './entities/grupo.entity.js';
+import { VinculosService } from './vinculos.service.js';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module.js';
@@ -18,10 +23,14 @@ import {
   MatchingSugestaoEntity,
   MatchingVinculoEntity,
 } from './entities/matching.entity.js';
+import { MatchingParDecisaoEntity } from './entities/par-decisao.entity.js';
 import { MatchingController } from './matching.controller.js';
 import { MatchingService } from './matching.service.js';
 
 export const ENTIDADES_MATCHING = [
+  MatchingGrupoEntity,
+  MatchingVinculoEventoEntity,
+  MatchingParDecisaoEntity,
   MatchingConfiguracaoEntity,
   MatchingExecucaoEntity,
   MatchingSugestaoEntity,
@@ -44,7 +53,12 @@ export const ENTIDADES_MATCHING = [
     ]),
   ],
   controllers: [MatchingController],
-  providers: [MatchingService, CriterioCatalogoService],
-  exports: [MatchingService, CriterioCatalogoService, TypeOrmModule],
+  providers: [MatchingService, CriterioCatalogoService, VinculosService],
+  exports: [
+    MatchingService,
+    CriterioCatalogoService,
+    VinculosService,
+    TypeOrmModule,
+  ],
 })
 export class MatchingModule {}

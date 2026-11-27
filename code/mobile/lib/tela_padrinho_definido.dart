@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'widgets/abrir_conversas.dart';
+import 'widgets/vinculos_participante.dart';
+import 'widgets/revalidar_participacao.dart';
+
 import 'models/situacao_participacao.dart';
 import 'sessao_usuario.dart';
 import 'theme/colors.dart';
@@ -67,8 +71,11 @@ class _PadrinhoDefinidoPageState extends State<PadrinhoDefinidoPage> {
     super.initState();
     if (widget.padrinho == null) {
       _carregando = SessaoUsuario.atual.padrinho == null;
-      SessaoUsuario.atual.sincronizarSituacao().then((_) {
-        if (mounted) setState(() => _carregando = false);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        SessaoUsuario.atual.sincronizarSituacao().then((_) {
+          if (mounted) setState(() => _carregando = false);
+        });
       });
     }
   }
@@ -77,12 +84,6 @@ class _PadrinhoDefinidoPageState extends State<PadrinhoDefinidoPage> {
     if (widget.padrinho != null) return widget.padrinho;
     final pessoa = SessaoUsuario.atual.padrinho;
     return pessoa == null ? null : Padrinho.daPessoa(pessoa);
-  }
-
-  void _emBreve(String funcionalidade) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text('$funcionalidade: em breve!')));
   }
 
   void _verPerfil(Padrinho padrinho) {
@@ -97,6 +98,38 @@ class _PadrinhoDefinidoPageState extends State<PadrinhoDefinidoPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.padrinho == null) {
+      return RevalidarParticipacao(
+        atualizar: () => SessaoUsuario.atual.sincronizarSituacao(),
+        child: ListenableBuilder(
+          listenable: SessaoUsuario.atual.mudancas,
+          builder: (context, _) {
+            final sessao = SessaoUsuario.atual;
+            return Scaffold(
+              appBar: AppBar(title: const Text('Meus vínculos')),
+              body: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: VinculosParticipante(
+                  dados: sessao.situacao,
+                  carregando: _carregando && sessao.situacao == null,
+                  erro: sessao.estadoSituacao == EstadoSituacao.erro
+                      ? sessao.erroSituacao ?? 'Não foi possível atualizar os vínculos. Tente novamente.'
+                      : null,
+                  onAtualizar: () => sessao.sincronizarSituacao(forcar: true),
+                  onPrivado: (p) => abrirConversas(
+                    context,
+                    focoEmail: p.email,
+                    focoVinculo: p.vinculoId,
+                  ),
+                  onGrupo: (p) => abrirConversas(context, focoGrupo: p.grupoId),
+                  onHistorico: () => abrirConversas(context),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    }
     final padrinho = _padrinho;
     return Scaffold(
       backgroundColor: Colors.white,
@@ -123,7 +156,8 @@ class _PadrinhoDefinidoPageState extends State<PadrinhoDefinidoPage> {
                 _CardPadrinho(padrinho: padrinho),
                 const SizedBox(height: 14),
                 _ProximosPassos(
-                  onMensagem: () => _emBreve('Chat'),
+                  onMensagem: () =>
+                      abrirConversas(context, focoEmail: padrinho.email),
                   onPerfil: () => _verPerfil(padrinho),
                 ),
                 const SizedBox(height: 14),

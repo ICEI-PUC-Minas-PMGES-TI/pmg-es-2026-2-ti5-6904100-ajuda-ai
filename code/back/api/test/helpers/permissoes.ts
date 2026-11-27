@@ -1,3 +1,4 @@
+import type { EntityManager } from 'typeorm';
 import type { AccessTokenPayload } from '../../src/auth/authenticated-request.js';
 import type { ParticipacoesService } from '../../src/participacoes/participacoes.service.js';
 import { PermissoesAlunoService } from '../../src/participacoes/permissoes-aluno.service.js';
@@ -17,8 +18,8 @@ export function permissoesPeloToken() {
         ? { papel: perfil, status: 'em_andamento', terminoEm: null }
         : null;
     },
-    situacaoDoRegistro: async (registro: { papel: string } | null) =>
-      registro ? `${registro.papel}_ativo` : 'nenhuma',
+    vinculosAtuais: async (registro: unknown) =>
+      registro ? [{ participacao: { usuarioId: 'par@teste.local' } }] : [],
   } as unknown as ParticipacoesService;
   const programas = {
     buscarPorCodigo: async () => ({ etapaAtual: 'andamento' }),
@@ -26,12 +27,16 @@ export function permissoesPeloToken() {
   const ultimoPerfil = new Map<string, string>();
   const servico = new PermissoesAlunoService(participacoes, programas);
   const doUsuario = servico.doUsuario.bind(servico);
-  servico.doUsuario = (usuario: AccessTokenPayload, programa?: string) => {
+  servico.doUsuario = (
+    usuario: AccessTokenPayload,
+    manager?: EntityManager,
+    programa?: string,
+  ) => {
     const email = String(usuario.email ?? '');
     if (usuario.perfil === 'padrinho' || usuario.perfil === 'apadrinhado')
       ultimoPerfil.set(email, usuario.perfil);
     else ultimoPerfil.delete(email);
-    return doUsuario(usuario, programa);
+    return doUsuario(usuario, manager, programa);
   };
   return { provide: PermissoesAlunoService, useValue: servico };
 }

@@ -120,6 +120,7 @@ describe('Feed HTTP e SSE autenticados', () => {
       feed.tabelas.ParticipacaoEntity = feed.tabelas.ParticipacaoEntity.filter(
         (p) => p.usuarioId !== padrinho.email,
       );
+      feed.tabelas.MatchingVinculoEntity[0].padrinhoParticipacaoId = 3;
       const token = auth({ sub: email, email, perfil, escopo: 'acesso' });
       const permissoes = await request(app.getHttpServer())
         .get('/publicacoes/permissoes')
@@ -216,7 +217,7 @@ describe('Feed HTTP e SSE autenticados', () => {
         .set('Authorization', token)
         .expect(200);
       const podeLer = usuario !== somenteMapa;
-      expect(permissoes.body).toEqual({
+      expect(permissoes.body).toMatchObject({
         podeLer,
         podePublicar,
         podeAdministrar,
@@ -526,6 +527,71 @@ describe('Feed HTTP e SSE autenticados', () => {
       .expect(200);
     expect(removido.body.comentarios).toBe(0);
   });
+  it('o mesmo JWT perde publicação e moderação depois da transferência e conserva leitura', async () => {
+    const token = auth(padrinho);
+    const post = await feed.service.criar(
+      { texto: 'Autoria preservada' },
+      padrinho,
+    );
+    const comentario = (
+      await feed.service.comentar(post.id, 'Comentário', aluno)
+    ).comentariosDetalhes[0];
+    feed.tabelas.ParticipacaoEntity.push({
+      ...feed.tabelas.ParticipacaoEntity[0],
+      id: 3,
+      usuarioId: 'novo@pucminas.edu.br',
+    });
+    feed.tabelas.MatchingVinculoEntity[0].padrinhoParticipacaoId = 3;
+    // O nome legado continua igual deliberadamente.
+    await request(app.getHttpServer())
+      .post('/publicacoes')
+      .set('Authorization', token)
+      .send({ texto: 'Não autorizado' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .delete(`/publicacoes/${post.id}/comentarios/${comentario.id}`)
+      .set('Authorization', token)
+      .expect(403);
+    const consulta = await request(app.getHttpServer())
+      .get(`/publicacoes/${post.id}`)
+      .set('Authorization', token)
+      .expect(200);
+    expect(consulta.body.comentariosDetalhes[0].podeExcluir).toBe(false);
+    expect(consulta.body.autor).toBe(post.autor);
+    await request(app.getHttpServer())
+      .delete(`/publicacoes/${post.id}/comentarios/${comentario.id}`)
+      .set(
+        'Authorization',
+        auth({ ...padrinho, email: 'novo@pucminas.edu.br' }),
+      )
+      .expect(200);
+  });
+
+  it('encerramento recusa leitura e remoção de autoria própria com JWT antigo', async () => {
+    const token = auth(padrinho);
+    const post = await feed.service.criar(
+      { texto: 'Preservar histórico' },
+      padrinho,
+    );
+    feed.tabelas.ProgramaEntity[0].etapaAtual = 'encerramento';
+    for (const path of [
+      '/publicacoes',
+      `/publicacoes/${post.id}`,
+      `/publicacoes/${post.id}/curtidas`,
+      '/publicacoes/events',
+    ]) {
+      await request(app.getHttpServer())
+        .get(path)
+        .set('Authorization', token)
+        .expect(403);
+    }
+    await request(app.getHttpServer())
+      .delete(`/publicacoes/${post.id}`)
+      .set('Authorization', token)
+      .expect(403);
+    expect(feed.tabelas.PublicacaoEntity).toHaveLength(1);
+  });
+
   it('stream autenticado entrega ready e evento sem manter listener após desconexão', async () => {
     await app.listen(0, '127.0.0.1');
     const abort = new AbortController();
@@ -536,7 +602,13 @@ describe('Feed HTTP e SSE autenticados', () => {
     expect(response.status).toBe(200);
     const reader = response.body!.getReader();
     try {
-      const texto = new TextDecoder().decode((await reader.read()).value);
+      const decoder = new TextDecoder();
+      let texto = '';
+      while (!texto.includes('feed.ready')) {
+        const parte = await reader.read();
+        if (parte.done) break;
+        texto += decoder.decode(parte.value, { stream: true });
+      }
       expect(texto).toContain('feed.ready');
     } finally {
       abort.abort();

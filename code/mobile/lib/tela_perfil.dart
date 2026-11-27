@@ -94,6 +94,7 @@ class _ProfilePageState extends State<ProfilePage> {
   String? _erro;
   String? _erroFoto;
   bool _detalhesCandidaturaAbertos = false;
+  String? _contaExibida;
 
   late final TextEditingController _nomeController;
   late final TextEditingController _cursoController;
@@ -109,8 +110,8 @@ class _ProfilePageState extends State<ProfilePage> {
   void initState() {
     super.initState();
     diagNav('perfil: initState');
-    _sessao.mudancas.addListener(_aoMudarSessao);
     _dados = _dadosDaSessao();
+    _contaExibida = _sessao.identidade?.email;
     _nomeController = TextEditingController(text: _dados.nome);
     _cursoController = TextEditingController(text: _dados.curso);
     _periodoController = TextEditingController(text: _dados.periodo);
@@ -120,12 +121,9 @@ class _ProfilePageState extends State<ProfilePage> {
     );
     _turnoController = TextEditingController();
     _interessesController = TextEditingController();
-    _sincronizar();
-  }
-
-  void _aoMudarSessao() {
-    Future.microtask(() {
-      if (mounted) setState(() {});
+    _sessao.mudancas.addListener(_participacaoMudou);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _sincronizar();
     });
   }
 
@@ -162,6 +160,33 @@ class _ProfilePageState extends State<ProfilePage> {
         setState(() => _erroFoto = 'Não foi possível carregar a foto. $erro');
       }
     }
+  }
+
+  void _participacaoMudou() {
+    if (!mounted) return;
+    final conta = _sessao.identidade?.email;
+    Future.microtask(() {
+      if (!mounted) return;
+      setState(() {
+        if (conta != _contaExibida) {
+          _contaExibida = conta;
+          _editando = false;
+          _salvando = false;
+          for (final controller in [
+            _nomeController,
+            _cursoController,
+            _periodoController,
+            _emailController,
+            _sobreController,
+            _turnoController,
+            _interessesController,
+          ]) {
+            controller.clear();
+          }
+        }
+        if (!_editando) _dados = _dadosDaSessao();
+      });
+    });
   }
 
   Future<void> _escolherFoto() async {
@@ -211,7 +236,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   void dispose() {
-    _sessao.mudancas.removeListener(_aoMudarSessao);
+    _sessao.mudancas.removeListener(_participacaoMudou);
     _nomeController.dispose();
     _cursoController.dispose();
     _periodoController.dispose();
@@ -800,6 +825,8 @@ class _DetalhesCandidatura extends StatelessWidget {
       if (cadastro.disponibilidade?.isNotEmpty == true)
         ('Disponibilidade', cadastro.disponibilidade!),
       if (cadastro.genero?.isNotEmpty == true) ('Gênero', cadastro.genero!),
+      if (cadastro.preferenciaGenero != null)
+        ('Preferência de gênero', cadastro.preferenciaGenero!.descricao),
       if (cadastro.bolsistaProuni != null)
         ('Bolsista ProUni', cadastro.bolsistaProuni! ? 'Sim' : 'Não'),
       if (cadastro.deOutraCidade != null)

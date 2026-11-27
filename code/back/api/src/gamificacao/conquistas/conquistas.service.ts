@@ -159,7 +159,11 @@ export class ConquistasService {
       const usuarioId = await usuarioDoTokenOuNulo(this.dataSource, usuario);
       if (usuarioId === null) return [];
       const cicloDaAtividade = ciclo ?? ParticipacoesService.programaAtual();
-      const p = await this.permissoes.doUsuario(usuario, cicloDaAtividade);
+      const p = await this.permissoes.doUsuario(
+        usuario,
+        undefined,
+        cicloDaAtividade,
+      );
       return await this.sincronizarComSeguranca(
         usuarioId,
         {

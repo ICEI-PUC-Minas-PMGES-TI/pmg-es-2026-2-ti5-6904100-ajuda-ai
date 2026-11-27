@@ -5,6 +5,123 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { criarParserSse, abrirFeedStream } from "../src/api/feed-stream.js";
+import { consultarFeedAutorizado } from "../src/api/feed-access.js";
+
+test("acesso negado atualiza permissões e não consulta conteúdo", async () => {
+  const aplicados = [];
+  const itens = await consultarFeedAutorizado({
+    permissoes: async () => ({ podeLer: false }),
+    listar: async () => assert.fail("Não deve ler"),
+    vigente: () => true,
+    aoPermissoes: (p) => aplicados.push(p),
+  });
+  assert.equal(itens, null);
+  assert.deepEqual(aplicados, [{ podeLer: false }]);
+});
+test("participante sem par mantém leitura sem botão de publicação", async () => {
+  let permissao;
+  const itens = await consultarFeedAutorizado({
+    permissoes: async () => ({ podeLer: true, podePublicar: false }),
+    listar: async () => [{ id: 7 }],
+    vigente: () => true,
+    aoPermissoes: (p) => {
+      permissao = p;
+    },
+  });
+  assert.deepEqual(itens, [{ id: 7 }]);
+  assert.equal(permissao.podePublicar, false);
+});
+test("troca de conta durante consulta de permissões descarta autorização antiga", async () => {
+  let ativo = true;
+  const itens = await consultarFeedAutorizado({
+    permissoes: async () => {
+      ativo = false;
+      return { podeLer: true };
+    },
+    listar: async () => assert.fail(),
+    vigente: () => ativo,
+    aoPermissoes: () => assert.fail(),
+  });
+  assert.equal(itens, null);
+});
+test("troca de semestre ou revogação durante consulta descarta posts atrasados", async () => {
+  for (const motivo of ["semestre", "revogação"]) {
+    let ativo = true;
+    const itens = await consultarFeedAutorizado({
+      permissoes: async () => ({ podeLer: true }),
+      listar: async () => {
+        ativo = false;
+        return [{ texto: motivo }];
+      },
+      vigente: () => ativo,
+      aoPermissoes: () => {},
+    });
+    assert.equal(itens, null);
+  }
+});
+test("retirada da publicação chega antes de eventual falha ao ler feed", async () => {
+  let publicar = true;
+  await assert.rejects(
+    consultarFeedAutorizado({
+      permissoes: async () => ({ podeLer: true, podePublicar: false }),
+      listar: async () => {
+        throw new Error("rede");
+      },
+      vigente: () => true,
+      aoPermissoes: (p) => {
+        publicar = p.podePublicar;
+      },
+    }),
+    /rede/,
+  );
+  assert.equal(publicar, false);
+});
+test("feed.access encerra stream e limpa acesso sem retentar", async () => {
+  const anterior = globalThis.fetch;
+  let tentativas = 0,
+    cancelamentos = 0,
+    bloqueios = 0;
+  let fim;
+  const concluido = new Promise((r) => {
+    fim = r;
+  });
+  globalThis.fetch = async () => {
+    tentativas++;
+    return new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(
+            new TextEncoder().encode(
+              'event: feed.access\ndata: {"revogado":true}\n\n',
+            ),
+          );
+        },
+        cancel() {
+          cancelamentos++;
+          fim();
+        },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  };
+  try {
+    const fechar = abrirFeedStream({
+      url: "http://teste/events",
+      token: () => "tk",
+      onEvento: () => {},
+      onSemAcesso: () => {
+        bloqueios++;
+      },
+    });
+    await concluido;
+    assert.equal(tentativas, 1);
+    assert.equal(bloqueios, 1);
+    assert.equal(cancelamentos, 1);
+    fechar();
+  } finally {
+    globalThis.fetch = anterior;
+  }
+});
 
 test("parser SSE preserva JSON fragmentado, CRLF e múltiplos eventos", () => {
   const eventos = [];

@@ -15,17 +15,21 @@ export interface EventoFeed {
   tipo: TipoEventoFeed;
   ocorridoEm: string;
   publicacaoId: number;
+  /** Ausente em eventos antigos: não são encaminhados ao stream autorizado. */
+  programaCodigo?: string;
 }
 
 export function novoEventoFeed(
   tipo: TipoEventoFeed,
   publicacaoId: number,
+  programaCodigo?: string,
 ): EventoFeed {
   return {
     id: randomUUID(),
     tipo,
     publicacaoId,
     ocorridoEm: new Date().toISOString(),
+    ...(programaCodigo ? { programaCodigo } : {}),
   };
 }
 
@@ -40,6 +44,9 @@ export function eventoFeedValido(valor: unknown): valor is EventoFeed {
     Number.isSafeInteger(e.publicacaoId) &&
     e.publicacaoId > 0 &&
     typeof e.ocorridoEm === 'string' &&
-    Number.isFinite(Date.parse(e.ocorridoEm))
+    Number.isFinite(Date.parse(e.ocorridoEm)) &&
+    (e.programaCodigo === undefined ||
+      (typeof e.programaCodigo === 'string' &&
+        /^\d{4}\/[12]$/.test(e.programaCodigo)))
   );
 }

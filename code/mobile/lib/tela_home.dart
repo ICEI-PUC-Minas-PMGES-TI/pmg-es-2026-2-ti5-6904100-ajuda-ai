@@ -12,6 +12,7 @@ import 'widgets/app_bottom_navigation.dart';
 import 'widgets/navegacao_app.dart';
 import 'widgets/painel_notificacoes.dart';
 import 'widgets/progresso_gamificacao.dart';
+import 'widgets/abrir_conversas.dart';
 
 const double _gutter = 20;
 
@@ -20,16 +21,19 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        padding: EdgeInsets.zero,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: const [_Cabecalho(), _Painel()],
+    return ListenableBuilder(
+      listenable: SessaoUsuario.atual.mudancas,
+      builder: (context, _) => Scaffold(
+        backgroundColor: Colors.white,
+        body: SingleChildScrollView(
+          padding: EdgeInsets.zero,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: const [_Cabecalho(), _Painel()],
+          ),
         ),
+        bottomNavigationBar: const _BarraInferior(),
       ),
-      bottomNavigationBar: const _BarraInferior(),
     );
   }
 }
@@ -167,6 +171,11 @@ class _LinhaMarcaState extends State<_LinhaMarca> with WidgetsBindingObserver {
           semanticLabel: 'PUC Minas',
         ),
         const Spacer(),
+        IconButton(
+          onPressed: () => abrirConversas(context),
+          icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
+          tooltip: 'Conversas',
+        ),
         ValueListenableBuilder<Notificacoes>(
           valueListenable: CentralNotificacoes.atual.estado,
           builder: (context, dados, _) => _SinoNotificacoes(
@@ -524,10 +533,11 @@ class _CardVinculo extends StatelessWidget {
   Widget build(BuildContext context) {
     final sessao = SessaoUsuario.atual;
     final ehPadrinho = sessao.ehPadrinhoAtivo;
-    final padrinho = sessao.padrinho;
-    final pessoas = ehPadrinho ? sessao.apadrinhados : [?padrinho];
+    final pessoas = ehPadrinho ? sessao.apadrinhados : sessao.padrinhos;
     final titulo = ehPadrinho
         ? (pessoas.length == 1 ? 'Seu apadrinhado' : 'Seus apadrinhados')
+        : pessoas.length > 1
+        ? 'Seus padrinhos'
         : 'Seu padrinho';
 
     return _Cartao(
@@ -559,8 +569,22 @@ class _CardVinculo extends StatelessWidget {
               if (indice > 0) const SizedBox(height: 14),
               _LinhaPessoa(
                 pessoa: pessoa,
-                onConversar: () => _emBreve(context, 'Conversas'),
+                onConversar: sessao.situacao?.conversasLiberadas == true
+                    ? () => abrirConversas(
+                        context,
+                        focoEmail: pessoa.email,
+                        focoVinculo: pessoa.vinculoId,
+                      )
+                    : null,
               ),
+              if (pessoa.grupoId != null)
+                TextButton.icon(
+                  onPressed: sessao.situacao?.conversasLiberadas == true
+                      ? () => abrirConversas(context, focoGrupo: pessoa.grupoId)
+                      : null,
+                  icon: const Icon(Icons.groups_outlined),
+                  label: Text('Conversa do ${pessoa.grupo ?? 'grupo'}'),
+                ),
             ],
         ],
       ),
@@ -572,7 +596,7 @@ class _LinhaPessoa extends StatelessWidget {
   const _LinhaPessoa({required this.pessoa, required this.onConversar});
 
   final PessoaVinculo pessoa;
-  final VoidCallback onConversar;
+  final VoidCallback? onConversar;
 
   String get _iniciais {
     if (pessoa.iniciais.isNotEmpty) return pessoa.iniciais;
@@ -756,9 +780,4 @@ class _BarraInferior extends StatelessWidget {
           navegarDestino(context, destination, atual: AppDestination.inicio),
     );
   }
-}
-
-void _emBreve(BuildContext context, String funcionalidade) {
-  ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text('$funcionalidade: em breve!')));
 }

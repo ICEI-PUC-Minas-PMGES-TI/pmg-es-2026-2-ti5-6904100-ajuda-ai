@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Delete,
   Get,
@@ -63,9 +64,18 @@ export class PublicacoesController {
   }
   @Sse('events')
   @UseGuards(FeedLeituraGuard)
-  eventos(@Req() req: AuthenticatedRequest) {
+  eventos(
+    @Req() req: AuthenticatedRequest,
+    @Query('programa') programa?: string,
+  ) {
+    if (programa && !/^\d{4}\/[12]$/.test(programa))
+      throw new BadRequestException('Semestre inválido.');
     const exp = (req.user as typeof req.user & { exp?: number }).exp;
-    return this.stream.observar(exp ? exp * 1000 : Date.now() + 3600_000);
+    return this.stream.observarAutorizado(
+      exp ? exp * 1000 : Date.now() + 3600_000,
+      () => this.policy.resumo(req.user),
+      programa,
+    );
   }
   @Post('midias')
   @UseGuards(FeedPublishGuard)

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { api } from '../../api/client';
+import PreferenciaGenero, { textoPreferenciaGenero, preferenciaGeneroValida } from '../../components/PreferenciaGenero';
 import Icon from '../../components/Icon';
 import MultiSelect from '../../components/MultiSelect';
 import PerguntasAdicionais, { limparExtras, useFormularioPublico, useRequisitosPadrinho, validarExtras } from '../../components/PerguntasAdicionais';
@@ -22,6 +23,7 @@ function estadoInicial(inicial) {
     areas: Array.isArray(r.areas) ? r.areas : [],
     disponibilidade: Array.isArray(r.disponibilidade) ? r.disponibilidade : [],
     genero: r.genero || '',
+    preferenciaGenero: r.preferenciaGenero,
     prouni: simNao(r.bolsistaProuni),
     outraCidade: simNao(r.deOutraCidade),
     // id do requisito → declarou que cumpre
@@ -70,6 +72,7 @@ export default function CandidaturaPadrinhoForm({ email, perfil, inicial, progra
       areas: form.areas.length === 0,
       disponibilidade: form.disponibilidade.length === 0,
       genero: !form.genero,
+      preferenciaGenero: !preferenciaGeneroValida(form.preferenciaGenero),
       prouni: !form.prouni,
       outraCidade: !form.outraCidade,
       requisitos: requisitos === null || faltando.length > 0,
@@ -92,6 +95,7 @@ export default function CandidaturaPadrinhoForm({ email, perfil, inicial, progra
       areas: form.areas,
       disponibilidade: form.disponibilidade,
       genero: form.genero,
+      preferenciaGenero: form.preferenciaGenero,
       bolsistaProuni: paraBool(form.prouni),
       deOutraCidade: paraBool(form.outraCidade),
       requisitos: (requisitos || []).map((q) => ({ id: q.id, cumpre: Boolean(form.requisitos[q.id]) })),
@@ -165,6 +169,7 @@ export default function CandidaturaPadrinhoForm({ email, perfil, inicial, progra
         </Field>
       </div>
 
+      <PreferenciaGenero valor={form.preferenciaGenero} onChange={v => atualizar('preferenciaGenero', v)} erro={erros.preferenciaGenero} />
       {erroFormulario && <p className="form-error" role="alert">{erroFormulario}</p>}
       <PerguntasAdicionais perguntas={perguntas} valores={form.extras} erros={erros.extras || {}} onChange={atualizarExtra} descricao="Perguntas definidas pela coordenação do programa." />
 
@@ -199,6 +204,7 @@ export function RevisaoPadrinho({revisao, perfil, email, programa, requisitos, p
   return <section className="padrinho-form"><h1>Revise sua candidatura</h1>
     <p>Ciclo: {programa}</p><p>{perfil.nome} · {email}</p><p>{perfil.curso} · {perfil.periodo}º período · {perfil.turno}</p>
     <dl>{Object.entries({motivacao:'Motivação', experiencias:'Experiências', areas:'Áreas de apoio', disponibilidade:'Disponibilidade', genero:'Gênero', bolsistaProuni:'ProUni', deOutraCidade:'Outra cidade'}).map(([chave, rotulo]) => <div key={chave}><dt>{rotulo}</dt><dd>{Array.isArray(revisao[chave]) ? revisao[chave].join(', ') : typeof revisao[chave] === 'boolean' ? revisao[chave] ? 'Sim' : 'Não' : revisao[chave] || 'Não informado'}</dd></div>)}
+    <div><dt>Preferência de gênero</dt><dd>{textoPreferenciaGenero(revisao.preferenciaGenero)}</dd></div>
     {perguntas.map(p => <div key={p.id}><dt>{p.enunciado}</dt><dd>{Array.isArray(revisao.extras[p.id]) ? revisao.extras[p.id].join(', ') : revisao.extras[p.id] || 'Não informado'}</dd></div>)}</dl>
     <h2>Requisitos</h2><ul>{(requisitos || []).map(r => <li key={r.id}>{r.descricao}: {form.requisitos[r.id] ? 'Declaro que cumpro' : 'Não declarado'}</li>)}</ul>
     <p>O envio não representa aprovação. A coordenação fará a análise acadêmica.</p>

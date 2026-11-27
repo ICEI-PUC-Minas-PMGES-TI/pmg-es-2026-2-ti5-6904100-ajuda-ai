@@ -50,7 +50,11 @@ void main() {
         (r) async => http.Response(
           jsonEncode(
             r.url.path.endsWith('permissoes')
-                ? {'podePublicar': false}
+                ? {
+                    'podeLer': true,
+                    'podeInteragir': true,
+                    'podePublicar': false,
+                  }
                 : r.url.path == '/publicacoes/1'
                 ? posts.first
                 : posts,

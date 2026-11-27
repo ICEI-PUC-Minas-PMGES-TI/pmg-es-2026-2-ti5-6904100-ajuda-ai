@@ -104,7 +104,17 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
   let jwt: JwtService;
   let servico: ConquistasService;
   let permissoesAluno: PermissoesAlunoService;
-  const ids = { apadrinhado: 0, padrinho: 0, outro: 0, feed: 0, sino: 0, semestres: 0, cascata: 0, virada: 0, aviso: 0 };
+  const ids = {
+    apadrinhado: 0,
+    padrinho: 0,
+    outro: 0,
+    feed: 0,
+    sino: 0,
+    semestres: 0,
+    cascata: 0,
+    virada: 0,
+    aviso: 0,
+  };
   const http = () => request(app.getHttpServer());
 
   const coord = () =>
@@ -116,7 +126,10 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
   const outro = () => token('outro', 'apadrinhado');
 
   const criar = (corpo: object) =>
-    http().post('/coordenacao/conquistas').set('Authorization', coord()).send(corpo);
+    http()
+      .post('/coordenacao/conquistas')
+      .set('Authorization', coord())
+      .send(corpo);
   const nova = async (corpo: object = {}) =>
     (
       await criar({
@@ -211,7 +224,11 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
 
     const modulo = await Test.createTestingModule({
       imports: [JwtModule.register({ secret: SEGREDO })],
-      controllers: [ConquistasAdminController, ConquistasController, XpController],
+      controllers: [
+        ConquistasAdminController,
+        ConquistasController,
+        XpController,
+      ],
       providers: [
         ConquistasAdminService,
         ConquistasService,
@@ -298,9 +315,26 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
         'apadrinhado não publica no feed',
         { criterio: 'FEED_PUBLICACOES', meta: 1, publico: 'APADRINHADOS' },
       ],
-      ['XP acima do teto', { criterio: 'MISSOES_CONCLUIDAS', meta: 1, xp: LIMITES.porConquista + 1 }],
-      ['programa inexistente', { criterio: 'MISSOES_CONCLUIDAS', meta: 1, programaCodigo: '1999/1' }],
-      ['imagem sem https', { criterio: 'MISSOES_CONCLUIDAS', meta: 1, imagemUrl: 'http://x.com/a.png' }],
+      [
+        'XP acima do teto',
+        {
+          criterio: 'MISSOES_CONCLUIDAS',
+          meta: 1,
+          xp: LIMITES.porConquista + 1,
+        },
+      ],
+      [
+        'programa inexistente',
+        { criterio: 'MISSOES_CONCLUIDAS', meta: 1, programaCodigo: '1999/1' },
+      ],
+      [
+        'imagem sem https',
+        {
+          criterio: 'MISSOES_CONCLUIDAS',
+          meta: 1,
+          imagemUrl: 'http://x.com/a.png',
+        },
+      ],
     ])('recusa %s (400)', async (_, regra) => {
       await criar({ nome: 'Inválida', descricao: 'x', ...regra }).expect(400);
     });
@@ -335,8 +369,14 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
     });
 
     it('rascunho edita tudo, mas a regra continua validada', async () => {
-      const r = (await criar({ nome: 'R', descricao: 'd', criterio: 'MISSOES_CONCLUIDAS', meta: 2 }).expect(201))
-        .body as Conquista;
+      const r = (
+        await criar({
+          nome: 'R',
+          descricao: 'd',
+          criterio: 'MISSOES_CONCLUIDAS',
+          meta: 2,
+        }).expect(201)
+      ).body as Conquista;
       await http()
         .patch(`/coordenacao/conquistas/${r.id}`)
         .set('Authorization', coord())
@@ -364,7 +404,10 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
 
       await concluirMissoes(ids.apadrinhado, 1);
       vista = await colecao(apadrinhado());
-      expect(vista.disponiveis.find((d) => d.id === c.id)?.progresso).toEqual({ atual: 1, meta: 2 });
+      expect(vista.disponiveis.find((d) => d.id === c.id)?.progresso).toEqual({
+        atual: 1,
+        meta: 2,
+      });
       expect(await desbloqueios(c.id, ids.apadrinhado)).toBe(0);
 
       await concluirMissoes(ids.apadrinhado, 1);
@@ -388,12 +431,20 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
         `SELECT titulo, link FROM feed.notificacoes WHERE usuario_id = $1 AND tipo = 'CONQUISTA_DESBLOQUEADA' AND chave = $2`,
         [ids.apadrinhado, `conquista:${c.id}:${CICLO}`],
       )) as Array<{ titulo: string; link: string }>;
-      expect(avisos).toEqual([{ titulo: 'Conquista desbloqueada!', link: '/conquistas' }]);
+      expect(avisos).toEqual([
+        { titulo: 'Conquista desbloqueada!', link: '/conquistas' },
+      ]);
     });
 
     it('rascunho nunca desbloqueia', async () => {
-      const r = (await criar({ nome: 'Rascunho', descricao: 'd', criterio: 'MISSOES_CONCLUIDAS', meta: 1 }).expect(201))
-        .body as Conquista;
+      const r = (
+        await criar({
+          nome: 'Rascunho',
+          descricao: 'd',
+          criterio: 'MISSOES_CONCLUIDAS',
+          meta: 1,
+        }).expect(201)
+      ).body as Conquista;
       await concluirMissoes(ids.outro, 1);
       const vista = await colecao(outro());
       expect(vista.disponiveis.map((d) => d.id)).not.toContain(r.id);
@@ -413,7 +464,12 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       const creditos = (await ds.query(
         `SELECT tipo, xp_quantidade, quantidade, chave_idempotencia FROM gamificacao.xp_movimentacoes WHERE usuario_id = $1 AND referencia_id = $2`,
         [ids.padrinho, c.id],
-      )) as Array<{ tipo: string; xp_quantidade: number; quantidade: number; chave_idempotencia: string }>;
+      )) as Array<{
+        tipo: string;
+        xp_quantidade: number;
+        quantidade: number;
+        chave_idempotencia: string;
+      }>;
       expect(creditos).toEqual([
         {
           tipo: 'CONQUISTA',
@@ -429,7 +485,9 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
         )) as Array<{ n: number }>
       )[0].n;
       expect(movimentosMissaoDepois).toBe(movimentosMissaoAntes);
-      const obtida = (await colecao(padrinho())).obtidas.find((o) => o.id === c.id);
+      const obtida = (await colecao(padrinho())).obtidas.find(
+        (o) => o.id === c.id,
+      );
       expect(obtida?.xpCreditado).toBe(20);
     });
 
@@ -442,7 +500,9 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
         .set('Authorization', coord())
         .expect(200);
       const vista = await colecao(outro());
-      expect(vista.obtidas.find((o) => o.id === c.id)).toMatchObject({ arquivada: true });
+      expect(vista.obtidas.find((o) => o.id === c.id)).toMatchObject({
+        arquivada: true,
+      });
       expect(vista.disponiveis.map((d) => d.id)).not.toContain(c.id);
       const usada = await http()
         .delete(`/coordenacao/conquistas/${c.id}`)
@@ -464,7 +524,10 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
 
     it('respeita o público e o programa', async () => {
       const soPadrinhos = await nova({ meta: 1, publico: 'PADRINHOS' });
-      const outroCiclo = await nova({ meta: 1, programaCodigo: CICLO_ANTERIOR });
+      const outroCiclo = await nova({
+        meta: 1,
+        programaCodigo: CICLO_ANTERIOR,
+      });
       const desteCiclo = await nova({ meta: 1, programaCodigo: CICLO });
       await concluirMissoes(ids.apadrinhado, 1);
       const vista = await colecao(apadrinhado());
@@ -473,14 +536,20 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       expect(vistos).not.toContain(outroCiclo.id);
       expect(vista.obtidas.map((o) => o.id)).toContain(desteCiclo.id);
       expect(await desbloqueios(soPadrinhos.id, ids.apadrinhado)).toBe(0);
-      expect((await colecao(padrinho())).obtidas.map((o) => o.id)).toContain(soPadrinhos.id);
+      expect((await colecao(padrinho())).obtidas.map((o) => o.id)).toContain(
+        soPadrinhos.id,
+      );
     });
 
     it('missões de outro semestre não contam no progresso do ciclo', async () => {
       const c = await nova({ meta: 40 });
-      const antes = (await colecao(outro())).disponiveis.find((d) => d.id === c.id)!.progresso.atual;
+      const antes = (await colecao(outro())).disponiveis.find(
+        (d) => d.id === c.id,
+      )!.progresso.atual;
       await concluirMissoes(ids.outro, 3, CICLO_ANTERIOR);
-      const depois = (await colecao(outro())).disponiveis.find((d) => d.id === c.id)!.progresso.atual;
+      const depois = (await colecao(outro())).disponiveis.find(
+        (d) => d.id === c.id,
+      )!.progresso.atual;
       expect(depois).toBe(antes);
     });
 
@@ -490,13 +559,20 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       await creditarXp(ids.outro, 60); // nível 2 começa em 50 XP
       await http().get('/me/xp').set('Authorization', outro()).expect(200);
       expect(await desbloqueios(c.id, ids.outro)).toBe(1);
-      const obtida = (await colecao(outro())).obtidas.find((o) => o.id === c.id);
-      expect(obtida).toMatchObject({ contexto: 'GERAL', criterioTexto: 'Chegar ao nível 2.' });
+      const obtida = (await colecao(outro())).obtidas.find(
+        (o) => o.id === c.id,
+      );
+      expect(obtida).toMatchObject({
+        contexto: 'GERAL',
+        criterioTexto: 'Chegar ao nível 2.',
+      });
     });
 
     it('o banco barra alteração e remoção de desbloqueios', async () => {
       await expect(
-        ds.query(`UPDATE gamificacao.conquistas_desbloqueios SET progresso = 99`),
+        ds.query(
+          `UPDATE gamificacao.conquistas_desbloqueios SET progresso = 99`,
+        ),
       ).rejects.toThrow();
       await expect(
         ds.query(`DELETE FROM gamificacao.conquistas_desbloqueios`),
@@ -566,7 +642,11 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
           `JOIN gamificacao.xp_movimentacoes m ON m.id = d.movimentacao_id WHERE d.conquista_id = $1 AND d.usuario_id = $2`,
         [c.id, ids.feed],
       )) as Array<{ contexto: string; xp_creditado: number; ciclo: string }>;
-      expect(registro).toEqual({ contexto: CICLO_ANTERIOR, xp_creditado: 15, ciclo: CICLO_ANTERIOR });
+      expect(registro).toEqual({
+        contexto: CICLO_ANTERIOR,
+        xp_creditado: 15,
+        ciclo: CICLO_ANTERIOR,
+      });
       // Coordenação (sem conta de aluno) não confere nada nem falha.
       await expect(
         servico.aposAtividadeNoFeed(jwt.verify(coord().slice(7)), CICLO),
@@ -592,11 +672,15 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       // Participou do semestre que acabou; no novo, ainda não tem participação.
       const espiao = vi
         .spyOn(permissoesAluno, 'doUsuario')
-        .mockImplementation(async (_usuario, programa = CICLO) =>
+        .mockImplementation(async (_usuario, _manager, programa = CICLO) =>
           PermissoesAlunoService.derivar(
             programa,
             programa === CICLO_ANTERIOR
-              ? ({ papel: 'apadrinhado', status: 'em_andamento', terminoEm: null } as never)
+              ? ({
+                  papel: 'apadrinhado',
+                  status: 'em_andamento',
+                  terminoEm: null,
+                } as never)
               : null,
             programa === CICLO_ANTERIOR ? 'apadrinhado_ativo' : 'nenhuma',
           ),
@@ -607,7 +691,11 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
           CICLO_ANTERIOR,
         );
         expect(novas).toContainEqual({ id: c.id, contexto: CICLO_ANTERIOR });
-        expect(espiao).toHaveBeenCalledWith(expect.anything(), CICLO_ANTERIOR);
+        expect(espiao).toHaveBeenCalledWith(
+          expect.anything(),
+          undefined,
+          CICLO_ANTERIOR,
+        );
       } finally {
         espiao.mockRestore();
       }
@@ -679,7 +767,11 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       const c = await nova({ meta: 1 });
       await concluirMissoes(ids.semestres, 1, CICLO_ANTERIOR);
       expect(
-        await servico.sincronizar(ids.semestres, acessoApadrinhado, CICLO_ANTERIOR),
+        await servico.sincronizar(
+          ids.semestres,
+          acessoApadrinhado,
+          CICLO_ANTERIOR,
+        ),
       ).toContainEqual({ id: c.id, contexto: CICLO_ANTERIOR });
       // O aluno viu o aviso daquele semestre (e só aquele desbloqueio).
       expect(
@@ -690,7 +782,10 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
       await concluirMissoes(ids.semestres, 1);
       const vista = await colecao(token('semestres', 'apadrinhado'));
       expect(
-        vista.obtidas.filter((o) => o.id === c.id).map((o) => o.contexto).sort(),
+        vista.obtidas
+          .filter((o) => o.id === c.id)
+          .map((o) => o.contexto)
+          .sort(),
       ).toEqual([CICLO_ANTERIOR, CICLO].sort());
       expect(vista.novas.filter((n) => n.id === c.id)).toEqual([
         { id: c.id, contexto: CICLO },
@@ -712,7 +807,10 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
         await http()
           .patch(`/coordenacao/conquistas/${criada.id}`)
           .set('Authorization', coord())
-          .send({ atualizadoEm: criada.atualizadoEm, imagemUrl: 'HtTpS://exemplo.com/outra.png' })
+          .send({
+            atualizadoEm: criada.atualizadoEm,
+            imagemUrl: 'HtTpS://exemplo.com/outra.png',
+          })
           .expect(200)
       ).body as Conquista & { imagemUrl: string };
       expect(editada.imagemUrl).toBe('https://exemplo.com/outra.png');
@@ -728,9 +826,21 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
     it('cadeia de níveis de 50 a 500 XP libera a conquista do nível 5 na mesma consulta', async () => {
       await creditarXp(ids.cascata, 50); // nível 2
       const criadas = [
-        ...(await Promise.all([1, 2].map(() => nova({ criterio: 'NIVEL_ALCANCADO', meta: 2, xp: 50 })))), // -> 150, nível 3
-        ...(await Promise.all([1, 2, 3].map(() => nova({ criterio: 'NIVEL_ALCANCADO', meta: 3, xp: 50 })))), // -> 300, nível 4
-        ...(await Promise.all([1, 2, 3, 4].map(() => nova({ criterio: 'NIVEL_ALCANCADO', meta: 4, xp: 50 })))), // -> 500, nível 5
+        ...(await Promise.all(
+          [1, 2].map(() =>
+            nova({ criterio: 'NIVEL_ALCANCADO', meta: 2, xp: 50 }),
+          ),
+        )), // -> 150, nível 3
+        ...(await Promise.all(
+          [1, 2, 3].map(() =>
+            nova({ criterio: 'NIVEL_ALCANCADO', meta: 3, xp: 50 }),
+          ),
+        )), // -> 300, nível 4
+        ...(await Promise.all(
+          [1, 2, 3, 4].map(() =>
+            nova({ criterio: 'NIVEL_ALCANCADO', meta: 4, xp: 50 }),
+          ),
+        )), // -> 500, nível 5
       ];
       const nivel5 = await nova({ criterio: 'NIVEL_ALCANCADO', meta: 5 });
       try {
@@ -739,7 +849,8 @@ describe.skipIf(!URL_TESTE)('Conquistas (F32) com banco real', () => {
         expect(idsNovas(vista)).toContain(nivel5.id);
         expect(vista.obtidas.map((o) => o.id)).toContain(nivel5.id);
         expect(vista.disponiveis.map((d) => d.id)).not.toContain(nivel5.id);
-        for (const c of criadas) expect(await desbloqueios(c.id, ids.cascata)).toBe(1);
+        for (const c of criadas)
+          expect(await desbloqueios(c.id, ids.cascata)).toBe(1);
       } finally {
         // Não deixa a cadeia valendo para os outros testes.
         for (const c of [...criadas, nivel5]) {

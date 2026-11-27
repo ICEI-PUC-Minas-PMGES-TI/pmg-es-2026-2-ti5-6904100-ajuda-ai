@@ -1,5 +1,11 @@
 /** SSE por fetch: Bearer no header, decoder incremental e cancelamento por tela. */
-export function abrirFeedStream({ url, token, onEvento, onEstado = () => {} }) {
+export function abrirFeedStream({
+  url,
+  token,
+  onEvento,
+  onEstado = () => {},
+  onSemAcesso = () => {},
+}) {
   const vida = new AbortController();
   const esperar = (ms) =>
     new Promise((resolve) => {
@@ -26,6 +32,7 @@ export function abrirFeedStream({ url, token, onEvento, onEstado = () => {} }) {
         const jwt = token();
         if (!jwt) {
           onEstado("Sessão expirada. Entre novamente.");
+          onSemAcesso();
           return;
         }
         const renovar = () => {
@@ -42,6 +49,7 @@ export function abrirFeedStream({ url, token, onEvento, onEstado = () => {} }) {
         });
         if ([401, 403].includes(resposta.status)) {
           onEstado("Sessão expirada ou sem acesso. Entre novamente.");
+          onSemAcesso();
           return;
         }
         if (
@@ -54,6 +62,12 @@ export function abrirFeedStream({ url, token, onEvento, onEstado = () => {} }) {
           throw new Error("Stream indisponível");
         const parser = criarParserSse((evento) => {
           if (vida.signal.aborted) return;
+          if (evento.type === "feed.access") {
+            onEvento(evento);
+            onSemAcesso();
+            vida.abort();
+            return;
+          }
           if (evento.type === "feed.ready" || evento.type === "feed.heartbeat")
             onEstado(
               evento.data?.conectado

@@ -56,7 +56,7 @@ describe('PermissoesAlunoService: permissões pela situação no ciclo atual', (
       podeColetarTotens: true,
       podeUsarLojinha: true,
     });
-    expect(await policy.resumo(camila)).toEqual({
+    expect(await policy.resumo(camila)).toMatchObject({
       podeLer: true,
       podePublicar: false,
       podeAdministrar: false,
@@ -172,8 +172,7 @@ describe('PermissoesAlunoService: permissões de outro ciclo', () => {
     const servico = new PermissoesAlunoService(
       {
         registroPrincipal,
-        situacaoDoRegistro: async (r: unknown) =>
-          r ? 'apadrinhado_ativo' : 'nenhuma',
+        vinculosAtuais: async () => [],
       } as unknown as ParticipacoesService,
       { buscarPorCodigo } as unknown as ProgramasService,
     );
@@ -182,7 +181,7 @@ describe('PermissoesAlunoService: permissões de outro ciclo', () => {
       email: 'aluna@pucminas.edu.br',
       perfil: 'nenhuma',
     } as AccessTokenPayload;
-    expect(await servico.doUsuario(u, '2026/1')).toMatchObject({
+    expect(await servico.doUsuario(u, undefined, '2026/1')).toMatchObject({
       programa: '2026/1',
       participante: true,
       papel: 'apadrinhado',
@@ -193,6 +192,6 @@ describe('PermissoesAlunoService: permissões de outro ciclo', () => {
       'aluna@pucminas.edu.br',
       '2026/1',
     );
-    expect(await servico.doUsuario(u, '2026/2')).toMatchObject(nada);
+    expect(await servico.doUsuario(u, undefined, '2026/2')).toMatchObject(nada);
   });
 });

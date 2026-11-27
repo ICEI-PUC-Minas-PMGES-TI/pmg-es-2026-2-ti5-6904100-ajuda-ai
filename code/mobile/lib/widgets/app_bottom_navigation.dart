@@ -3,10 +3,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/app_destination.dart';
 import '../theme/colors.dart';
 import 'navegacao_app.dart' show AppShell;
 
-enum AppDestination { mapa, missoes, inicio, feed, perfil }
+export '../models/app_destination.dart';
 
 /// Barra de navegação inferior com um único indicador que viaja entre as abas.
 ///
