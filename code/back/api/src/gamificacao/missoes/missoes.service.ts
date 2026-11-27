@@ -261,6 +261,7 @@ export class MissoesService {
       ? await this.regrasXp.configuracoesVigentes(
           acoesPendentes,
           this.dataSource,
+          ciclo,
         )
       : [];
     const bloqueadas = new Set<string>();
@@ -522,7 +523,11 @@ export class MissoesService {
       [usuarioId, missao.id, meta - 1],
     )) as Array<{ id: string; xp: number }>;
     const acoes = ['VISITA_PUCSTOP', 'MISSAO_PUCSTOPS'] as const;
-    const regras = await this.regrasXp.configuracoesVigentes(acoes, qr);
+    const regras = await this.regrasXp.configuracoesVigentes(
+      acoes,
+      qr,
+      missao.ciclo,
+    );
     const combina = regras.some((r) =>
       r.combinavelCom.includes(r.acao === acoes[0] ? acoes[1] : acoes[0]),
     );

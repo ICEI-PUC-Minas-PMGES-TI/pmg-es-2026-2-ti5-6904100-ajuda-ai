@@ -15,13 +15,15 @@ export const ELEGIBILIDADES_XP = ['todos', 'padrinho', 'apadrinhado'] as const;
 export type ElegibilidadeXp = (typeof ELEGIBILIDADES_XP)[number];
 
 @Entity({ name: 'regras_xp', schema: SCHEMA_GAMIFICACAO, synchronize: false })
-@Unique('uq_regras_xp_acao', ['acao'])
 export class RegraXpEntity {
   @PrimaryGeneratedColumn()
   id!: number;
 
   @Column({ type: 'varchar', length: 40 })
   acao!: string;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  programa!: string | null;
 
   @Column({ type: 'boolean', default: true })
   ativo!: boolean;

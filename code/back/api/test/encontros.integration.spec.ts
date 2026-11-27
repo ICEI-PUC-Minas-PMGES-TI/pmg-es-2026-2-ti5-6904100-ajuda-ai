@@ -28,6 +28,7 @@ import { validarSnapshot } from '../src/mapa/importacao/snapshot.js';
 import { schemaPostgis } from '../src/mapa/postgis.js';
 import { CriaEncontros1795400000000 } from '../src/migrations/1795400000000-CriaEncontros.js';
 import { LocalDoEncontro1795700000000 } from '../src/migrations/1795700000000-LocalDoEncontro.js';
+import { HistoricoDosEncontros1795800000000 } from '../src/migrations/1795800000000-HistoricoDosEncontros.js';
 import { notificacaoEncontroAlterado } from '../src/notificacoes/notificacoes.js';
 import { NotificacoesService } from '../src/notificacoes/notificacoes.service.js';
 import { ParticipacoesService } from '../src/participacoes/participacoes.service.js';
@@ -230,6 +231,83 @@ describe.skipIf(!URL_TESTE)('Encontros com banco real', () => {
       expect((await encontros.detalhe(padrinho, criado.id)).convites).toEqual([
         expect.objectContaining({ usuarioId: apadrinhado, presenteEm: null }),
       ]);
+    } finally {
+      await qr.release();
+    }
+  });
+
+  it('guarda o histórico de remarcações, edições e cancelamento', async () => {
+    const criado = await encontros.criar(padrinho, {
+      ...dadosDoEncontro(120),
+      apadrinhadoIds: [apadrinhado, terceiro],
+    });
+    await encontros.responder(apadrinhado, criado.id, { resposta: 'aceito' });
+    await encontros.responder(terceiro, criado.id, { resposta: 'recusado' });
+    const novoInicio = new Date(Date.parse(criado.inicio) + 24 * 60 * MIN);
+    await encontros.editar(padrinho, criado.id, {
+      inicio: novoInicio.toISOString(),
+      fim: new Date(novoInicio.getTime() + 60 * MIN).toISOString(),
+    });
+    await encontros.editar(padrinho, criado.id, { descricao: 'Levar caderno' });
+    await encontros.editar(padrinho, criado.id, { descricao: 'Levar caderno' });
+    await encontros.cancelar(padrinho, criado.id, 'thiago@pucminas.edu.br');
+
+    const visto = await encontros.detalhe(padrinho, criado.id);
+    expect(visto.historico.map((a) => a.tipo)).toEqual([
+      'remarcacao',
+      'edicao',
+      'cancelamento',
+    ]);
+    const [remarcacao, edicao, cancelamento] = visto.historico;
+    expect(remarcacao).toMatchObject({
+      autor: { usuarioId: padrinho, nome: 'Thiago' },
+      anterior: {
+        inicio: criado.inicio,
+        fim: criado.fim,
+        local: { pucstopId: totem.id, nome: criado.local.nome },
+        descricao: null,
+      },
+      novo: { inicio: novoInicio.toISOString() },
+    });
+    expect(
+      remarcacao.respostasAnteriores.map((r) => [r.usuarioId, r.resposta]),
+    ).toEqual(
+      [
+        [apadrinhado, 'aceito'],
+        [terceiro, 'recusado'],
+      ].sort((a, b) => Number(a[0]) - Number(b[0])),
+    );
+    expect(edicao).toMatchObject({
+      anterior: { descricao: null },
+      novo: { descricao: 'Levar caderno' },
+      respostasAnteriores: [],
+    });
+    expect(cancelamento).toMatchObject({
+      anterior: {
+        inicio: novoInicio.toISOString(),
+        descricao: 'Levar caderno',
+      },
+      novo: null,
+    });
+
+    const doConvidado = await encontros.detalhe(apadrinhado, criado.id);
+    expect(doConvidado.historico[0].respostasAnteriores).toEqual([
+      expect.objectContaining({ usuarioId: apadrinhado, resposta: 'aceito' }),
+    ]);
+    const [aviso] = (await ds.query(
+      `SELECT mensagem FROM feed.notificacoes WHERE usuario_id = $1 AND tipo = 'ENCONTRO_ALTERADO'
+       ORDER BY id DESC LIMIT 1`,
+      [apadrinhado],
+    )) as Array<{ mensagem: string }>;
+    expect(aviso.mensagem).toContain(`de ${criado.local.nome}`);
+
+    const qr = ds.createQueryRunner();
+    try {
+      await expect(
+        new HistoricoDosEncontros1795800000000().down(qr),
+      ).rejects.toThrow(
+        'histórico de alterações dos encontros seria descartado',
+      );
     } finally {
       await qr.release();
     }
@@ -457,15 +535,29 @@ describe.skipIf(!URL_TESTE)('Encontros com banco real', () => {
          WHERE usuario_id = $1 AND tipo = 'ENCONTRO_ALTERADO' AND link = $2 ORDER BY criado_em`,
         [apadrinhado, `/encontros/${criado.id}`],
       );
+      const anteriores = [criado, alterados[0]];
       expect(avisos.map((a: { mensagem: string }) => a.mensagem)).toEqual(
         alterados.map(
-          (e) =>
+          (e, i) =>
             notificacaoEncontroAlterado(
               { id: e.id, inicio: new Date(e.inicio), local: e.local.nome },
               '',
+              {
+                inicio: new Date(anteriores[i].inicio),
+                local: anteriores[i].local.nome,
+              },
             ).mensagem,
         ),
       );
+      expect(
+        (await encontros.detalhe(padrinho, criado.id)).historico.map((a) => [
+          a.anterior.inicio,
+          a.novo?.inicio,
+        ]),
+      ).toEqual([
+        [criado.inicio, primeiraData.inicio],
+        [primeiraData.inicio, segundaData.inicio],
+      ]);
       expect(avisos[0].chave).not.toBe(avisos[1].chave);
     } finally {
       liberar();

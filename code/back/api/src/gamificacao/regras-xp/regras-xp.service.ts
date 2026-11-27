@@ -8,7 +8,12 @@ import {
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, type EntityManager } from 'typeorm';
 import { LIMITES } from '../economia.js';
-import { ehViolacaoUnica, SCHEMA_GAMIFICACAO } from '../gamificacao.js';
+import {
+  ehViolacaoUnica,
+  SCHEMA_GAMIFICACAO,
+  schemaUsuarios,
+} from '../gamificacao.js';
+import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
 import type { AtualizarRegraXpDto, CriarRegraXpDto } from './regras-xp.dto.js';
 import type { ElegibilidadeXp, RegraXpEntity } from './regras-xp.entity.js';
 
@@ -16,7 +21,7 @@ const REGRAS = `"${SCHEMA_GAMIFICACAO}"."regras_xp"`;
 const VERSOES = `"${SCHEMA_GAMIFICACAO}"."regras_xp_versoes"`;
 const REGRA_ATUAL = `FROM ${REGRAS} r JOIN ${VERSOES} v
   ON v."regra_id" = r."id" AND v."versao" = r."versao_atual"`;
-const COLUNAS_REGRA = `r."id", r."acao", r."ativo", r."versao_atual" AS "versaoAtual",
+const COLUNAS_REGRA = `r."id", r."acao", r."programa", r."ativo", r."versao_atual" AS "versaoAtual",
   r."criado_por" AS "criadoPor", r."criado_em" AS "criadoEm",
   r."atualizado_em" AS "atualizadoEm", to_jsonb(v) AS "versao"`;
 
@@ -78,7 +83,7 @@ function paraVersao(linha: LinhaVersao) {
 function acaoDuplicada(): ConflictException {
   return new ConflictException({
     statusCode: 409,
-    message: 'Já existe uma regra ativa para esta ação.',
+    message: 'Já existe uma regra ativa para esta ação neste ciclo.',
     motivo: 'acao-duplicada',
   });
 }
@@ -108,7 +113,7 @@ export class RegrasXpService {
 
   async listar() {
     const regras = (await this.dataSource.query(
-      `SELECT ${COLUNAS_REGRA} ${REGRA_ATUAL} ORDER BY r."acao"`,
+      `SELECT ${COLUNAS_REGRA} ${REGRA_ATUAL} ORDER BY r."acao", r."programa" NULLS FIRST`,
     )) as LinhaRegra[];
     return regras.map(({ versao, ...regra }) => ({
       ...regra,
@@ -123,11 +128,14 @@ export class RegrasXpService {
 
   async criar(dados: CriarRegraXpDto, criadoPor: string) {
     validarValor(dados.acao, dados.valorXp);
+    const programa = dados.programa ?? null;
     try {
       return await this.dataSource.transaction(async (manager) => {
+        if (programa) await this.exigirPrograma(manager, programa);
         const [existente] = (await manager.query(
-          `SELECT "id", "ativo", "versao_atual" FROM ${REGRAS} WHERE "acao" = $1 FOR UPDATE`,
-          [dados.acao],
+          `SELECT "id", "ativo", "versao_atual" FROM ${REGRAS}
+            WHERE "acao" = $1 AND "programa" IS NOT DISTINCT FROM $2 FOR UPDATE`,
+          [dados.acao, programa],
         )) as Array<{ id: number; ativo: boolean; versao_atual: number }>;
         if (existente?.ativo) throw acaoDuplicada();
         if (existente) {
@@ -142,14 +150,15 @@ export class RegrasXpService {
         }
 
         const [{ id }] = (await manager.query(
-          `INSERT INTO ${REGRAS} ("acao", "ativo", "criado_por") VALUES ($1, false, $2) RETURNING "id"`,
-          [dados.acao, criadoPor],
+          `INSERT INTO ${REGRAS} ("acao", "programa", "ativo", "criado_por") VALUES ($1, $2, false, $3) RETURNING "id"`,
+          [dados.acao, programa, criadoPor],
         )) as Array<{ id: number }>;
         await this.inserirVersao(manager, id, 1, dados, criadoPor);
         return this.detalheComManager(manager, id);
       });
     } catch (erro) {
-      if (ehViolacaoUnica(erro, 'uq_regras_xp_acao')) throw acaoDuplicada();
+      if (ehViolacaoUnica(erro, 'uq_regras_xp_acao_programa'))
+        throw acaoDuplicada();
       throw erro;
     }
   }
@@ -198,22 +207,28 @@ export class RegrasXpService {
   async valorVigente(
     acao: string,
     executor: Consulta = this.dataSource,
+    programa = ParticipacoesService.programaAtual(),
   ): Promise<ValorVigente | null> {
-    const [regra] = await this.regrasVigentes([acao], executor);
+    const [regra] = await this.regrasVigentes([acao], programa, executor);
     if (!regra) return null;
     const { regraId, versao, valorXp, elegibilidade } = regra;
     return { regraId, versao, valorXp, elegibilidade };
   }
 
-  async configuracoesVigentes(acoes: readonly string[], executor: Consulta) {
-    return this.regrasVigentes(acoes, executor);
+  async configuracoesVigentes(
+    acoes: readonly string[],
+    executor: Consulta,
+    programa: string,
+  ) {
+    return this.regrasVigentes(acoes, programa, executor);
   }
 
   async selecionarGanhosDoEvento(
     acoes: readonly string[],
+    programa = ParticipacoesService.programaAtual(),
   ): Promise<GanhoDoEvento[]> {
     if (!acoes.length) return [];
-    const regras = await this.regrasVigentes(acoes);
+    const regras = await this.regrasVigentes(acoes, programa);
     regras.sort((a, b) => b.valorXp - a.valorXp || a.regraId - b.regraId);
     const selecionadas: RegraVigente[] = [];
     for (const regra of regras) {
@@ -245,15 +260,31 @@ export class RegrasXpService {
 
   private async regrasVigentes(
     acoes: readonly string[],
+    programa: string,
     executor: Consulta = this.dataSource,
   ): Promise<RegraVigente[]> {
     return (await executor.query(
-      `SELECT r."acao", r."id" AS "regraId", v."versao", v."valor_xp" AS "valorXp",
-        v."elegibilidade", v."limite_repeticoes" AS "limiteRepeticoes",
-        v."combinavel_com" AS "combinavelCom"
-        ${REGRA_ATUAL} WHERE r."ativo" AND r."acao" = ANY($1::varchar[])`,
-      [acoes],
+      `SELECT DISTINCT ON (r."acao") r."acao", r."id" AS "regraId", v."versao",
+        v."valor_xp" AS "valorXp", v."elegibilidade",
+        v."limite_repeticoes" AS "limiteRepeticoes", v."combinavel_com" AS "combinavelCom"
+        ${REGRA_ATUAL} WHERE r."ativo" AND r."acao" = ANY($1::varchar[])
+          AND (r."programa" IS NULL OR r."programa" = $2)
+        ORDER BY r."acao", (r."programa" IS NULL)`,
+      [acoes, programa],
     )) as RegraVigente[];
+  }
+
+  private async exigirPrograma(
+    manager: EntityManager,
+    programa: string,
+  ): Promise<void> {
+    const [existe] = (await manager.query(
+      `SELECT 1 FROM ${schemaUsuarios(this.dataSource)}."programas" WHERE "codigo" = $1`,
+      [programa],
+    )) as unknown[];
+    if (!existe) {
+      throw new NotFoundException(`Ciclo ${programa} não cadastrado.`);
+    }
   }
 
   private async detalheComManager(manager: EntityManager, id: number) {

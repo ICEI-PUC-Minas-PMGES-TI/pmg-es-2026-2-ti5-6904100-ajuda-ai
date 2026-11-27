@@ -371,6 +371,7 @@ export class EncontrosPresencaService {
     const regras = await this.regrasXp.configuracoesVigentes(
       [ACAO_XP_ENCONTRO, ACAO_XP_MISSAO],
       qr,
+      encontro.programa,
     );
     const regra = regras.find((r) => r.acao === ACAO_XP_ENCONTRO) ?? null;
     const daMissao = regras.find((r) => r.acao === ACAO_XP_MISSAO);

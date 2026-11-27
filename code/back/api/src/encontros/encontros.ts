@@ -57,6 +57,29 @@ export interface ConviteDto {
   presenteEm: string | null;
 }
 
+export type TipoAlteracaoEncontro = 'remarcacao' | 'edicao' | 'cancelamento';
+
+export interface EstadoEncontroDto {
+  inicio: string;
+  fim: string;
+  local: { pucstopId: string; nome: string };
+  descricao: string | null;
+}
+
+export interface AlteracaoEncontroDto {
+  tipo: TipoAlteracaoEncontro;
+  autor: { usuarioId: number; nome: string };
+  em: string;
+  anterior: EstadoEncontroDto;
+  novo: EstadoEncontroDto | null;
+  respostasAnteriores: Array<{
+    usuarioId: number;
+    nome: string;
+    resposta: RespostaConvite;
+    respondidoEm: string | null;
+  }>;
+}
+
 export interface EncontroDto {
   id: string;
   programa: string;
@@ -73,6 +96,7 @@ export interface EncontroDto {
   canceladoEm: string | null;
   convites: ConviteDto[];
   realizado: boolean;
+  historico: AlteracaoEncontroDto[];
   meuConvite: ConviteDto | null;
   checkinAbre: string;
   checkinFecha: string;

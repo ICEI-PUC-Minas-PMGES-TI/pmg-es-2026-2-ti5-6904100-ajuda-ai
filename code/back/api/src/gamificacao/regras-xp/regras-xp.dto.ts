@@ -40,6 +40,12 @@ export class CriarRegraXpDto extends AtualizarRegraXpDto {
   @MaxLength(40)
   @Matches(/\S/)
   acao!: string;
+
+  @ValidateIf((_, valor) => valor !== undefined && valor !== null)
+  @Matches(/^\d{4}\/[12]$/, {
+    message: 'programa deve estar no formato AAAA/1 ou AAAA/2',
+  })
+  programa?: string | null;
 }
 
 export class StatusRegraXpDto {

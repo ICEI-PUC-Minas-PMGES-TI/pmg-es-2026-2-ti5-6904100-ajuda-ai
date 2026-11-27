@@ -87,7 +87,7 @@ describe(RegrasXpService.name, () => {
   ])('retorna 409 acao-duplicada para %s', async (_, existentes) => {
     const { query, servico } = prepararServico();
     query.mockResolvedValueOnce(existentes).mockRejectedValueOnce({
-      driverError: { code: '23505', constraint: 'uq_regras_xp_acao' },
+      driverError: { code: '23505', constraint: 'uq_regras_xp_acao_programa' },
     });
 
     await expect(
@@ -187,7 +187,9 @@ describe(RegrasXpService.name, () => {
       ])
       .mockResolvedValueOnce([]);
 
-    await expect(servico.valorVigente(encontro)).resolves.toEqual({
+    await expect(
+      servico.valorVigente(encontro, undefined, '2026/2'),
+    ).resolves.toEqual({
       regraId: 1,
       versao: 2,
       ...valores,
@@ -195,7 +197,10 @@ describe(RegrasXpService.name, () => {
     expect(query).toHaveBeenNthCalledWith(
       1,
       expect.stringMatching(/v\."versao" = r\."versao_atual" WHERE r\."ativo"/),
-      [[encontro]],
+      [[encontro], '2026/2'],
+    );
+    expect(query.mock.calls[0][0]).toMatch(
+      /DISTINCT ON \(r\."acao"\)[\s\S]*r\."programa" IS NULL OR r\."programa" = \$2[\s\S]*ORDER BY r\."acao", \(r\."programa" IS NULL\)/,
     );
     await expect(servico.valorVigente('SEM_REGRA_ATIVA')).resolves.toBeNull();
   });

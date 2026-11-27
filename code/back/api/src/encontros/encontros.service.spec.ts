@@ -68,8 +68,33 @@ function linhaEncontro(extra: Record<string, unknown> = {}) {
         presenteEm: null,
       },
     ],
+    historico: [],
     ...extra,
   };
+}
+
+const estadoSalvo = {
+  estado: {
+    inicio: '2026-12-03T15:00:00-03:00',
+    fim: '2026-12-03T16:00:00-03:00',
+    pucstopId: PUCSTOP,
+    local: 'Totem da Praça',
+    descricao: null,
+  },
+  respostas: [
+    {
+      usuarioId: APADRINHADO,
+      nome: 'Camila',
+      resposta: 'aceito',
+      respondidoEm: '2026-12-01T09:00:00-03:00',
+    },
+  ],
+};
+
+function insercaoDeHistorico(query: ReturnType<typeof vi.fn>) {
+  return query.mock.calls.find(([sql]) =>
+    String(sql).includes('INSERT INTO "feed"."encontro_alteracoes"'),
+  );
 }
 
 const novo = {
@@ -148,6 +173,8 @@ describe(EncontrosService.name, () => {
         },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([estadoSalvo])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([linhaEncontro({ inicio: outroInicio })]);
@@ -161,9 +188,20 @@ describe(EncontrosService.name, () => {
       String(sql).includes(`SET "resposta" = 'pendente'`),
     );
     expect(reabertura).toBeDefined();
+    const [, params] = insercaoDeHistorico(query)!;
+    expect(params).toEqual([
+      ENCONTRO,
+      'remarcacao',
+      PADRINHO,
+      JSON.stringify(estadoSalvo.estado),
+      JSON.stringify(estadoSalvo.respostas),
+    ]);
     expect(criar).toHaveBeenCalledWith(
       APADRINHADO,
-      expect.objectContaining({ tipo: 'ENCONTRO_ALTERADO' }),
+      expect.objectContaining({
+        tipo: 'ENCONTRO_ALTERADO',
+        mensagem: expect.stringContaining('de Totem da Praça'),
+      }),
     );
   });
 
@@ -181,11 +219,16 @@ describe(EncontrosService.name, () => {
           status: 'agendado',
         },
       ])
+      .mockResolvedValueOnce([estadoSalvo])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([linhaEncontro()]);
 
     await servico.editar(PADRINHO, ENCONTRO, { descricao: 'Levar caderno' });
 
+    const [, params] = insercaoDeHistorico(query)!;
+    expect(params.slice(1, 3)).toEqual(['edicao', PADRINHO]);
+    expect(params[4]).toBe('[]');
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes(`SET "resposta" = 'pendente'`),
@@ -220,6 +263,80 @@ describe(EncontrosService.name, () => {
     });
   });
 
+  it('não grava histórico quando nada muda', async () => {
+    const { query, servico } = prepararServico();
+    query
+      .mockResolvedValueOnce([
+        {
+          id: ENCONTRO,
+          organizador_id: PADRINHO,
+          pucstop_id: PUCSTOP,
+          inicio,
+          fim,
+          descricao: null,
+          status: 'agendado',
+        },
+      ])
+      .mockResolvedValueOnce([estadoSalvo])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([linhaEncontro()]);
+
+    await servico.editar(PADRINHO, ENCONTRO, {});
+
+    expect(insercaoDeHistorico(query)).toBeUndefined();
+  });
+
+  it('mostra o histórico ao organizador e só a própria resposta ao convidado', async () => {
+    const alteracao = {
+      tipo: 'remarcacao',
+      autorId: PADRINHO,
+      autorNome: 'Thiago',
+      em: '2026-12-02T10:00:00-03:00',
+      anterior: estadoSalvo.estado,
+      novo: { ...estadoSalvo.estado, inicio: '2026-12-04T15:00:00-03:00' },
+      respostasAnteriores: [
+        ...estadoSalvo.respostas,
+        {
+          usuarioId: 11,
+          nome: 'Bruno',
+          resposta: 'recusado',
+          respondidoEm: '2026-12-01T10:00:00-03:00',
+        },
+      ],
+    };
+    const { query, servico } = prepararServico();
+    query.mockResolvedValue([linhaEncontro({ historico: [alteracao] })]);
+
+    const doPadrinho = await servico.detalhe(PADRINHO, ENCONTRO);
+    expect(doPadrinho.historico).toEqual([
+      {
+        tipo: 'remarcacao',
+        autor: { usuarioId: PADRINHO, nome: 'Thiago' },
+        em: '2026-12-02T13:00:00.000Z',
+        anterior: {
+          inicio: '2026-12-03T18:00:00.000Z',
+          fim: '2026-12-03T19:00:00.000Z',
+          local: { pucstopId: PUCSTOP, nome: 'Totem da Praça' },
+          descricao: null,
+        },
+        novo: expect.objectContaining({ inicio: '2026-12-04T18:00:00.000Z' }),
+        respostasAnteriores: [
+          expect.objectContaining({ usuarioId: APADRINHADO }),
+          expect.objectContaining({ usuarioId: 11 }),
+        ],
+      },
+    ]);
+    const doConvidado = await servico.detalhe(APADRINHADO, ENCONTRO);
+    expect(doConvidado.historico[0].respostasAnteriores).toEqual([
+      {
+        usuarioId: APADRINHADO,
+        nome: 'Camila',
+        resposta: 'aceito',
+        respondidoEm: '2026-12-01T12:00:00.000Z',
+      },
+    ]);
+  });
+
   it('cancela sem apagar o encontro e avisa os convidados', async () => {
     const { query, criar, servico } = prepararServico();
     query
@@ -234,6 +351,8 @@ describe(EncontrosService.name, () => {
           status: 'agendado',
         },
       ])
+      .mockResolvedValueOnce([estadoSalvo])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         linhaEncontro({ status: 'cancelado', cancelado_em: new Date() }),
@@ -246,6 +365,10 @@ describe(EncontrosService.name, () => {
     );
 
     expect(encontro.status).toBe('cancelado');
+    expect(insercaoDeHistorico(query)![1].slice(1, 3)).toEqual([
+      'cancelamento',
+      PADRINHO,
+    ]);
     const update = query.mock.calls.find(([sql]) =>
       String(sql).includes(`SET "status" = 'cancelado'`),
     );

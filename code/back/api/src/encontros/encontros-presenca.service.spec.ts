@@ -315,6 +315,7 @@ describe(EncontrosPresencaService.name, () => {
     expect(configuracoesVigentes).toHaveBeenCalledWith(
       [ACAO_XP_ENCONTRO, 'MISSAO_ENCONTRO'],
       expect.objectContaining({ isTransactionActive: true }),
+      '2026/2',
     );
   });
 

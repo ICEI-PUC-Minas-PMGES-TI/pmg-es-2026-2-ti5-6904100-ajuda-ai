@@ -211,11 +211,15 @@ export function notificacaoConviteEncontro(
 export function notificacaoEncontroAlterado(
   encontro: EncontroParaAviso,
   alteradoEm: string,
+  anterior?: Omit<EncontroParaAviso, 'id'>,
 ): NovaNotificacao {
+  const antes = anterior
+    ? ` de ${anterior.local}, ${quandoDoEncontro(anterior.inicio)},`
+    : '';
   return {
     tipo: 'ENCONTRO_ALTERADO',
     titulo: 'Encontro remarcado',
-    mensagem: `O encontro passou para ${encontro.local}, ${quandoDoEncontro(encontro.inicio)}. Confirme de novo se você vai.`,
+    mensagem: `O encontro${antes} passou para ${encontro.local}, ${quandoDoEncontro(encontro.inicio)}. Confirme de novo se você vai.`,
     link: `/encontros/${encontro.id}`,
     chave: `encontro-alterado:${encontro.id}:${alteradoEm}`,
   };

@@ -27,13 +27,33 @@ import {
   type ConviteDto,
   DURACAO_ENCONTRO_MAX_HORAS,
   type EncontroDto,
+  type EstadoEncontroDto,
   ID_ENCONTRO,
+  type RespostaConvite,
+  type TipoAlteracaoEncontro,
   recusa,
   type StatusEncontro,
   TOLERANCIA_FIM_ENCONTRO_MIN,
 } from './encontros.js';
 
 const m = `"${SCHEMA_MAPA}"`;
+
+const ESTADO_DO_ENCONTRO =
+  `jsonb_build_object('inicio', e."inicio", 'fim', e."fim", 'pucstopId', e."pucstop_id", ` +
+  `'local', e."local_nome", 'descricao', e."descricao")`;
+
+function paraIso(valor: string): string {
+  return new Date(valor).toISOString();
+}
+
+function estadoDto(estado: EstadoSalvo): EstadoEncontroDto {
+  return {
+    inicio: paraIso(estado.inicio),
+    fim: paraIso(estado.fim),
+    local: { pucstopId: estado.pucstopId, nome: estado.local },
+    descricao: estado.descricao,
+  };
+}
 
 interface LinhaEncontro {
   id: string;
@@ -51,6 +71,30 @@ interface LinhaEncontro {
   cancelado_em: Date | null;
   realizado: boolean;
   convites: ConviteDto[];
+  historico: LinhaAlteracao[];
+}
+
+interface EstadoSalvo {
+  inicio: string;
+  fim: string;
+  pucstopId: string;
+  local: string;
+  descricao: string | null;
+}
+
+interface LinhaAlteracao {
+  tipo: TipoAlteracaoEncontro;
+  autorId: number;
+  autorNome: string;
+  em: string;
+  anterior: EstadoSalvo;
+  novo: EstadoSalvo | null;
+  respostasAnteriores: Array<{
+    usuarioId: number;
+    nome: string;
+    resposta: RespostaConvite;
+    respondidoEm: string | null;
+  }>;
 }
 
 interface EncontroTravado {
@@ -92,7 +136,14 @@ export class EncontrosService {
       `JOIN ${u}."usuarios" uc ON uc."id" = c."apadrinhado_id" ` +
       `LEFT JOIN ${u}."encontro_presencas" pc ON pc."encontro_id" = c."encontro_id" ` +
       `AND pc."usuario_id" = c."apadrinhado_id" ` +
-      `WHERE c."encontro_id" = e."id") AS "convites" ` +
+      `WHERE c."encontro_id" = e."id") AS "convites", ` +
+      `(SELECT COALESCE(jsonb_agg(jsonb_build_object(` +
+      `'tipo', a."tipo", 'autorId', a."autor_id", 'autorNome', ua."nome", 'em', a."criado_em", ` +
+      `'anterior', a."anterior", 'novo', a."novo", 'respostasAnteriores', a."respostas_anteriores"` +
+      `) ORDER BY a."criado_em", a."id"), '[]'::jsonb) ` +
+      `FROM ${u}."encontro_alteracoes" a ` +
+      `JOIN ${u}."usuarios" ua ON ua."id" = a."autor_id" ` +
+      `WHERE a."encontro_id" = e."id") AS "historico" ` +
       `FROM ${u}."encontros" e ` +
       `JOIN ${u}."usuarios" uo ON uo."id" = e."organizador_id" ` +
       `JOIN ${m}."pucstops" ps ON ps."id" = e."pucstop_id" ` +
@@ -138,6 +189,19 @@ export class EncontrosService {
           ? [meuConvite]
           : [],
       realizado: linha.realizado,
+      historico: linha.historico.map((a) => ({
+        tipo: a.tipo,
+        autor: { usuarioId: a.autorId, nome: a.autorNome },
+        em: paraIso(a.em),
+        anterior: estadoDto(a.anterior),
+        novo: a.novo ? estadoDto(a.novo) : null,
+        respostasAnteriores: a.respostasAnteriores
+          .filter((r) => souOrganizador || r.usuarioId === usuarioId)
+          .map((r) => ({
+            ...r,
+            respondidoEm: r.respondidoEm ? paraIso(r.respondidoEm) : null,
+          })),
+      })),
       souOrganizador,
       meuConvite,
       checkinAbre: new Date(
@@ -339,6 +403,41 @@ export class EncontrosService {
     return encontro;
   }
 
+  private async estadoAtual(
+    manager: EntityManager,
+    id: string,
+  ): Promise<{ estado: EstadoSalvo; respostas: unknown[] }> {
+    const u = this.u;
+    const [linha] = (await manager.query(
+      `SELECT ${ESTADO_DO_ENCONTRO} AS "estado", ` +
+        `(SELECT COALESCE(jsonb_agg(jsonb_build_object('usuarioId', uc."id", 'nome', uc."nome", ` +
+        `'resposta', c."resposta", 'respondidoEm', c."respondido_em") ORDER BY uc."id"), '[]'::jsonb) ` +
+        `FROM ${u}."encontro_convites" c JOIN ${u}."usuarios" uc ON uc."id" = c."apadrinhado_id" ` +
+        `WHERE c."encontro_id" = e."id" AND c."resposta" <> 'pendente') AS "respostas" ` +
+        `FROM ${u}."encontros" e WHERE e."id" = $1`,
+      [id],
+    )) as Array<{ estado: EstadoSalvo; respostas: unknown[] }>;
+    return linha;
+  }
+
+  private async registrarAlteracao(
+    manager: EntityManager,
+    id: string,
+    tipo: TipoAlteracaoEncontro,
+    autorId: number,
+    anterior: EstadoSalvo,
+    respostas: unknown[],
+  ): Promise<void> {
+    await manager.query(
+      `INSERT INTO ${this.u}."encontro_alteracoes" ` +
+        `("encontro_id", "tipo", "autor_id", "anterior", "novo", "respostas_anteriores") ` +
+        `SELECT e."id", $2::varchar, $3, $4::jsonb, ` +
+        `CASE WHEN $2::varchar = 'cancelamento' THEN NULL ELSE ${ESTADO_DO_ENCONTRO} END, $5::jsonb ` +
+        `FROM ${this.u}."encontros" e WHERE e."id" = $1`,
+      [id, tipo, autorId, JSON.stringify(anterior), JSON.stringify(respostas)],
+    );
+  }
+
   private async temPresenca(
     executor: Pick<EntityManager, 'query'>,
     encontroId: string,
@@ -385,6 +484,7 @@ export class EncontrosService {
           dados.descricao === undefined
             ? encontro.descricao
             : dados.descricao?.trim() || null;
+        const antes = await this.estadoAtual(manager, id);
         await manager.query(
           `UPDATE ${u}."encontros" SET "inicio" = $2, "fim" = $3, "pucstop_id" = $4, ` +
             `"descricao" = $5, "atualizado_em" = now() WHERE "id" = $1`,
@@ -397,6 +497,16 @@ export class EncontrosService {
             [id],
           );
         }
+        if (mudouQuandoOuOnde || descricao !== encontro.descricao) {
+          await this.registrarAlteracao(
+            manager,
+            id,
+            mudouQuandoOuOnde ? 'remarcacao' : 'edicao',
+            usuarioId,
+            antes.estado,
+            mudouQuandoOuOnde ? antes.respostas : [],
+          );
+        }
         const atualizado = await this.detalhe(usuarioId, id, manager);
         if (mudouQuandoOuOnde) {
           const operacao = randomUUID();
@@ -404,7 +514,11 @@ export class EncontrosService {
             manager,
             atualizado,
             atualizado.convites.map((c) => c.usuarioId),
-            (aviso) => notificacaoEncontroAlterado(aviso, operacao),
+            (aviso) =>
+              notificacaoEncontroAlterado(aviso, operacao, {
+                inicio: new Date(antes.estado.inicio),
+                local: antes.estado.local,
+              }),
           );
         }
         return { encontro: atualizado, reabriu: mudouQuandoOuOnde };
@@ -422,6 +536,15 @@ export class EncontrosService {
   ): Promise<EncontroDto> {
     const encontro = await this.dataSource.transaction(async (manager) => {
       await this.travarComoOrganizador(manager, usuarioId, id);
+      const antes = await this.estadoAtual(manager, id);
+      await this.registrarAlteracao(
+        manager,
+        id,
+        'cancelamento',
+        usuarioId,
+        antes.estado,
+        antes.respostas,
+      );
       await manager.query(
         `UPDATE ${this.u}."encontros" SET "status" = 'cancelado', "cancelado_em" = now(), ` +
           `"cancelado_por" = $2, "atualizado_em" = now() WHERE "id" = $1`,

@@ -11,6 +11,7 @@ import { SCHEMA_GAMIFICACAO } from '../src/gamificacao/gamificacao.js';
 import { RegrasXpController } from '../src/gamificacao/regras-xp/regras-xp.controller.js';
 import { RegrasXpService } from '../src/gamificacao/regras-xp/regras-xp.service.js';
 import { RegrasXp1795300000000 } from '../src/migrations/1795300000000-RegrasXp.js';
+import { RegrasXpPorPrograma1795900000000 } from '../src/migrations/1795900000000-RegrasXpPorPrograma.js';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
 const BANCO = `regras_xp_api_${process.pid}`;
@@ -48,10 +49,14 @@ describe.skipIf(!URL_TESTE)('Regras de XP com banco real', () => {
     dados = new DataSource({
       type: 'postgres',
       url: url.toString(),
-      migrations: [RegrasXp1795300000000],
+      migrations: [RegrasXp1795300000000, RegrasXpPorPrograma1795900000000],
     });
     await dados.initialize();
     await dados.query(`CREATE SCHEMA "${SCHEMA_GAMIFICACAO}"`);
+    await dados.query(
+      `CREATE SCHEMA feed; CREATE TABLE feed.programas (codigo varchar(20) PRIMARY KEY);
+       INSERT INTO feed.programas VALUES ('2026/1'), ('2026/2')`,
+    );
     await dados.runMigrations({ transaction: 'all' });
 
     const modulo = await Test.createTestingModule({
@@ -187,6 +192,70 @@ describe.skipIf(!URL_TESTE)('Regras de XP com banco real', () => {
       editada.body.versao,
       criada.body.versao,
     ]);
+  });
+
+  it('regra do ciclo tem prioridade sobre a geral e desativar volta à geral', async () => {
+    const acao = 'POR_CICLO';
+    const criar = (corpo: Record<string, unknown>) =>
+      http()
+        .post(ROTA)
+        .set('Authorization', auth())
+        .send({ acao, elegibilidade: 'todos', ...corpo });
+    const geral = (await criar({ valorXp: 10 }).expect(201)).body;
+    const doCiclo = (
+      await criar({ valorXp: 40, programa: '2026/2' }).expect(201)
+    ).body;
+    expect([geral.programa, doCiclo.programa]).toEqual([null, '2026/2']);
+    for (const regra of [geral, doCiclo]) {
+      await http()
+        .patch(`${ROTA}/${regra.id}/status`)
+        .set('Authorization', auth())
+        .send({ ativo: true })
+        .expect(200);
+    }
+    const vigente = async (programa: string) =>
+      (await servico.configuracoesVigentes([acao], dados, programa)).map(
+        (r) => [r.regraId, r.valorXp],
+      );
+    expect(await vigente('2026/2')).toEqual([[doCiclo.id, 40]]);
+    expect(await vigente('2026/1')).toEqual([[geral.id, 10]]);
+
+    const repetida = await criar({ valorXp: 50, programa: '2026/2' }).expect(
+      409,
+    );
+    expect(repetida.body.motivo).toBe('acao-duplicada');
+    await criar({ valorXp: 50, programa: '2025/2' }).expect(404);
+    const invalido = await criar({ valorXp: 50, programa: '2026-2' }).expect(
+      400,
+    );
+    expect(JSON.stringify(invalido.body.message)).toContain('AAAA/1');
+
+    await http()
+      .patch(`${ROTA}/${doCiclo.id}/status`)
+      .set('Authorization', auth())
+      .send({ ativo: false })
+      .expect(200);
+    expect(await vigente('2026/2')).toEqual([[geral.id, 10]]);
+
+    const lista = (
+      await http().get(ROTA).set('Authorization', auth()).expect(200)
+    ).body as Array<{ id: number; acao: string; programa: string | null }>;
+    expect(
+      lista.filter((r) => r.acao === acao).map((r) => [r.id, r.programa]),
+    ).toEqual([
+      [geral.id, null],
+      [doCiclo.id, '2026/2'],
+    ]);
+    const qr = dados.createQueryRunner();
+    try {
+      await expect(
+        new RegrasXpPorPrograma1795900000000().down(qr),
+      ).rejects.toThrow(
+        'regras de XP de ciclos específicos seriam descartadas',
+      );
+    } finally {
+      await qr.release();
+    }
   });
 
   it('protege as rotas e retorna os erros padrão de validação e ausência', async () => {
