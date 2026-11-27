@@ -201,16 +201,20 @@ class AbasPainelCoord extends StatelessWidget {
     required this.itens,
     required this.selecionada,
     required this.onSelecionar,
+    this.colunasCompactas = 2,
   });
   final List<({String valor, String titulo, IconData icone})> itens;
   final String selecionada;
   final ValueChanged<String> onSelecionar;
+  final int colunasCompactas;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
     child: LayoutBuilder(
       builder: (context, constraints) {
-        final colunas = constraints.maxWidth >= 700 ? itens.length : 2;
+        final colunas = constraints.maxWidth >= 700
+            ? itens.length
+            : colunasCompactas;
         final largura = (constraints.maxWidth - (colunas - 1) * 8) / colunas;
         return Wrap(
           spacing: 8,

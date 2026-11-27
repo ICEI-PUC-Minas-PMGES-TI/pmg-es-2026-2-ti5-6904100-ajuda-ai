@@ -1,3 +1,4 @@
+import AbasAnalise from './AbasAnalise';
 import { useCallback, useEffect, useId, useState } from 'react';
 import { api } from '../../api/client';
 import { textoPreferenciaGenero } from '../../components/PreferenciaGenero';
@@ -33,6 +34,7 @@ function Chips({ itens, vazio = 'Não informado' }) {
 /** Dados enviados no cadastro + decisão da coordenação (aprovar/rejeitar). */
 export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) {
   const [detalhe, setDetalhe] = useState(null);
+  const [aba, setAba] = useState('conferencia');
   const [erro, setErro] = useState('');
   const [acao, setAcao] = useState('');
   const [erroAcao, setErroAcao] = useState('');
@@ -96,6 +98,7 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
   const aprovado = detalhe.statusCadastro === 'aprovado';
   const extras = r.extras || {};
   const liberada = conferenciaLiberaAprovacao(conferencia);
+  const abaAtiva = aba === 'conferencia' && !conferencia ? 'perfil' : aba;
   const meta = [
     detalhe.curso,
     detalhe.periodo ? `${detalhe.periodo}º período` : null,
@@ -127,63 +130,9 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
         </div>
       </header>
 
-      {pendente || (!aprovado && detalhe.motivoRejeicao) || (!aprovado && !pendente) || erroAcao ? (
-        <section className="detail-action-bar">
-          {pendente ? (
-            <>
-              <p className="detail-muted small">
-                {!liberada
-                  ? conferencia?.verificacao
-                    ? 'A conferência registrou requisitos obrigatórios não atendidos: aprovação bloqueada.'
-                    : 'Registre a conferência acadêmica com os requisitos atendidos para liberar a aprovação.'
-                  : ehPadrinho
-                    ? 'Aprovar também aprova a candidatura deste ciclo'
-                    : 'Após aprovar, entra na fila de matching'}
-              </p>
-              <div className="decision-buttons decision-buttons-row">
-                <button
-                  type="button"
-                  className="decision approve"
-                  disabled={Boolean(acao) || !liberada}
-                  onClick={() => decidir('aprovar', () => api.aprovarCadastro(id, programa), `Cadastro de ${detalhe.nome} aprovado.`)}
-                >
-                  <Icon name="check" size={16} /> {acao === 'aprovar' ? 'Aprovando…' : 'Aprovar'}
-                </button>
-                <button
-                  type="button"
-                  className="decision reject"
-                  disabled={Boolean(acao)}
-                  onClick={() => {
-                    if (!motivo.trim()) setMotivo(justificativaDaConferencia(conferencia));
-                    setRejeitando(true);
-                  }}
-                >
-                  <Icon name="close" size={16} /> Rejeitar
-                </button>
-              </div>
-            </>
-          ) : !aprovado ? (
-            <>
-              {detalhe.motivoRejeicao && (
-                <p className="detail-muted small" style={{ marginRight: 'auto' }}>Motivo: {detalhe.motivoRejeicao}</p>
-              )}
-              <div className="decision-buttons decision-buttons-row">
-                <button
-                  type="button"
-                  className="decision approve"
-                  disabled={Boolean(acao) || !liberada}
-                  onClick={() => decidir('aprovar', () => api.aprovarCadastro(id, programa), `Cadastro de ${detalhe.nome} aprovado.`)}
-                >
-                  <Icon name="check" size={16} /> {acao === 'aprovar' ? 'Aprovando…' : 'Rever e aprovar'}
-                </button>
-              </div>
-            </>
-          ) : null}
-          {erroAcao && <p className="form-error" role="alert"><Icon name="alert" size={15} /> {erroAcao}</p>}
-        </section>
-      ) : null}
-
+      <AbasAnalise aba={abaAtiva} onMudar={setAba} conferencia={Boolean(conferencia)} cadastro />
       <div className="detail-flow">
+        <div className="analysis-panel" hidden={abaAtiva !== 'conferencia'}>
         {participacaoId && (
           <ConferenciaAcademica
             participacaoId={participacaoId}
@@ -194,6 +143,8 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
             }}
           />
         )}
+        </div>
+        <div className="analysis-panel" hidden={abaAtiva !== 'perfil'}>
         {ehPadrinho ? (
           <>
             <details className="detail-disclosure">
@@ -265,6 +216,9 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
           </Bloco>
         )}
 
+        </div>
+        <div className="analysis-panel" hidden={abaAtiva !== 'registros'}>
+        <section className="detail-block"><h3>Registro do cadastro</h3><p className="detail-muted">Situação: {ROTULO_STATUS_CADASTRO[detalhe.statusCadastro]}</p>{detalhe.motivoRejeicao && <p className="detail-text">{detalhe.motivoRejeicao}</p>}</section>
         {detalhe.historico?.length > 0 && (
           <details className="detail-disclosure">
             <summary>Outras participações</summary>
@@ -275,7 +229,64 @@ export default function CadastroDetalhe({ id, programa, onFechar, onDecidido }) 
             </ul>
           </details>
         )}
+        </div>
       </div>
+
+      {pendente || (!aprovado && detalhe.motivoRejeicao) || (!aprovado && !pendente) || erroAcao ? (
+        <section className="detail-action-bar">
+          {pendente ? (
+            <>
+              <p className="detail-muted small">
+                {!liberada
+                  ? conferencia?.verificacao
+                    ? 'A conferência registrou requisitos obrigatórios não atendidos: aprovação bloqueada.'
+                    : 'Registre a conferência acadêmica com os requisitos atendidos para liberar a aprovação.'
+                  : ehPadrinho
+                    ? 'Aprovar também aprova a candidatura deste ciclo'
+                    : 'Após aprovar, entra na fila de matching'}
+              </p>
+              <div className="decision-buttons decision-buttons-row">
+                <button
+                  type="button"
+                  className="decision approve"
+                  disabled={Boolean(acao) || !liberada}
+                  onClick={() => decidir('aprovar', () => api.aprovarCadastro(id, programa), `Cadastro de ${detalhe.nome} aprovado.`)}
+                >
+                  <Icon name="check" size={16} /> {acao === 'aprovar' ? 'Aprovando…' : 'Aprovar'}
+                </button>
+                <button
+                  type="button"
+                  className="decision reject"
+                  disabled={Boolean(acao)}
+                  onClick={() => {
+                    if (!motivo.trim()) setMotivo(justificativaDaConferencia(conferencia));
+                    setRejeitando(true);
+                  }}
+                >
+                  <Icon name="close" size={16} /> Rejeitar
+                </button>
+              </div>
+            </>
+          ) : !aprovado ? (
+            <>
+              {detalhe.motivoRejeicao && (
+                <p className="detail-muted small" style={{ marginRight: 'auto' }}>Motivo: {detalhe.motivoRejeicao}</p>
+              )}
+              <div className="decision-buttons decision-buttons-row">
+                <button
+                  type="button"
+                  className="decision approve"
+                  disabled={Boolean(acao) || !liberada}
+                  onClick={() => decidir('aprovar', () => api.aprovarCadastro(id, programa), `Cadastro de ${detalhe.nome} aprovado.`)}
+                >
+                  <Icon name="check" size={16} /> {acao === 'aprovar' ? 'Aprovando…' : 'Rever e aprovar'}
+                </button>
+              </div>
+            </>
+          ) : null}
+          {erroAcao && <p className="form-error" role="alert"><Icon name="alert" size={15} /> {erroAcao}</p>}
+        </section>
+      ) : null}
 
       {rejeitando && (
         <Modal

@@ -5,6 +5,7 @@ import '../theme/colors.dart';
 import 'componentes_coord.dart';
 import 'detalhe_candidatura_coord.dart';
 import 'tela_cadastros_coord.dart';
+import 'painel_coord.dart';
 
 /// Filtros de candidatura a padrinho.
 const filtrosPadrinho = <(String?, String)>[
@@ -48,6 +49,7 @@ class TelaCandidaturasCoord extends StatefulWidget {
   final CoordenacaoApi api;
   final String? programa;
   final String? status;
+
   /// `padrinho` | `apadrinhado` | null (padrão padrinho, salvo sem_vinculo).
   final String? publico;
 
@@ -60,10 +62,12 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
   String? _erro;
   bool _carregando = true;
   bool _processando = false;
+
   /// `padrinho` | `apadrinhado`
   late String _publico;
   String? _status;
   String _busca = '';
+  String _filtroConferencia = '';
   final Set<int> _selecionados = {};
 
   bool get _apadrinhado => _publico == 'apadrinhado';
@@ -155,17 +159,26 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
       _aindaPendente(item);
 
   int _ordenarLista(Map<String, dynamic> a, Map<String, dynamic> b) {
-    final diff =
-        (_aindaPendente(a) ? 0 : 1) - (_aindaPendente(b) ? 0 : 1);
+    final diff = (_aindaPendente(a) ? 0 : 1) - (_aindaPendente(b) ? 0 : 1);
     if (diff != 0) return diff;
     return '${b['criadoEm'] ?? ''}'.compareTo('${a['criadoEm'] ?? ''}');
   }
 
   List<Map<String, dynamic>> get _visiveis {
     final termo = _busca.trim().toLowerCase();
+    final itens = _itens
+        .where(
+          (item) =>
+              _apadrinhado ||
+              _filtroConferencia.isEmpty ||
+              (_filtroConferencia == 'pendente'
+                  ? item['conferencia'] == null
+                  : item['conferencia'] == _filtroConferencia),
+        )
+        .toList();
     final base = termo.isEmpty
-        ? _itens
-        : _itens.where((item) {
+        ? itens
+        : itens.where((item) {
             final texto = [
               item['nome'],
               item['email'],
@@ -194,38 +207,91 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
 
   Future<void> _escolherFiltro() async {
     final filtros = _apadrinhado ? filtrosApadrinhado : filtrosPadrinho;
-    final escolhido = await showModalBottomSheet<(String?,)>(
+    final escolhido = await showModalBottomSheet<(String?, String)>(
       context: context,
       showDragHandle: true,
       backgroundColor: Colors.white,
+      isScrollControlled: true,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final (valor, rotulo) in filtros)
-              ListTile(
-                title: Text(rotulo),
-                trailing: valor == _status
-                    ? const Icon(Icons.check, color: AppColors.primary)
-                    : null,
-                onTap: () => Navigator.pop(context, (valor,)),
-              ),
-          ],
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.8,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
+                  child: Text(
+                    'Filtrar candidaturas',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                ),
+                for (final (valor, rotulo) in filtros)
+                  ListTile(
+                    title: Text(rotulo),
+                    trailing: valor == _status
+                        ? const Icon(Icons.check, color: AppColors.primary)
+                        : null,
+                    onTap: () =>
+                        Navigator.pop(context, (valor, _filtroConferencia)),
+                  ),
+                if (!_apadrinhado) ...[
+                  const Divider(),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 10, 20, 6),
+                    child: Text(
+                      'Conferência acadêmica',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                  ),
+                  for (final (valor, rotulo) in [
+                    ('', 'Conferência: todas'),
+                    ('pendente', 'Conferência pendente'),
+                    ('requisitos_atendidos', 'Requisitos atendidos'),
+                    ('requisitos_nao_atendidos', 'Requisitos não atendidos'),
+                  ])
+                    ListTile(
+                      title: Text(rotulo),
+                      trailing: valor == _filtroConferencia
+                          ? const Icon(Icons.check, color: AppColors.primary)
+                          : null,
+                      onTap: () => Navigator.pop(context, (_status, valor)),
+                    ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );
-    if (escolhido == null || escolhido.$1 == _status) return;
+    if (escolhido == null ||
+        (escolhido.$1 == _status && escolhido.$2 == _filtroConferencia)) {
+      return;
+    }
+    final mudouStatus = escolhido.$1 != _status;
     setState(() {
       _status = escolhido.$1;
+      _filtroConferencia = escolhido.$2;
       _selecionados.clear();
     });
-    await _carregar();
+    if (mudouStatus) await _carregar();
   }
 
   void _trocarPublico(String publico) {
     if (publico == _publico) return;
     setState(() {
       _publico = publico;
+      _filtroConferencia = '';
       _status = publico == 'apadrinhado' ? 'sem_vinculo' : null;
       _selecionados.clear();
       _busca = '';
@@ -289,7 +355,10 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
     }
   }
 
-  Future<void> _detalhe(Map<String, dynamic> item, {bool avancar = true}) async {
+  Future<void> _detalhe(
+    Map<String, dynamic> item, {
+    bool avancar = true,
+  }) async {
     if (_cadastroApadrinhado) {
       final id = idDe(item);
       if (id == null) return;
@@ -360,10 +429,9 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
           CabecalhoCoord(
             titulo: 'Candidaturas',
             subtitulo: [
-              if (widget.programa != null) 'Programa ${widget.programa}',
               _apadrinhado
                   ? 'Aprove cadastros e defina vínculos de apadrinhados.'
-                  : 'Analise as candidaturas e selecione os novos padrinhos.',
+                  : 'Conheça cada perfil, confira os requisitos e acompanhe as decisões.',
             ].join(' · '),
           ),
           Padding(
@@ -388,7 +456,7 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
                   child: TextField(
                     onChanged: (valor) => setState(() => _busca = valor),
                     decoration: InputDecoration(
-                      hintText: 'Buscar por nome ou período...',
+                      hintText: 'Buscar por nome, curso ou período…',
                       prefixIcon: const Icon(Icons.search),
                       isDense: true,
                       filled: true,
@@ -444,6 +512,40 @@ class _TelaCandidaturasCoordState extends State<TelaCandidaturasCoord> {
                       },
               ),
             ),
+          if (!_apadrinhado && _filtroConferencia.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: InputChip(
+                label: Text(
+                  _filtroConferencia == 'pendente'
+                      ? 'Conferência pendente'
+                      : _filtroConferencia == 'requisitos_atendidos'
+                      ? 'Requisitos atendidos'
+                      : 'Requisitos não atendidos',
+                ),
+                onDeleted: () => setState(() => _filtroConferencia = ''),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _apadrinhado
+                        ? 'Fila de apadrinhados'
+                        : 'Fila de candidaturas',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                SeloPainelCoord('${visiveis.length} registros'),
+              ],
+            ),
+          ),
           if (!_apadrinhado && selecionaveis.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
@@ -579,7 +681,7 @@ class _ItemCandidatura extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(4, 10, 8, 10),
+          padding: const EdgeInsets.fromLTRB(4, 14, 10, 14),
           child: Row(
             children: [
               if (selecionavel)
@@ -612,7 +714,7 @@ class _ItemCandidatura extends StatelessWidget {
                         '${item['curso'] ?? ''}',
                       ].join(' · '),
                       style: const TextStyle(
-                        color: AppColors.muted,
+                        color: corTextoSecundarioCoord,
                         fontSize: 12,
                       ),
                     ),
@@ -620,12 +722,30 @@ class _ItemCandidatura extends StatelessWidget {
                       '${apadrinhado ? 'Cadastro' : 'Candidatura'} em '
                       '${formatarDataCoord(item['criadoEm'])}',
                       style: const TextStyle(
-                        color: AppColors.muted,
+                        color: corTextoSecundarioCoord,
                         fontSize: 12,
                       ),
                     ),
                     const SizedBox(height: 4),
-                    SeloStatusCoord(item: item),
+                    Wrap(
+                      spacing: 5,
+                      runSpacing: 6,
+                      children: [
+                        SeloStatusCoord(item: item),
+                        if (!apadrinhado &&
+                            ['pendente', 'em_analise'].contains(item['status']))
+                          SeloPainelCoord(
+                            item['conferencia'] == 'requisitos_atendidos'
+                                ? 'Requisitos atendidos'
+                                : item['conferencia'] ==
+                                      'requisitos_nao_atendidos'
+                                ? 'Requisitos não atendidos'
+                                : 'Conferência pendente',
+                            verde:
+                                item['conferencia'] == 'requisitos_atendidos',
+                          ),
+                      ],
+                    ),
                   ],
                 ),
               ),

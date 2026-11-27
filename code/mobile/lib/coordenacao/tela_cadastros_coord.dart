@@ -5,6 +5,8 @@ import '../models/preferencia_genero.dart';
 import '../services/coordenacao_api.dart';
 import '../theme/colors.dart';
 import 'componentes_coord.dart';
+import 'painel_coord.dart';
+import 'conferencia_academica_coord.dart';
 
 const _rotuloStatus = {
   'pendente': 'Aguardando análise',
@@ -219,9 +221,20 @@ class TelaDetalheCadastroCoord extends StatefulWidget {
 
 class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
   Map<String, dynamic>? _detalhe;
+  Map<String, dynamic>? _conferencia;
+  String? _erroConferencia;
+  bool _carregandoConferencia = false;
+  String _aba = 'conferencia';
   String? _erro;
   bool _processando = false;
   bool _alterado = false;
+  final _conteudo = ScrollController();
+
+  @override
+  void dispose() {
+    _conteudo.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -235,7 +248,32 @@ class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
         widget.id,
         programa: widget.programa,
       );
-      if (mounted) setState(() => _detalhe = dados);
+      if (!mounted) return;
+      final participacao = dados['participacao'] as Map?;
+      final id = participacao == null
+          ? null
+          : idDe(Map<String, dynamic>.from(participacao));
+      setState(() {
+        _detalhe = dados;
+        _carregandoConferencia = id != null;
+        _erroConferencia = null;
+      });
+      if (id != null) {
+        try {
+          final candidatura = await widget.api.candidatura(id);
+          if (mounted) {
+            setState(
+              () => _conferencia = candidatura['conferencia'] is Map
+                  ? Map<String, dynamic>.from(candidatura['conferencia'] as Map)
+                  : null,
+            );
+          }
+        } catch (erro) {
+          if (mounted) setState(() => _erroConferencia = mensagemDeErro(erro));
+        } finally {
+          if (mounted) setState(() => _carregandoConferencia = false);
+        }
+      }
     } catch (erro) {
       if (mounted) setState(() => _erro = mensagemDeErro(erro));
     }
@@ -252,6 +290,7 @@ class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
       setState(() {
         _detalhe = dados;
         _alterado = true;
+        _aba = 'registros';
       });
     } catch (erro) {
       if (mounted) setState(() => _erro = mensagemDeErro(erro));
@@ -306,10 +345,20 @@ class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
     final d = _detalhe;
     final r = d?['respostas'] is Map
         ? Map<String, dynamic>.from(d!['respostas'] as Map)
-        : const <String, dynamic>{};
+        : <String, dynamic>{};
     final ehPadrinho = d?['tipoParticipacao'] == 'padrinho';
     final status = '${d?['statusCadastro'] ?? ''}';
-
+    final temConferencia =
+        _conferencia != null ||
+        _carregandoConferencia ||
+        _erroConferencia != null;
+    final aba = _aba == 'conferencia' && !temConferencia ? 'perfil' : _aba;
+    final participacao = d?['participacao'] as Map?;
+    final participacaoId = participacao == null
+        ? null
+        : idDe(Map<String, dynamic>.from(participacao));
+    final liberada =
+        participacaoId == null || conferenciaLiberaAprovacaoCoord(_conferencia);
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -318,131 +367,261 @@ class _TelaDetalheCadastroCoordState extends State<TelaDetalheCadastroCoord> {
       child: Scaffold(
         backgroundColor: corFundoCoord,
         body: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
+          child: Column(
             children: [
               CabecalhoCoord(
                 titulo: '${d?['nome'] ?? 'Cadastro'}',
                 subtitulo: d == null
                     ? null
-                    : '${_rotuloTipo[d['tipoParticipacao']]} · '
-                          '${d['curso']} · ${d['periodo']}º período',
+                    : '${_rotuloTipo[d['tipoParticipacao']]} · ${d['curso']} · ${d['periodo']}º período',
                 voltar: true,
                 acao: d == null ? null : _SeloCadastro(status: status),
               ),
-              if (d == null && _erro == null)
-                const LinearProgressIndicator(color: AppColors.primary),
-              if (_erro != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    _erro!,
-                    style: const TextStyle(color: corErroCoord),
-                  ),
-                ),
               if (d != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _linha('E-mail', '${d['email']}'),
-                      _linha('Enviado em', formatarDataCoord(d['criadoEm'])),
-                      if (ehPadrinho) ...[
-                        const Text(
-                          'Requisitos do ciclo e declaração do candidato',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.ink,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        RequisitosDeclaradosCoord(
-                          requisitos: r['requisitos'] as List?,
-                          respondidos: r['requisitos'] is List,
-                          legado: r['declaraPreRequisitos'] == true,
-                          periodo: (d['periodo'] as num?)?.toInt(),
-                        ),
-                        const SizedBox(height: 10),
-                        _linha('Motivação', r['motivacao'] as String?),
-                        _linha('Experiências', r['experiencias'] as String?),
-                      ] else ...[
-                        _linha(
-                          'O que espera do padrinho',
-                          r['expectativa'] as String?,
-                        ),
-                        _linha(
-                          'Outras informações',
-                          r['outrasInformacoes'] as String?,
-                        ),
-                      ],
-                      _linha('Áreas', _lista(r['areas'])),
-                      _linha('Disponibilidade', _lista(r['disponibilidade'])),
-                      _linha('Gênero', r['genero'] as String?),
-                      _linha(
-                        'Preferência de gênero',
-                        PreferenciaGenero.fromJson(r['preferenciaGenero'])
-                                ?.descricao ??
-                            'Não informado',
+                AbasPainelCoord(
+                  itens: [
+                    if (temConferencia)
+                      (
+                        valor: 'conferencia',
+                        titulo: 'Conferência',
+                        icone: Icons.fact_check_outlined,
                       ),
-                      _linha('Bolsista ProUni', _simNao(r['bolsistaProuni'])),
-                      _linha('De outra cidade', _simNao(r['deOutraCidade'])),
-                      _linha('Interesses', _lista(d['interesses'])),
-                      if (status != 'pendente')
-                        _linha(
-                          'Decisão',
-                          '${status == 'aprovado' ? 'Aprovado' : 'Rejeitado'}'
-                              ' em ${formatarDataCoord(d['analisadoEm'])}'
-                              '${d['analisadoPor'] == null ? '' : ' por ${d['analisadoPor']}'}',
+                    (
+                      valor: 'perfil',
+                      titulo: 'Perfil e respostas',
+                      icone: Icons.person_outline,
+                    ),
+                    (
+                      valor: 'registros',
+                      titulo: 'Histórico',
+                      icone: Icons.history,
+                    ),
+                  ],
+                  selecionada: aba,
+                  colunasCompactas: temConferencia ? 3 : 2,
+                  onSelecionar: (valor) {
+                    setState(() => _aba = valor);
+                    if (_conteudo.hasClients) _conteudo.jumpTo(0);
+                  },
+                ),
+              Expanded(
+                child: ListView(
+                  controller: _conteudo,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                  children: [
+                    if (d == null && _erro == null)
+                      const LinearProgressIndicator(color: AppColors.primary),
+                    if (_erro != null)
+                      Text(_erro!, style: const TextStyle(color: corErroCoord)),
+                    Offstage(
+                      offstage: aba != 'conferencia',
+                      child: Column(
+                        children: [
+                          if (_carregandoConferencia)
+                            const LinearProgressIndicator(
+                              color: AppColors.primary,
+                            ),
+                          if (_erroConferencia != null)
+                            Column(
+                              children: [
+                                Text(
+                                  _erroConferencia!,
+                                  style: const TextStyle(color: corErroCoord),
+                                ),
+                                TextButton(
+                                  onPressed: _carregar,
+                                  child: const Text('Tentar novamente'),
+                                ),
+                              ],
+                            ),
+                          if (_conferencia != null && participacaoId != null)
+                            CartaoPainelCoord(
+                              margin: EdgeInsets.zero,
+                              child: ConferenciaAcademicaCoord(
+                                api: widget.api,
+                                participacaoId: participacaoId,
+                                conferencia: _conferencia!,
+                                onRegistrada: (atualizado) {
+                                  setState(() {
+                                    _conferencia =
+                                        atualizado['conferencia'] is Map
+                                        ? Map<String, dynamic>.from(
+                                            atualizado['conferencia'] as Map,
+                                          )
+                                        : _conferencia;
+                                    _alterado = true;
+                                  });
+                                },
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (d != null && aba == 'perfil')
+                      CartaoPainelCoord(
+                        margin: EdgeInsets.zero,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _linha('E-mail', '${d['email']}'),
+                            _linha(
+                              'Enviado em',
+                              formatarDataCoord(d['criadoEm']),
+                            ),
+                            if (ehPadrinho) ...[
+                              const Text(
+                                'Requisitos do ciclo e declaração do candidato',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.ink,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              RequisitosDeclaradosCoord(
+                                requisitos: r['requisitos'] as List?,
+                                respondidos: r['requisitos'] is List,
+                                legado: r['declaraPreRequisitos'] == true,
+                                periodo: (d['periodo'] as num?)?.toInt(),
+                              ),
+                              const SizedBox(height: 10),
+                              _linha('Motivação', r['motivacao'] as String?),
+                              _linha(
+                                'Experiências',
+                                r['experiencias'] as String?,
+                              ),
+                            ] else ...[
+                              _linha(
+                                'O que espera do padrinho',
+                                r['expectativa'] as String?,
+                              ),
+                              _linha(
+                                'Outras informações',
+                                r['outrasInformacoes'] as String?,
+                              ),
+                            ],
+                            _linha('Áreas', _lista(r['areas'])),
+                            _linha(
+                              'Disponibilidade',
+                              _lista(r['disponibilidade']),
+                            ),
+                            _linha('Gênero', r['genero'] as String?),
+                            _linha(
+                              'Preferência de gênero',
+                              PreferenciaGenero.fromJson(r['preferenciaGenero'])
+                                      ?.descricao ??
+                                  'Não informado',
+                            ),
+                            _linha(
+                              'Bolsista ProUni',
+                              _simNao(r['bolsistaProuni']),
+                            ),
+                            _linha(
+                              'De outra cidade',
+                              _simNao(r['deOutraCidade']),
+                            ),
+                            _linha('Interesses', _lista(d['interesses'])),
+                          ],
                         ),
-                      if (status == 'rejeitado' && d['motivoRejeicao'] != null)
-                        _linha(
-                          'Motivo informado ao aluno',
-                          '${d['motivoRejeicao']}',
+                      ),
+                    if (d != null && aba == 'registros')
+                      CartaoPainelCoord(
+                        margin: EdgeInsets.zero,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const TituloPainelCoord(
+                              titulo: 'Registro do cadastro',
+                            ),
+                            if (status != 'pendente')
+                              _linha(
+                                'Decisão',
+                                '${status == 'aprovado' ? 'Aprovado' : 'Rejeitado'}'
+                                    ' em ${formatarDataCoord(d['analisadoEm'])}'
+                                    '${d['analisadoPor'] == null ? '' : ' por ${d['analisadoPor']}'}',
+                              ),
+                            if (status == 'rejeitado' &&
+                                d['motivoRejeicao'] != null)
+                              _linha(
+                                'Motivo informado ao aluno',
+                                '${d['motivoRejeicao']}',
+                              ),
+
+                            if (status == 'pendente')
+                              const Text(
+                                'Este cadastro ainda aguarda uma decisão.',
+                                style: TextStyle(
+                                  color: corTextoSecundarioCoord,
+                                ),
+                              ),
+                          ],
                         ),
-                      if (status == 'pendente' || status == 'rejeitado') ...[
-                        const SizedBox(height: 8),
-                        if (status != 'aprovado')
-                          FilledButton.icon(
-                            onPressed: _processando
-                                ? null
-                                : () => _decidir(
-                                    () => widget.api.aprovarCadastro(
-                                      widget.id,
-                                      programa: widget.programa,
+                      ),
+                  ],
+                ),
+              ),
+              if (d != null && (status == 'pendente' || status == 'rejeitado'))
+                Container(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(top: BorderSide(color: Color(0xFFE4DFF0))),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        !liberada
+                            ? 'Registre a conferência com os requisitos atendidos para liberar a aprovação.'
+                            : ehPadrinho
+                            ? 'Aprovar também aprova a candidatura deste ciclo.'
+                            : 'Após a aprovação, o apadrinhado entra na fila de matching.',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: corTextoSecundarioCoord,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          if (status == 'pendente') ...[
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _processando ? null : _rejeitar,
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: corErroCoord,
+                                ),
+                                icon: const Icon(Icons.close, size: 17),
+                                label: const Text('Rejeitar'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                          ],
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _processando || !liberada
+                                  ? null
+                                  : () => _decidir(
+                                      () => widget.api.aprovarCadastro(
+                                        widget.id,
+                                        programa: widget.programa,
+                                      ),
                                     ),
-                                  ),
-                            icon: const Icon(Icons.check),
-                            label: Text(
-                              status == 'rejeitado'
-                                  ? 'Rever e aprovar'
-                                  : 'Aprovar',
-                            ),
-                          ),
-                        if (status == 'pendente')
-                          OutlinedButton.icon(
-                            onPressed: _processando ? null : _rejeitar,
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: corErroCoord,
-                            ),
-                            icon: const Icon(Icons.close),
-                            label: const Text('Rejeitar'),
-                          ),
-                        if (status == 'pendente') ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            ehPadrinho
-                                ? 'Aprovar também aprova a candidatura a padrinho '
-                                      'deste ciclo.'
-                                : 'Após a aprovação, o apadrinhado entra na fila '
-                                      'de matching.',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: corTextoSecundarioCoord,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                              ),
+                              icon: const Icon(Icons.check, size: 17),
+                              label: Text(
+                                status == 'rejeitado'
+                                    ? 'Rever e aprovar'
+                                    : 'Aprovar',
+                              ),
                             ),
                           ),
                         ],
-                      ],
+                      ),
                     ],
                   ),
                 ),

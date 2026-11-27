@@ -8,6 +8,7 @@ import CadastroDetalhe from './CadastroDetalhe';
 import CandidaturaDetalhe from './CandidaturaDetalhe';
 import { Avatar, badgeClass, dataCurta, ROTULO_STATUS_CADASTRO, statusCadastroTom } from './comum';
 import { conferenciaTom, ROTULO_CONFERENCIA } from './ConferenciaAcademica';
+import './candidaturas.css';
 
 const PUBLICOS = [
   { valor: 'padrinho', rotulo: 'Padrinhos' },
@@ -110,6 +111,14 @@ export default function CandidaturasPage() {
   const [processando, setProcessando] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [versao, setVersao] = useState(0);
+  const [telaCompacta, setTelaCompacta] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches);
+
+  useEffect(() => {
+    const consulta = window.matchMedia('(max-width: 900px)');
+    const atualizar = () => setTelaCompacta(consulta.matches);
+    consulta.addEventListener('change', atualizar);
+    return () => consulta.removeEventListener('change', atualizar);
+  }, []);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -202,10 +211,10 @@ export default function CandidaturasPage() {
     if (carregando) return;
     const aindaVisivel = idSelecionado && filtrados.some((i) => i.id === idSelecionado);
     if (aindaVisivel) return;
-    if (filtrados[0]?.id) selecionar(filtrados[0].id);
+    if (filtrados[0]?.id && !telaCompacta) selecionar(filtrados[0].id);
     else if (idSelecionado) selecionar(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sincroniza só com lista/seleção
-  }, [carregando, idSelecionado, filtrados]);
+  }, [carregando, idSelecionado, filtrados, telaCompacta]);
 
   const selecionaveis = useMemo(() => filtrados.filter(aindaPendente), [filtrados]);
   const todosMarcados = selecionaveis.length > 0 && selecionaveis.every((item) => marcados.includes(item.id));
@@ -264,7 +273,7 @@ export default function CandidaturasPage() {
   const detalheVisivel = idSelecionado && filtrados.some((i) => i.id === idSelecionado);
 
   return (
-    <section className={`cand-page${detalheVisivel ? ' has-selection' : ''}`}>
+    <section className={`cand-page cand-review${detalheVisivel ? ' has-selection' : ''}`}>
       <header className="cand-top">
         <div className="cand-top-row">
           <div className="cand-top-copy">
@@ -272,8 +281,7 @@ export default function CandidaturasPage() {
             <p>
               {modoApadrinhado
                 ? 'Aprove cadastros e defina vínculos.'
-                : 'Revise, aprove ou rejeite com o mínimo de cliques.'}
-              {programa ? ` · ${programa}` : ''}
+                : 'Conheça cada perfil, confira os requisitos e acompanhe as decisões.'}
             </p>
           </div>
           <div className="forms-tabs" role="tablist" aria-label="Público da análise">
@@ -286,12 +294,17 @@ export default function CandidaturasPage() {
                 className={`forms-tab${p.valor === publico ? ' active' : ''}`}
                 onClick={() => trocarPublico(p.valor)}
               >
-                {p.rotulo}
+                <Icon name={p.valor === 'padrinho' ? 'person' : 'users'} size={17} />{p.rotulo}
               </button>
             ))}
           </div>
         </div>
 
+      </header>
+
+      <div className="cand-body">
+        <div className="cand-list-pane">
+          <div className="cand-queue-heading"><div><h2>{modoApadrinhado ? 'Fila de apadrinhados' : 'Fila de candidaturas'}</h2><p>Selecione um perfil para analisar.</p></div><span>{filtrados.length}</span></div>
         <div className="cand-toolbar">
           <label className="search-field">
             <Icon name="search" size={17} />
@@ -328,10 +341,7 @@ export default function CandidaturasPage() {
             ))}
           </div>
         </div>
-      </header>
-
-      <div className="cand-body">
-        <div className="cand-list-pane">
+          <div className="cand-queue-summary" role="status"><span>{filtrados.length} {filtrados.length === 1 ? 'registro na lista' : 'registros na lista'}</span>{selecionaveis.length > 0 && <span><i />{selecionaveis.length} aguardando decisão</span>}</div>
           {!modoApadrinhado && selecionaveis.length > 0 && (
             <div className="bulk-bar">
               <label className="bulk-all">
@@ -414,26 +424,18 @@ export default function CandidaturasPage() {
                   <span className="cand-copy">
                     <strong>{item.nome}</strong>
                     <span>{item.curso}{item.periodo ? ` · ${item.periodo}º` : ''}</span>
+                    <span className="cand-item-tags">
+                    <span className={`status-pill cand-status ${modoSemVinculo ? 'analise' : modoCadastroApadrinhado ? statusCadastroTom(item.statusCadastro) : badgeClass(item.status, item.papel)}`}>
+                      {modoSemVinculo ? 'Sem vínculo' : modoCadastroApadrinhado ? ROTULO_STATUS_CADASTRO[item.statusCadastro] || item.statusCadastro : item.statusRotulo}
+                    </span>
                     {!modoApadrinhado && item.papel === 'candidato' && ['pendente', 'em_analise'].includes(item.status) && (
                       <span className={`status-pill cand-conferencia ${conferenciaTom(item.conferencia)}`}>
                         {item.conferencia ? ROTULO_CONFERENCIA[item.conferencia] : 'Conferência pendente'}
                       </span>
                     )}
+                    </span>
                   </span>
-                  <span className={`status-pill cand-status ${
-                    modoSemVinculo
-                      ? 'analise'
-                      : modoCadastroApadrinhado
-                        ? statusCadastroTom(item.statusCadastro)
-                        : badgeClass(item.status, item.papel)
-                  }`}
-                  >
-                    {modoSemVinculo
-                      ? 'Sem vínculo'
-                      : modoCadastroApadrinhado
-                        ? ROTULO_STATUS_CADASTRO[item.statusCadastro] || item.statusCadastro
-                        : item.statusRotulo}
-                  </span>
+                  <Icon name="chevron" size={15} />
                 </button>
               </li>
             ))}

@@ -121,6 +121,19 @@ class CoordenacaoApi {
     ),
   );
 
+  Future<Map<String, dynamic>> registrarVerificacao(
+    int id, {
+    required List<Map<String, dynamic>> itens,
+    required String observacoes,
+  }) async => _mapa(
+    await _enviar(
+      'PUT',
+      '/coordenacao/candidaturas/$id/verificacao',
+      corpo: {'itens': itens, 'observacoes': observacoes},
+      erro: 'Não foi possível registrar a conferência acadêmica.',
+    ),
+  );
+
   Future<Map<String, dynamic>> rejeitarCandidatura(
     int id, {
     String? justificativa,

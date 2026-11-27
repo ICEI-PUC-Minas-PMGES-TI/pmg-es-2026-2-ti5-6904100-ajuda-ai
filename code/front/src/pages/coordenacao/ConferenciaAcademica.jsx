@@ -75,6 +75,7 @@ export default function ConferenciaAcademica({ participacaoId, conferencia, onRe
   if (!conferencia) return null;
   const { itens = [], verificacao, anteriores = [], podeRegistrar, dadosParaConsulta: dados } = conferencia;
   const completo = itens.length > 0 && itens.every((i) => typeof marcacoes[i.id] === 'boolean');
+  const conferidos = itens.filter((i) => typeof marcacoes[i.id] === 'boolean').length;
 
   async function copiar() {
     try {
@@ -112,16 +113,19 @@ export default function ConferenciaAcademica({ participacaoId, conferencia, onRe
           {verificacao ? ROTULO_CONFERENCIA[verificacao.resultado] : 'Não conferida'}
         </span>
       </h3>
+      <p className="conference-intro">Consulte os dados acadêmicos e registre o resultado de cada requisito.</p>
 
       {dados && (
-        <div className="conferencia-dados">
-          <p className="detail-sub">Dados para consultar no sistema da faculdade</p>
+        <div className="conference-query">
+          <details className="conferencia-dados">
+          <summary><Icon name="clipboard" size={17} /><span>Dados para consulta<small>Nome, contato e dados acadêmicos</small></span><Icon name="chevronDown" size={15} /></summary>
           <dl className="detail-facts">
             <div><dt>Nome</dt><dd>{dados.nome}</dd></div>
             <div><dt>E-mail institucional</dt><dd>{dados.email}</dd></div>
             <div><dt>Curso / período</dt><dd>{dados.curso}{dados.periodo ? ` · ${dados.periodo}º período` : ''}{dados.turno ? ` · ${dados.turno}` : ''}</dd></div>
             <div><dt>Papel</dt><dd>{dados.papel} · {dados.programa}</dd></div>
           </dl>
+          </details>
           <button type="button" className="mini-btn" onClick={copiar}>
             <Icon name={copiado ? 'check' : 'clipboard'} size={14} /> {copiado ? 'Dados copiados' : 'Copiar dados'}
           </button>
@@ -130,10 +134,11 @@ export default function ConferenciaAcademica({ participacaoId, conferencia, onRe
 
       {podeRegistrar && (
         <div className="conferencia-form">
-          <p className="detail-sub">Requisitos conferidos</p>
+          <div className="conference-progress"><div><strong>Verificação dos requisitos</strong><span>{conferidos} de {itens.length} conferidos</span></div><progress max={itens.length || 1} value={conferidos} aria-label="Requisitos conferidos" /></div>
           <ul className="conferencia-itens">
-            {itens.map((item) => (
-              <li key={item.id} className={marcacoes[item.id] === false && item.obrigatorio ? 'nao-atende' : undefined}>
+            {itens.map((item, index) => (
+              <li key={item.id} className={marcacoes[item.id] === false && item.obrigatorio ? 'nao-atende' : marcacoes[item.id] === true ? 'atende' : undefined}>
+                <span className="conference-item-number" aria-hidden="true">{index + 1}</span>
                 <span className="conferencia-desc">
                   {item.descricao}
                   <small>{item.origem === 'programa' ? 'Critério do programa' : 'Requisito do papel'}{item.obrigatorio ? '' : ' · opcional'}</small>
@@ -151,11 +156,11 @@ export default function ConferenciaAcademica({ participacaoId, conferencia, onRe
               </li>
             ))}
           </ul>
-          <label htmlFor={obsId} className="detail-sub">Observações da conferência</label>
+          <label htmlFor={obsId} className="detail-sub">Observações da conferência <span className="conference-optional">(opcional)</span></label>
           <textarea
             id={obsId}
             className="detail-textarea"
-            rows={3}
+            rows={2}
             maxLength={1000}
             value={observacoes}
             onChange={(e) => setObservacoes(e.target.value)}

@@ -1,0 +1,142 @@
+/* Análise de candidaturas: fila legível, conferência em foco e decisão acessível. */
+.cand-page.cand-review { --muted: #595673; --border: #e2dff0; gap: 20px; min-height: 0; }
+.cand-page.cand-review .cand-top { gap: 0; }
+.cand-page.cand-review .cand-top-row { align-items: center; gap: 20px; }
+.cand-page.cand-review .cand-top-copy h1 { margin: 0 0 6px; font-size: clamp(1.4rem, 2vw, 1.85rem); color: var(--ink); letter-spacing: -.4px; }
+.cand-page.cand-review .cand-top-copy p { max-width: 65ch; margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.6; }
+.cand-page.cand-review .cand-top .forms-tabs { padding: 4px; border-radius: 11px; }
+.cand-page.cand-review .cand-top .forms-tab { display: inline-flex; gap: 8px; align-items: center; justify-content: center; min-height: 40px; padding: 9px 18px; border-radius: 8px; font-size: .8rem; }
+.cand-page.cand-review.has-selection .cand-body { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); gap: 22px; min-height: 0; align-items: start; }
+.cand-page.cand-review .cand-list-pane { min-width: 0; padding: 18px 14px 12px; border: 1px solid var(--border); border-radius: 15px; background: #fff; gap: 14px; }
+.cand-page.cand-review.has-selection .cand-list-pane { max-height: max(540px, calc(100dvh - 205px)); overflow: hidden; }
+.cand-queue-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-inline: 4px; }
+.cand-queue-heading h2 { margin: 0; font-size: .89rem; color: var(--ink); font-weight: 700; }
+.cand-queue-heading p { margin: 5px 0 0; color: var(--muted); font-size: .73rem; }
+.cand-queue-heading > span { padding: 3px 9px; border-radius: 6px; color: var(--purple); background: #eee9fc; font-size: .73rem; font-weight: 700; }
+.cand-page.cand-review .cand-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
+.cand-page.cand-review .cand-toolbar .search-field { min-width: 0; width: 100%; max-width: none; min-height: 42px; border-radius: 9px; }
+.cand-page.cand-review .cand-toolbar input { font-size: .76rem; }
+.cand-page.cand-review .cand-toolbar .filter-select { display: flex; min-width: 0; min-height: 38px; border-radius: 9px; background: #fcfbff; }
+.cand-page.cand-review .cand-toolbar select:not([multiple]):not([size]) { font-size: .74rem; color: #595174; height: 36px; }
+.cand-page.cand-review .cand-toolbar .filter-chips { display: none; }
+.cand-queue-summary { display: flex; justify-content: space-between; gap: 7px; flex-wrap: wrap; padding: 1px 4px; color: var(--muted); font-size: .65rem; }
+.cand-queue-summary > span { display: flex; align-items: center; gap: 5px; }
+.cand-queue-summary i { display: block; width: 5px; height: 5px; border-radius: 50%; background: #c98a24; }
+.cand-page.cand-review .bulk-bar { display: grid; gap: 10px; padding: 8px 10px; background: #f7f4ff; border: 1px solid #eee8fa; border-radius: 9px; }
+.cand-page.cand-review .bulk-all { min-height: 28px; font-size: .73rem; }
+.cand-page.cand-review .bulk-all input, .cand-page.cand-review .cand-check { flex: 0 0 17px; width: 17px; height: 17px; min-height: 17px; margin: 0; }
+.cand-page.cand-review .bulk-actions { gap: 7px; }
+.cand-page.cand-review .bulk-actions > span { flex-basis: 100%; font-size: .7rem; }
+.cand-page.cand-review .bulk-actions .mini-btn { flex: 1; justify-content: center; min-height: 34px; font-size: .72rem; }
+.cand-page.cand-review .cand-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 0 2px 0 0; scrollbar-width: thin; }
+.cand-page.cand-review .cand-row { display: flex; align-items: center; gap: 7px; padding: 12px 10px; border: 1px solid #eeeaf5; border-radius: 11px; opacity: 1; }
+.cand-page.cand-review .cand-row.selected { border-color: #b4a1ed; background: #f2edff; box-shadow: inset 3px 0 0 var(--purple); }
+.cand-page.cand-review .cand-row:hover { background: #f8f5ff; }
+.cand-page.cand-review .cand-item { display: grid; grid-template-columns: 33px minmax(0, 1fr) 13px; align-items: start; gap: 9px; min-width: 0; min-height: 56px; padding: 0; border-radius: 6px; }
+.cand-page.cand-review .cand-item > .icon { margin-top: 8px; color: var(--purple); }
+.cand-page.cand-review .cand-item .coord-avatar { margin-top: 1px; }
+.cand-page.cand-review .cand-copy { gap: 5px; }
+.cand-page.cand-review .cand-copy strong { white-space: normal; overflow: visible; color: var(--ink); font-size: .8rem; line-height: 1.5; }
+.cand-page.cand-review .cand-copy > span:not(.cand-item-tags) { white-space: normal; overflow: visible; color: var(--muted); font-size: .69rem; line-height: 1.5; }
+.cand-page.cand-review .cand-copy .cand-item-tags { display: flex; flex-wrap: wrap; gap: 5px; overflow: visible; white-space: normal; }
+.cand-page.cand-review .cand-copy .status-pill { max-width: none; margin: 0; padding: 3px 6px; white-space: normal; font-size: .6rem; font-weight: 600; line-height: 1.45; text-align: left; }
+.cand-page.cand-review .cand-detail-pane { max-height: none; overflow: visible; border-radius: 15px; }
+.cand-page.cand-review .cand-detail { display: flex; flex-direction: column; min-height: 540px; max-height: max(540px, calc(100dvh - 205px)); overflow: hidden; border-radius: 15px; }
+.cand-page.cand-review .detail-head { flex-direction: row; align-items: flex-start; gap: 14px; padding: 22px 24px; text-align: left; }
+.cand-page.cand-review .detail-head .coord-avatar { width: 46px; height: 46px; flex: 0 0 46px; }
+.cand-page.cand-review .detail-head-title { justify-content: flex-start; gap: 8px; }
+.cand-page.cand-review .detail-head h2 { font-size: 1.1rem; color: var(--ink); line-height: 1.45; }
+.cand-page.cand-review .detail-head p { justify-content: flex-start; margin: 5px 0 0; text-align: left; color: var(--muted); font-size: .74rem; line-height: 1.6; }
+.cand-page.cand-review .detail-head .status-pill { font-size: .65rem; }
+.analysis-tabs { display: flex; align-items: stretch; gap: 20px; flex-shrink: 0; padding: 0 24px; border-bottom: 1px solid var(--border); }
+.analysis-tabs button { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 12px 0 14px; border: 0; border-bottom: 3px solid transparent; color: var(--muted); background: transparent; font-size: .76rem; font-weight: 600; cursor: pointer; }
+.analysis-tabs button[aria-pressed="true"] { border-bottom-color: var(--purple); color: var(--purple); }
+.cand-page.cand-review .detail-flow { flex: 1; min-height: 0; width: 100%; max-width: none; padding: 22px 24px; overflow-y: auto; scrollbar-width: thin; }
+.analysis-panel { display: grid; align-content: start; gap: 18px; min-width: 0; }
+.analysis-panel[hidden] { display: none; }
+.cand-page.cand-review .analysis-panel > .detail-block { margin: 0; padding: 0; border: 0; background: transparent; }
+.cand-page.cand-review .analysis-panel h3 { font-size: .88rem; color: var(--ink); }
+.cand-page.cand-review .detail-two { min-width: 0; gap: 14px; }
+.cand-page.cand-review .detail-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0 0; }
+.cand-page.cand-review .detail-facts > div { min-width: 0; padding: 12px; border: 1px solid #eeebf5; border-radius: 9px; background: #faf9fe; }
+.cand-page.cand-review .detail-facts dt { color: var(--muted); font-size: .68rem; }
+.cand-page.cand-review .detail-facts dd { margin: 5px 0 0; color: var(--ink); font-size: .78rem; line-height: 1.6; overflow-wrap: anywhere; }
+.cand-page.cand-review .detail-muted { color: var(--muted); font-size: .77rem; line-height: 1.6; }
+.cand-page.cand-review .detail-text { font-size: .8rem; line-height: 1.7; }
+.cand-page.cand-review .detail-action-bar { position: static; flex-shrink: 0; gap: 12px; padding: 16px 24px; background: #faf9fe; border-bottom: 0; box-shadow: 0 -4px 14px #28204604; }
+.cand-page.cand-review .detail-action-bar .detail-muted.small { flex: 1 1 240px; margin: 0; font-size: .73rem; line-height: 1.6; }
+.cand-page.cand-review .decision-buttons-row { gap: 8px; }
+.cand-page.cand-review .decision-buttons-row .decision { min-height: 40px; padding: 0 16px; font-size: .75rem; border-radius: 8px; }
+.cand-page.cand-review .decision:disabled { opacity: 1; color: #746a92; background: #eae5f4; border-color: #eae5f4; cursor: not-allowed; box-shadow: none; }
+.cand-page.cand-review .back-to-list { padding: 14px 18px 0; margin: 0; font-size: .76rem; }
+.cand-page.cand-review .conferencia h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.conference-intro { margin: 0 0 18px; color: var(--muted); font-size: .76rem; line-height: 1.6; }
+.conference-query { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px; padding: 12px; border: 1px solid #e9e4f3; border-radius: 10px; background: #fcfbff; }
+.conferencia-dados { flex: 1 1 250px; min-width: 0; }
+.conferencia-dados > summary { display: flex; align-items: center; gap: 10px; list-style: none; cursor: pointer; color: var(--purple); font-size: .75rem; font-weight: 600; }
+.conferencia-dados > summary::-webkit-details-marker { display: none; }
+.conferencia-dados > summary > span { flex: 1; }
+.conferencia-dados > summary small { display: block; margin-top: 4px; color: var(--muted); font-size: .65rem; font-weight: 400; }
+.cand-page.cand-review .conference-query > .mini-btn { margin: 0; min-height: 36px; font-size: .7rem; }
+.cand-page.cand-review .conferencia .detail-sub { margin: 16px 0 8px; color: var(--ink); font-size: .75rem; font-weight: 600; }
+.cand-page.cand-review .conferencia-dados .mini-btn { min-height: 34px; font-size: .7rem; }
+.conference-progress { margin: 22px 0 16px; }
+.conference-progress > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: .75rem; }
+.conference-progress strong { color: var(--ink); font-weight: 600; }
+.conference-progress span { color: var(--purple); font-size: .7rem; }
+.conference-progress progress { display: block; width: 100%; height: 5px; margin-top: 10px; border: 0; border-radius: 8px; background: #eee8fa; accent-color: var(--purple); }
+.conference-progress progress::-webkit-progress-bar { border-radius: 8px; background: #eee8fa; }
+.conference-progress progress::-webkit-progress-value { border-radius: 8px; background: var(--purple); }
+.conference-progress progress::-moz-progress-bar { border-radius: 8px; background: var(--purple); }
+.cand-page.cand-review .conferencia-itens { gap: 10px; }
+.cand-page.cand-review .conferencia-itens li { display: flex; align-items: center; gap: 12px; padding: 14px; border-color: #e7e2f0; border-radius: 10px; }
+.conference-item-number { display: grid; place-items: center; flex: 0 0 27px; height: 27px; border-radius: 8px; color: var(--purple); background: #f0ebfc; font-size: .69rem; font-weight: 700; }
+.cand-page.cand-review .conferencia-desc { min-width: min(180px, 100%); color: var(--ink); font-size: .78rem; line-height: 1.5; }
+.cand-page.cand-review .conferencia-desc small { margin-top: 4px; color: var(--muted); font-size: .65rem; }
+.cand-page.cand-review .conferencia-opcoes { gap: 6px; margin-left: auto; }
+.cand-page.cand-review .conferencia-opcoes label { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid #e7e2f0; border-radius: 7px; color: #595174; background: #fff; font-size: .7rem; }
+.cand-page.cand-review .conferencia-opcoes input { width: 14px; height: 14px; margin: 0; }
+.cand-page.cand-review .conferencia-opcoes label:has(input:checked) { color: #176848; border-color: #9cceb7; background: #eff9f4; font-weight: 600; }
+.cand-page.cand-review .conferencia-opcoes label:last-child:has(input:checked) { color: #a22c4a; border-color: #e5aabd; background: #fff2f5; }
+.cand-page.cand-review .conferencia-itens li.atende { border-color: #c2dfd0; }
+.cand-page.cand-review .conferencia-itens li.nao-atende { background: #fff9fa; }
+.conference-optional { color: var(--muted); font-weight: 400; }
+.cand-page.cand-review .conferencia-form > .decision-buttons { display: flex; justify-content: flex-end; }
+.cand-page.cand-review .conferencia-form .decision { width: auto; min-height: 40px; padding-inline: 16px; border-radius: 8px; font-size: .76rem; }
+.cand-page.cand-review .private-note { display: flex; align-items: flex-start; gap: 7px; margin: 16px 0 0; color: var(--muted); font-size: .68rem; line-height: 1.6; }
+.cand-page.cand-review .private-note .icon { flex-shrink: 0; margin-top: 2px; }
+@media (max-width: 1200px) {
+  .cand-page.cand-review.has-selection .cand-body { grid-template-columns: 310px minmax(0, 1fr); gap: 16px; }
+  .cand-page.cand-review .conferencia-opcoes { margin-left: 39px; }
+  .cand-page.cand-review .conferencia-desc { flex-basis: calc(100% - 40px); }
+}
+@media (max-width: 900px) {
+  .cand-page.cand-review.has-selection .cand-body, .cand-page.cand-review .cand-body { grid-template-columns: minmax(0, 1fr); }
+  .cand-page.cand-review.has-selection .cand-list-pane { display: none; }
+  .cand-page.cand-review .cand-list-pane { max-height: none; }
+  .cand-page.cand-review .cand-detail-pane { position: static; max-height: none; }
+  .cand-page.cand-review .cand-detail { min-height: 0; max-height: none; overflow: visible; }
+  .cand-page.cand-review .back-to-list { display: flex; }
+  .cand-page.cand-review .detail-flow { overflow: visible; }
+  .cand-page.cand-review .detail-action-bar { position: sticky; bottom: 0; top: auto; z-index: 2; border: 1px solid var(--border); border-radius: 0 0 14px 14px; }
+}
+@media (max-width: 560px) {
+  .cand-page.cand-review .cand-top-row { gap: 14px; }
+  .cand-page.cand-review .cand-top .forms-tabs { width: 100%; }
+  .cand-page.cand-review .detail-head { padding: 18px; gap: 11px; }
+  .cand-page.cand-review .detail-head h2 { font-size: 1rem; }
+  .analysis-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0 18px; gap: 10px; }
+  .analysis-tabs button { flex-direction: column; gap: 5px; padding: 8px 0 12px; font-size: .67rem; text-align: center; }
+  .analysis-tabs button .icon { width: 14px; }
+  .cand-page.cand-review .detail-flow { padding: 18px; }
+  .cand-page.cand-review .detail-facts { grid-template-columns: minmax(0, 1fr); }
+  .cand-page.cand-review .detail-action-bar { padding: 14px 18px; gap: 10px; }
+  .cand-page.cand-review .detail-action-bar .detail-muted.small { flex-basis: 100%; font-size: .69rem; }
+  .cand-page.cand-review .decision-buttons-row { width: 100%; }
+  .cand-page.cand-review .decision-buttons-row .decision { flex: 1; justify-content: center; }
+  .cand-page.cand-review .conferencia h3 .status-pill { margin-left: 0; }
+  .cand-page.cand-review .conferencia-itens li { padding: 12px; gap: 10px; }
+  .cand-page.cand-review .conferencia-opcoes { width: calc(100% - 37px); margin-left: 37px; }
+  .cand-page.cand-review .conferencia-opcoes label { flex: 1; justify-content: center; padding: 9px 6px; }
+  .cand-page.cand-review .conferencia-desc { min-width: 0; flex-basis: calc(100% - 37px); }
+}
