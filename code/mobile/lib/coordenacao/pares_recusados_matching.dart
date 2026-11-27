@@ -200,6 +200,7 @@ class _ParesRecusadosMatchingState extends State<ParesRecusadosMatching> {
 
   @override
   Widget build(BuildContext context) => Card(
+    color: Colors.white,
     child: Padding(
       padding: const EdgeInsets.all(16),
       child: Column(

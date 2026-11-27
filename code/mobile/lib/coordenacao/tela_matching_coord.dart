@@ -4,6 +4,8 @@ import '../models/preferencia_genero.dart';
 import 'resumo_matching.dart';
 import 'pares_recusados_matching.dart';
 import 'grupos_matching.dart';
+import 'painel_coord.dart';
+import 'tela_matching_manual_coord.dart';
 
 import '../services/coordenacao_api.dart';
 import '../services/api_config.dart';
@@ -139,7 +141,7 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
       mostrarMensagemCoord(
         context,
         salvo == true
-            ? 'Configuração salva em uma nova versão.'
+            ? 'Configuração de matching salva.'
             : 'Carregando a configuração atual. Revise antes de salvar.',
       );
       await _carregar();
@@ -205,11 +207,111 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
   @override
   Widget build(BuildContext context) {
     final visao = _visao;
-    final configuracao = _mapa(visao?['configuracao']);
-    final totais = _mapa(visao?['totais']);
-    final chat = _mapa(visao?['chat']);
     final bloqueios = (visao?['bloqueios'] as List? ?? const []);
-
+    final configuracao = _mapa(visao?['configuracao']);
+    final chat = _mapa(visao?['chat']);
+    final preparacao = Column(
+      children: [
+        _CardConfiguracao(
+          configuracao: configuracao,
+          alterando: _alterando,
+          onConfigurar: _configurar,
+        ),
+        DiagnosticoDadosMatching(dados: _mapa(visao?['diagnosticoDados'])),
+        if (_execucoes.isNotEmpty &&
+            _mapa(_mapa(_execucoes.first['configSnapshot'])['relatorio'])
+                .isNotEmpty)
+          CartaoPainelCoord(
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text(
+                'Relatório da última rodada',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppColors.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              children: [
+                RelatorioRodadaMatching(
+                  relatorio: _mapa(
+                    _mapa(_execucoes.first['configSnapshot'])['relatorio'],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (chat.isNotEmpty)
+          CartaoPainelCoord(
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text(
+                'Conversas do programa',
+                style: TextStyle(fontSize: 14, color: AppColors.ink),
+              ),
+              children: [
+                Text(
+                  chat['disponivel'] == true
+                      ? 'Chat integrado. As conversas ficam disponíveis após a confirmação do vínculo.'
+                      : '${chat['mensagem'] ?? 'A integração do chat está pendente.'}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: corTextoSecundarioCoord,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+    final sugestoes = CartaoPainelCoord(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _CabecalhoSugestoes(
+            execucao: _execucoes.isEmpty ? null : _execucoes.first,
+          ),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final item in _statusSugestoes.entries)
+                ChoiceChip(
+                  label: Text(item.value),
+                  selected: _status == item.key,
+                  onSelected: _alterando
+                      ? null
+                      : (_) => _selecionarStatus(item.key),
+                  selectedColor: const Color(0xFFEDE5FA),
+                  labelStyle: TextStyle(
+                    fontSize: 12,
+                    color: _status == item.key
+                        ? AppColors.primary
+                        : corTextoSecundarioCoord,
+                  ),
+                  showCheckmark: false,
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_carregando)
+            const Center(
+              child: CircularProgressIndicator(color: AppColors.primary),
+            )
+          else if (_sugestoes.isEmpty)
+            _VazioMatching(
+              status: _status,
+              podeExecutar: visao?['podeExecutar'] == true,
+            )
+          else
+            for (final sugestao in _sugestoes)
+              _CardSugestao(
+                sugestao: sugestao,
+                onAbrir: () => _abrirSugestao(sugestao),
+              ),
+        ],
+      ),
+    );
     return Scaffold(
       backgroundColor: corFundoCoord,
       body: SafeArea(
@@ -222,13 +324,79 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
               CabecalhoCoord(
                 voltar: true,
                 titulo: 'Matching',
-                subtitulo:
-                    'Programa ${widget.programa} · configure, gere e decida cada par.',
+                subtitulo: 'Encontre bons pares. Revise as sugestões e transforme afinidades em vínculos.',
                 acao: IconButton(
                   tooltip: 'Atualizar matching',
                   onPressed: _alterando ? null : _carregar,
-                  icon: const Icon(Icons.refresh),
+                  icon: const Icon(Icons.refresh, color: AppColors.primary),
                 ),
+              ),
+              if (_aba == 'operacao')
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final programa = widget.programa;
+                          await Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => TelaMatchingManualCoord(
+                                api: widget.api,
+                                programa: programa,
+                              ),
+                            ),
+                          );
+                          if (mounted && programa == widget.programa) {
+                            await _carregar();
+                          }
+                        },
+                        icon: const Icon(Icons.link, size: 17),
+                        label: const Text('Vínculo manual'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: visao?['podeExecutar'] == true && !_alterando
+                            ? _executar
+                            : null,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: const Icon(Icons.auto_awesome, size: 17),
+                        label: Text(
+                          _alterando ? 'Executando…' : 'Gerar sugestões',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              AbasPainelCoord(
+                itens: const [
+                  (
+                    valor: 'operacao',
+                    titulo: 'Visão geral',
+                    icone: Icons.auto_awesome_outlined,
+                  ),
+                  (
+                    valor: 'grupos',
+                    titulo: 'Grupos e transferências',
+                    icone: Icons.groups_outlined,
+                  ),
+                  (
+                    valor: 'recusados',
+                    titulo: 'Pares recusados',
+                    icone: Icons.history,
+                  ),
+                  (
+                    valor: 'criterios',
+                    titulo: 'Critérios de matching',
+                    icone: Icons.tune,
+                  ),
+                ],
+                selecionada: _aba,
+                onSelecionar: (valor) => setState(() => _aba = valor),
               ),
               if (_erro != null)
                 _Aviso(
@@ -242,165 +410,75 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
                 ),
               if (_carregando && visao == null)
                 const Padding(
-                  padding: EdgeInsets.all(48),
+                  padding: EdgeInsets.all(40),
                   child: Center(
                     child: CircularProgressIndicator(color: AppColors.primary),
                   ),
                 ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'operacao', label: Text('Operação')),
-                    ButtonSegment(value: 'criterios', label: Text('Critérios')),
-                  ],
-                  selected: {_aba},
-                  onSelectionChanged: (valor) =>
-                      setState(() => _aba = valor.single),
-                ),
-              ),
               if (_aba == 'criterios')
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                CartaoPainelCoord(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Critérios de matching',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontWeight: FontWeight.w800,
-                          fontSize: 18,
-                        ),
+                      const TituloPainelCoord(
+                        titulo: 'Critérios de matching',
+                        descricao: 'Gerencie o catálogo e use os critérios nos formulários de padrinhos e apadrinhados.',
                       ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Gerencie o catálogo aqui e use em Formulários via '
-                        '“Adicionar pergunta de matching”. Depois selecione '
-                        'os pares na configuração do algoritmo.',
-                        style: TextStyle(
-                          color: corTextoSecundarioCoord,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
                       FilledButton.icon(
                         onPressed: _abrirCatalogo,
                         icon: const Icon(Icons.library_books_outlined),
                         label: const Text('Abrir catálogo de critérios'),
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.primary,
-                          minimumSize: const Size.fromHeight(48),
+                          foregroundColor: Colors.white,
                         ),
                       ),
                     ],
                   ),
                 ),
-              if (_aba == 'operacao' && visao != null) ...[
-                _Aviso(
-                  icone: visao['podeExecutar'] == true
-                      ? Icons.check_circle_outline
-                      : Icons.lock_outline,
-                  cor: visao['podeExecutar'] == true
-                      ? AppAccents.success
-                      : AppAccents.iconeLaranja,
-                  titulo: visao['podeExecutar'] == true
-                      ? 'Pronto para executar'
-                      : 'Matching bloqueado',
-                  descricao: visao['podeExecutar'] == true
-                      ? 'Inscrições encerradas, etapa liberada e candidatos elegíveis.'
-                      : bloqueios.map((item) => '• $item').join('\n'),
-                ),
-                _ResumoMatching(totais: totais),
+              if (_aba == 'grupos')
                 GruposMatchingCoord(
                   api: widget.api,
                   programa: widget.programa,
                   revisao: visao,
                   onAlterado: _carregar,
                 ),
+              if (_aba == 'recusados')
                 ParesRecusadosMatching(
                   api: widget.api,
                   programa: widget.programa,
                   revisao: visao,
                   onAlterado: _carregar,
                 ),
-                if (_execucoes.isNotEmpty)
-                  RelatorioRodadaMatching(
-                    relatorio: _mapa(
-                      _mapa(_execucoes.first['configSnapshot'])['relatorio'],
-                    ),
-                  ),
-                _CardConfiguracao(
-                  configuracao: configuracao,
-                  alterando: _alterando,
-                  onConfigurar: _configurar,
-                  onExecutar: visao['podeExecutar'] == true ? _executar : null,
-                ),
-                DiagnosticoDadosMatching(
-                  dados: _mapa(visao['diagnosticoDados']),
-                ),
+              if (_aba == 'operacao' && visao != null) ...[
                 _Aviso(
-                  icone: Icons.chat_bubble_outline,
-                  cor: AppAccents.iconeLaranja,
-                  titulo: chat['disponivel'] == true
-                      ? 'Chat integrado'
-                      : 'Dependência de chat pendente',
-                  descricao: chat['disponivel'] == true
-                      ? 'A aprovação cria o privado e atualiza a conversa do grupo.'
-                      : '${chat['mensagem'] ?? 'A integração do chat está pendente.'} '
-                            '${chat['pendencias'] ?? totais['outboxPendentes'] ?? 0} '
-                            'evento(s) aguardando processamento.',
+                  icone: visao['podeExecutar'] == true
+                      ? Icons.check_circle_outline
+                      : Icons.info_outline,
+                  cor: visao['podeExecutar'] == true
+                      ? const Color(0xFF176C4B)
+                      : const Color(0xFF87531C),
+                  titulo: visao['podeExecutar'] == true
+                      ? 'Tudo pronto para gerar sugestões'
+                      : 'A geração de sugestões está bloqueada',
+                  descricao: visao['podeExecutar'] == true
+                      ? 'Inscrições encerradas, etapa liberada e candidatos elegíveis disponíveis.'
+                      : bloqueios.join('\n'),
                 ),
-                _CabecalhoSugestoes(
-                  execucao: _execucoes.isEmpty ? null : _execucoes.first,
+                _ResumoMatching(totais: _mapa(visao['totais'])),
+                const SizedBox(height: 16),
+                LayoutBuilder(
+                  builder: (context, constraints) =>
+                      constraints.maxWidth >= 1000
+                      ? Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: sugestoes),
+                            SizedBox(width: 350, child: preparacao),
+                          ],
+                        )
+                      : Column(children: [sugestoes, preparacao]),
                 ),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: SegmentedButton<String>(
-                    segments: [
-                      for (final item in _statusSugestoes.entries)
-                        ButtonSegment(value: item.key, label: Text(item.value)),
-                    ],
-                    selected: {_status},
-                    onSelectionChanged: _alterando
-                        ? null
-                        : (valor) => _selecionarStatus(valor.single),
-                  ),
-                ),
-                if (_carregando)
-                  const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  )
-                else if (_sugestoes.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(28),
-                    child: Column(
-                      children: [
-                        const Icon(
-                          Icons.auto_awesome_outlined,
-                          color: AppColors.muted,
-                          size: 34,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Nenhuma sugestão ${_statusSugestoes[_status]!.toLowerCase()}.',
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  for (final sugestao in _sugestoes)
-                    _CardSugestao(
-                      sugestao: sugestao,
-                      onAbrir: () => _abrirSugestao(sugestao),
-                    ),
               ],
             ],
           ),
@@ -408,6 +486,66 @@ class _TelaMatchingCoordState extends State<TelaMatchingCoord> {
       ),
     );
   }
+}
+
+class _VazioMatching extends StatelessWidget {
+  const _VazioMatching({required this.status, required this.podeExecutar});
+  final String status;
+  final bool podeExecutar;
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 32),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFCFAFF),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(17),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEDE5FA),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: const Icon(
+            Icons.person_search_outlined,
+            size: 30,
+            color: AppColors.primary,
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          switch (status) {
+            'aprovada' => 'Nenhuma sugestão aprovada',
+            'recusada' => 'Nenhuma sugestão recusada',
+            'obsoleta' => 'Nenhuma sugestão desatualizada',
+            _ => 'Nenhuma sugestão pendente',
+          },
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: AppColors.ink,
+            fontWeight: FontWeight.w700,
+            fontSize: 15,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          status != 'pendente'
+              ? 'Os pares aparecerão aqui quando houver uma decisão neste estado.'
+              : podeExecutar
+              ? 'Gere uma rodada para encontrar pares entre os participantes elegíveis.'
+              : 'As sugestões aparecerão aqui após a liberação e a execução do matching.',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: corTextoSecundarioCoord,
+            fontSize: 12,
+            height: 1.6,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _Aviso extends StatelessWidget {
@@ -430,7 +568,9 @@ class _Aviso extends StatelessWidget {
     margin: const EdgeInsets.fromLTRB(16, 4, 16, 10),
     padding: const EdgeInsets.all(13),
     decoration: BoxDecoration(
-      color: cor.withValues(alpha: 0.08),
+      color: cor == const Color(0xFF87531C)
+          ? const Color(0xFFFFF8ED)
+          : cor.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(13),
       border: Border.all(color: cor.withValues(alpha: 0.25)),
     ),
@@ -443,7 +583,10 @@ class _Aviso extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(titulo, style: const TextStyle(fontWeight: FontWeight.w700)),
+              Text(
+                titulo,
+                style: TextStyle(fontWeight: FontWeight.w700, color: cor),
+              ),
               if (descricao?.isNotEmpty == true)
                 Text(
                   descricao!,
@@ -463,53 +606,39 @@ class _Aviso extends StatelessWidget {
 
 class _ResumoMatching extends StatelessWidget {
   const _ResumoMatching({required this.totais});
-
   final Map<String, dynamic> totais;
-
   @override
-  Widget build(BuildContext context) {
-    final itens = [
-      (
-        '${totais['padrinhosElegiveis'] ?? 0} / ${totais['apadrinhadosElegiveis'] ?? 0}',
-        'Padrinhos / apadrinhados',
-      ),
-      ('${totais['sugestoesPendentes'] ?? 0}', 'Sugestões pendentes'),
-      ('${totais['vinculos'] ?? 0}', 'Vínculos confirmados'),
-      ('${totais['pessoasSemVinculo'] ?? 0}', 'Sem vínculo'),
-    ];
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: GridView.count(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        crossAxisCount: 2,
-        childAspectRatio: 2.25,
-        children: [
-          for (final item in itens)
-            Card(
-              color: Colors.white,
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.$1,
-                      style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Text(item.$2, style: const TextStyle(fontSize: 11)),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    child: IndicadoresPainelCoord(
+      itens: [
+        IndicadorPainelCoord(
+          'Pessoas elegíveis',
+          '${(totais['padrinhosElegiveis'] as num? ?? 0) + (totais['apadrinhadosElegiveis'] as num? ?? 0)}',
+          '${totais['padrinhosElegiveis'] ?? 0} padrinhos · ${totais['apadrinhadosElegiveis'] ?? 0} apadrinhados',
+          Icons.groups_outlined,
+        ),
+        IndicadorPainelCoord(
+          'Sugestões pendentes',
+          '${totais['sugestoesPendentes'] ?? 0}',
+          'Aguardando sua revisão',
+          Icons.auto_awesome_outlined,
+        ),
+        IndicadorPainelCoord(
+          'Vínculos confirmados',
+          '${totais['vinculos'] ?? 0}',
+          'Pares já aprovados',
+          Icons.link,
+        ),
+        IndicadorPainelCoord(
+          'Pessoas sem vínculo',
+          '${totais['pessoasSemVinculo'] ?? 0}',
+          'Ainda aguardando um par',
+          Icons.person_outline,
+        ),
+      ],
+    ),
+  );
 }
 
 class _CardConfiguracao extends StatelessWidget {
@@ -517,86 +646,77 @@ class _CardConfiguracao extends StatelessWidget {
     required this.configuracao,
     required this.alterando,
     required this.onConfigurar,
-    required this.onExecutar,
   });
-
   final Map<String, dynamic> configuracao;
   final bool alterando;
   final VoidCallback onConfigurar;
-  final VoidCallback? onExecutar;
-
   @override
-  Widget build(BuildContext context) {
-    final liberado = configuracao['liberado'] == true;
-    final criterios = configuracao['criterios'] as List? ?? const [];
-    return Card(
-      margin: const EdgeInsets.fromLTRB(16, 2, 16, 10),
-      color: Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+  Widget build(BuildContext context) => CartaoPainelCoord(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const TituloPainelCoord(titulo: 'Critérios e capacidades'),
+        Text(
+          '${(configuracao['criterios'] as List? ?? []).length} critério(s) de compatibilidade em uso.',
+          style: const TextStyle(color: corTextoSecundarioCoord, fontSize: 12),
+        ),
+        const SizedBox(height: 16),
+        for (final item in [
+          ('Apadrinhados por padrinho', configuracao['capacidadePorPadrinho']),
+          (
+            'Padrinhos por apadrinhado',
+            configuracao['capacidadePorApadrinhado'],
+          ),
+        ])
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
               children: [
                 Expanded(
                   child: Text(
-                    configuracao.isEmpty
-                        ? 'Critérios e capacidades'
-                        : 'Configuração v${configuracao['versao']}',
+                    item.$1,
                     style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
+                      fontSize: 12,
+                      color: corTextoSecundarioCoord,
                     ),
                   ),
                 ),
-                if (configuracao.isNotEmpty)
-                  Chip(
-                    label: Text(liberado ? 'Liberado' : 'Bloqueado'),
-                    avatar: Icon(
-                      liberado ? Icons.lock_open : Icons.lock,
-                      size: 16,
-                    ),
-                  ),
+                const SizedBox(width: 8),
+                SeloPainelCoord('Até ${item.$2 ?? '—'}'),
               ],
             ),
-            const SizedBox(height: 5),
+          ),
+        const ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          title: Text(
+            'Como configurar os critérios',
+            style: TextStyle(fontSize: 12, color: AppColors.primary),
+          ),
+          children: [
             Text(
-              configuracao.isEmpty
-                  ? 'Defina ao menos um critério suportado para começar.'
-                  : '${criterios.length} critério(s) · '
-                        '${configuracao['capacidadePorPadrinho']} por padrinho · '
-                        '${configuracao['capacidadePorApadrinhado']} por apadrinhado.',
-              style: const TextStyle(color: corTextoSecundarioCoord),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: alterando ? null : onConfigurar,
-                  icon: const Icon(Icons.tune),
-                  label: Text(
-                    configuracao.isEmpty ? 'Configurar' : 'Editar configuração',
-                  ),
-                ),
-                FilledButton.icon(
-                  onPressed: alterando ? null : onExecutar,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                  ),
-                  icon: const Icon(Icons.auto_awesome),
-                  label: Text(alterando ? 'Processando…' : 'Gerar sugestões'),
-                ),
-              ],
+              'Os dados do cadastro já estão disponíveis. Critérios adicionais são geridos na aba Critérios de matching e inseridos nos formulários com Adicionar pergunta de matching.',
+              style: TextStyle(
+                fontSize: 12,
+                color: corTextoSecundarioCoord,
+                height: 1.5,
+              ),
             ),
           ],
         ),
-      ),
-    );
-  }
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: alterando ? null : onConfigurar,
+            icon: const Icon(Icons.tune, size: 17),
+            label: Text(
+              configuracao.isEmpty ? 'Configurar' : 'Editar configuração',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _CabecalhoSugestoes extends StatelessWidget {
@@ -606,12 +726,12 @@ class _CabecalhoSugestoes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+    padding: const EdgeInsets.only(bottom: 14),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Sugestões',
+          'Sugestões de matching',
           style: TextStyle(
             fontFamily: 'Poppins',
             fontWeight: FontWeight.w800,
@@ -780,7 +900,12 @@ class _EditorMatchingState extends State<_EditorMatching> {
 
   Widget _campoObrigatorio(Map<String, dynamic> criterio) => CheckboxListTile(
     contentPadding: EdgeInsets.zero,
-    title: const Text('Correspondência obrigatória neste programa'),
+    title: const Text(
+      'Correspondência obrigatória',
+      style: TextStyle(fontSize: 13, color: AppColors.ink),
+    ),
+    controlAffinity: ListTileControlAffinity.leading,
+    activeColor: AppColors.primary,
     subtitle: Text(
       criterio['campoCadastro'] == 'areas'
           ? 'Exige ao menos uma área de apoio em comum.'
@@ -789,8 +914,9 @@ class _EditorMatchingState extends State<_EditorMatching> {
           : 'Sem correspondência ou com dados insuficientes, o par não será sugerido.',
     ),
     value: criterio['obrigatorio'] == true,
-    onChanged: (valor) =>
-        setState(() => criterio['obrigatorio'] = valor == true),
+    onChanged: _salvando
+        ? null
+        : (valor) => setState(() => criterio['obrigatorio'] = valor == true),
   );
 
   Future<void> _salvar() async {
@@ -833,342 +959,429 @@ class _EditorMatchingState extends State<_EditorMatching> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) => SafeArea(
-    child: Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        0,
-        20,
-        MediaQuery.viewInsetsOf(context).bottom + 20,
-      ),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+  Widget _fonteCadastro(Map<String, dynamic> fonte) {
+    final selecionados = _criterios.where(
+      (c) => c['campoCadastro'] == fonte['campo'],
+    );
+    final criterio = selecionados.isEmpty ? null : selecionados.first;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: criterio == null ? Colors.white : AppColors.lavender,
+        border: Border.all(
+          color: criterio == null
+              ? const Color(0xFFE4DFF0)
+              : const Color(0xFFBAA2DB),
         ),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Material(
+        color: Colors.transparent,
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Configurar matching',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontWeight: FontWeight.w800,
-                fontSize: 20,
+            CheckboxListTile(
+              value: criterio != null,
+              activeColor: AppColors.primary,
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+              title: Text(
+                '${fonte['nome']}',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.ink,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-            const Text(
-              'Adicione dados do cadastro pelo ícone de pessoa ou critérios do catálogo. '
-              '(já coletados nos dois públicos).',
-              style: TextStyle(color: corTextoSecundarioCoord, fontSize: 12),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<int>(
-                    initialValue: _capacidadeP,
-                    decoration: const InputDecoration(
-                      labelText: 'Limite por padrinho',
-                    ),
-                    items: [
-                      for (var i = 1; i <= 20; i++)
-                        DropdownMenuItem(value: i, child: Text('$i')),
-                    ],
-                    onChanged: (valor) =>
-                        setState(() => _capacidadeP = valor ?? _capacidadeP),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: DropdownButtonFormField<int>(
-                    initialValue: _capacidadeA,
-                    decoration: const InputDecoration(
-                      labelText: 'Limite por apadrinhado',
-                    ),
-                    items: [
-                      for (var i = 1; i <= 20; i++)
-                        DropdownMenuItem(value: i, child: Text('$i')),
-                    ],
-                    onChanged: (valor) =>
-                        setState(() => _capacidadeA = valor ?? _capacidadeA),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Pares de critérios',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: _opcoes.isEmpty ? null : _adicionar,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Adicionar'),
-                ),
-                PopupMenuButton<String>(
-                  tooltip: 'Adicionar dado do cadastro',
-                  icon: const Icon(Icons.person_add_alt),
-                  itemBuilder: (_) => [
-                    for (final fonte in widget.criteriosCadastro)
-                      PopupMenuItem(
-                        value: '${fonte['campo']}',
-                        enabled: !_criterios.any(
+              onChanged: _salvando
+                  ? null
+                  : (valor) => setState(() {
+                      if (valor == true) {
+                        _criterios.add({
+                          'campoCadastro': fonte['campo'],
+                          'operacao': fonte['operacao'],
+                          'peso': 10,
+                        });
+                      } else {
+                        _criterios.removeWhere(
                           (c) => c['campoCadastro'] == fonte['campo'],
-                        ),
-                        child: Text('${fonte['nome']}'),
-                      ),
-                  ],
-                  onSelected: (campo) {
-                    final fonte = widget.criteriosCadastro.firstWhere(
-                      (f) => f['campo'] == campo,
-                    );
-                    setState(
-                      () => _criterios.add({
-                        'campoCadastro': campo,
-                        'operacao': fonte['operacao'],
-                        'peso': 10,
-                      }),
-                    );
-                  },
-                ),
-              ],
-            ),
-            Expanded(
-              child: _criterios.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'Adicione pares do catálogo. Critérios são geridos '
-                        'na aba Critérios e usados em Formulários.',
-                        textAlign: TextAlign.center,
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: _criterios.length,
-                      itemBuilder: (context, indice) {
-                        final criterio = _criterios[indice];
-                        if (criterio['campoCadastro'] != null) {
-                          final fontes = widget.criteriosCadastro.where(
-                            (f) => f['campo'] == criterio['campoCadastro'],
-                          );
-                          final nome = fontes.isEmpty
-                              ? '${criterio['campoCadastro']}'
-                              : '${fontes.first['nome']}';
-                          return Card(
-                            key: ObjectKey(criterio),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                children: [
-                                  ListTile(
-                                    title: Text(nome),
-                                    subtitle: const Text(
-                                      'Dado do cadastro · peso configurável',
-                                    ),
-                                    trailing: IconButton(
-                                      tooltip: 'Remover critério',
-                                      icon: const Icon(Icons.delete_outline),
-                                      onPressed: () => setState(
-                                        () => _criterios.removeAt(indice),
-                                      ),
-                                    ),
-                                  ),
-                                  if (fontes.isNotEmpty &&
-                                      fontes.first['permiteObrigatorio'] ==
-                                          true)
-                                    _campoObrigatorio(criterio),
-                                  TextFormField(
-                                    initialValue: '${criterio['peso']}',
-                                    keyboardType: TextInputType.number,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Peso (1 a 100)',
-                                    ),
-                                    onChanged: (v) =>
-                                        criterio['peso'] = int.tryParse(v) ?? 0,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }
-                        final ids = {
-                          for (final c in widget.criteriosDisponiveis)
-                            (c['id'] as num).toInt(): c,
-                        };
-                        return Card(
-                          key: ObjectKey(criterio),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        'Par ${indice + 1}',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Remover critério',
-                                      onPressed: () => setState(
-                                        () => _criterios.removeAt(indice),
-                                      ),
-                                      icon: const Icon(Icons.delete_outline),
-                                    ),
-                                  ],
-                                ),
-                                DropdownButtonFormField<int>(
-                                  initialValue:
-                                      criterio['criterioPadrinhoId'] as int?,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Critério do padrinho',
-                                  ),
-                                  items: [
-                                    for (final c in widget.criteriosDisponiveis)
-                                      DropdownMenuItem(
-                                        value: (c['id'] as num).toInt(),
-                                        child: Text(
-                                          '${c['nome']}'
-                                          '${c['habilitavel'] == true ? '' : ' (parcial)'}',
-                                        ),
-                                      ),
-                                  ],
-                                  onChanged: (valor) {
-                                    if (valor == null) return;
-                                    setState(() {
-                                      criterio['criterioPadrinhoId'] = valor;
-                                      criterio['criterioApadrinhadoId'] = valor;
-                                      final meta = ids[valor];
-                                      criterio['operacao'] =
-                                          meta?['tipo'] == 'multipla_escolha'
-                                          ? 'intersecao'
-                                          : 'igualdade';
-                                    });
-                                  },
-                                ),
-                                const SizedBox(height: 8),
-                                DropdownButtonFormField<int>(
-                                  initialValue:
-                                      criterio['criterioApadrinhadoId'] as int?,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Critério do apadrinhado',
-                                  ),
-                                  items: [
-                                    for (final c
-                                        in widget.criteriosDisponiveis.where(
-                                          (c) =>
-                                              c['id'] ==
-                                              criterio['criterioPadrinhoId'],
-                                        ))
-                                      DropdownMenuItem(
-                                        value: (c['id'] as num).toInt(),
-                                        child: Text(
-                                          '${c['nome']}'
-                                          '${c['habilitavel'] == true ? '' : ' (parcial)'}',
-                                        ),
-                                      ),
-                                  ],
-                                  onChanged: (valor) => setState(
-                                    () => criterio['criterioApadrinhadoId'] =
-                                        valor,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                DropdownButtonFormField<String>(
-                                  initialValue:
-                                      '${criterio['operacao'] ?? 'igualdade'}',
-                                  decoration: const InputDecoration(
-                                    labelText: 'Comparação',
-                                  ),
-                                  items: const [
-                                    DropdownMenuItem(
-                                      value: 'igualdade',
-                                      child: Text('Igualdade'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'intersecao',
-                                      child: Text('Interseção'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'diferenca',
-                                      child: Text('Diferença'),
-                                    ),
-                                  ],
-                                  onChanged: (valor) => setState(
-                                    () => criterio['operacao'] = valor,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                _campoObrigatorio(criterio),
-                                TextFormField(
-                                  initialValue: '${criterio['peso'] ?? 10}',
-                                  keyboardType: TextInputType.number,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Peso (1 a 100)',
-                                  ),
-                                  onChanged: (valor) {
-                                    final peso = int.tryParse(valor);
-                                    criterio['peso'] = peso ?? 0;
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
                         );
-                      },
-                    ),
+                      }
+                    }),
             ),
-            if (_erro != null)
+            if (criterio != null)
               Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  _erro!,
-                  style: const TextStyle(color: corErroCoord),
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                child: Column(
+                  children: [
+                    TextFormField(
+                      key: ObjectKey(criterio),
+                      initialValue: '${criterio['peso']}',
+                      enabled: !_salvando,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Peso (1 a 100)',
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (valor) =>
+                          criterio['peso'] = int.tryParse(valor) ?? 0,
+                    ),
+                    if (fonte['permiteObrigatorio'] == true)
+                      _campoObrigatorio(criterio),
+                  ],
                 ),
               ),
-            if (_conflito)
-              TextButton(
-                onPressed: () => Navigator.pop(context, 'conflito'),
-                child: const Text('Carregar configuração atual'),
-              ),
-            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cardCatalogo(Map<String, dynamic> criterio) {
+    final indice = _criterios.indexOf(criterio);
+    final ids = {
+      for (final c in widget.criteriosDisponiveis) (c['id'] as num).toInt(): c,
+    };
+    return Card(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: Color(0xFFE4DFF0)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      key: ObjectKey(criterio),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
-                    onPressed: _salvando
-                        ? null
-                        : () => Navigator.pop(context, false),
-                    child: const Text('Cancelar'),
+                  child: Text(
+                    '${ids[criterio['criterioPadrinhoId']]?['nome'] ?? 'Critério do catálogo'}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: _salvando || _conflito ? null : _salvar,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                    ),
-                    child: Text(_salvando ? 'Salvando…' : 'Salvar nova versão'),
-                  ),
+                IconButton(
+                  tooltip: 'Remover critério',
+                  onPressed: () => setState(() => _criterios.removeAt(indice)),
+                  icon: const Icon(Icons.delete_outline),
                 ),
               ],
+            ),
+            DropdownButtonFormField<int>(
+              isExpanded: true,
+              initialValue: criterio['criterioPadrinhoId'] as int?,
+              decoration: const InputDecoration(
+                labelText: 'Critério do padrinho',
+              ),
+              items: [
+                for (final c in widget.criteriosDisponiveis)
+                  DropdownMenuItem(
+                    value: (c['id'] as num).toInt(),
+                    child: Text(
+                      '${c['nome']}'
+                      '${c['habilitavel'] == true ? '' : ' (parcial)'}',
+                    ),
+                  ),
+              ],
+              onChanged: (valor) {
+                if (valor == null) return;
+                setState(() {
+                  criterio['criterioPadrinhoId'] = valor;
+                  criterio['criterioApadrinhadoId'] = valor;
+                  final meta = ids[valor];
+                  criterio['operacao'] = meta?['tipo'] == 'multipla_escolha'
+                      ? 'intersecao'
+                      : 'igualdade';
+                });
+              },
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<int>(
+              isExpanded: true,
+              initialValue: criterio['criterioApadrinhadoId'] as int?,
+              decoration: const InputDecoration(
+                labelText: 'Critério do apadrinhado',
+              ),
+              items: [
+                for (final c in widget.criteriosDisponiveis.where(
+                  (c) => c['id'] == criterio['criterioPadrinhoId'],
+                ))
+                  DropdownMenuItem(
+                    value: (c['id'] as num).toInt(),
+                    child: Text(
+                      '${c['nome']}'
+                      '${c['habilitavel'] == true ? '' : ' (parcial)'}',
+                    ),
+                  ),
+              ],
+              onChanged: (valor) =>
+                  setState(() => criterio['criterioApadrinhadoId'] = valor),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              isExpanded: true,
+              initialValue: '${criterio['operacao'] ?? 'igualdade'}',
+              decoration: const InputDecoration(labelText: 'Comparação'),
+              items: const [
+                DropdownMenuItem(value: 'igualdade', child: Text('Igualdade')),
+                DropdownMenuItem(
+                  value: 'intersecao',
+                  child: Text('Interseção'),
+                ),
+                DropdownMenuItem(value: 'diferenca', child: Text('Diferença')),
+              ],
+              onChanged: (valor) =>
+                  setState(() => criterio['operacao'] = valor),
+            ),
+            const SizedBox(height: 8),
+            _campoObrigatorio(criterio),
+            TextFormField(
+              initialValue: '${criterio['peso'] ?? 10}',
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Peso (1 a 100)'),
+              onChanged: (valor) {
+                final peso = int.tryParse(valor);
+                criterio['peso'] = peso ?? 0;
+              },
             ),
           ],
         ),
       ),
-    ),
-  );
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final altura =
+        (MediaQuery.sizeOf(context).height * 0.88 -
+                MediaQuery.viewInsetsOf(context).bottom)
+            .clamp(220.0, 850.0);
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SafeArea(
+        child: SizedBox(
+          height: altura,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 12, 14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Configurar matching',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 19,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                          SizedBox(height: 6),
+                          Text(
+                            'Defina a capacidade dos vínculos e o que considerar ao sugerir cada par.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: corTextoSecundarioCoord,
+                              height: 1.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Fechar',
+                      onPressed: _salvando
+                          ? null
+                          : () => Navigator.pop(context, false),
+                      icon: const Icon(Icons.close, color: AppColors.primary),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    const TituloPainelCoord(
+                      numero: '01',
+                      titulo: 'Capacidade dos vínculos',
+                      descricao: 'Quantas conexões cada participante pode ter?',
+                    ),
+                    DropdownButtonFormField<int>(
+                      initialValue: _capacidadeP,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Apadrinhados por padrinho',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        for (var i = 1; i <= 20; i++)
+                          DropdownMenuItem(value: i, child: Text('Até $i')),
+                      ],
+                      onChanged: _salvando
+                          ? null
+                          : (valor) => setState(
+                              () => _capacidadeP = valor ?? _capacidadeP,
+                            ),
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<int>(
+                      initialValue: _capacidadeA,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Padrinhos por apadrinhado',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        for (var i = 1; i <= 20; i++)
+                          DropdownMenuItem(value: i, child: Text('Até $i')),
+                      ],
+                      onChanged: _salvando
+                          ? null
+                          : (valor) => setState(
+                              () => _capacidadeA = valor ?? _capacidadeA,
+                            ),
+                    ),
+                    const SizedBox(height: 28),
+                    const TituloPainelCoord(
+                      numero: '02',
+                      titulo: 'Dados do cadastro',
+                      descricao: 'Selecione os dados que entram na comparação. Um peso maior dá mais importância ao critério.',
+                    ),
+                    for (final fonte in widget.criteriosCadastro)
+                      _fonteCadastro(fonte),
+                    if (widget.criteriosCadastro.isEmpty)
+                      const Text(
+                        'Nenhum dado do cadastro disponível neste programa.',
+                        style: TextStyle(
+                          color: corTextoSecundarioCoord,
+                          fontSize: 12,
+                        ),
+                      ),
+                    const ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      title: Text(
+                        'Como esses dados são considerados',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 12,
+                        ),
+                      ),
+                      children: [
+                        Text(
+                          'Preferência de gênero tem peso nos dois sentidos. ProUni e mudança de cidade valorizam a vivência compartilhada. Dados não informados continuam desconhecidos.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: corTextoSecundarioCoord,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    const TituloPainelCoord(
+                      numero: '03',
+                      titulo: 'Pares de critérios',
+                      descricao: 'Compare as respostas dos formulários de padrinhos e apadrinhados.',
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton.icon(
+                        onPressed: _opcoes.isEmpty || _salvando
+                            ? null
+                            : _adicionar,
+                        icon: const Icon(Icons.add, size: 17),
+                        label: const Text('Adicionar critério'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    for (final criterio in _criterios.where(
+                      (c) => c['campoCadastro'] == null,
+                    ))
+                      _cardCatalogo(criterio),
+                    if (_opcoes.isEmpty)
+                      const Text(
+                        'Nenhum critério disponível. Cadastre no catálogo e adicione perguntas de matching nos formulários.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: corTextoSecundarioCoord,
+                          height: 1.5,
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Critérios obrigatórios sem resposta ou sem correspondência impedem a sugestão do par.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: corTextoSecundarioCoord,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_erro != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  child: Text(
+                    _erro!,
+                    style: const TextStyle(color: corErroCoord),
+                  ),
+                ),
+              if (_conflito)
+                TextButton(
+                  onPressed: () => Navigator.pop(context, 'conflito'),
+                  child: const Text('Carregar configuração atual'),
+                ),
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _salvando
+                            ? null
+                            : () => Navigator.pop(context, false),
+                        child: const Text('Cancelar'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: FilledButton(
+                        onPressed: _salvando || _conflito || _criterios.isEmpty
+                            ? null
+                            : _salvar,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: Text(
+                          _salvando ? 'Salvando…' : 'Salvar configuração',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-/// Catálogo CRUD de critérios de matching (paridade com a web).
 class TelaCatalogoCriteriosMatching extends StatefulWidget {
   const TelaCatalogoCriteriosMatching({super.key, required this.api});
 

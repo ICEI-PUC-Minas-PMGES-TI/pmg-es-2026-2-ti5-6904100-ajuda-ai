@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import Icon from '../../components/Icon';
 import Modal from '../../components/Modal';
 import { useToast } from '../../components/Toast';
+import ProgramasPainel from './ProgramasPainel';
 
 const ETAPAS = [
   { valor: 'inscricoes', rotulo: 'Inscrições abertas' },
@@ -276,6 +277,7 @@ export default function ProgramasPage() {
       {programas?.length === 0 && <p className="empty-copy">Nenhum programa cadastrado. Abra o primeiro ciclo.</p>}
 
       {criando && (
+        <Modal titulo={`Novo ciclo ${criando.codigo}`} descricao="Revise o calendário e os requisitos antes de criar o programa." onFechar={() => setCriando(null)} tamanho="lg" className="programs-editor-modal">
         <EditorPrograma
           programa={criando}
           novo
@@ -287,94 +289,42 @@ export default function ProgramasPage() {
             await contexto.carregarProgramas?.();
           }}
         />
+        </Modal>
       )}
 
-      <div className="program-list">
-        {programas?.map((p) => (
-          <article key={p.codigo} className={`program-card${p.codigo === programaFoco ? ' focus' : ''}`} aria-labelledby={`prog-${p.id}`}>
-            <header className="program-card-head">
-              <div>
-                <h2 id={`prog-${p.id}`}>{p.nome || p.titulo}</h2>
-                <div className="summary-flags">
-                  <span className={`flag ${p.encerrado ? 'muted' : 'purple'}`}>{p.statusRotulo}</span>
-                  {p.vigente && <span className="flag green">Vigente</span>}
-                  {p.inscricoesAbertas && <span className="flag purple">Inscrições abertas</span>}
-                  {!p.inscricoesAbertas && <span className="flag muted">Inscrições encerradas</span>}
-                  {p.formularioPublicado && <span className="flag purple">Formulário publicado</span>}
-                  {p.matchingLiberado && <span className="flag green">Matching liberado</span>}
-                </div>
-              </div>
-              <button type="button" className="ghost-button" onClick={async () => {
-                await contexto.carregarProgramas?.();
-                navigate(`/coordenacao?${new URLSearchParams({programa: p.codigo})}`);
-              }}>Administrar este programa</button>
-              <button type="button" className="ghost-button" aria-expanded={editando === p.codigo} onClick={() => setEditando(editando === p.codigo ? null : p.codigo)}>
-                <Icon name="edit" size={16} /> {editando === p.codigo ? 'Fechar configuração' : 'Configurar programa'}
-              </button>
-              {p.podeEncerrarInscricoes && (
-                <button type="button" className="mini-btn danger" onClick={() => setAcaoPrograma({ tipo: 'encerrar', programa: p })}>
-                  Encerrar inscrições
-                </button>
-              )}
-              {p.podeLiberarMatching && (
-                <button type="button" className="mini-btn primary" onClick={() => setAcaoPrograma({ tipo: 'liberar', programa: p })}>
-                  Liberar matching
-                </button>
-              )}
-              {p.matchingLiberado && (
-                <Link className="mini-btn primary" to={`/coordenacao/matching?${new URLSearchParams({ programa: p.codigo })}`}>
-                  Abrir matching
-                </Link>
-              )}
-              <details className="program-overflow">
-                <summary aria-label={`Mais ações do programa ${p.codigo}`}>Mais ações</summary>
-                <button type="button" className="ghost-button" onClick={() => {setExcluindo(p); setConfirmacaoExclusao(''); setErroExclusao('');}}>Excluir programa</button>
-              </details>
-            </header>
+      {programas?.length > 0 && <ProgramasPainel
+        programas={programas}
+        programaFoco={programaFoco}
+        onSelecionar={codigo => {
+          const novos = new URLSearchParams(params);
+          novos.set('programa', codigo);
+          setParams(novos, { replace: true });
+        }}
+        onAdministrar={async p => {
+          await contexto.carregarProgramas?.();
+          navigate(`/coordenacao?${new URLSearchParams({programa: p.codigo})}`);
+        }}
+        onConfigurar={p => setEditando(p.codigo)}
+        onAcao={setAcaoPrograma}
+        onExcluir={p => {setExcluindo(p); setConfirmacaoExclusao(''); setErroExclusao('');}}
+      />}
 
-            <dl className="program-totals">
-              <div><dt>Candidaturas</dt><dd>{p.totais?.candidaturas ?? 0}</dd></div>
-              <div><dt>Padrinhos</dt><dd>{p.totais?.padrinhos ?? 0}</dd></div>
-              <div><dt>Apadrinhados</dt><dd>{p.totais?.apadrinhados ?? 0}<small> / {p.vagasApadrinhados} vagas</small></dd></div>
-              <div><dt>Grupos</dt><dd>{p.totais?.grupos ?? 0}<small> / {p.gruposPrevistos} previstos</small></dd></div>
-            </dl>
-
-            <section className="program-requirements" aria-label={`Requisitos para padrinho — ${p.codigo}`}>
-              <h3><Icon name="checkCircle" size={16} /> Requisitos para padrinho — {p.codigo}</h3>
-              {p.requisitosPadrinho?.length ? (
-                <ul className="detail-chips">
-                  {p.requisitosPadrinho.map((r) => <li key={r.id}>{r.descricao}{r.obrigatorio ? '' : ' (desejável)'}</li>)}
-                </ul>
-              ) : (
-                <p className="detail-muted">Nenhuma disciplina exigida. Basta estar a partir do 2º período.</p>
-              )}
-            </section>
-
-            <ol className="program-stages" aria-label="Etapas">
-              {p.etapas.map((e) => (
-                <li key={e.id} className={e.estado}>
-                  <span className="stage-dot" aria-hidden="true">{e.estado === 'concluida' && <Icon name="check" size={12} />}</span>
-                  <strong>{e.titulo}{e.estado === 'atual' && <span className="sr-only"> (etapa atual)</span>}</strong>
-                  <small>{e.periodoTexto}</small>
-                </li>
-              ))}
-            </ol>
-
-            {editando === p.codigo && (
-              <EditorPrograma
-                programa={p}
-                onCancelar={() => setEditando(null)}
-                onSalvo={(atualizado) => {
-                  setProgramas((lista) => lista.map((item) => (item.codigo === atualizado.codigo ? { ...item, ...atualizado } : item)));
-                  setEditando(null);
-                  mostrarToast(`Programa ${atualizado.codigo} atualizado.`, 'sucesso');
-                  carregar();
-                }}
-              />
-            )}
-          </article>
-        ))}
-      </div>
+      {editando && programas?.find(p => p.codigo === editando) && (
+        <Modal titulo={`Configurar programa ${editando}`} descricao="Ajuste as vagas, o calendário e os requisitos de participação." onFechar={() => setEditando(null)} tamanho="lg" className="programs-editor-modal">
+          <EditorPrograma
+            key={editando}
+            programa={programas.find(p => p.codigo === editando)}
+            onCancelar={() => setEditando(null)}
+            onSalvo={atualizado => {
+              setProgramas(lista => lista.map(item => item.codigo === atualizado.codigo ? {...item, ...atualizado} : item));
+              setEditando(null);
+              mostrarToast(`Programa ${atualizado.codigo} atualizado.`, 'sucesso');
+              carregar();
+              contexto.carregarProgramas?.();
+            }}
+          />
+        </Modal>
+      )}
 
       {confirmarCiclo && (
         <Modal
@@ -501,8 +451,7 @@ function EditorPrograma({ programa, onCancelar, onSalvo, novo = false }) {
 
   return (
     <form className="program-editor" onSubmit={salvar}>
-      {novo && <h2>Revisar novo ciclo {programa.codigo}</h2>}
-      <p className="field-hint">As datas sugeridas aparecem nos campos e só são gravadas quando você confirma. Nenhuma data é ajustada automaticamente.</p>
+      <p className="field-hint">{novo ? 'Confira as datas sugeridas. O ciclo será criado ao confirmar no final do formulário.' : 'Revise os dados do ciclo e salve para aplicar as alterações.'}</p>
       {!novo && <>
         <div className="editor-grid">
           <label className="editor-field">

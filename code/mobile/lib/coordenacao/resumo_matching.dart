@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../theme/colors.dart';
+import 'componentes_coord.dart';
+import 'painel_coord.dart';
+
 List<Map<String, dynamic>> _lista(Object? valor) => valor is List
     ? valor.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList()
     : [];
@@ -107,54 +111,129 @@ class RelatorioRodadaMatching extends StatelessWidget {
 class DiagnosticoDadosMatching extends StatelessWidget {
   const DiagnosticoDadosMatching({super.key, required this.dados});
   final Map<String, dynamic> dados;
+  Widget _cobertura(String rotulo, Map grupo) {
+    final conhecidos = (grupo['conhecidos'] as num? ?? 0).toDouble();
+    final total = (grupo['total'] as num? ?? 0).toDouble();
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '$rotulo com dados',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: corTextoSecundarioCoord,
+                  ),
+                ),
+              ),
+              Text(
+                '${grupo['conhecidos'] ?? 0}/${grupo['total'] ?? 0}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          LinearProgressIndicator(
+            value: total > 0 ? (conhecidos / total).clamp(0, 1) : 0,
+            minHeight: 6,
+            borderRadius: BorderRadius.circular(6),
+            color: AppColors.primary,
+            backgroundColor: const Color(0xFFEAE3F4),
+            semanticsLabel: '$rotulo com dados',
+            semanticsValue:
+                '${total > 0 ? (conhecidos / total * 100).round() : 0}%',
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final criterios = _lista(dados['criterios']);
     if (criterios.isEmpty) return const SizedBox.shrink();
     final pendencias = _lista(dados['pendencias']);
-    return Card(
-      margin: const EdgeInsets.all(16),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Dados antes da execução',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const Text('Ausência de resposta não significa incompatibilidade.'),
-            for (final c in criterios)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Text(
-                  '${c['nome']} — ${c['obrigatorio'] == true ? 'Condição obrigatória' : 'Preferência ponderada'}. '
-                  'Padrinhos com dados: ${(c['padrinhos'] as Map)['conhecidos']}/${(c['padrinhos'] as Map)['total']}; '
-                  'apadrinhados com dados: ${(c['apadrinhados'] as Map)['conhecidos']}/${(c['apadrinhados'] as Map)['total']}.',
-                ),
+    return CartaoPainelCoord(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const TituloPainelCoord(
+            titulo: 'Dados antes da execução',
+            descricao: 'Confira os dados dos participantes elegíveis. Ausência de resposta não significa incompatibilidade.',
+          ),
+          for (final c in criterios)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${c['nome']}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.ink,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    c['obrigatorio'] == true
+                        ? 'Condição obrigatória'
+                        : 'Preferência ponderada',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: corTextoSecundarioCoord,
+                    ),
+                  ),
+                  _cobertura('Padrinhos', c['padrinhos'] as Map? ?? {}),
+                  _cobertura('Apadrinhados', c['apadrinhados'] as Map? ?? {}),
+                ],
               ),
-            if (pendencias.isNotEmpty)
-              ExpansionTile(
-                tilePadding: EdgeInsets.zero,
+            ),
+          if (pendencias.isNotEmpty)
+            Material(
+              color: const Color(0xFFFFF7E8),
+              borderRadius: BorderRadius.circular(9),
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(horizontal: 12),
                 title: Text(
                   '${pendencias.length} participante(s) com dados pendentes',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF87531C),
+                  ),
                 ),
                 children: [
                   for (final p in pendencias)
                     ListTile(
-                      title: Text('${p['nome']} (${p['papel']})'),
+                      title: Text(
+                        '${p['nome']} (${p['papel']})',
+                        style: const TextStyle(fontSize: 13),
+                      ),
                       subtitle: Text(
                         '${(p['campos'] as List? ?? []).join(', ')}.${p['obrigatorio'] == true ? ' Há condição obrigatória pendente.' : ''}',
                       ),
                     ),
                 ],
-              )
-            else
-              const Text(
-                'Os dados dos critérios configurados estão disponíveis para os participantes elegíveis.',
               ),
-          ],
-        ),
+            )
+          else
+            const Text(
+              'Os dados dos critérios configurados estão disponíveis para os participantes elegíveis.',
+              style: TextStyle(
+                color: corTextoSecundarioCoord,
+                fontSize: 12,
+                height: 1.5,
+              ),
+            ),
+        ],
       ),
     );
   }

@@ -84,7 +84,7 @@ void main() {
       addTearDown(tester.view.reset);
       await tester.pumpWidget(app());
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Abrir novo ciclo'));
+      await tester.tap(find.text('Abrir novo ciclo'));
       await tester.pumpAndSettle();
     }
 
@@ -94,7 +94,13 @@ void main() {
       await abrirDialogo(tester);
       expect(find.text('Código do ciclo'), findsOneWidget);
 
-      await tester.enterText(find.byType(TextField), '2027/1');
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        ),
+        '2027/1',
+      );
       await tester.tap(find.text('Revisar cronograma'));
       await tester.pumpAndSettle();
       expect(find.text('01/02/2027'), findsOneWidget);
@@ -119,7 +125,13 @@ void main() {
     ) async {
       await abrirDialogo(tester);
 
-      await tester.enterText(find.byType(TextField), '2027/3');
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        ),
+        '2027/3',
+      );
       await tester.tap(find.text('Revisar cronograma'));
       await tester.pumpAndSettle();
       expect(
@@ -127,7 +139,13 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.enterText(find.byType(TextField), '2026/2');
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        ),
+        '2026/2',
+      );
       await tester.tap(find.text('Revisar cronograma'));
       await tester.pumpAndSettle();
       expect(find.text('O ciclo 2026/2 já existe.'), findsOneWidget);
@@ -148,7 +166,11 @@ void main() {
         {
           ..._programa('2026/1'),
           'requisitosPadrinho': [
-            {'id': 'antigo', 'descricao': 'Requisito antigo', 'obrigatorio': true},
+            {
+              'id': 'antigo',
+              'descricao': 'Requisito antigo',
+              'obrigatorio': true,
+            },
           ],
         },
       ];
@@ -164,7 +186,7 @@ void main() {
         contains('Ordem do cronograma inválida'),
       );
 
-      await tester.tap(find.text('Configurar programa').first);
+      await tester.tap(find.text('Configurar').first);
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const ValueKey('inscricoesFim')),
@@ -190,7 +212,14 @@ void main() {
       expect(corpo['requisitosPadrinho'], [
         {'descricao': 'AED I', 'obrigatorio': true},
       ]);
-      expect(pedidos.where((r) => r.url.queryParameters['codigo'] == '2026/1' && r.method == 'PATCH'), isEmpty);
+      expect(
+        pedidos.where(
+          (r) =>
+              r.url.queryParameters['codigo'] == '2026/1' &&
+              r.method == 'PATCH',
+        ),
+        isEmpty,
+      );
     });
   });
 }

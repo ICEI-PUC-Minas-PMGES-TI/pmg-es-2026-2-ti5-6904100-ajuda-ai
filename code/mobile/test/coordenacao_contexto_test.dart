@@ -363,7 +363,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Programas'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Administrar este programa').last);
+      await tester.tap(find.text('2026/1'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Administrar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Administrar'));
       await tester.pumpAndSettle();
       expect(
         backend
@@ -397,7 +401,13 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Excluir programa'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'COORDENADOR');
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        ),
+        'COORDENADOR',
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Excluir definitivamente'));
       await tester.pumpAndSettle();

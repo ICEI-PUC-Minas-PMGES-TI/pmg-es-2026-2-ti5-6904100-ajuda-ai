@@ -10,6 +10,7 @@ import DiagnosticoMatching from '../../components/DiagnosticoMatching';
 import GruposMatching from '../../components/GruposMatching';
 import Modal from '../../components/Modal';
 import { useToast } from '../../components/Toast';
+import './matching.css';
 
 const STATUS = [
   ['pendente', 'Pendentes'],
@@ -699,20 +700,24 @@ export function ConfiguracaoMatching({ programa, visao, onSalvo }) {
   }
 
   return (
-    <section className="matching-config-card">
+    <section className="matching-config-card matching-settings-card">
       <div>
         <span className="eyebrow">CONFIGURAÇÃO {atual ? `V${atual.versao}` : ''}</span>
         <h2>Critérios e capacidades</h2>
         <p>
           {atual
-            ? `${atual.criterios?.length || 0} critério(s) · até ${atual.capacidadePorPadrinho} apadrinhado(s) por padrinho · até ${atual.capacidadePorApadrinhado} padrinho(s) por apadrinhado.`
+            ? `${atual.criterios?.length || 0} ${(atual.criterios?.length || 0) === 1 ? 'critério de compatibilidade em uso' : 'critérios de compatibilidade em uso'}.`
             : 'Defina critérios do catálogo antes de liberar e executar o matching.'}
         </p>
-        <p className="matching-help">
+        {atual && <dl className="matching-limits">
+          <div><dt>Apadrinhados por padrinho</dt><dd>Até {atual.capacidadePorPadrinho}</dd></div>
+          <div><dt>Padrinhos por apadrinhado</dt><dd>Até {atual.capacidadePorApadrinhado}</dd></div>
+        </dl>}
+        <details className="matching-config-help"><summary>Como configurar os critérios</summary><p className="matching-help">
           Os dados do cadastro já estão disponíveis. Critérios adicionais são geridos na aba <strong>Critérios de matching</strong> e inseridos nos formulários
           com <strong>Adicionar pergunta de matching</strong>. Prefira critérios <em>habilitáveis</em>
           (já coletados nos dois públicos).
-        </p>
+        </p></details>
       </div>
       <button type="button" className="mini-btn" onClick={() => setAberto(true)}>
         <Icon name="settings" size={15} /> {atual ? 'Editar configuração' : 'Configurar'}
@@ -720,29 +725,36 @@ export function ConfiguracaoMatching({ programa, visao, onSalvo }) {
       {aberto && (
         <Modal
           titulo="Configurar matching"
-          descricao="Cada salvamento cria uma versão. Selecione pares de critérios do catálogo."
+          descricao="Defina a capacidade dos vínculos e o que considerar ao sugerir cada par."
           onFechar={() => setAberto(false)}
           tamanho="lg"
+          className="matching-config-modal"
         >
           <form className="matching-config-form" onSubmit={salvar}>
-            <div className="matching-cap-fields">
-              <label>Limite por padrinho<input type="number" min="1" max="20" value={capP} onChange={(e) => setCapP(e.target.value)} required /></label>
-              <label>Limite por apadrinhado<input type="number" min="1" max="20" value={capA} onChange={(e) => setCapA(e.target.value)} required /></label>
-            </div>
-            <fieldset><legend>Dados do cadastro</legend>
-              <p>Use os dados já respondidos, sem criar perguntas duplicadas. Os pesos são definidos pela coordenação.</p>
+            <section className="matching-editor-section" aria-label="Capacidade dos vínculos">
+              <div className="matching-editor-heading"><span>01</span><div><h3>Capacidade dos vínculos</h3><p>Quantas conexões cada participante pode ter?</p></div></div>
+              <div className="matching-editor-capacity">
+                <label><span>Por padrinho</span><span className="matching-capacity-control"><input aria-label="Limite por padrinho" type="number" min="1" max="20" value={capP} onChange={(e) => setCapP(e.target.value)} required /><span>apadrinhados</span></span></label>
+                <label><span>Por apadrinhado</span><span className="matching-capacity-control"><input aria-label="Limite por apadrinhado" type="number" min="1" max="20" value={capA} onChange={(e) => setCapA(e.target.value)} required /><span>padrinhos</span></span></label>
+              </div>
+            </section>
+            <section className="matching-editor-section" aria-label="Dados do cadastro">
+              <div className="matching-editor-heading"><span>02</span><div><h3>Dados do cadastro</h3><p>Selecione os dados que entram na comparação. Um peso maior dá mais importância ao critério.</p></div></div>
+              <div className="matching-source-list">
               {cadastro.map(fonte => {
                 const selecionado = criterios.find(c => c.campoCadastro === fonte.campo);
-                return <div key={fonte.campo} className="matching-cap-fields">
-                  <label><input type="checkbox" checked={Boolean(selecionado)} onChange={e => setCriterios(lista => e.target.checked ? [...lista, {campoCadastro: fonte.campo, operacao: fonte.operacao, peso: 10}] : lista.filter(c => c.campoCadastro !== fonte.campo))} />{fonte.nome}</label>
-                  {selecionado && <label>Peso (1 a 100)<input type="number" min="1" max="100" required value={selecionado.peso} onChange={e => setCriterios(lista => lista.map(c => c.campoCadastro === fonte.campo ? {...c, peso: e.target.value} : c))} /></label>}
-                  {selecionado && fonte.permiteObrigatorio && <label><input type="checkbox" checked={selecionado.obrigatorio === true} onChange={e => setCriterios(lista => lista.map(c => c.campoCadastro === fonte.campo ? {...c, obrigatorio: e.target.checked} : c))} />{fonte.campo === 'areas' ? 'Exigir pelo menos uma área em comum' : 'Exigir pelo menos um horário em comum'}</label>}
+                return <div key={fonte.campo} className={`matching-source-row${selecionado ? ' selected' : ''}`}>
+                  <label className="matching-editor-check"><input type="checkbox" checked={Boolean(selecionado)} onChange={e => setCriterios(lista => e.target.checked ? [...lista, {campoCadastro: fonte.campo, operacao: fonte.operacao, peso: 10}] : lista.filter(c => c.campoCadastro !== fonte.campo))} /><span>{fonte.nome}</span></label>
+                  {selecionado && <label className="matching-source-weight">Peso<input aria-label={`Peso de ${fonte.nome}`} type="number" min="1" max="100" required value={selecionado.peso} onChange={e => setCriterios(lista => lista.map(c => c.campoCadastro === fonte.campo ? {...c, peso: e.target.value} : c))} /></label>}
+                  {selecionado && fonte.permiteObrigatorio && <label className="matching-editor-check matching-source-required"><input type="checkbox" checked={selecionado.obrigatorio === true} onChange={e => setCriterios(lista => lista.map(c => c.campoCadastro === fonte.campo ? {...c, obrigatorio: e.target.checked} : c))} /><span>{fonte.campo === 'areas' ? 'Exigir pelo menos uma área em comum' : 'Exigir pelo menos um horário em comum'}</span></label>}
                 </div>;
               })}
-              <p>Preferência de gênero tem peso nos dois sentidos. ProUni e mudança de cidade valorizam a vivência compartilhada. Dados não informados continuam desconhecidos.</p>
-            </fieldset>
-            <div className="matching-config-head">
-              <h3>Pares de critérios</h3>
+              </div>
+              {!cadastro.length && <p className="matching-editor-note">Nenhum dado do cadastro disponível neste programa.</p>}
+              <details className="matching-editor-info"><summary>Como esses dados são considerados</summary><p>Preferência de gênero tem peso nos dois sentidos. ProUni e mudança de cidade valorizam a vivência compartilhada. Dados não informados continuam desconhecidos.</p></details>
+            </section>
+            <section className="matching-editor-section" aria-label="Pares de critérios">
+            <div className="matching-editor-heading matching-editor-catalog-head"><span>03</span><div><h3>Pares de critérios</h3><p>Compare as respostas dos formulários de padrinhos e apadrinhados.</p></div>
               <button
                 type="button"
                 className="mini-btn"
@@ -757,7 +769,7 @@ export function ConfiguracaoMatching({ programa, visao, onSalvo }) {
                   }]);
                 }}
               >
-                <Icon name="plus" size={14} /> Adicionar
+                <Icon name="plus" size={14} /> Adicionar critério
               </button>
             </div>
             {!opcoes.length && (
@@ -765,11 +777,14 @@ export function ConfiguracaoMatching({ programa, visao, onSalvo }) {
                 Nenhum critério disponível. Cadastre no catálogo e adicione perguntas de matching nos formulários de padrinho e apadrinhado.
               </p>
             )}
+            <div className="matching-editor-pairs">
             {criterios.map((criterio, index) => {
               if (criterio.campoCadastro) return null;
               const metaP = disponiveis.find((c) => c.id === Number(criterio.criterioPadrinhoId));
               return (
-                <div className="matching-config-row" key={`${index}-${criterio.criterioPadrinhoId}`}>
+                <div className="matching-editor-pair" key={`${index}-${criterio.criterioPadrinhoId}`}>
+                  <div className="matching-editor-pair-head"><strong>{metaP?.nome || 'Critério do catálogo'}</strong><button type="button" className="matching-remove-criterion" aria-label={`Remover critério ${metaP?.nome || ''}`} onClick={() => setCriterios((lista) => lista.filter((_, i) => i !== index))}><Icon name="trash" size={15} /> Remover</button></div>
+                  <div className="matching-editor-pair-fields">
                   <label>
                     Critério do padrinho
                     <select
@@ -802,7 +817,7 @@ export function ConfiguracaoMatching({ programa, visao, onSalvo }) {
                       ))}
                     </select>
                   </label>
-                  <label>
+                  <label className="matching-editor-comparison">
                     Comparação
                     <select value={criterio.operacao} onChange={(e) => alterar(index, 'operacao', e.target.value)}>
                       {OPERACOES.map((op) => (
@@ -816,19 +831,24 @@ export function ConfiguracaoMatching({ programa, visao, onSalvo }) {
                       ))}
                     </select>
                   </label>
-                  <label><input type="checkbox" checked={criterio.obrigatorio === true} onChange={e => setCriterios(lista => lista.map((c, i) => i === index ? {...c, obrigatorio: e.target.checked} : c))} />Correspondência obrigatória</label>
-                  <label>Peso<input type="number" min="1" max="100" required value={criterio.peso} onChange={(e) => alterar(index, 'peso', e.target.value)} /></label>
-                  <button type="button" className="mini-btn danger" aria-label="Remover critério" onClick={() => setCriterios((lista) => lista.filter((_, i) => i !== index))}><Icon name="trash" size={14} /></button>
+                  <label>Peso <span className="matching-weight-range">1 a 100</span><input type="number" min="1" max="100" required value={criterio.peso} onChange={(e) => alterar(index, 'peso', e.target.value)} /></label>
+                  </div>
+                  <label className="matching-editor-check matching-pair-required"><input type="checkbox" checked={criterio.obrigatorio === true} onChange={e => setCriterios(lista => lista.map((c, i) => i === index ? {...c, obrigatorio: e.target.checked} : c))} /><span>Correspondência obrigatória<small>Só sugerir pares que atendam a este critério.</small></span></label>
                 </div>
               );
             })}
-            {!criterios.length && <p className="empty-copy">Adicione ao menos um par de critérios do catálogo.</p>}
-            <p className="matching-help">Aderência e cobertura dos dados aparecem separadamente. Condições obrigatórias não atendidas ou desconhecidas impedem a sugestão. O equilíbrio desempata soluções de mesma qualidade.</p>
+            </div>
+            {!criterios.some(c => !c.campoCadastro) && opcoes.length > 0 && <p className="matching-editor-note">Nenhum critério do catálogo adicionado. Use “Adicionar critério” para incluir um.</p>}
+            <p className="matching-editor-note"><Icon name="info" size={16} /> Critérios obrigatórios sem resposta ou sem correspondência impedem a sugestão do par.</p>
+            </section>
             {erro && <p className="form-error" role="alert">{erro}</p>}
             {conflito && <button type="button" className="outline-button" onClick={() => {setAberto(false); onSalvo();}}>Carregar configuração atual</button>}
-            <div className="modal-actions matching-inline-actions">
+            <div className="matching-editor-footer">
+              <span>{criterios.length} {criterios.length === 1 ? 'critério selecionado' : 'critérios selecionados'}</span>
+              <div className="matching-inline-actions">
               <button type="button" className="ghost-button" onClick={() => setAberto(false)}>Cancelar</button>
-              <button type="submit" className="primary-button inline" disabled={salvando || conflito || !criterios.length}>{salvando ? 'Salvando…' : 'Salvar nova versão'}</button>
+              <button type="submit" className="primary-button inline" disabled={salvando || conflito || !criterios.length}>{salvando ? 'Salvando…' : 'Salvar configuração'}</button>
+              </div>
             </div>
           </form>
         </Modal>
@@ -981,23 +1001,23 @@ function MatchingPorPrograma({ programa }) {
   const ultimaExecucao = execucoes[0];
   const bloqueios = visao?.bloqueios || [];
   const cards = useMemo(() => [
-    ['Pessoas elegíveis', `${totais.padrinhosElegiveis || 0} padrinhos · ${totais.apadrinhadosElegiveis || 0} apadrinhados`, 'users'],
-    ['Sugestões pendentes', totais.sugestoesPendentes || 0, 'spark'],
-    ['Vínculos confirmados', totais.vinculos || 0, 'link'],
-    ['Pessoas sem vínculo', totais.pessoasSemVinculo || 0, 'person'],
+    ['Pessoas elegíveis', (totais.padrinhosElegiveis || 0) + (totais.apadrinhadosElegiveis || 0), 'users', `${totais.padrinhosElegiveis || 0} padrinhos · ${totais.apadrinhadosElegiveis || 0} apadrinhados`],
+    ['Sugestões pendentes', totais.sugestoesPendentes || 0, 'spark', 'Aguardando sua revisão'],
+    ['Vínculos confirmados', totais.vinculos || 0, 'link', 'Pares já aprovados'],
+    ['Pessoas sem vínculo', totais.pessoasSemVinculo || 0, 'person', 'Ainda aguardando um par'],
   ], [totais]);
 
   return (
     <section className="matching-page">
-      <header className="dash-header compact">
+      <header className="dash-header compact matching-header">
         <div>
           <h1>Matching</h1>
-          <p>Gere uma alocação viável, compare cada par e confirme os vínculos individualmente. Programa {programa}.</p>
+          <p>Encontre bons pares. Revise as sugestões e transforme afinidades em vínculos.</p>
         </div>
         {aba === 'operacao' && (
           <div className="matching-run-actions">
             <Link to={`/coordenacao/matching/manual?programa=${encodeURIComponent(programa || '')}`} className="mini-btn">
-              Gerenciar vínculos manualmente
+              <Icon name="link" size={16} /> Vínculo manual
             </Link>
             <button type="button" className="primary-button inline" disabled={!visao?.podeExecutar || aguardando} onClick={() => setConfirmarExecucao(true)}>
               <Icon name="spark" size={16} /> {aguardando ? 'Executando…' : 'Gerar sugestões'}
@@ -1006,16 +1026,17 @@ function MatchingPorPrograma({ programa }) {
         )}
       </header>
 
-      <div className="forms-tabs" role="tablist" aria-label="Seções do matching">
-        <button type="button" role="tab" aria-selected={aba === 'operacao'} className={`forms-tab${aba === 'operacao' ? ' active' : ''}`} onClick={() => setAba('operacao')}>
-          Operação
-        </button>
-        <button type="button" role="tab" aria-selected={aba === 'criterios'} className={`forms-tab${aba === 'criterios' ? ' active' : ''}`} onClick={() => setAba('criterios')}>
-          Critérios de matching
-        </button>
-      </div>
+      <nav className="matching-nav" aria-label="Seções do matching">
+        {[['operacao', 'Visão geral', 'spark'], ['grupos', 'Grupos e transferências', 'users'], ['recusados', 'Pares recusados', 'history'], ['criterios', 'Critérios de matching', 'settings']].map(([valor, rotulo, icon]) => (
+          <button key={valor} type="button" aria-current={aba === valor ? 'page' : undefined} className={aba === valor ? 'active' : ''} onClick={() => setAba(valor)}>
+            <Icon name={icon} size={17} /> {rotulo}
+          </button>
+        ))}
+      </nav>
 
       {aba === 'criterios' && <CatalogoCriterios />}
+      {aba === 'grupos' && <GruposMatching programa={programa} atualizacao={visao} onAlterado={carregar} />}
+      {aba === 'recusados' && <ParesRecusadosMatching programa={programa} atualizacao={visao} onReconsiderado={carregar} />}
 
       {aba === 'operacao' && (
         <>
@@ -1025,10 +1046,10 @@ function MatchingPorPrograma({ programa }) {
 
           {visao && (
             <>
-              <div className={`matching-gate ${visao.podeExecutar ? 'ready' : 'blocked'}`}>
+              <div role="status" className={`matching-gate ${visao.podeExecutar ? 'ready' : 'blocked'}`}>
                 <Icon name={visao.podeExecutar ? 'checkCircle' : 'alert'} size={20} />
                 <div>
-                  <strong>{visao.podeExecutar ? 'Pronto para executar' : 'Matching bloqueado'}</strong>
+                  <strong>{visao.podeExecutar ? 'Tudo pronto para gerar sugestões' : 'A geração de sugestões está bloqueada'}</strong>
                   {visao.podeExecutar
                     ? <p>Inscrições encerradas, etapa liberada e candidatos elegíveis disponíveis.</p>
                     : <ul>{bloqueios.map((item) => <li key={item}>{item}</li>)}</ul>}
@@ -1036,39 +1057,37 @@ function MatchingPorPrograma({ programa }) {
               </div>
 
               <div className="matching-summary">
-                {cards.map(([titulo, valor, icon]) => (
-                  <article key={titulo}><Icon name={icon} size={20} /><div><strong>{valor}</strong><span>{titulo}</span></div></article>
+                {cards.map(([titulo, valor, icon, detalhe]) => (
+                  <article key={titulo}><div className="matching-metric-title"><span>{titulo}</span><Icon name={icon} size={19} /></div><strong>{valor}</strong><small>{detalhe}</small></article>
                 ))}
               </div>
 
-              <ConfiguracaoMatching programa={programa} visao={visao} onSalvo={carregar} />
-              <DiagnosticoMatching dados={visao.diagnosticoDados} />
-
-              <RelatorioMatching relatorio={ultimaExecucao?.configSnapshot?.relatorio} />
-              <ParesRecusadosMatching programa={programa} atualizacao={visao} onReconsiderado={carregar} />
-              <GruposMatching programa={programa} atualizacao={visao} onAlterado={carregar} />
-              <section className="matching-results">
+              <div className="matching-workspace">
+              <div className="matching-primary">
+              <section className="matching-results matching-suggestions" aria-label="Sugestões de pares">
                 <div className="matching-results-head">
                   <div>
-                    <h2>Sugestões</h2>
+                    <span className="eyebrow">REVISÃO DE PARES</span>
+                    <h2>Sugestões de matching</h2>
                     <p>
                       {ultimaExecucao
-                        ? `Última execução ${ultimaExecucao.status} em ${dataHora(ultimaExecucao.criadoEm)} · configuração v${ultimaExecucao.configSnapshot?.versao || '—'}.`
+                        ? `Última execução ${ultimaExecucao.status} em ${dataHora(ultimaExecucao.criadoEm)}.`
                         : 'Nenhuma execução registrada.'}
                     </p>
                   </div>
-                  <div className="forms-tabs" role="tablist" aria-label="Situação das sugestões">
+                </div>
+                  <div className="forms-tabs matching-status-tabs" role="tablist" aria-label="Situação das sugestões">
                     {STATUS.map(([valor, rotulo]) => (
-                      <button key={valor} type="button" role="tab" aria-selected={status === valor} className={`forms-tab${status === valor ? ' active' : ''}`} onClick={() => setStatus(valor)}>{rotulo}</button>
+                      <button key={valor} type="button" role="tab" aria-selected={status === valor} className={`forms-tab${status === valor ? ' active' : ''}`} onClick={() => setStatus(valor)}>{rotulo}{valor === 'pendente' && <span className="matching-tab-count">{totais.sugestoesPendentes || 0}</span>}</button>
                     ))}
                   </div>
-                </div>
 
                 {!carregando && !sugestoes.length && (
                   <div className="matching-empty">
-                    <Icon name="spark" size={28} />
-                    <h3>Nenhuma sugestão {STATUS.find(([v]) => v === status)?.[1].toLowerCase()}</h3>
-                    <p>{status === 'pendente' ? 'Execute o matching ou revise os bloqueios acima.' : 'Não há resultados neste estado.'}</p>
+                    <span className="matching-empty-symbol"><Icon name="userSearch" size={30} /></span>
+                    <h3>{({pendente: 'Nenhuma sugestão pendente', aprovada: 'Nenhuma sugestão aprovada', recusada: 'Nenhuma sugestão recusada', obsoleta: 'Nenhuma sugestão desatualizada'})[status]}</h3>
+                    <p>{status === 'pendente' ? visao.podeExecutar ? 'Gere uma rodada para encontrar pares entre os participantes elegíveis.' : 'As sugestões aparecerão aqui após a liberação e a execução do matching.' : 'Os pares aparecerão aqui quando houver uma decisão neste estado.'}</p>
+                    {status === 'pendente' && <span className="matching-empty-note"><Icon name={visao.podeExecutar ? 'spark' : 'info'} size={15} />{visao.podeExecutar ? 'Use “Gerar sugestões” para começar.' : 'Confira o motivo do bloqueio no aviso acima.'}</span>}
                   </div>
                 )}
                 <div className="matching-list">
@@ -1086,6 +1105,13 @@ function MatchingPorPrograma({ programa }) {
                   ))}
                 </div>
               </section>
+              {ultimaExecucao?.configSnapshot?.relatorio && <details className="matching-report"><summary><Icon name="clipboard" size={18} /> Relatório da última rodada <Icon name="chevronDown" size={16} /></summary><RelatorioMatching relatorio={ultimaExecucao.configSnapshot.relatorio} /></details>}
+              </div>
+              <aside className="matching-sidebar" aria-label="Preparação do matching">
+                <ConfiguracaoMatching programa={programa} visao={visao} onSalvo={carregar} />
+                <DiagnosticoMatching dados={visao.diagnosticoDados} />
+              </aside>
+              </div>
 
             </>
           )}

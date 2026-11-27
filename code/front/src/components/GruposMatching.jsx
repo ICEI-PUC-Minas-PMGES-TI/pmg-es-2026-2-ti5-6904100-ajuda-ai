@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import Modal from "./Modal";
+import Icon from "./Icon";
 
 const percentual = (valor) =>
   typeof valor === "number"
@@ -154,10 +155,10 @@ export function ListaGruposMatching({ dados, onTransferir }) {
   return (
     <>
       {!dados.grupos?.length && (
-        <p>Nenhum grupo canônico formado neste ciclo.</p>
+        <div className="matching-empty"><span className="matching-empty-symbol"><Icon name="users" size={30} /></span><h3>Nenhum grupo formado neste ciclo</h3><p>Os grupos aparecerão aqui quando os vínculos forem confirmados.</p></div>
       )}
       {(dados.inconsistencias || []).map((i, n) => (
-        <p role="alert" key={`${i.participacaoId}-${n}`}>
+        <p className="matching-group-alert" role="alert" key={`${i.participacaoId}-${n}`}>
           {i.nome}: {i.motivo}
         </p>
       ))}
@@ -237,7 +238,7 @@ function GruposDoPrograma({ programa, atualizacao, onAlterado }) {
     setRevisao((v) => v + 1);
   }
   return (
-    <section className="matching-results">
+    <section className="matching-results matching-groups">
       <div className="matching-results-head">
         <div>
           <h2>Grupos e transferências</h2>

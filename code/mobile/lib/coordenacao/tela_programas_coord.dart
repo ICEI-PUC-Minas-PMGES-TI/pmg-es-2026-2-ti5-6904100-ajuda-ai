@@ -4,6 +4,7 @@ import '../services/coordenacao_api.dart';
 import '../theme/colors.dart';
 import 'componentes_coord.dart';
 import 'configurar_programa.dart';
+import 'painel_coord.dart';
 
 /// Semestre pela data (mesma regra do backend: jan–jun = /1, jul–dez = /2).
 String codigoCicloDaData([DateTime? data]) {
@@ -35,6 +36,7 @@ class TelaProgramasCoord extends StatefulWidget {
   const TelaProgramasCoord({
     super.key,
     required this.api,
+    this.programa,
     this.pendencia,
     this.iniciarNovo = false,
     this.onProgramaCriado,
@@ -44,6 +46,7 @@ class TelaProgramasCoord extends StatefulWidget {
   });
 
   final CoordenacaoApi api;
+  final String? programa;
 
   /// `grupos` | `prazo` — vindo dos pontos de atenção do dashboard.
   final String? pendencia;
@@ -63,6 +66,9 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
   List<Map<String, dynamic>> _programas = const [];
   bool _carregando = true;
   String? _erro;
+  String? _codigoSelecionado;
+  String _busca = '';
+  String _filtro = 'todos';
   final Set<String> _acoesEmAndamento = {};
 
   bool _novoAgendado = false;
@@ -87,6 +93,17 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
       if (!mounted) return;
       setState(() {
         _programas = lista;
+        if (!lista.any((p) => p['codigo'] == _codigoSelecionado)) {
+          final preferidos = lista.where((p) => p['codigo'] == widget.programa);
+          final vigentes = lista.where((p) => p['vigente'] == true);
+          _codigoSelecionado = preferidos.isNotEmpty
+              ? '${preferidos.first['codigo']}'
+              : vigentes.isNotEmpty
+              ? '${vigentes.first['codigo']}'
+              : lista.isEmpty
+              ? null
+              : '${lista.first['codigo']}';
+        }
         _carregando = false;
       });
     } catch (erro) {
@@ -143,6 +160,7 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
     );
     if (salvo == null || !mounted) return;
     final codigo = '${salvo['codigo'] ?? escolhido}';
+    setState(() => _codigoSelecionado = codigo);
     mostrarMensagemCoord(context, 'Ciclo $codigo aberto.');
     widget.onProgramaCriado?.call(codigo);
     await _carregar();
@@ -257,12 +275,27 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
               CabecalhoCoord(
                 voltar: true,
                 titulo: 'Programas',
-                subtitulo: 'Ciclos do Ajuda-aí e suas etapas.',
+                subtitulo: 'Ciclos do programa de apadrinhamento, etapas, vagas e calendário.',
                 acao: IconButton(
-                  tooltip: 'Abrir novo ciclo',
-                  onPressed: _novoCiclo,
-                  icon: const Icon(Icons.add_circle_outline),
+                  tooltip: 'Atualizar programas',
+                  onPressed: _carregar,
+                  icon: const Icon(Icons.refresh),
                   color: AppColors.primary,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilledButton.icon(
+                    onPressed: _novoCiclo,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Abrir novo ciclo'),
+                  ),
                 ),
               ),
               if (aviso != null)
@@ -302,50 +335,175 @@ class _TelaProgramasCoordState extends State<TelaProgramasCoord> {
                     ],
                   ),
                 )
+              else if (_programas.isEmpty)
+                const CartaoPainelCoord(
+                  child: Text(
+                    'Nenhum programa cadastrado. Abra o primeiro ciclo.',
+                  ),
+                )
               else
-                for (final programa in _programas)
-                  _CardPrograma(
-                    programa: programa,
-                    onEditar: () => _editar(programa),
-                    onExcluir: () => _excluir(programa),
-                    onEncerrar: programa['podeEncerrarInscricoes'] == true
-                        ? () => _encerrarInscricoes(programa)
-                        : null,
-                    onLiberar: programa['podeLiberarMatching'] == true
-                        ? () => _liberarMatching(programa)
-                        : null,
-                    ocupado: _acoesEmAndamento.contains(
-                      '${programa['codigo']}',
-                    ),
-                    onMatching: widget.onAbrirMatching == null
-                        ? null
-                        : () =>
-                              widget.onAbrirMatching!('${programa['codigo']}'),
-                    onAdministrar: widget.onProgramaSelecionado == null
-                        ? null
-                        : () {
-                            widget.onProgramaSelecionado!(
-                              programa['codigo'] as String,
-                            );
-                            Navigator.of(context).pop();
-                          },
-                  ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: OutlinedButton.icon(
-                  onPressed: _novoCiclo,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Abrir novo ciclo'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    minimumSize: const Size.fromHeight(48),
-                  ),
-                ),
-              ),
+                _painelProgramas(),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _painelProgramas() {
+    final lista = [..._programas]
+      ..sort((a, b) => '${b['codigo']}'.compareTo('${a['codigo']}'));
+    final filtrados = lista.where((p) {
+      final encerrado =
+          p['encerrado'] == true || p['etapaAtual'] == 'encerramento';
+      return (_filtro == 'todos' ||
+              (_filtro == 'encerrados' ? encerrado : !encerrado)) &&
+          '${p['codigo']} ${p['nome'] ?? p['titulo'] ?? ''}'
+              .toLowerCase()
+              .contains(_busca.trim().toLowerCase());
+    }).toList();
+    final selecionados = lista.where((p) => p['codigo'] == _codigoSelecionado);
+    final programa = selecionados.isEmpty ? lista.first : selecionados.first;
+    final navegador = CartaoPainelCoord(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TituloPainelCoord(titulo: 'Ciclos do programa (${lista.length})'),
+          TextField(
+            decoration: const InputDecoration(
+              labelText: 'Buscar ciclo',
+              hintText: 'Buscar por semestre…',
+              prefixIcon: Icon(Icons.search, color: AppColors.primary),
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (valor) => setState(() => _busca = valor),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final item in [
+                ('todos', 'Todos'),
+                ('ativos', 'Ativos'),
+                ('encerrados', 'Encerrados'),
+              ])
+                ChoiceChip(
+                  label: Text(item.$2),
+                  selected: _filtro == item.$1,
+                  showCheckmark: false,
+                  selectedColor: const Color(0xFFEDE5FA),
+                  labelStyle: TextStyle(
+                    color: _filtro == item.$1
+                        ? AppColors.primary
+                        : corTextoSecundarioCoord,
+                  ),
+                  onSelected: (_) => setState(() => _filtro = item.$1),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 300),
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  for (final p in filtrados)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Material(
+                        color: p['codigo'] == programa['codigo']
+                            ? const Color(0xFFEDE5FA)
+                            : Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          side: BorderSide(
+                            color: p['codigo'] == programa['codigo']
+                                ? const Color(0xFFB69BDE)
+                                : Colors.transparent,
+                          ),
+                        ),
+                        child: ListTile(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          leading: const Icon(
+                            Icons.calendar_month_outlined,
+                            color: AppColors.primary,
+                          ),
+                          title: Text(
+                            '${p['codigo']}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${p['statusRotulo'] ?? ''}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: corTextoSecundarioCoord,
+                            ),
+                          ),
+                          trailing: p['vigente'] == true
+                              ? const SeloPainelCoord('Vigente', verde: true)
+                              : const Icon(
+                                  Icons.chevron_right,
+                                  color: AppColors.primary,
+                                ),
+                          selected: p['codigo'] == programa['codigo'],
+                          onTap: () => setState(
+                            () => _codigoSelecionado = '${p['codigo']}',
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (filtrados.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Text(
+                        'Nenhum ciclo encontrado. Tente outro semestre ou filtro.',
+                        style: TextStyle(color: corTextoSecundarioCoord),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    final detalhe = _CardPrograma(
+      programa: programa,
+      onEditar: () => _editar(programa),
+      onExcluir: () => _excluir(programa),
+      onEncerrar: programa['podeEncerrarInscricoes'] == true
+          ? () => _encerrarInscricoes(programa)
+          : null,
+      onLiberar: programa['podeLiberarMatching'] == true
+          ? () => _liberarMatching(programa)
+          : null,
+      ocupado: _acoesEmAndamento.contains('${programa['codigo']}'),
+      onMatching: widget.onAbrirMatching == null
+          ? null
+          : () => widget.onAbrirMatching!('${programa['codigo']}'),
+      onAdministrar: widget.onProgramaSelecionado == null
+          ? null
+          : () {
+              widget.onProgramaSelecionado!('${programa['codigo']}');
+              Navigator.of(context).pop();
+            },
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) => constraints.maxWidth >= 1000
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: 320, child: navegador),
+                Expanded(child: detalhe),
+              ],
+            )
+          : Column(children: [navegador, detalhe]),
     );
   }
 }
@@ -375,232 +533,377 @@ class _CardPrograma extends StatelessWidget {
   Widget build(BuildContext context) {
     final totais = programa['totais'] is Map
         ? Map<String, dynamic>.from(programa['totais'] as Map)
-        : const <String, dynamic>{};
-    final etapas = (programa['etapas'] as List? ?? const [])
+        : <String, dynamic>{};
+    final etapas = (programa['etapas'] as List? ?? [])
         .whereType<Map>()
         .toList();
-    final vigente = programa['vigente'] == true;
-
-    Widget total(String rotulo, Object? valor) => Expanded(
-      child: Column(
-        children: [
-          Text(
-            '${valor ?? 0}',
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontWeight: FontWeight.w800,
-              fontSize: 18,
-              color: AppColors.ink,
-            ),
-          ),
-          Text(
-            rotulo,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 11,
-              color: corTextoSecundarioCoord,
-            ),
-          ),
-        ],
-      ),
-    );
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: vigente ? AppColors.primary : AppAccents.cardBorder,
-        ),
-      ),
+    final requisitos = (programa['requisitosPadrinho'] as List? ?? [])
+        .whereType<Map>()
+        .toList();
+    final atual = etapas.indexWhere((e) => e['estado'] == 'atual');
+    return CartaoPainelCoord(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              const Icon(
+                Icons.calendar_month_outlined,
+                size: 29,
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  '${programa['titulo'] ?? programa['codigo']}',
-                  style: const TextStyle(
-                    fontFamily: 'Poppins',
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                    color: AppColors.ink,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: vigente ? AppAccents.successBg : AppColors.lavender,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '${programa['statusRotulo'] ?? ''}',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: vigente ? AppAccents.success : AppColors.primary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            [
-              if (vigente) 'Ciclo vigente',
-              programa['inscricoesAbertas'] == true
-                  ? 'Inscrições abertas'
-                  : 'Inscrições fechadas',
-              programa['formularioPublicado'] == true
-                  ? 'Formulário publicado'
-                  : 'Formulário não publicado',
-              programa['matchingLiberado'] == true
-                  ? 'Matching liberado'
-                  : 'Matching bloqueado',
-            ].join(' · '),
-            style: const TextStyle(
-              fontSize: 12,
-              color: corTextoSecundarioCoord,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'Requisitos para padrinho — ${programa['codigo']}',
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 13,
-              color: AppColors.ink,
-            ),
-          ),
-          const SizedBox(height: 4),
-          if ((programa['requisitosPadrinho'] as List? ?? const []).isEmpty)
-            const Text(
-              'Nenhuma disciplina exigida (basta estar a partir do 2º período).',
-              style: TextStyle(fontSize: 12, color: corTextoSecundarioCoord),
-            )
-          else
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final r
-                    in (programa['requisitosPadrinho'] as List)
-                        .whereType<Map>())
-                  Chip(
-                    label: Text(
-                      '${r['descricao']}'
-                      '${r['obrigatorio'] == false ? ' (desejável)' : ''}',
-                    ),
-                    visualDensity: VisualDensity.compact,
-                    backgroundColor: AppColors.lavender,
-                    side: BorderSide.none,
-                  ),
-              ],
-            ),
-          const Text(
-            'Os requisitos valem somente para este ciclo.',
-            style: TextStyle(fontSize: 11, color: corTextoSecundarioCoord),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              total('Candidaturas', totais['candidaturas']),
-              total('Padrinhos', totais['padrinhos']),
-              total('Apadrinhados', totais['apadrinhados']),
-              total(
-                'Grupos'
-                '${programa['gruposPrevistos'] == null ? '' : ' / ${programa['gruposPrevistos']}'}',
-                totais['grupos'],
-              ),
-            ],
-          ),
-          if (etapas.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            for (final etapa in etapas)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      switch (etapa['estado']) {
-                        'concluida' => Icons.check_circle,
-                        'atual' => Icons.radio_button_checked,
-                        _ => Icons.radio_button_unchecked,
-                      },
-                      size: 16,
-                      color: etapa['estado'] == 'futura'
-                          ? AppColors.muted
-                          : AppColors.primary,
+                    Text(
+                      '${programa['nome'] ?? programa['titulo'] ?? 'Programa ${programa['codigo']}'}',
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                        color: AppColors.ink,
+                      ),
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        '${etapa['titulo']}'
-                        '${etapa['periodoTexto'] == null ? '' : ' — ${etapa['periodoTexto']}'}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: etapa['estado'] == 'atual'
-                              ? FontWeight.w700
-                              : FontWeight.w400,
-                          color: AppColors.ink,
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        SeloPainelCoord(
+                          '${programa['statusRotulo'] ?? 'Em planejamento'}',
                         ),
+                        if (programa['vigente'] == true)
+                          const SeloPainelCoord('Ciclo vigente', verde: true),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<String>(
+                tooltip: 'Mais ações do programa',
+                onSelected: (_) => onExcluir(),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'excluir',
+                    child: Text('Excluir programa'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: ocupado ? null : onEditar,
+                icon: const Icon(Icons.tune, size: 17),
+                label: const Text('Configurar'),
+              ),
+              if (onAdministrar != null)
+                FilledButton.icon(
+                  onPressed: ocupado ? null : onAdministrar,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.arrow_forward, size: 17),
+                  label: const Text('Administrar'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          IndicadoresPainelCoord(
+            itens: [
+              IndicadorPainelCoord(
+                'Candidaturas',
+                '${totais['candidaturas'] ?? 0}',
+                'Recebidas neste ciclo',
+                Icons.assignment_outlined,
+              ),
+              IndicadorPainelCoord(
+                'Padrinhos',
+                '${totais['padrinhos'] ?? 0}',
+                'Participantes do programa',
+                Icons.person_outline,
+              ),
+              IndicadorPainelCoord(
+                'Apadrinhados',
+                '${totais['apadrinhados'] ?? 0}',
+                '${programa['vagasApadrinhados'] ?? 0} vagas no ciclo',
+                Icons.groups_outlined,
+              ),
+              IndicadorPainelCoord(
+                'Grupos formados',
+                '${totais['grupos'] ?? 0}',
+                '${programa['gruposPrevistos'] ?? 0} grupos previstos',
+                Icons.link,
+              ),
+            ],
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 22),
+            child: Divider(height: 1),
+          ),
+          const TituloPainelCoord(
+            titulo: 'Etapas do programa',
+            descricao: 'Do início das inscrições ao encerramento do ciclo.',
+          ),
+          if (atual >= 0)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: SeloPainelCoord('Etapa ${atual + 1} de ${etapas.length}'),
+            ),
+          for (var i = 0; i < etapas.length; i++)
+            _EtapaPrograma(
+              etapa: etapas[i],
+              indice: i,
+              ultima: i == etapas.length - 1,
+            ),
+          if (etapas.isEmpty)
+            const Text(
+              'O calendário deste ciclo ainda não foi definido.',
+              style: TextStyle(color: corTextoSecundarioCoord, fontSize: 12),
+            ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Divider(height: 1),
+          ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                programa['inscricoesAbertas'] == true
+                    ? Icons.assignment_outlined
+                    : Icons.check_circle_outline,
+                color: AppColors.primary,
+                size: 21,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      programa['inscricoesAbertas'] == true
+                          ? 'Inscrições abertas'
+                          : 'Inscrições encerradas',
+                      style: const TextStyle(
+                        color: AppColors.ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      programa['inscricoesAbertas'] == true
+                          ? 'O ciclo está recebendo novas candidaturas.'
+                          : programa['matchingLiberado'] == true
+                          ? 'Matching liberado para a formação dos pares.'
+                          : 'Consulte as candidaturas e acompanhe as próximas etapas.',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: corTextoSecundarioCoord,
+                        height: 1.5,
                       ),
                     ),
                   ],
                 ),
               ),
-          ],
-          if (onAdministrar != null)
-            TextButton.icon(
-              onPressed: onAdministrar,
-              icon: const Icon(Icons.dashboard_outlined),
-              label: const Text('Administrar este programa'),
-            ),
-          if (onEncerrar != null)
-            FilledButton.tonalIcon(
-              onPressed: ocupado ? null : onEncerrar,
-              icon: const Icon(Icons.lock_outline),
-              label: Text(ocupado ? 'Processando…' : 'Encerrar inscrições'),
-            ),
-          if (onLiberar != null)
-            FilledButton.icon(
-              onPressed: ocupado ? null : onLiberar,
-              icon: const Icon(Icons.link),
-              label: Text(ocupado ? 'Processando…' : 'Liberar matching'),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
+            ],
+          ),
+          if (onEncerrar != null ||
+              onLiberar != null ||
+              (programa['matchingLiberado'] == true && onMatching != null))
+            Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (onEncerrar != null)
+                    OutlinedButton.icon(
+                      onPressed: ocupado ? null : onEncerrar,
+                      icon: const Icon(Icons.lock_outline, size: 17),
+                      label: Text(
+                        ocupado ? 'Processando…' : 'Encerrar inscrições',
+                      ),
+                    ),
+                  if (onLiberar != null)
+                    FilledButton.icon(
+                      onPressed: ocupado ? null : onLiberar,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: const Icon(Icons.auto_awesome, size: 17),
+                      label: Text(
+                        ocupado ? 'Processando…' : 'Liberar matching',
+                      ),
+                    ),
+                  if (programa['matchingLiberado'] == true &&
+                      onMatching != null)
+                    OutlinedButton.icon(
+                      onPressed: onMatching,
+                      icon: const Icon(Icons.auto_awesome_outlined, size: 17),
+                      label: const Text('Abrir matching'),
+                    ),
+                ],
               ),
             ),
-          if (programa['matchingLiberado'] == true && onMatching != null)
-            OutlinedButton.icon(
-              onPressed: onMatching,
-              icon: const Icon(Icons.groups_outlined),
-              label: const Text('Abrir sugestões de matching'),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Divider(height: 1),
+          ),
+          const TituloPainelCoord(
+            titulo: 'Requisitos para padrinho',
+            descricao: 'Condições de participação neste ciclo.',
+          ),
+          if (programa['formularioPublicado'] == true)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: SeloPainelCoord('Formulário publicado'),
             ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: PopupMenuButton<String>(
-              tooltip: 'Mais ações do programa',
-              onSelected: (_) => onExcluir(),
-              itemBuilder: (_) => const [
-                PopupMenuItem(
-                  value: 'excluir',
-                  child: Text('Excluir programa'),
+          if (requisitos.isEmpty)
+            const Text(
+              'Nenhuma disciplina exigida. Basta estar a partir do 2º período.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: corTextoSecundarioCoord,
+              ),
+            ),
+          for (final r in requisitos)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.check, size: 17, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${r['descricao']}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        Text(
+                          r['obrigatorio'] == false
+                              ? 'Desejável'
+                              : 'Obrigatório',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: corTextoSecundarioCoord,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EtapaPrograma extends StatelessWidget {
+  const _EtapaPrograma({
+    required this.etapa,
+    required this.indice,
+    required this.ultima,
+  });
+  final Map etapa;
+  final int indice;
+  final bool ultima;
+  @override
+  Widget build(BuildContext context) {
+    final atual = etapa['estado'] == 'atual';
+    final concluida = etapa['estado'] == 'concluida';
+    final cor = concluida ? const Color(0xFF176C4B) : AppColors.primary;
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 30,
+            child: Column(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: atual || concluida ? cor : Colors.white,
+                    border: Border.all(color: cor.withValues(alpha: 0.5)),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: concluida
+                      ? const Icon(Icons.check, color: Colors.white, size: 15)
+                      : Text(
+                          '${indice + 1}',
+                          style: TextStyle(
+                            color: atual ? Colors.white : AppColors.primary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                 ),
+                if (!ultima)
+                  Expanded(
+                    child: Container(width: 2, color: const Color(0xFFE4DFF0)),
+                  ),
               ],
             ),
           ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: onEditar,
-              icon: const Icon(Icons.edit_outlined, size: 18),
-              label: const Text('Configurar programa'),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: ultima ? 0 : 22),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${etapa['titulo']}',
+                    style: TextStyle(
+                      color: atual ? AppColors.primary : AppColors.ink,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    '${etapa['periodoTexto'] ?? ''}',
+                    style: const TextStyle(
+                      color: corTextoSecundarioCoord,
+                      fontSize: 12,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    atual
+                        ? 'Etapa atual'
+                        : concluida
+                        ? 'Concluída'
+                        : 'Prevista',
+                    style: TextStyle(
+                      color: cor,
+                      fontSize: 11,
+                      fontWeight: atual ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],

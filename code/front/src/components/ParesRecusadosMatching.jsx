@@ -119,7 +119,7 @@ export default function ParesRecusadosMatching({
   }
   return (
     <section
-      className="matching-config-card"
+      className="matching-config-card matching-refused"
       aria-label="Pares recusados no ciclo"
     >
       <div>

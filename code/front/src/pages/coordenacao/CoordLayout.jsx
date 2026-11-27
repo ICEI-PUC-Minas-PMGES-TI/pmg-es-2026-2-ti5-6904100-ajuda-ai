@@ -11,7 +11,6 @@ const NAV = [
   { to: '/coordenacao/matching', label: 'Matching', icon: 'spark' },
   { to: '/coordenacao/usuarios', label: 'Usuários', icon: 'users' },
   { to: '/coordenacao/programas', label: 'Programas', icon: 'calendar' },
-  { to: '/coordenacao/matching', label: 'Matching', icon: 'link' },
   { to: '/coordenacao/formularios', label: 'Formulários', icon: 'form' },
   { to: '/coordenacao/pucstops', label: 'Gerenciar totens', icon: 'pin' },
   { to: '/coordenacao/mapa', label: 'Mapa do campus', icon: 'map' },
@@ -229,7 +228,6 @@ export default function CoordLayout() {
         <div className="coord-content">
           {!SEM_SELETOR.includes(rota) && (
             <div className="coord-cycle-picker">
-              <span>Programa/ciclo</span>
               <div className="program-select" ref={seletorWrapRef}>
                 <button
                   ref={seletorBtnRef}

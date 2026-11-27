@@ -292,7 +292,10 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       ),
       'usuarios' => TelaUsuariosCoord(api: api, programa: _programa),
       'matching' => TelaMatchingCoord(api: api, programa: _programa!),
-      'matching_manual' => TelaMatchingManualCoord(api: api, programa: _programa!),
+      'matching_manual' => TelaMatchingManualCoord(
+        api: api,
+        programa: _programa!,
+      ),
       'formularios' => TelaFormulariosCoord(api: api, programa: _programa),
       'totens' => TelaTotensCoord(api: api),
       'mapa' => MapaPage(
@@ -301,6 +304,7 @@ class _TelaCoordenacaoState extends State<TelaCoordenacao> {
       ),
       _ => TelaProgramasCoord(
         api: api,
+        programa: _programa,
         pendencia: query['pendencia'],
         iniciarNovo: query['novo'] == '1',
         onProgramaCriado: (codigo) => _carregarProgramas(preferido: codigo),

@@ -116,6 +116,7 @@ class _GruposCicloState extends State<_GruposCiclo> {
 
   @override
   Widget build(BuildContext context) => Card(
+    color: Colors.white,
     margin: const EdgeInsets.all(16),
     child: Padding(
       padding: const EdgeInsets.all(14),
@@ -138,7 +139,28 @@ class _GruposCicloState extends State<_GruposCiclo> {
             for (final i in _lista(_dados!['inconsistencias']))
               Text('${i['nome']}: ${i['motivo']}'),
             if (_lista(_dados!['grupos']).isEmpty)
-              const Text('Nenhum grupo canônico formado neste ciclo.'),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.groups_outlined,
+                      size: 34,
+                      color: Color(0xFF420594),
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'Nenhum grupo formado neste ciclo',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'Os grupos aparecerão aqui quando os vínculos forem confirmados.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
             for (final g in _lista(_dados!['grupos'])) ...[
               const Divider(),
               Text(

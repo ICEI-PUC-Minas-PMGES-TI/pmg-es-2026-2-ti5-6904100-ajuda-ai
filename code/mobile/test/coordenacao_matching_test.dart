@@ -164,8 +164,8 @@ void main() {
       await tester.ensureVisible(find.text('Editar configuração'));
       await tester.tap(find.text('Editar configuração'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Salvar nova versão'));
-      await tester.tap(find.text('Salvar nova versão'));
+      await tester.ensureVisible(find.text('Salvar configuração'));
+      await tester.tap(find.text('Salvar configuração'));
       await tester.pumpAndSettle();
       expect(
         find.text('A configuração mudou em outra sessão.'),
@@ -173,7 +173,7 @@ void main() {
       );
       expect(envios, 1);
       final salvar = tester.widget<FilledButton>(
-        find.widgetWithText(FilledButton, 'Salvar nova versão'),
+        find.widgetWithText(FilledButton, 'Salvar configuração'),
       );
       expect(salvar.onPressed, isNull);
       await tester.tap(find.text('Carregar configuração atual'));
@@ -276,6 +276,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Encerrar inscrições'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Encerrar inscrições'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Encerrar inscrições').last);
@@ -291,7 +293,7 @@ void main() {
         pedidos.any((request) => request.url.path.contains('/candidaturas/')),
         isFalse,
       );
-      expect(find.textContaining('Inscrições fechadas'), findsOneWidget);
+      expect(find.text('Inscrições encerradas'), findsOneWidget);
     });
 
     testWidgets('libera matching apenas pela ação explícita', (tester) async {
@@ -338,6 +340,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Liberar matching'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Liberar matching'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Liberar matching').last);
@@ -351,7 +355,7 @@ void main() {
         isTrue,
       );
       expect(find.textContaining('Matching liberado'), findsWidgets);
-      expect(find.text('Abrir sugestões de matching'), findsOneWidget);
+      expect(find.text('Abrir matching'), findsOneWidget);
     });
   });
 
@@ -594,7 +598,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Preferência de gênero'), findsOneWidget);
       await tester.enterText(find.byType(TextFormField), '45');
-      await tester.tap(find.text('Salvar nova versão'));
+      await tester.tap(find.text('Salvar configuração'));
       await tester.pumpAndSettle();
       expect(salvo?['criterios'], [
         {
@@ -658,12 +662,19 @@ void main() {
       await tester.tap(find.text('Editar configuração'));
       await tester.pumpAndSettle();
       expect(
-        tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+        tester
+            .widget<CheckboxListTile>(
+              find.widgetWithText(
+                CheckboxListTile,
+                'Correspondência obrigatória',
+              ),
+            )
+            .value,
         isTrue,
       );
-      await tester.tap(find.text('Correspondência obrigatória neste programa'));
+      await tester.tap(find.text('Correspondência obrigatória'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Salvar nova versão'));
+      await tester.tap(find.text('Salvar configuração'));
       await tester.pumpAndSettle();
       expect((salvo?['criterios'] as List).first['obrigatorio'], isFalse);
     },
@@ -758,8 +769,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Chat integrado'), findsOneWidget);
+    expect(find.text('Sugestões de matching'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('Comparar'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Comparar'));
     await tester.pumpAndSettle();
     expect(find.text('Conversa privada'), findsOneWidget);

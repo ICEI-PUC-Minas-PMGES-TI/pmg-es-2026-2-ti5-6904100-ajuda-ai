@@ -1,4 +1,5 @@
 const iconPaths = {
+  more: <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>,
   person: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20c.5-3.3 3.1-5 7-5s6.5 1.7 7 5" /></>,
   mail: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m4 7 8 6 8-6" /></>,
   school: <><path d="m2.5 9 9.5-5 9.5 5-9.5 5-9.5-5Z" /><path d="M6 11v5c3.5 2.5 8.5 2.5 12 0v-5M21.5 9v6" /></>,
