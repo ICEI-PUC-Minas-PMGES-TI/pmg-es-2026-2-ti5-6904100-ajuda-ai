@@ -91,7 +91,8 @@ void main() {
         );
         await lighting.refresh();
         await lighting.refresh();
-        expect(first.writes, 2);
+        // show3dObjects, POIs e transporte desligados + lightPreset.
+        expect(first.writes, 4);
         lighting.dispose();
         final second = _Style();
         final replacement = CampusMapLighting(

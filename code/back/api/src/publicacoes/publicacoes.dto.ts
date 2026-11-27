@@ -29,6 +29,8 @@ export interface AutorComentarioDto {
   fotoUrl: string | null;
 }
 export interface FeedPermissoesDto {
+  /** Participante do ciclo atual ou coordenação; os apps escondem o feed se false. */
+  podeLer: boolean;
   podePublicar: boolean;
   podeAdministrar: boolean;
   podeInteragir: boolean;
@@ -42,7 +44,16 @@ export interface ComentarioRespostaDto {
   podeExcluir: boolean;
   curtidas: number;
   curtidoPorMim: boolean;
+  /** A coordenação curtiu este comentário (selo, DP-01). */
+  curtidoPelaCoordenacao: boolean;
 }
 export class CurtidaDto {
   @IsIn([1, -1]) delta: number;
+}
+/** Quem curtiu, do mais recente para o mais antigo. */
+export interface CurtidorDto {
+  autor: AutorComentarioDto;
+  curtidoEm: Date;
+  /** Curtida da coordenação (selo). */
+  coordenacao: boolean;
 }

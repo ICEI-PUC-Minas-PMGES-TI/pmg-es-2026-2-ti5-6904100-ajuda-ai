@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'configuracoes/tela_config_suporte.dart';
 import 'sessao_usuario.dart';
 import 'status_participacao.dart';
-import 'tela_perfil.dart';
+import 'widgets/app_bottom_navigation.dart';
+import 'widgets/navegacao_app.dart';
 import 'theme/colors.dart';
 import 'widgets/cabecalho_logos.dart';
 import 'widgets/campos_cadastro.dart';
@@ -32,7 +33,7 @@ class _StatusCandidaturaPageState extends State<StatusCandidaturaPage> {
 
   Future<void> _sincronizar() async {
     setState(() => _sincronizando = true);
-    final ok = await _sessao.sincronizarSituacao();
+    final ok = await _sessao.sincronizarSituacao(forcar: true);
     _erro = ok ? null : 'Não foi possível consultar a candidatura. Atualize para tentar novamente.';
     if (mounted) setState(() => _sincronizando = false);
   }
@@ -190,7 +191,8 @@ class _StatusCandidaturaPageState extends State<StatusCandidaturaPage> {
                   TextButton(
                     onPressed: () => Navigator.of(context).pushReplacement(
                       MaterialPageRoute<void>(
-                        builder: (_) => const ProfilePage(),
+                        builder: (_) =>
+                            const AppShell(inicial: AppDestination.perfil),
                       ),
                     ),
                     child: const Text('Meu perfil'),

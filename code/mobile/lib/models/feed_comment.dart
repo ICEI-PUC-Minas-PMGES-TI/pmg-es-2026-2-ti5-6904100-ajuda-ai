@@ -10,6 +10,7 @@ class FeedComment {
     this.podeExcluir = false,
     this.curtidas = 0,
     this.curtidoPorMim = false,
+    this.curtidoPelaCoordenacao = false,
   });
   final int id;
   final String texto;
@@ -21,6 +22,7 @@ class FeedComment {
   final bool podeExcluir;
   final int curtidas;
   final bool curtidoPorMim;
+  final bool curtidoPelaCoordenacao;
   factory FeedComment.fromJson(Map<String, dynamic> json) {
     final autor = json['autor'] as Map<String, dynamic>? ?? {};
     return FeedComment(
@@ -34,6 +36,7 @@ class FeedComment {
       podeExcluir: json['podeExcluir'] == true,
       curtidas: (json['curtidas'] as num?)?.toInt() ?? 0,
       curtidoPorMim: json['curtidoPorMim'] == true,
+      curtidoPelaCoordenacao: json['curtidoPelaCoordenacao'] == true,
     );
   }
   String get iniciais => nome

@@ -434,11 +434,9 @@ void main() {
         );
         await tester.enterText(find.byType(TextField), 'Biblioteca');
         await tester.pumpAndSettle();
-        await tester.tap(
-          find.widgetWithIcon(ListTile, Icons.place_outlined).first,
-        );
+        await tester.tap(find.byType(ListTile).first);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Rota acessível'));
+        await tester.tap(find.byKey(const Key('campus-accessible-routes')));
         await tester.tap(find.byKey(const Key('campus-route-trace')));
         await tester.pumpAndSettle();
         final first = controller.activeRoute.value;
@@ -453,7 +451,7 @@ void main() {
         expect(find.byKey(const Key('campus-route-summary')), findsOneWidget);
         expect(routes.calls.last.accessible, isTrue);
         expect(find.byType(SnackBar), findsNothing);
-        await tester.tap(find.byTooltip('Limpar rota'));
+        await tester.tap(find.byTooltip('Fechar'));
         await tester.pumpAndSettle();
         expect(location.positions.hasListener, isFalse);
         expect(find.byKey(const Key('campus-route-card')), findsNothing);

@@ -72,6 +72,12 @@ extension PermissoesParticipacao on StatusParticipacao {
   bool get ativo =>
       this == StatusParticipacao.padrinhoAtivo ||
       this == StatusParticipacao.apadrinhadoAtivo;
+
+  /// Aprovado no ciclo, com ou sem par (DP-22): vê o feed e coleta totens.
+  bool get participante =>
+      ativo ||
+      this == StatusParticipacao.padrinhoAguardandoMatching ||
+      this == StatusParticipacao.apadrinhadoAguardandoMatch;
   bool get candidatura => const {
     StatusParticipacao.padrinhoPendente,
     StatusParticipacao.padrinhoEmAnalise,

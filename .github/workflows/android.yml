@@ -1,0 +1,102 @@
+# Gera o APK Android do Ajuda-aí, separado do deploy da API e da web.
+# Dispara manualmente (escolhendo o ambiente) ou com tag app-v* (produção).
+# O APK fica nos artefatos da execução; com tag, também vira GitHub Release.
+name: Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: Ambiente para o qual o APK aponta
+        type: choice
+        options: [homologacao, producao]
+        required: true
+  push:
+    tags: ['app-v*']
+
+permissions:
+  contents: write   # anexar o APK à Release quando houver tag
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.ambiente || 'producao' }}
+    defaults: { run: { working-directory: code/mobile } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.0
+          channel: stable
+          cache: true
+
+      - name: Assinatura de release (se configurada)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::Sem keystore: APK assinado com chave de debug (não atualiza sobre instalações anteriores)."
+            exit 0
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > android/app/ajudaai-release.jks
+          {
+            echo "storeFile=ajudaai-release.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > android/key.properties
+
+      - name: Configuração do build (dart-defines, fora do Git)
+        env:
+          API_BASE_URL: ${{ vars.API_URL }}
+          MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
+          MAP_ASSETS_BASE_URL: ${{ vars.MAP_ASSETS_BASE_URL }}
+          MAPBOX_STYLE_URI: ${{ vars.MAPBOX_STYLE_URI }}
+          MICROSOFT_CLIENT_ID: ${{ vars.MICROSOFT_CLIENT_ID }}
+          MICROSOFT_TENANT_ID: ${{ vars.MICROSOFT_TENANT_ID }}
+          DEMO_LOGIN: ${{ vars.DEMO_LOGIN }}
+          # Homologação: com o login demo ligado, o app mostra o campo da chave e a
+          # pessoa a digita. A chave NUNCA entra no APK (seria extraível do binário).
+          # Mesmo desenho de infra/azure/build-apk.ps1 (DEMO_LOGIN + DEMO_LOGIN_PROTEGIDO).
+          DEMO_LOGIN_PROTEGIDO: ${{ vars.DEMO_LOGIN }}
+        run: |
+          [ -n "$API_BASE_URL" ] || { echo "::error::Variável API_URL ausente no Environment"; exit 1; }
+          node -e '
+            const k=["API_BASE_URL","MAPBOX_ACCESS_TOKEN","MAP_ASSETS_BASE_URL","MAPBOX_STYLE_URI","MICROSOFT_CLIENT_ID","MICROSOFT_TENANT_ID","DEMO_LOGIN","DEMO_LOGIN_PROTEGIDO"];
+            const o={CAMPUS_MAP_DIAGNOSTICS:"false"}; for (const n of k) if (process.env[n]) o[n]=process.env[n];
+            require("fs").writeFileSync(process.env.RUNNER_TEMP+"/defines.json", JSON.stringify(o));'
+
+      - run: flutter pub get
+      - name: Build APK (release, por ABI)
+        run: |
+          flutter build apk --release --split-per-abi \
+            --build-number=${{ github.run_number }} \
+            --dart-define-from-file="$RUNNER_TEMP/defines.json"
+
+      - name: Remover material sensível do disco
+        if: always()
+        run: rm -f android/key.properties android/app/ajudaai-release.jks "$RUNNER_TEMP/defines.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ajudaai-${{ github.event.inputs.ambiente || 'producao' }}-${{ github.run_number }}
+          path: code/mobile/build/app/outputs/flutter-apk/*-release.apk
+          retention-days: 30
+
+      - name: Release (tag app-v*)
+        if: startsWith(github.ref, 'refs/tags/app-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: code/mobile/build/app/outputs/flutter-apk/*-release.apk

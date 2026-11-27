@@ -31,8 +31,23 @@ void main() {
     const ponto = CampusMapPoint(latitude: -19.923, longitude: -43.993);
     expect(
       validarFormularioTotem(nome: 'Totem', xp: '0', raio: '30', ponto: ponto),
-      contains('inteiro'),
+      contains('10, 20, 30, 40 ou 50'),
     );
+    // Fora das opções (o servidor também recusa).
+    for (final xp in ['5', '15', '25', '60', '1000']) {
+      expect(
+        validarFormularioTotem(nome: 'Totem', xp: xp, raio: '30', ponto: ponto),
+        contains('10, 20, 30, 40 ou 50'),
+        reason: xp,
+      );
+    }
+    for (final xp in ['10', '20', '30', '40', '50']) {
+      expect(
+        validarFormularioTotem(nome: 'Totem', xp: xp, raio: '30', ponto: ponto),
+        isNull,
+        reason: xp,
+      );
+    }
     expect(
       validarFormularioTotem(
         nome: 'Totem',
@@ -40,10 +55,10 @@ void main() {
         raio: '30',
         ponto: ponto,
       ),
-      contains('inteiro'),
+      contains('10, 20, 30, 40 ou 50'),
     );
     expect(
-      validarFormularioTotem(nome: 'Totem', xp: '25', raio: '30', ponto: null),
+      validarFormularioTotem(nome: 'Totem', xp: '30', raio: '30', ponto: null),
       contains('posição'),
     );
 
@@ -110,7 +125,7 @@ void main() {
     expect(jsonDecode(pedidos[2].body)['xp'], 25);
   });
 
-  testWidgets('coordenador cria totem de 25 XP pelo mapa em tela cheia', (
+  testWidgets('coordenador cria totem de 40 XP pelo mapa em tela cheia', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 700);
@@ -164,9 +179,26 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField).first, 'Totem da biblioteca');
-    await tester.enterText(find.byKey(const ValueKey('xp-totem')), '25');
+    // Novo totem já sugere 30 XP + 30 moedas; a coordenação escolhe 40.
+    expect(
+      find.text('30 XP + 30 moedas para cada aluno, uma vez por semestre.'),
+      findsOneWidget,
+    );
+    final opcao40 = find.byKey(const ValueKey('xp-totem-40'));
+    await tester.ensureVisible(opcao40);
+    await tester.tap(opcao40);
+    await tester.pump();
+    expect(
+      find.text('40 XP + 40 moedas para cada aluno, uma vez por semestre.'),
+      findsOneWidget,
+    );
     final abrirMapa = find.byKey(const ValueKey('abrir-mapa-3d-totem'));
-    await tester.ensureVisible(abrirMapa);
+    // A lista é preguiçosa: rola até o botão existir.
+    await tester.scrollUntilVisible(
+      abrirMapa,
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(abrirMapa);
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Selecionar ponto'));
@@ -175,14 +207,101 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('confirmar-posicao-totem')));
     await tester.pumpAndSettle();
     final salvar = find.byKey(const ValueKey('salvar-totem'));
-    await tester.ensureVisible(salvar);
+    await tester.scrollUntilVisible(
+      salvar,
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(salvar);
     await tester.pumpAndSettle();
 
     expect(criacao?.method, 'POST');
     final body = jsonDecode(criacao!.body) as Map<String, dynamic>;
-    expect(body['xp'], 25);
+    expect(body['xp'], 40);
     expect(body['latitude'], -19.923);
     expect(body['longitude'], -43.993);
+  });
+
+  group('impacto no orçamento (informativo)', () {
+    test(
+      'cadastro soma; edição troca o valor antigo sem contar duas vezes',
+      () {
+        expect(potencialAposSalvar(potencialAtual: 570, novoXp: 30), 600);
+        final ativo = _totem(xp: 50);
+        expect(
+          potencialAposSalvar(potencialAtual: 570, original: ativo, novoXp: 30),
+          550,
+        );
+        expect(
+          potencialAposSalvar(potencialAtual: 570, original: ativo, novoXp: 50),
+          570,
+        );
+        // Inativo não entra no orçamento, antes nem depois.
+        final inativo = _totem(xp: 50, ativo: false);
+        expect(
+          potencialAposSalvar(
+            potencialAtual: 570,
+            original: inativo,
+            novoXp: 40,
+          ),
+          570,
+        );
+      },
+    );
+
+    testWidgets(
+      'formulário mostra antes/depois e avisa acima do teto sem bloquear',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 1600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: FormularioTotemCoord(
+              api: CoordenacaoApi(
+                accessToken: 't',
+                baseUrl: '',
+                client: MockClient((_) async => http.Response('{}', 200)),
+              ),
+              campus: const {},
+              outros: const [],
+              orcamento: const {
+                'xpPotencial': 380,
+                'limitePorCiclo': 400,
+                'ativos': 13,
+              },
+            ),
+          ),
+        );
+        expect(
+          find.text('Recompensa selecionada: 30 XP + 30 moedas.'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('XP potencial atual do mapa: 380 XP.'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('XP potencial após o cadastro: 410 XP.'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('Cada participante poderá receber'),
+          findsOneWidget,
+        );
+        // Só informa: o botão de salvar continua disponível.
+        expect(find.byKey(const ValueKey('salvar-totem')), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('xp-totem-10')));
+        await tester.pump();
+        expect(
+          find.text('XP potencial após o cadastro: 390 XP.'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('Cada participante poderá receber'),
+          findsNothing,
+        );
+      },
+    );
   });
 }

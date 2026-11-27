@@ -12,6 +12,7 @@ import {
   FeedPolicy,
   FeedPublishGuard,
   FeedAdminGuard,
+  FeedLeituraGuard,
 } from '../src/publicacoes/feed-policy.js';
 import { FeedMidiasService } from '../src/publicacoes/feed-midias.service.js';
 import { FeedStreamService } from '../src/publicacoes/feed-stream.service.js';
@@ -37,6 +38,7 @@ describe('Feed HTTP e SSE autenticados', () => {
         { provide: FeedPolicy, useValue: feed.policy },
         FeedPublishGuard,
         FeedAdminGuard,
+        FeedLeituraGuard,
         FeedStreamService,
         { provide: PublicacoesService, useValue: feed.service },
         {
@@ -140,20 +142,23 @@ describe('Feed HTTP e SSE autenticados', () => {
         { texto: 'Comunicado' },
         coordenador,
       );
+      // Candidatura pendente ou rejeitada não participa do ciclo (DP-01).
+      const participante = status === 'em_andamento';
+      expect(permissoes.body.podeLer).toBe(participante);
       await request(app.getHttpServer())
         .get('/publicacoes')
         .set('Authorization', token)
-        .expect(200);
+        .expect(participante ? 200 : 403);
       await request(app.getHttpServer())
         .post(`/publicacoes/${post.id}/curtidas`)
         .set('Authorization', token)
         .send({ delta: 1 })
-        .expect(201);
+        .expect(participante ? 201 : 403);
       await request(app.getHttpServer())
         .post(`/publicacoes/${post.id}/comentarios`)
         .set('Authorization', token)
         .send({ texto: 'Comentário permitido' })
-        .expect(201);
+        .expect(participante ? 201 : 403);
     },
   );
 
@@ -210,7 +215,9 @@ describe('Feed HTTP e SSE autenticados', () => {
         .get('/publicacoes/permissoes')
         .set('Authorization', token)
         .expect(200);
+      const podeLer = usuario !== somenteMapa;
       expect(permissoes.body).toEqual({
+        podeLer,
         podePublicar,
         podeAdministrar,
         podeInteragir,
@@ -233,8 +240,9 @@ describe('Feed HTTP e SSE autenticados', () => {
       const lista = await request(app.getHttpServer())
         .get('/publicacoes')
         .set('Authorization', token)
-        .expect(200);
-      expect(lista.body[0]).toMatchObject({ podeAdministrar, podeInteragir });
+        .expect(podeLer ? 200 : 403);
+      if (podeLer)
+        expect(lista.body[0]).toMatchObject({ podeAdministrar, podeInteragir });
       await request(app.getHttpServer())
         .post(`/publicacoes/${post.body.id}/curtidas`)
         .set('Authorization', token)
@@ -264,6 +272,135 @@ describe('Feed HTTP e SSE autenticados', () => {
         .expect(podeAdministrar ? 200 : 403);
     },
   );
+  it('quem curtiu: participantes veem, quem só usa o mapa não', async () => {
+    const post = await request(app.getHttpServer())
+      .post('/publicacoes')
+      .set('Authorization', auth(coordenador))
+      .send({ texto: 'Aviso' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/publicacoes/${post.body.id}/curtidas`)
+      .set('Authorization', auth(aluno))
+      .send({ delta: 1 })
+      .expect(201);
+    const comentario = await request(app.getHttpServer())
+      .post(`/publicacoes/${post.body.id}/comentarios`)
+      .set('Authorization', auth(aluno))
+      .send({ texto: 'Oi' })
+      .expect(201);
+    const cid = comentario.body.comentariosDetalhes[0].id;
+    await request(app.getHttpServer())
+      .post(`/publicacoes/${post.body.id}/comentarios/${cid}/curtidas`)
+      .set('Authorization', auth(coordenador))
+      .send({ delta: 1 })
+      .expect(201);
+    for (const usuario of [aluno, padrinho, coordenador]) {
+      const lista = await request(app.getHttpServer())
+        .get(`/publicacoes/${post.body.id}/curtidas`)
+        .set('Authorization', auth(usuario))
+        .expect(200);
+      expect(lista.body).toHaveLength(1);
+      expect(lista.body[0].autor.nome).toBe('Camila Duarte');
+      const doComentario = await request(app.getHttpServer())
+        .get(`/publicacoes/${post.body.id}/comentarios/${cid}/curtidas`)
+        .set('Authorization', auth(usuario))
+        .expect(200);
+      expect(doComentario.body[0]).toMatchObject({ coordenacao: true });
+    }
+    for (const caminho of [
+      `/publicacoes/${post.body.id}/curtidas`,
+      `/publicacoes/${post.body.id}/comentarios/${cid}/curtidas`,
+    ])
+      await request(app.getHttpServer())
+        .get(caminho)
+        .set('Authorization', auth(somenteMapa))
+        .expect(403);
+    await request(app.getHttpServer())
+      .get('/publicacoes/9999/curtidas')
+      .set('Authorization', auth(aluno))
+      .expect(404);
+  });
+
+  it('seletor de semestre: só a coordenação consulta semestres anteriores', async () => {
+    feed.tabelas.PublicacaoEntity.push({
+      id: 900,
+      autor: 'Renata Martins',
+      iniciais: 'RM',
+      descricaoAutor: 'Coordenação do programa',
+      categoria: 'Comunicados',
+      texto: 'Semestre passado',
+      imagens: [],
+      ownerId: coordenador.email,
+      programaCodigo: '2020/1',
+      criadoEm: new Date('2020-03-01'),
+    });
+    const antigo = await request(app.getHttpServer())
+      .get('/publicacoes?programa=2020/1')
+      .set('Authorization', auth(coordenador))
+      .expect(200);
+    expect(antigo.body.map((p: { texto: string }) => p.texto)).toEqual([
+      'Semestre passado',
+    ]);
+    expect(antigo.body[0]).toMatchObject({
+      cicloAtual: false,
+      podeInteragir: false,
+    });
+    const ciclos = await request(app.getHttpServer())
+      .get('/publicacoes/ciclos')
+      .set('Authorization', auth(coordenador))
+      .expect(200);
+    expect(ciclos.body.semestres).toContain('2020/1');
+    for (const usuario of [aluno, padrinho]) {
+      await request(app.getHttpServer())
+        .get('/publicacoes?programa=2020/1')
+        .set('Authorization', auth(usuario))
+        .expect(403);
+      await request(app.getHttpServer())
+        .get('/publicacoes/ciclos')
+        .set('Authorization', auth(usuario))
+        .expect(403);
+    }
+    await request(app.getHttpServer())
+      .get('/publicacoes?programa=lixo')
+      .set('Authorization', auth(coordenador))
+      .expect(400);
+  });
+
+  it('usuário só do mapa não lê o feed nem abre o stream (DP-01)', async () => {
+    const post = await feed.service.criar({ texto: 'Interno' }, coordenador);
+    for (const path of [
+      '/publicacoes',
+      `/publicacoes/${post.id}`,
+      '/publicacoes/events',
+    ]) {
+      const resposta = await request(app.getHttpServer())
+        .get(path)
+        .set('Authorization', auth(somenteMapa))
+        .expect(403);
+      expect(resposta.body.motivo).toBe('sem-participacao-no-ciclo');
+    }
+  });
+
+  it('conta real (perfil "nenhuma" no JWT) vinculada lê, curte e o padrinho publica (RN-001)', async () => {
+    for (const usuario of [padrinho, aluno]) {
+      const token = auth({ ...usuario, perfil: 'nenhuma' });
+      const permissoes = await request(app.getHttpServer())
+        .get('/publicacoes/permissoes')
+        .set('Authorization', token)
+        .expect(200);
+      expect(permissoes.body).toMatchObject({
+        podeLer: true,
+        podeInteragir: true,
+        podePublicar: usuario === padrinho,
+      });
+      await request(app.getHttpServer())
+        .post('/publicacoes')
+        .set('Authorization', token)
+        .send({ texto: 'Post de conta real' })
+        .expect(usuario === padrinho ? 201 : 403);
+    }
+  });
+
   it('coordenador publica, aluno lê/comenta/curte/descurte e não publica', async () => {
     const post = await request(app.getHttpServer())
       .post('/publicacoes')

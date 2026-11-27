@@ -12,12 +12,12 @@ import 'tela_feed.dart';
 import 'tela_historico.dart';
 import 'tela_login.dart';
 import 'tela_padrinho_definido.dart';
-import 'tela_resgatar.dart' show formatarXp;
 import 'tela_status_candidatura.dart';
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
 import 'widgets/aviso_mapa.dart';
 import 'widgets/navegacao_app.dart';
+import 'widgets/progresso_gamificacao.dart';
 import 'widgets/perfil_componentes.dart';
 
 const _borda = corBordaPerfil;
@@ -107,6 +107,8 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
+    diagNav('perfil: initState');
+    _sessao.mudancas.addListener(_aoMudarSessao);
     _dados = _dadosDaSessao();
     _nomeController = TextEditingController(text: _dados.nome);
     _cursoController = TextEditingController(text: _dados.curso);
@@ -120,17 +122,30 @@ class _ProfilePageState extends State<ProfilePage> {
     _sincronizar();
   }
 
+  void _aoMudarSessao() {
+    Future.microtask(() {
+      if (mounted) setState(() {});
+    });
+  }
+
   Future<void> _sincronizar() async {
-    try {
-      await _sessao.carregarContexto();
-      if (mounted) {
-        setState(() {
-          _dados = _dadosDaSessao();
-          _erro = null;
-        });
+    // Voltar a esta aba não refaz as consultas: a sessão já tem os dados
+    // (carregados no login) e eles só são relidos quando ficam velhos.
+    if (!_sessao.contextoFresco) {
+      try {
+        await _sessao.carregarContexto();
+        if (mounted) {
+          setState(() {
+            _dados = _dadosDaSessao();
+            _erro = null;
+          });
+        }
+      } catch (erro) {
+        // Com dados já confirmados, uma falha de rede não vira tela de erro.
+        if (mounted && _sessao.situacao == null) {
+          setState(() => _erro = '$erro');
+        }
       }
-    } catch (erro) {
-      if (mounted) setState(() => _erro = '$erro');
     }
     try {
       final email = _sessao.identidade?.email;
@@ -195,6 +210,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   void dispose() {
+    _sessao.mudancas.removeListener(_aoMudarSessao);
     _nomeController.dispose();
     _cursoController.dispose();
     _periodoController.dispose();
@@ -387,6 +403,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 onEditar: _editando ? null : _iniciarEdicao,
                 interesses: _sessao.dados?.interesses ?? const [],
               ),
+              if (!_editando) const _XpGlobal(),
               if (_editando) ...[
                 const SizedBox(height: 20),
                 const _Titulo('Informações acadêmicas'),
@@ -568,11 +585,13 @@ class _ProfilePageState extends State<ProfilePage> {
         'Status da candidatura',
         () => _abrir(const StatusCandidaturaPage()),
       ),
-    ItemAcessoRapido(
-      Icons.chat_bubble_outline,
-      'Feed do campus',
-      () => _abrir(const FeedPage()),
-    ),
+    // O feed é dos participantes do ciclo (DP-01); o servidor também recusa.
+    if (status.participante)
+      ItemAcessoRapido(
+        Icons.chat_bubble_outline,
+        'Feed do campus',
+        () => _abrir(const FeedPage()),
+      ),
     ItemAcessoRapido(
       Icons.map_outlined,
       'Explorar mapa',
@@ -726,7 +745,6 @@ class _Identidade extends StatelessWidget {
                         fontSize: 13,
                       ),
                     ),
-                    const _XpGlobal(),
                     if (onEditar != null) ...[
                       const SizedBox(height: 8),
                       TextButton(
@@ -950,8 +968,8 @@ class _CampoTexto extends StatelessWidget {
   }
 }
 
-/// XP global do aluno (`GET /me/xp`), igual para qualquer ciclo. Some sem
-/// sessão ou sem resposta (ex.: coordenação, que não acumula XP).
+/// Progresso do aluno (`GET /me/xp`): nível, barra e moedas, iguais em
+/// qualquer ciclo. Some sem sessão ou sem resposta (ex.: coordenação).
 class _XpGlobal extends StatefulWidget {
   const _XpGlobal();
 
@@ -967,36 +985,5 @@ class _XpGlobalState extends State<_XpGlobal> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<int?>(
-      valueListenable: SessaoUsuario.atual.xp,
-      builder: (context, saldo, _) {
-        if (saldo == null) return const SizedBox.shrink();
-        return Padding(
-          key: const Key('perfil-xp'),
-          padding: const EdgeInsets.only(top: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.star_rounded,
-                size: 18,
-                color: Color(0xFFF59E0B),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '${formatarXp(saldo)} XP',
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  color: AppColors.ink,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => const ResumoProgressoCompacto();
 }

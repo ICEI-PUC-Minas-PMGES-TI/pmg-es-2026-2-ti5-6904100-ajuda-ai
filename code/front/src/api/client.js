@@ -93,8 +93,8 @@ export function clearAlunoSession() {
 }
 
 /** Aluno exige seu próprio JWT; consultas não usam identidade livre por e-mail. */
-async function request(path, { method = 'GET', body, token, aluno, anonimo = false, signal } = {}) {
-  const headers = { Accept: 'application/json' };
+async function request(path, { method = 'GET', body, token, aluno, anonimo = false, signal, cabecalhos } = {}) {
+  const headers = { Accept: 'application/json', ...cabecalhos };
   const multipart = typeof FormData !== 'undefined' && body instanceof FormData;
   if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json';
   if (aluno) {
@@ -240,13 +240,17 @@ export const api = {
     body.append('arquivo', arquivo);
     return requestMapa(`/chats/${id}/imagens`, { method: 'POST', body, aluno: email });
   },
-  feed(email) { return request('/publicacoes', { aluno: email }); },
+  feed(email, programa) { return request(`/publicacoes${programa ? `?programa=${encodeURIComponent(programa)}` : ''}`, { aluno: email }); },
+  feedCiclos() { return request('/publicacoes/ciclos'); },
   permissoesFeed(email) { return request('/publicacoes/permissoes', { aluno: email }); },
   criarPublicacao(dados, email) { return request('/publicacoes', { method: 'POST', body: dados, aluno: email }); },
   atualizarPublicacao(id, dados, email) { return request(`/publicacoes/${id}`, { method: 'PATCH', body: dados, aluno: email }); },
   excluirPublicacao(id, email) { return request(`/publicacoes/${id}`, { method: 'DELETE', aluno: email }); },
   comentarPublicacao(id, texto, email) { return request(`/publicacoes/${id}/comentarios`, { method: 'POST', body: { texto }, aluno: email }); },
   excluirComentario(id, comentarioId, email) { return request(`/publicacoes/${id}/comentarios/${comentarioId}`, { method: 'DELETE', aluno: email }); },
+  curtidoresPublicacao(id, email) { return request(`/publicacoes/${id}/curtidas`, { aluno: email }); },
+  curtidoresComentario(id, comentarioId, email) { return request(`/publicacoes/${id}/comentarios/${comentarioId}/curtidas`, { aluno: email }); },
+  curtirComentario(id, comentarioId, delta, email) { return request(`/publicacoes/${id}/comentarios/${comentarioId}/curtidas`, { method: 'POST', body: { delta }, aluno: email }); },
   curtirPublicacao(id, delta, email) { return request(`/publicacoes/${id}/curtidas`, { method: 'POST', body: { delta }, aluno: email }); },
   uploadFeed(arquivo, email) { const body = new FormData(); body.append('arquivo', arquivo); return requestMapa('/publicacoes/midias', { method: 'POST', body, aluno: email }); },
   loginMicrosoft(idToken) { return request('/auth/login', { method: 'POST', body: {idToken}, anonimo: true }); },
@@ -262,8 +266,16 @@ export const api = {
   programasAluno() { return request('/participacoes/programas', {aluno: getAlunoSession()?.email || '__sem_sessao__'}); },
 
   /* ===== Autenticação (coordenação) ===== */
-  loginDemo(email) {
-    return request('/auth/login-demo', { method: 'POST', body: { email } });
+  /**
+   * Em homologação a API exige a chave de demonstração (X-Demo-Chave). Ela é
+   * digitada por quem apresenta e nunca vai no bundle publicado.
+   */
+  loginDemo(email, chave) {
+    return request('/auth/login-demo', {
+      method: 'POST',
+      body: { email },
+      cabecalhos: chave ? { 'X-Demo-Chave': chave } : undefined,
+    });
   },
   me(token) {
     return request('/me', { token });
@@ -370,6 +382,9 @@ export const api = {
   salvarMatchingConfiguracao(dados) {
     return request('/coordenacao/matching/config', { method: 'PUT', body: dados });
   },
+  encerrarInscricoes(codigo) {
+    return request(`/coordenacao/programas/encerrar-inscricoes${query({ codigo })}`, { method: 'POST' });
+  },
   liberarMatching(codigo) {
     return request(`/coordenacao/programas/liberar-matching${query({ codigo })}`, { method: 'POST' });
   },
@@ -465,6 +480,14 @@ export const api = {
   pucstops() {
     return requestMapa('/coordenacao/pucstops');
   },
+  /** Economia dos totens: ativos, XP potencial e teto por aluno e semestre. */
+  orcamentoPucStops() {
+    return requestMapa('/coordenacao/pucstops/orcamento');
+  },
+  /** Progresso do aluno logado: nível, XP acumulado, moedas e tetos (BL-50). */
+  progressoAluno() {
+    return request('/me/xp', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
   /** Área do campus onde o servidor aceita PucStops (limite, bbox e centro). */
   campusPucStops() {
     return requestMapa('/coordenacao/pucstops/campus');
@@ -485,6 +508,44 @@ export const api = {
   },
   ativarPucStop(id) {
     return requestMapa(`/coordenacao/pucstops/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+
+  missoesCoordenacao(status) {
+    return request(`/coordenacao/missoes${query({ status })}`);
+  },
+  criarMissao(dados) {
+    return request('/coordenacao/missoes', { method: 'POST', body: dados });
+  },
+  atualizarMissao(id, dados) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  ativarMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/ativar`, { method: 'POST' });
+  },
+  desativarMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/desativar`, { method: 'POST' });
+  },
+  /** Libera o código da missão (CODIGO ou EVENTO) por alguns minutos. */
+  liberarCodigoMissao(id, minutos) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/codigo`, { method: 'POST', body: { minutos } });
+  },
+  encerrarCodigoMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}/codigo`, { method: 'DELETE' });
+  },
+  /** Só rascunho; a API responde 409 para missão já publicada. */
+  excluirMissao(id) {
+    return request(`/coordenacao/missoes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  /** `antes`: id da última notificação carregada, para buscar as mais antigas. */
+  notificacoes(limite, antes) {
+    return request(`/me/notificacoes${query({ limite, antes })}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  marcarNotificacaoLida(id) {
+    return request(`/me/notificacoes/${encodeURIComponent(id)}/lida`, { method: 'PATCH', aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  /** `ateId`: notificação mais recente que a tela mostrava (as criadas depois continuam não lidas). */
+  marcarNotificacoesLidas(ateId) {
+    return request('/me/notificacoes/lidas', { method: 'PATCH', body: ateId ? { ateId } : {}, aluno: getAlunoSession()?.email || '__sem_sessao__' });
   },
 
   /* ===== Lojinha: recompensas (coordenação; F27) ===== */
@@ -520,6 +581,42 @@ export const api = {
   /** Só sem transações; com resgates o servidor responde 409 (arquive). */
   excluirRecompensa(id) {
     return request(`/coordenacao/recompensas/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  /* ===== Lojinha: resgates (coordenação; F29) ===== */
+  /**
+   * Uma página da fila: `{ itens, proximoCursor, contagem }`. Todos os
+   * filtros rodam no servidor antes da paginação. `situacao`:
+   * aguardando_entrega | entregue | cancelado; `programa`: ciclo da troca;
+   * `semPrograma: 'true'`: só sem programa identificado; `busca`: nome,
+   * e-mail, código ou recompensa; `cursor`: `proximoCursor` da página anterior.
+   */
+  resgatesCoordenacao({ situacao, programa, semPrograma, recompensaId, busca, limite, cursor } = {}) {
+    return request(`/coordenacao/resgates${query({ situacao, programa, semPrograma, recompensaId, busca, limite, cursor })}`);
+  },
+  resgateCoordenacao(id) {
+    return request(`/coordenacao/resgates/${encodeURIComponent(id)}`);
+  },
+  /** Registra a entrega (responsável e data vêm do token). 409 se já concluído. */
+  entregarResgate(id) {
+    return request(`/coordenacao/resgates/${encodeURIComponent(id)}/entregar`, { method: 'POST' });
+  },
+  /** Cancela antes da entrega, devolvendo as moedas e a unidade. */
+  cancelarResgate(id, motivo) {
+    return request(`/coordenacao/resgates/${encodeURIComponent(id)}/cancelar`, { method: 'POST', body: { motivo } });
+  },
+
+  /* ===== XP e moedas dos participantes (coordenação; F26) ===== */
+  xpParticipantes(busca) {
+    return request(`/coordenacao/xp${query({ busca })}`);
+  },
+  /** Resumo como em `/me/xp`, extrato (`limite`, `antes`) e ajustes. */
+  xpParticipante(usuarioId, { limite, antes } = {}) {
+    return request(`/coordenacao/xp/${encodeURIComponent(usuarioId)}${query({ limite, antes })}`);
+  },
+  /** `{ quantidade, motivo, chaveIdempotencia }`; até ±200, mexe em XP e moedas. */
+  ajustarXp(usuarioId, dados) {
+    return request(`/coordenacao/xp/${encodeURIComponent(usuarioId)}/ajustes`, { method: 'POST', body: dados });
   },
 
   /* ===== Mapa do campus (seletores de local da coordenação) ===== */

@@ -1,3 +1,5 @@
+import { ambienteApp } from '../config/ambiente.js';
+
 export type Perfil = 'apadrinhado' | 'padrinho' | 'coordenador' | 'nenhuma';
 
 export interface Usuario {
@@ -123,8 +125,45 @@ export function buscarUsuarioPorEmail(email: string): Usuario | undefined {
   );
 }
 
-/** Coordenador mockado (não há coordenador no banco). */
+/**
+ * Coordenadores reais, configurados por ambiente (não há coordenador no banco):
+ * COORDENADORES_EMAILS="ana@pucminas.edu.br|Ana Souza,bruno@pucminas.edu.br".
+ * O nome é opcional. Ids altos e estáveis pela ordem da lista.
+ */
+export function coordenadoresConfigurados(
+  valor: string | undefined = process.env.COORDENADORES_EMAILS,
+): Usuario[] {
+  return (valor ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item, indice) => {
+      const [emailBruto, nomeBruto] = item.split('|');
+      const email = emailBruto.trim().toLowerCase();
+      return {
+        id: 9000 + indice,
+        nome: nomeBruto?.trim() || email.split('@')[0],
+        email,
+        perfil: 'coordenador' as const,
+        curso: '',
+        periodo: 0,
+        xp: 0,
+        meta: 0,
+        nivel: 0,
+      };
+    })
+    .filter((usuario) => usuario.email.includes('@'));
+}
+
+/**
+ * Coordenação: primeiro a lista configurada (COORDENADORES_EMAILS); depois a
+ * coordenadora fictícia da base demo, que NÃO existe em produção.
+ */
 export function buscarCoordenadorPorEmail(email: string): Usuario | undefined {
+  const chave = email.trim().toLowerCase();
+  const configurado = coordenadoresConfigurados().find((c) => c.email === chave);
+  if (configurado) return configurado;
+  if (ambienteApp() === 'producao') return undefined;
   const usuario = buscarUsuarioPorEmail(email);
   return usuario?.perfil === 'coordenador' ? usuario : undefined;
 }

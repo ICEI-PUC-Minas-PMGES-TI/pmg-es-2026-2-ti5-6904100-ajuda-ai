@@ -1,7 +1,14 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
+import { NotificacoesModule } from '../notificacoes/notificacoes.module.js';
+import { ParticipacoesModule } from '../participacoes/participacoes.module.js';
 import { LojinhaController } from './lojinha/lojinha.controller.js';
 import { LojinhaService } from './lojinha/lojinha.service.js';
+import { LimpezaTentativasService } from './missoes/limpeza-tentativas.service.js';
+import { MissoesAdminController } from './missoes/missoes-admin.controller.js';
+import { MissoesAdminService } from './missoes/missoes-admin.service.js';
+import { MissoesController } from './missoes/missoes.controller.js';
+import { MissoesService } from './missoes/missoes.service.js';
 import { PucStopsAdminController } from './pucstops/pucstops-admin.controller.js';
 import { PucStopsAdminService } from './pucstops/pucstops-admin.service.js';
 import {
@@ -11,7 +18,11 @@ import {
 import { PucStopsService } from './pucstops/pucstops.service.js';
 import { RecompensasAdminController } from './recompensas/recompensas-admin.controller.js';
 import { RecompensasAdminService } from './recompensas/recompensas-admin.service.js';
-import { XpController } from './xp/xp.controller.js';
+import { ResgatesAdminController } from './resgates/resgates-admin.controller.js';
+import { ResgatesAdminService } from './resgates/resgates-admin.service.js';
+import { XpAdminController } from './xp/xp-admin.controller.js';
+import { XpAdminService } from './xp/xp-admin.service.js';
+import { NiveisController, XpController } from './xp/xp.controller.js';
 import { XpService } from './xp/xp.service.js';
 
 /**
@@ -21,16 +32,23 @@ import { XpService } from './xp/xp.service.js';
  * nem altera essas tabelas; só as migrations PucStopsEXpGlobal,
  * LojinhaResgates/LojinhaRecompensas. Lojinha: cadastro (F27) em
  * `/coordenacao/recompensas` e consulta/resgate do aluno (F28) em `/me/lojinha`.
+ * Entrega e cancelamento (F29) em `/coordenacao/resgates`; saldo e ajustes de
+ * XP pela coordenação (F26) em `/coordenacao/xp`.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, ParticipacoesModule, NotificacoesModule],
   controllers: [
     PucStopsController,
     MinhasColetasController,
     XpController,
+    NiveisController,
     PucStopsAdminController,
     RecompensasAdminController,
     LojinhaController,
+    ResgatesAdminController,
+    XpAdminController,
+    MissoesController,
+    MissoesAdminController,
   ],
   providers: [
     PucStopsService,
@@ -38,6 +56,11 @@ import { XpService } from './xp/xp.service.js';
     PucStopsAdminService,
     RecompensasAdminService,
     LojinhaService,
+    ResgatesAdminService,
+    XpAdminService,
+    MissoesService,
+    MissoesAdminService,
+    LimpezaTentativasService,
   ],
 })
 export class GamificacaoModule {}

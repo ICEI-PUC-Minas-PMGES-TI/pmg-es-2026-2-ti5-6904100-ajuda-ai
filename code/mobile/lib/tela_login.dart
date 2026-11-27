@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_appauth/flutter_appauth.dart';
@@ -35,8 +37,12 @@ class LoginPage extends StatefulWidget {
     this.obterIdToken,
     this.client,
     this.baseUrl,
-    this.modoDemo = kDebugMode,
+    this.modoDemo = kDebugMode || _demoHomologacao,
   });
+
+  /// APK de homologação: `--dart-define=DEMO_LOGIN=true`. A API continua
+  /// exigindo a chave de demonstração; em produção a rota está desligada.
+  static const _demoHomologacao = bool.fromEnvironment('DEMO_LOGIN');
 
   /// Testes injetam o ID token. Em produção, vem do Entra ID via PKCE.
   final Future<String> Function()? obterIdToken;
@@ -52,6 +58,14 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   bool _entrando = false;
+  // Chave de demonstração digitada (homologação). Só em memória; nunca embutida no app.
+  final _chaveDemo = TextEditingController();
+
+  @override
+  void dispose() {
+    _chaveDemo.dispose();
+    super.dispose();
+  }
 
   Future<void> _entrarMicrosoft() async {
     if (_entrando) return;
@@ -167,6 +181,23 @@ class _LoginPageState extends State<LoginPage> {
               shrinkWrap: true,
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               children: [
+                if (AuthApi.exigeChaveDemo)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 16),
+                    child: TextField(
+                      key: const Key('campo-chave-demo'),
+                      controller: _chaveDemo,
+                      obscureText: true,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Chave de demonstração',
+                        helperText:
+                            'Digite a chave antes de escolher o usuário.',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
                 const Padding(
                   padding: EdgeInsets.fromLTRB(4, 0, 4, 12),
                   child: Text(
@@ -232,6 +263,16 @@ class _LoginPageState extends State<LoginPage> {
                                           fontSize: 13,
                                         ),
                                       ),
+                                      if (usuario.cenario != null)
+                                        Text(
+                                          usuario.cenario!,
+                                          style: const TextStyle(
+                                            fontFamily: 'Inter',
+                                            color: AppColors.primary,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                     ],
                                   ),
                                 ),
@@ -258,10 +299,43 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _entrarDemo(UsuarioDemo usuario) async {
     if (_entrando) return;
+    if (AuthApi.exigeChaveDemo && _chaveDemo.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Digite a chave de demonstração e escolha o usuário de novo.',
+          ),
+        ),
+      );
+      return;
+    }
     setState(() => _entrando = true);
+    // Primeiro acesso depois de ocioso: o servidor hospedado precisa subir (~45 s). Avisa em vez de parecer travado.
+    var avisoMostrado = false;
+    final avisoServidor = Timer(const Duration(seconds: 6), () {
+      if (!mounted || !_entrando) return;
+      avisoMostrado = true;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            duration: Duration(seconds: 90),
+            content: Text(
+              'Acordando o servidor. O primeiro acesso do dia pode levar até 1 minuto.',
+            ),
+          ),
+        );
+    });
     try {
       final api = AuthApi(client: widget.client, baseUrl: widget.baseUrl);
-      final sessao = await api.loginDemo(usuario.email);
+      final sessao = await api.loginDemo(
+        usuario.email,
+        chave: _chaveDemo.text.trim(),
+      );
+      _chaveDemo.clear();
+      if (avisoMostrado && mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
       SessaoUsuario.atual.limpar();
       {
         SessaoUsuario.atual.configurarApi(
@@ -300,12 +374,16 @@ class _LoginPageState extends State<LoginPage> {
       );
     } catch (erro) {
       if (!mounted) return;
+      if (avisoMostrado) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(erro.toString().replaceFirst('Exception: ', '')),
         ),
       );
     } finally {
+      avisoServidor.cancel();
       if (mounted) setState(() => _entrando = false);
     }
   }

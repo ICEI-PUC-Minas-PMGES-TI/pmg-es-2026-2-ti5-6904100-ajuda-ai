@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 
@@ -11,8 +12,10 @@ import 'services/feed_image_save.dart';
 import 'services/feed_media.dart';
 import 'widgets/app_feedback.dart';
 import 'widgets/feed_comments_sheet.dart';
+import 'widgets/feed_curtidores_sheet.dart';
 import 'models/feed_comment.dart';
 import 'sessao_usuario.dart';
+import 'main.dart' show estiloBarraClara;
 import 'theme/colors.dart';
 import 'widgets/app_bottom_navigation.dart';
 import 'widgets/navegacao_app.dart';
@@ -58,6 +61,13 @@ class FeedPage extends StatefulWidget {
 
 class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   String _filtroSelecionado = 'Para você';
+
+  /// Seletor de semestre (só coordenação): '' = semestre atual.
+  String _semestre = '';
+  String _semestreAtual = '';
+  List<String> _semestres = const [];
+  bool get _consultandoAntigo =>
+      _semestre.isNotEmpty && _semestre != _semestreAtual;
   final List<_Publicacao> _publicacoes = [];
   bool _carregandoPublicacoes = true;
   bool _falhaAoCarregar = false;
@@ -82,6 +92,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    diagNav('feed: initState (abre o SSE)');
     _deveFecharClient = widget.client == null;
     _client = widget.client ?? http.Client();
     WidgetsBinding.instance.addObserver(this);
@@ -109,6 +120,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     _eventos.iniciar();
     _carregarPermissoes();
     _carregarPublicacoes();
+    if (widget.coordenacao) unawaited(_carregarSemestres());
   }
 
   @override
@@ -156,6 +168,38 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     }
   }
 
+  /// `GET /publicacoes/ciclos`: semestres com publicações, para o seletor.
+  Future<void> _carregarSemestres() async {
+    try {
+      final r = await _client
+          .get(
+            Uri.parse('$_apiBaseUrl/publicacoes/ciclos'),
+            headers: _identidade(),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (r.statusCode != 200 || !mounted) return;
+      final dados = jsonDecode(r.body) as Map<String, dynamic>;
+      setState(() {
+        _semestreAtual = '${dados['atual'] ?? ''}';
+        _semestres = [
+          for (final s in dados['semestres'] as List? ?? const []) '$s',
+        ];
+      });
+    } catch (_) {
+      // Sem a lista, o feed segue no semestre atual.
+    }
+  }
+
+  void _trocarSemestre(String semestre) {
+    final novo = semestre == _semestreAtual ? '' : semestre;
+    if (novo == _semestre) return;
+    setState(() {
+      _semestre = novo;
+      _filtroSelecionado = 'Para você';
+    });
+    unawaited(_carregarPublicacoes());
+  }
+
   Future<void> _carregarPublicacoes({bool silencioso = false}) async {
     if (_consultaAtiva) {
       _consultaPendente = true;
@@ -170,7 +214,13 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     }
     try {
       final resposta = await _client
-          .get(Uri.parse('$_apiBaseUrl/publicacoes'), headers: _identidade())
+          .get(
+            Uri.parse(
+              '$_apiBaseUrl/publicacoes'
+              '${_semestre.isEmpty ? '' : '?programa=${Uri.encodeQueryComponent(_semestre)}'}',
+            ),
+            headers: _identidade(),
+          )
           .timeout(const Duration(seconds: 15));
       if (resposta.statusCode != 200) throw Exception('Falha ao carregar feed');
       final dados = jsonDecode(resposta.body) as List<dynamic>;
@@ -380,6 +430,46 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
     }
   }
 
+  /// `GET /publicacoes/:id/curtidas` (ou do comentário).
+  Future<List<Curtidor>> _buscarCurtidores(
+    int postId, [
+    int? comentarioId,
+  ]) async {
+    final uri = Uri.parse(
+      '$_apiBaseUrl/publicacoes/$postId'
+      '${comentarioId == null ? '' : '/comentarios/$comentarioId'}/curtidas',
+    );
+    final r = await _client.get(uri, headers: _identidade());
+    if (r.statusCode < 200 || r.statusCode >= 300) {
+      throw Exception('Falha ao carregar curtidas (${r.statusCode}).');
+    }
+    return [
+      for (final item in jsonDecode(r.body) as List)
+        if (item is Map<String, dynamic>) Curtidor.fromJson(item),
+    ];
+  }
+
+  /// Última lista completa por post. Só é mostrada de imediato se ainda bate
+  /// com o contador; a folha sempre revalida por baixo.
+  final _curtidoresEmCache = <int, List<Curtidor>>{};
+
+  void _verCurtidas(_Publicacao p) {
+    final id = p.id;
+    if (id == null) return;
+    final cache = _curtidoresEmCache[id];
+    mostrarCurtidores(
+      context,
+      titulo: 'Quem curtiu',
+      total: p.curtidas,
+      emCache: cache != null && cache.length == p.curtidas ? cache : null,
+      buscar: () async {
+        final lista = await _buscarCurtidores(id);
+        _curtidoresEmCache[id] = lista;
+        return lista;
+      },
+    );
+  }
+
   Future<void> _abrirCriacao() => _abrirEditor();
 
   Future<void> _abrirEditor([_Publicacao? original]) async {
@@ -497,6 +587,12 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
         onLike: (comentario, delta) =>
             _acaoComentario(publicacao, comentario.id, delta: delta),
         onDelete: (comentario) => _acaoComentario(publicacao, comentario.id),
+        onVerCurtidas: (comentario) => mostrarCurtidores(
+          context,
+          titulo: 'Quem curtiu o comentário',
+          total: comentario.curtidas,
+          buscar: () => _buscarCurtidores(publicacao.id!, comentario.id),
+        ),
       ),
     );
   }
@@ -577,7 +673,33 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
                           onSelected: (indice) =>
                               setState(() => _filtroSelecionado = indice),
                         ),
-                        if (_podePublicar)
+                        if (widget.coordenacao && _semestres.length > 1)
+                          _SeletorSemestre(
+                            semestres: _semestres,
+                            atual: _semestreAtual,
+                            selecionado: _semestre.isEmpty
+                                ? _semestreAtual
+                                : _semestre,
+                            onSelected: _trocarSemestre,
+                          ),
+                        if (_consultandoAntigo)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              _feedGutter,
+                              0,
+                              _feedGutter,
+                              10,
+                            ),
+                            child: Text(
+                              'Semestre $_semestre: somente consulta. Só é possível remover publicações.',
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        if (_podePublicar && !_consultandoAntigo)
                           Padding(
                             padding: const EdgeInsets.fromLTRB(
                               _feedGutter,
@@ -594,11 +716,13 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
                           ),
                           child: Text(
                             _estadoTempoReal,
-                            style: const TextStyle(fontSize: 12),
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                            ),
                           ),
                         ),
-                        if (_filtroSelecionado == 'Para você')
-                          const _DicaDaSemana(),
                       ],
                     ),
                   ),
@@ -641,6 +765,7 @@ class _FeedPageState extends State<FeedPage> with WidgetsBindingObserver {
                             : post.imagens[i]]!,
                     ],
                     onComment: () => _abrirComentarios(post),
+                    onVerCurtidas: () => _verCurtidas(post),
                     onLike: (delta) async {
                       final indiceReal = _publicacoes.indexWhere(
                         (p) => p.id == post.id,
@@ -685,123 +810,61 @@ class _CabecalhoFeed extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppAccents.headerTop, AppAccents.headerBottom],
-        ),
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 44),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Image.asset(
-                    'assets/images/logo.png',
-                    height: 40,
-                    color: Colors.white,
-                    semanticLabel: 'Ajuda-aí',
-                  ),
-                  const SizedBox(width: 14),
-                  Image.asset(
-                    'assets/images/puclogo.png',
-                    height: 40,
-                    color: Colors.white,
-                    semanticLabel: 'PUC Minas',
-                  ),
-                  const Spacer(),
-                  _IconeCabecalho(
-                    icone: Icons.search_rounded,
-                    tooltip: 'Buscar no feed',
-                    onTap: () => _mensagem(context, 'Busca no feed'),
-                  ),
-                  const SizedBox(width: 8),
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      _IconeCabecalho(
-                        icone: Icons.notifications_none_rounded,
-                        tooltip: 'Notificações',
-                        onTap: () => _mensagem(context, 'Notificações'),
-                      ),
-                      const Positioned(
-                        right: -1,
-                        top: -2,
-                        child: CircleAvatar(
-                          radius: 8,
-                          backgroundColor: Color(0xFF8B5CF6),
-                          child: Text(
-                            '3',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontFamily: 'Inter',
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Feed',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
-                ),
-              ),
-              const SizedBox(height: 7),
-              const Text(
-                'Descubra, compartilhe e viva o campus.',
-                style: TextStyle(
-                  color: Color(0xFFD9CCEC),
-                  fontFamily: 'Inter',
-                  fontSize: 15,
-                ),
-              ),
-            ],
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: estiloBarraClara,
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppAccents.headerTop, AppAccents.headerBottom],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _IconeCabecalho extends StatelessWidget {
-  const _IconeCabecalho({
-    required this.icone,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  final IconData icone;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: SizedBox(
-            width: 40,
-            height: 40,
-            child: Icon(icone, size: 30, color: Colors.white),
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 44),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Image.asset(
+                      'assets/images/logo.png',
+                      height: 40,
+                      color: Colors.white,
+                      semanticLabel: 'Ajuda-aí',
+                    ),
+                    const SizedBox(width: 14),
+                    Image.asset(
+                      'assets/images/puclogo.png',
+                      height: 40,
+                      color: Colors.white,
+                      semanticLabel: 'PUC Minas',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Feed',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                const Text(
+                  'Descubra, compartilhe e viva o campus.',
+                  style: TextStyle(
+                    color: Color(0xFFD9CCEC),
+                    fontFamily: 'Inter',
+                    fontSize: 15,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -815,6 +878,64 @@ const _categoriasFeed = <String>[
   'Campus',
   'Oportunidades',
 ];
+
+/// Semestres com publicações (só coordenação): o atual e os anteriores.
+class _SeletorSemestre extends StatelessWidget {
+  const _SeletorSemestre({
+    required this.semestres,
+    required this.atual,
+    required this.selecionado,
+    required this.onSelected,
+  });
+
+  final List<String> semestres;
+  final String atual;
+  final String selecionado;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 52,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(
+          horizontal: _feedGutter,
+          vertical: 6,
+        ),
+        scrollDirection: Axis.horizontal,
+        itemCount: semestres.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final s = semestres[i];
+          final ativo = s == selecionado;
+          return ChoiceChip(
+            key: ValueKey('semestre-$s'),
+            selected: ativo,
+            showCheckmark: false,
+            label: Text(s == atual ? '$s · atual' : s),
+            avatar: Icon(
+              Icons.event_note_outlined,
+              size: 16,
+              color: ativo ? Colors.white : AppColors.primary,
+            ),
+            labelStyle: TextStyle(
+              color: ativo ? Colors.white : AppColors.ink,
+              fontFamily: 'Inter',
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+            backgroundColor: Colors.white,
+            selectedColor: AppColors.primary,
+            side: BorderSide(
+              color: ativo ? AppColors.primary : const Color(0xFFEAE6F2),
+            ),
+            onSelected: (_) => onSelected(s),
+          );
+        },
+      ),
+    );
+  }
+}
 
 class _Filtros extends StatelessWidget {
   const _Filtros({
@@ -846,13 +967,11 @@ class _Filtros extends StatelessWidget {
             onSelected: (_) => onSelected(opcoes[indice]),
             showCheckmark: false,
             label: Text(opcoes[indice]),
-            avatar: opcoes[indice] == 'Dicas acadêmicas'
-                ? Icon(
-                    Icons.school_outlined,
-                    size: 17,
-                    color: ativo ? Colors.white : AppColors.primary,
-                  )
-                : null,
+            avatar: Icon(
+              _estiloCategoria(opcoes[indice]).icone,
+              size: 17,
+              color: ativo ? Colors.white : AppColors.primary,
+            ),
             labelStyle: TextStyle(
               color: ativo ? Colors.white : AppColors.ink,
               fontFamily: 'Inter',
@@ -896,7 +1015,10 @@ class _CriarPublicacaoCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const _Avatar(iniciais: 'C', cor: AppColors.primary),
+              _Avatar(
+                iniciais: _iniciaisDoNome(_nomeAutorAtual()),
+                cor: AppColors.primary,
+              ),
               const SizedBox(width: 11),
               const Expanded(
                 child: Text(
@@ -945,97 +1067,11 @@ class _CriarPublicacaoCard extends StatelessWidget {
   }
 }
 
-class _DicaDaSemana extends StatelessWidget {
-  const _DicaDaSemana();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(_feedGutter, 0, _feedGutter, 14),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.lavender,
-          border: Border.all(color: const Color(0xFFE9DFF7)),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x0F420594),
-              blurRadius: 12,
-              offset: Offset(0, 5),
-            ),
-          ],
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              right: -8,
-              top: -20,
-              child: Icon(
-                Icons.auto_awesome,
-                color: AppColors.primary.withValues(alpha: 0.08),
-                size: 88,
-              ),
-            ),
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.lightbulb_outline_rounded,
-                    color: AppColors.primary,
-                    size: 27,
-                  ),
-                ),
-                const SizedBox(width: 13),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Dica acadêmica da semana',
-                        style: TextStyle(
-                          color: AppColors.primary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      SizedBox(height: 3),
-                      Text(
-                        'Organize sua entrega de TI, na próxima semana não hávera aula por conta do feriado .',
-                        style: TextStyle(
-                          color: AppColors.muted,
-                          fontFamily: 'Inter',
-                          fontSize: 12,
-                          height: 1.3,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  color: AppColors.primary,
-                  size: 16,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _PublicacaoCard extends StatefulWidget {
   const _PublicacaoCard({
     required this.publicacao,
     required this.onComment,
+    required this.onVerCurtidas,
     required this.onLike,
     required this.onDelete,
     required this.onEdit,
@@ -1045,6 +1081,7 @@ class _PublicacaoCard extends StatefulWidget {
 
   final _Publicacao publicacao;
   final VoidCallback onComment;
+  final VoidCallback onVerCurtidas;
   final Future<bool> Function(int) onLike;
   final VoidCallback onDelete;
   final VoidCallback onEdit;
@@ -1161,47 +1198,44 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                     ],
                   ),
                 ),
-                PopupMenuButton<String>(
-                  tooltip: 'Mais opções',
-                  color: Colors.white,
-                  icon: const Icon(
-                    Icons.more_horiz_rounded,
-                    color: AppColors.muted,
+                // Sem ações reais (editar/apagar) não há menu: nada de
+                // "Denunciar" ou "Silenciar", que não faziam nada.
+                if (post.podeAdministrar || post.podeExcluir)
+                  PopupMenuButton<String>(
+                    tooltip: 'Mais opções',
+                    color: Colors.white,
+                    icon: const Icon(
+                      Icons.more_horiz_rounded,
+                      color: AppColors.muted,
+                    ),
+                    onSelected: (opcao) {
+                      switch (opcao) {
+                        case 'editar':
+                          widget.onEdit();
+                          break;
+                        case 'apagar':
+                          widget.onDelete();
+                          break;
+                      }
+                    },
+                    itemBuilder: (_) => post.podeAdministrar && post.cicloAtual
+                        ? const [
+                            PopupMenuItem(
+                              value: 'editar',
+                              child: Text('Editar publicação'),
+                            ),
+                            PopupMenuItem(
+                              value: 'apagar',
+                              child: Text('Apagar publicação'),
+                            ),
+                          ]
+                        : const [
+                            PopupMenuItem(
+                              value: 'apagar',
+                              child: Text('Apagar publicação'),
+                            ),
+                          ],
                   ),
-                  onSelected: (opcao) {
-                    switch (opcao) {
-                      case 'editar':
-                        widget.onEdit();
-                        break;
-                      case 'apagar':
-                        widget.onDelete();
-                        break;
-                      default:
-                        _mensagem(context, opcao);
-                    }
-                  },
-                  itemBuilder: (_) => post.podeAdministrar
-                      ? const [
-                          PopupMenuItem(
-                            value: 'editar',
-                            child: Text('Editar publicação'),
-                          ),
-                          PopupMenuItem(
-                            value: 'apagar',
-                            child: Text('Apagar publicação'),
-                          ),
-                        ]
-                      : const [
-                          PopupMenuItem(
-                            value: 'Publicação denunciada',
-                            child: Text('Denunciar'),
-                          ),
-                          PopupMenuItem(
-                            value: 'Autor silenciado',
-                            child: Text('Silenciar autor'),
-                          ),
-                        ],
-                ),
               ],
             ),
           ),
@@ -1313,7 +1347,7 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
               ],
             ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 7, 8, 4),
+            padding: const EdgeInsets.fromLTRB(4, 0, 12, 0),
             child: Row(
               children: [
                 if (post.podeInteragir)
@@ -1345,59 +1379,79 @@ class _PublicacaoCardState extends State<_PublicacaoCard> {
                 _AcaoPost(
                   tooltip: post.podeInteragir ? 'Comentar' : 'Ver comentários',
                   icone: Icons.chat_bubble_outline_rounded,
+                  contagem: post.comentarios,
                   onTap: widget.onComment,
                 ),
-                _AcaoPost(
-                  tooltip: 'Compartilhar',
-                  icone: Icons.send_outlined,
-                  onTap: () =>
-                      _mensagem(context, 'Link da publicação copiado!'),
-                ),
-                if (post.imagens.length > 1) ...[
-                  const Spacer(),
+                const Spacer(),
+                if (post.imagens.length > 1)
                   _Indicadores(
                     total: post.imagens.length,
                     selecionado: _pagina,
                   ),
-                  const SizedBox(width: 10),
-                ],
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$_curtidas curtidas',
-                  style: const TextStyle(
-                    color: AppColors.ink,
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                InkWell(
-                  onTap: widget.onComment,
-                  child: Text(
-                    'Ver todos os ${post.comentarios} comentários',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontFamily: 'Inter',
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          // "Curtido por Camila e outras 2 pessoas": sem requisição por post,
+          // só com o que veio no feed. Some quando ninguém curtiu.
+          CurtidoPorLinha(
+            recentes: _recentesCoerentes(post),
+            total: _curtidas,
+            onTap: widget.onVerCurtidas,
           ),
+          const SizedBox(height: 8),
         ],
       ),
     );
   }
+
+  /// Nomes só valem se batem com o estado atual (curtida otimista em curso
+  /// ou lista mais antiga que o contador): senão a linha cai para "N curtidas".
+  List<Curtidor> _recentesCoerentes(_Publicacao post) =>
+      _curtido == post.curtidoPeloUsuario && _curtidas == post.curtidas
+      ? post.curtidoresRecentes
+      : const [];
 }
+
+class _EstiloCategoria {
+  const _EstiloCategoria(this.icone, this.cor, this.fundo);
+  final IconData icone;
+  final Color cor;
+  final Color fundo;
+}
+
+/// Uma cor por categoria, para o feed ser escaneável de relance.
+_EstiloCategoria _estiloCategoria(String categoria) => switch (categoria) {
+  'Para você' => const _EstiloCategoria(
+    Icons.auto_awesome_outlined,
+    AppColors.primary,
+    AppColors.lavender,
+  ),
+  'Comunicados' => const _EstiloCategoria(
+    Icons.campaign_outlined,
+    Color(0xFFC2410C),
+    AppAccents.tileLaranja,
+  ),
+  'Dicas acadêmicas' => const _EstiloCategoria(
+    Icons.school_outlined,
+    AppColors.primary,
+    AppColors.lavender,
+  ),
+  'Campus' => const _EstiloCategoria(
+    Icons.location_city_outlined,
+    AppAccents.success,
+    AppAccents.successBg,
+  ),
+  'Oportunidades' => const _EstiloCategoria(
+    Icons.work_outline_rounded,
+    Color(0xFF1D4ED8),
+    AppAccents.tileAzul,
+  ),
+  _ => const _EstiloCategoria(
+    Icons.tag_rounded,
+    AppColors.muted,
+    AppColors.lavender,
+  ),
+};
 
 class _Categoria extends StatelessWidget {
   const _Categoria({required this.categoria});
@@ -1406,26 +1460,22 @@ class _Categoria extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final academica = categoria == 'Dicas acadêmicas';
+    final estilo = _estiloCategoria(categoria);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: academica ? AppColors.lavender : const Color(0xFFEAF8F0),
+        color: estilo.fundo,
         borderRadius: BorderRadius.circular(9),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            academica ? Icons.school_outlined : Icons.location_city_outlined,
-            size: 14,
-            color: academica ? AppColors.primary : AppAccents.success,
-          ),
+          Icon(estilo.icone, size: 14, color: estilo.cor),
           const SizedBox(width: 5),
           Text(
             categoria,
             style: TextStyle(
-              color: academica ? AppColors.primary : AppAccents.success,
+              color: estilo.cor,
               fontFamily: 'Inter',
               fontSize: 11,
               fontWeight: FontWeight.w700,
@@ -1693,23 +1743,47 @@ class _AcaoPost extends StatelessWidget {
     required this.icone,
     required this.onTap,
     this.cor = AppColors.ink,
+    this.contagem,
   });
 
   final String tooltip;
   final IconData icone;
   final VoidCallback? onTap;
   final Color cor;
+  final int? contagem;
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
-      child: InkResponse(
+      child: InkWell(
         onTap: onTap,
-        radius: 23,
-        child: Padding(
-          padding: const EdgeInsets.all(7),
-          child: Icon(icone, size: 23, color: cor),
+        borderRadius: BorderRadius.circular(24),
+        child: ConstrainedBox(
+          // Alvo de toque de 48 dp, sem espaçar demais os ícones.
+          constraints: const BoxConstraints(minHeight: 48, minWidth: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icone, size: 24, color: cor),
+                if (contagem != null) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    '$contagem',
+                    style: TextStyle(
+                      color: cor,
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1974,33 +2048,14 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
                               fontWeight: FontWeight.w800,
                             ),
                           ),
-                          const SizedBox(height: 3),
-                          DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                              value: _categoria,
-                              isDense: true,
-                              borderRadius: BorderRadius.circular(14),
-                              style: const TextStyle(
-                                color: AppColors.primary,
-                                fontFamily: 'Inter',
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                              items: {_categoria, ...widget.categorias}
-                                  .map(
-                                    (c) => DropdownMenuItem(
-                                      value: c,
-                                      child: Text(c),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: _salvando
-                                  ? null
-                                  : (valor) {
-                                      if (valor != null) {
-                                        setState(() => _categoria = valor);
-                                      }
-                                    },
+                          const SizedBox(height: 2),
+                          Text(
+                            _categoria,
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ],
@@ -2008,12 +2063,49 @@ class _CriarPublicacaoSheetState extends State<_CriarPublicacaoSheet> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
+                // Chips no lugar do menu suspenso: o menu tirava o foco do
+                // texto, fechava o teclado e ficava solto no topo da tela.
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    for (final c in {_categoria, ...widget.categorias})
+                      ChoiceChip(
+                        selected: c == _categoria,
+                        showCheckmark: false,
+                        label: Text(c),
+                        avatar: Icon(
+                          _estiloCategoria(c).icone,
+                          size: 16,
+                          color: c == _categoria
+                              ? Colors.white
+                              : AppColors.primary,
+                        ),
+                        labelStyle: TextStyle(
+                          color: c == _categoria ? Colors.white : AppColors.ink,
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        backgroundColor: Colors.white,
+                        selectedColor: AppColors.primary,
+                        side: BorderSide(
+                          color: c == _categoria
+                              ? AppColors.primary
+                              : const Color(0xFFEAE6F2),
+                        ),
+                        onSelected: _salvando
+                            ? null
+                            : (_) => setState(() => _categoria = c),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 14),
                 TextField(
                   controller: _controller,
                   enabled: !_salvando,
                   maxLength: 10000,
-                  autofocus: true,
                   minLines: 4,
                   maxLines: 7,
                   onChanged: (_) => setState(() {}),
@@ -2302,11 +2394,14 @@ class _Publicacao {
     required this.corAvatar,
     this.verificado = false,
     this.podeAdministrar = false,
+    this.podeExcluir = false,
+    this.cicloAtual = true,
     this.podeInteragir = false,
     this.midias = const [],
     this.comentariosTexto = const [],
     this.comentariosDetalhes = const [],
     this.curtidoPeloUsuario = false,
+    this.curtidoresRecentes = const [],
   });
 
   final int? id;
@@ -2320,10 +2415,17 @@ class _Publicacao {
   final List<String> midias;
   final int curtidas;
   final bool curtidoPeloUsuario;
+
+  /// Até 3 curtidores mais recentes que já vêm no feed (sem requisição extra).
+  final List<Curtidor> curtidoresRecentes;
   final int comentarios;
   final Color corAvatar;
   final bool verificado;
   final bool podeAdministrar;
+  final bool podeExcluir;
+
+  /// false = publicação de semestre anterior (só leitura; só remover).
+  final bool cicloAtual;
   final bool podeInteragir;
   final List<String> comentariosTexto;
   final List<FeedComment> comentariosDetalhes;
@@ -2352,8 +2454,14 @@ class _Publicacao {
           (json['comentarios'] as num?)?.toInt() ?? comentariosTexto.length,
       corAvatar: AppColors.primary,
       podeAdministrar: json['podeAdministrar'] as bool? ?? false,
+      podeExcluir: json['podeExcluir'] as bool? ?? false,
+      cicloAtual: json['cicloAtual'] as bool? ?? true,
       podeInteragir: json['podeInteragir'] == true,
       curtidoPeloUsuario: json['curtidoPeloUsuario'] as bool? ?? false,
+      curtidoresRecentes: [
+        for (final c in json['curtidoresRecentes'] as List? ?? const [])
+          if (c is Map<String, dynamic>) Curtidor.fromJson(c),
+      ],
       comentariosTexto: comentariosTexto,
       comentariosDetalhes: json['comentariosDetalhes'] is List
           ? (json['comentariosDetalhes'] as List)
@@ -2400,10 +2508,13 @@ class _Publicacao {
     midias: midias,
     curtidas: curtidas ?? this.curtidas,
     curtidoPeloUsuario: curtidoPeloUsuario ?? this.curtidoPeloUsuario,
+    curtidoresRecentes: curtidoresRecentes,
     comentarios: comentarios ?? this.comentarios,
     corAvatar: corAvatar,
     verificado: verificado,
     podeAdministrar: podeAdministrar,
+    podeExcluir: podeExcluir,
+    cicloAtual: cicloAtual,
     podeInteragir: podeInteragir,
     comentariosTexto: comentariosTexto ?? this.comentariosTexto,
     comentariosDetalhes: comentariosDetalhes,

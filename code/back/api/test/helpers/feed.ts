@@ -2,6 +2,7 @@ import type { DataSource, Repository } from 'typeorm';
 import type { AccessTokenPayload } from '../../src/auth/authenticated-request.js';
 import { PublicacaoEntity } from '../../src/publicacoes/entities/publicacao.entity.js';
 import { PublicacoesService } from '../../src/publicacoes/publicacoes.service.js';
+import { PermissoesAlunoService } from '../../src/participacoes/permissoes-aluno.service.js';
 import { FeedPolicy } from '../../src/publicacoes/feed-policy.js';
 import type { UsuariosService } from '../../src/usuarios/usuarios.service.js';
 import type { FeedMidiasService } from '../../src/publicacoes/feed-midias.service.js';
@@ -68,10 +69,17 @@ export function criarFeedTeste() {
     FeedOutboxEntity: [],
   };
   const repos: Record<string, any> = {};
-  const corresponde = (v: any, where: any) =>
-    Object.entries(where ?? {}).every(([k, val]: [string, any]) =>
-      val?._type === 'in' ? val._value.includes(v[k]) : v[k] === val,
-    );
+  // `where` pode ser um objeto ou uma lista de objetos (OR), com In e IsNull.
+  const corresponde = (v: any, where: any): boolean =>
+    Array.isArray(where)
+      ? where.some((w) => corresponde(v, w))
+      : Object.entries(where ?? {}).every(([k, val]: [string, any]) =>
+          val?._type === 'in'
+            ? val._value.includes(v[k])
+            : val?._type === 'isNull'
+              ? v[k] == null
+              : v[k] === val,
+        );
   const completar = (v: any, relacoes: unknown) => {
     if (v && relacoes)
       return {
@@ -143,10 +151,11 @@ export function criarFeedTeste() {
     validar: async () => {},
     urls: (chaves: string[]) => chaves,
   } as unknown as FeedMidiasService;
-  const policy = new FeedPolicy(
+  const permissoes = new PermissoesAlunoService(
     new ParticipacoesService(repos.ParticipacaoEntity, repos.ProgramaEntity),
     new ProgramasService(repos.ProgramaEntity),
   );
+  const policy = new FeedPolicy(permissoes);
   const service = new PublicacoesService(
     repos.PublicacaoEntity as Repository<PublicacaoEntity>,
     dados,
@@ -167,5 +176,5 @@ export function criarFeedTeste() {
     } as unknown as UsuariosService,
     midias,
   );
-  return { service, tabelas, repos, dados, midias, policy };
+  return { service, tabelas, repos, dados, midias, policy, permissoes };
 }

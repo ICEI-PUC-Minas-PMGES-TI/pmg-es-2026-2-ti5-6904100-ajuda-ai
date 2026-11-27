@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../../api/client';
 import { iniciaisDe, rotuloPeriodo } from '../../auth/sessaoAluno';
+import { EmblemaNivel } from '../../components/EmblemaNivel';
 import Icon from '../../components/Icon';
 import { AVISO_MAPA, useToast } from '../../components/Toast';
 import { EstadoCarregando, EstadoErro, PageHeader } from './partes';
@@ -80,6 +81,8 @@ export default function PerfilAlunoPage() {
           <SituacaoCard dados={situacao} perfil={perfil} resolucao={resolucao} />
         )}
       </div>
+
+      <ProgressoGamificacao />
 
       <section className="aluno-section" aria-labelledby="jornada-titulo">
         <div className="section-head">
@@ -293,6 +296,79 @@ function SituacaoCard({ dados, perfil, resolucao }) {
         )}
         <button type="button" className="ghost-button" onClick={() => navigate('/?refazer=1')}>Atualizar meu perfil</button>
       </div>
+    </section>
+  );
+}
+
+const milhar = (n) => Number(n).toLocaleString('pt-BR');
+
+/** Cartão já resolvido: emblema, nível, barra, XP e moedas. */
+export function ProgressoCarregado({ dados, erro = false }) {
+  return (
+    <div className="dash-card progresso-card">
+      <div className="progresso-topo">
+        <EmblemaNivel numero={dados.nivel.numero} nome={dados.nivel.nome} />
+        <div>
+          <strong className="progresso-nivel">Nível {dados.nivel.numero} · {dados.nivel.nome}</strong>
+          <p className="detail-muted small">{milhar(dados.xpAcumulado)} XP acumulado</p>
+        </div>
+      </div>
+      <div
+        className="barra-nivel"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={dados.nivel.progresso}
+        aria-label="Progresso no nível"
+      >
+        <span style={{ width: `${dados.nivel.progresso}%` }} />
+      </div>
+      <p className="detail-muted small">
+        {dados.nivel.maximo
+          ? 'Nível máximo alcançado'
+          : `Faltam ${milhar(dados.nivel.xpRestante)} XP para ${dados.nivel.proximoNome}`}
+      </p>
+      <p>
+        <strong>{milhar(dados.moedas)} {dados.moedas === 1 ? 'moeda' : 'moedas'}</strong>
+        <span className="detail-muted small"> para trocar na lojinha (resgates não reduzem o XP)</span>
+      </p>
+      {erro && <p className="detail-muted small">Mostrando o último valor carregado.</p>}
+    </div>
+  );
+}
+
+/**
+ * Progresso real do aluno (`GET /me/xp`): nível, barra, XP acumulado e
+ * moedas. Os valores vêm do servidor; aqui só exibição. Falha nunca vira 0.
+ */
+export function ProgressoGamificacao({ carregar = () => api.progressoAluno() }) {
+  const [estado, setEstado] = useState({ dados: null, erro: false, carregando: true });
+  async function ler() {
+    setEstado((e) => ({ ...e, carregando: true }));
+    try {
+      const dados = await carregar();
+      setEstado({ dados, erro: false, carregando: false });
+    } catch {
+      // Mantém o último valor válido; sem nenhum, mostra a falha.
+      setEstado((e) => ({ ...e, erro: true, carregando: false }));
+    }
+  }
+  useEffect(() => {
+    ler();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const { dados, erro, carregando } = estado;
+  return (
+    <section className="aluno-section progresso-gamificacao" aria-labelledby="progresso-titulo">
+      <h2 id="progresso-titulo">Meu progresso</h2>
+      {!dados && carregando && <p role="status">Carregando seu progresso…</p>}
+      {!dados && !carregando && erro && (
+        <p className="dash-inline-error" role="alert">
+          Não foi possível carregar seu progresso.
+          <button type="button" onClick={ler}>Tentar novamente</button>
+        </p>
+      )}
+      {dados && <ProgressoCarregado dados={dados} erro={erro} />}
     </section>
   );
 }

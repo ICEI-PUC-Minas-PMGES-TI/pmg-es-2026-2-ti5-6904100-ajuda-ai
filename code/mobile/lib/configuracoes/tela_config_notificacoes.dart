@@ -14,7 +14,7 @@ class NotificacoesConfigPage extends StatelessWidget {
         LinhaPreferencia(
           chave: 'notificacoesAvisos',
           titulo: 'Avisos do programa',
-          descricao: 'Comunicados da coordenação e mudanças de etapa.',
+          descricao: 'Comunicados da coordenação, mudanças de etapa, missões novas e subida de nível.',
         ),
         LinhaPreferencia(
           chave: 'notificacoesMensagens',

@@ -26,7 +26,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ResgatarPage), findsOneWidget);
-    expect(find.text('0 XP'), findsOneWidget);
+    expect(find.text('0 moedas'), findsOneWidget);
     expect(find.text('Nenhum item disponível ainda'), findsOneWidget);
   });
 
@@ -72,9 +72,9 @@ void main() {
       ),
     );
 
-    expect(find.text('300 XP'), findsOneWidget);
+    expect(find.text('300 moedas'), findsOneWidget);
     expect(find.text('5 em estoque'), findsOneWidget);
-    expect(find.text('Faltam 1.500 XP'), findsOneWidget);
+    expect(find.text('Faltam 1.500 moedas'), findsOneWidget);
     expect(find.text('Esgotado'), findsOneWidget);
     expect(find.text('Limite atingido'), findsOneWidget);
 
@@ -93,7 +93,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Resgatar'));
     await tester.pumpAndSettle();
     expect(find.byType(TelaRevisaoResgate), findsOneWidget);
-    expect(find.text('200 XP'), findsOneWidget);
+    expect(find.text('200 moedas'), findsOneWidget);
     expect(find.text('Confirmar resgate'), findsOneWidget);
   });
 
@@ -175,12 +175,12 @@ void main() {
       MaterialApp(home: ResgatarPage(saldoXp: 0, api: api)),
     );
     await tester.pumpAndSettle();
-    expect(find.text('100 XP'), findsOneWidget);
+    expect(find.text('100 moedas'), findsOneWidget);
     await tester.tap(find.text('Caneca'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Resgatar'));
     await tester.pumpAndSettle();
-    expect(find.text('70 XP'), findsOneWidget);
+    expect(find.text('70 moedas'), findsOneWidget);
     await tester.tap(find.text('Confirmar resgate'));
     await tester.pumpAndSettle();
     expect(find.byType(TelaComprovante), findsOneWidget);
@@ -193,7 +193,7 @@ void main() {
 
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.text('70 XP'), findsOneWidget);
+    expect(find.text('70 moedas'), findsOneWidget);
     expect(find.byType(ResgatarPage), findsOneWidget);
     expect(find.text('Esgotado'), findsOneWidget);
   });
@@ -297,7 +297,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text('50 XP'), findsWidgets);
+    expect(find.text('50 moedas'), findsWidgets);
 
     await tester.tap(find.text('Confirmar resgate'));
     await tester.pumpAndSettle();
@@ -305,8 +305,8 @@ void main() {
       find.text('Esta recompensa mudou e agora custa 80 XP.'),
       findsOneWidget,
     );
-    expect(find.text('80 XP'), findsWidgets);
-    expect(find.text('50 XP'), findsNothing);
+    expect(find.text('80 moedas'), findsWidgets);
+    expect(find.text('50 moedas'), findsNothing);
 
     await tester.tap(find.text('Confirmar resgate'));
     await tester.pumpAndSettle();
@@ -378,8 +378,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('-30 XP'), findsOneWidget);
-    expect(find.text('+100 XP'), findsOneWidget);
+    expect(find.text('-30 moedas'), findsOneWidget);
+    expect(find.text('+100 moedas'), findsOneWidget);
     expect(find.text('Carregar mais'), findsNothing);
   });
 }
