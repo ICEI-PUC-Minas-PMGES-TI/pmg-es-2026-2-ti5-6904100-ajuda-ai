@@ -146,6 +146,15 @@ A API fica disponível em `http://localhost:3000`.
 | `GET`       | `/coordenacao/xp`                                       | Moedas, XP acumulado e nível dos participantes (F26; `?busca=` nome/e-mail). |
 | `GET`       | `/coordenacao/xp/:usuarioId`                            | Resumo como em `/me/xp`, extrato paginado (`limite`, `antes`) e ajustes da coordenação. |
 | `POST`      | `/coordenacao/xp/:usuarioId/ajustes`                    | Ajuste justificado (`{ quantidade, motivo, chaveIdempotencia }`); até ±200; mexe em XP e moedas; nunca deixa negativo (422). Mesma chave e mesmos dados devolvem o ajuste já feito; mesma chave com outros dados dá 409 `chave-reutilizada`. |
+| `GET`       | `/coordenacao/missoes`                                  | Missões do ciclo com conclusões e XP creditado (`?status=ativa\|inativa&ciclo=`). |
+| `GET`       | `/coordenacao/missoes/:id`                              | Detalhe de uma missão, com conclusões e XP creditado. |
+| `POST`      | `/coordenacao/missoes`                                  | Cria no ciclo atual (`titulo`, `descricao`, `tipo` `UNICA\|SEMANAL`, `xp` até 100, semanal até 60; opcionais `inicio`, `fim`, `ativar`); 400 se o ciclo não foi aberto em Programas. |
+| `PATCH`     | `/coordenacao/missoes/:id`                              | Edita com `atualizadoEm`; 409 `missao-alterada` ou `missao-com-conclusoes` (tipo). |
+| `POST`      | `/coordenacao/missoes/:id/ativar` \| `desativar`        | Liga ou desliga a missão (idempotente). |
+| `GET`       | `/me/missoes`                                           | Missões ativas do ciclo com status, `xpPrevisto` e uso dos tetos semanal e do ciclo. |
+| `POST`      | `/me/missoes/:id/concluir`                              | Conclui e credita XP e moedas pelo ledger; 409 `ja-concluida`, 422 `fora-do-periodo`. |
+| `GET`       | `/me/notificacoes`                                      | Notificações do usuário (`?limite=1..50`) e `naoLidas`; antes de listar, avisa o participante das missões que ele já pode ver. |
+| `PATCH`     | `/me/notificacoes/:id/lida` \| `/me/notificacoes/lidas` | Marca uma ou todas como lidas. |
 | `POST`      | `/coordenacao/comunicados`                              | Publica um comunicado para todos, padrinhos ou apadrinhados.                                                                          |
 | `GET`       | `/publicacoes`                                          | Lista as publicações persistidas no backend.                                                                                          |
 | `POST`      | `/publicacoes`                                          | Cria uma publicação com zero curtidas e zero comentários.                                                                             |

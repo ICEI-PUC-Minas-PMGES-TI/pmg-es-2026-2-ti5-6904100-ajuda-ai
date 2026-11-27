@@ -1,8 +1,14 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
+import { NotificacoesModule } from '../notificacoes/notificacoes.module.js';
 import { ParticipacoesModule } from '../participacoes/participacoes.module.js';
 import { LojinhaController } from './lojinha/lojinha.controller.js';
 import { LojinhaService } from './lojinha/lojinha.service.js';
+import { LimpezaTentativasService } from './missoes/limpeza-tentativas.service.js';
+import { MissoesAdminController } from './missoes/missoes-admin.controller.js';
+import { MissoesAdminService } from './missoes/missoes-admin.service.js';
+import { MissoesController } from './missoes/missoes.controller.js';
+import { MissoesService } from './missoes/missoes.service.js';
 import { PucStopsAdminController } from './pucstops/pucstops-admin.controller.js';
 import { PucStopsAdminService } from './pucstops/pucstops-admin.service.js';
 import {
@@ -30,7 +36,7 @@ import { XpService } from './xp/xp.service.js';
  * XP pela coordenação (F26) em `/coordenacao/xp`.
  */
 @Module({
-  imports: [AuthModule, ParticipacoesModule],
+  imports: [AuthModule, ParticipacoesModule, NotificacoesModule],
   controllers: [
     PucStopsController,
     MinhasColetasController,
@@ -41,6 +47,8 @@ import { XpService } from './xp/xp.service.js';
     LojinhaController,
     ResgatesAdminController,
     XpAdminController,
+    MissoesController,
+    MissoesAdminController,
   ],
   providers: [
     PucStopsService,
@@ -50,6 +58,9 @@ import { XpService } from './xp/xp.service.js';
     LojinhaService,
     ResgatesAdminService,
     XpAdminService,
+    MissoesService,
+    MissoesAdminService,
+    LimpezaTentativasService,
   ],
 })
 export class GamificacaoModule {}

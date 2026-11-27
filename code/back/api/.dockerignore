@@ -1,0 +1,16 @@
+# Nada de segredo, artefato local ou teste na imagem.
+.env
+.env.*
+!.env.example
+node_modules
+dist
+coverage
+test
+**/*.spec.ts
+*.log
+*.tsbuildinfo
+.vscode
+.idea
+scripts
+Dockerfile
+.dockerignore

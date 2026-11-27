@@ -5,6 +5,7 @@ import '../sessao_usuario.dart';
 import '../tela_feed.dart';
 import '../tela_home.dart';
 import '../tela_mapa.dart';
+import '../tela_missoes.dart';
 import '../tela_perfil.dart';
 import 'app_bottom_navigation.dart';
 
@@ -72,12 +73,6 @@ class AppShellState extends State<AppShell>
 
   void ir(AppDestination destino) {
     if (destino == _atual) return;
-    if (destino == AppDestination.missoes) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('Missões: em breve!')));
-      return;
-    }
     final antes = _atual;
     // O mapa 3D é uma view nativa: sem opacidade nem duas telas ao mesmo
     // tempo. Entrar ou sair dele troca na hora; o fade é só entre as outras.
@@ -139,7 +134,7 @@ class AppShellState extends State<AppShell>
         AppDestination.feed => const FeedPage(),
         AppDestination.perfil => const ProfilePage(),
         AppDestination.mapa => const MapaPage(),
-        AppDestination.missoes => const SizedBox.shrink(),
+        AppDestination.missoes => const MissoesPage(),
       };
 
   /// Fundo para frente: as ocultas, a que sai e, por cima, a atual.
@@ -223,12 +218,6 @@ void navegarDestino(
   final casca = AppShell.of(context);
   if (casca != null) {
     casca.ir(destination);
-    return;
-  }
-  if (destination == AppDestination.missoes) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(content: Text('Missões: em breve!')));
     return;
   }
   Navigator.of(context).pushReplacement(

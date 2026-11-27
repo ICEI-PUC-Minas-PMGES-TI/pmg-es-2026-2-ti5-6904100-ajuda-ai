@@ -26,7 +26,7 @@ abstract final class CampusMapDefaults {
   /// Altura máxima do card de evento/restaurante (fração da tela). A câmera
   /// reserva esse espaço no rodapé ao focar o local e ao enquadrar a rota,
   /// para o ponto e o fim da rota não ficarem sob o card.
-  static const contentCardHeightFraction = 0.5;
+  static const contentCardHeightFraction = 0.62;
   static const contentCardMargin = 24.0;
 
   /// Distância do card ao rodapé do mapa (mesmo `bottom` dos cards nos controles).

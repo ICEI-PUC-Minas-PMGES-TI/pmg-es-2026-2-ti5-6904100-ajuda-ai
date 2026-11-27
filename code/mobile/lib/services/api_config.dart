@@ -21,10 +21,15 @@ const String apiBaseUrl = String.fromEnvironment(
 );
 
 /// Candidatos usados quando a URL padrão falha (ex.: emulador sem rota a 10.0.2.2).
-List<String> apiBaseUrlCandidates() {
-  const defined = String.fromEnvironment('API_BASE_URL');
+///
+/// Com `API_BASE_URL` definida (homologação/produção, ou IP escolhido por você),
+/// ela é a ÚNICA base: o app nunca tenta `localhost`, `127.0.0.1` nem `10.0.2.2`.
+/// Os candidatos locais só existem no desenvolvimento sem a definição.
+List<String> apiBaseUrlCandidates({
+  String definida = const String.fromEnvironment('API_BASE_URL'),
+}) {
+  if (definida.isNotEmpty) return [definida];
   final list = <String>[
-    if (defined.isNotEmpty) defined,
     apiBaseUrl,
     'http://10.0.2.2:3000',
     'http://127.0.0.1:3000',

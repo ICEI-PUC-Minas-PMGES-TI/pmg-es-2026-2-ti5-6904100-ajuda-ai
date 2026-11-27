@@ -6,6 +6,7 @@ import 'models/formulario.dart';
 import 'models/resumo_gamificacao.dart';
 import 'models/situacao_participacao.dart';
 import 'services/api_config.dart';
+import 'services/notificacoes_api.dart';
 import 'services/participacoes_api.dart';
 import 'services/pucstops_api.dart';
 import 'status_participacao.dart';
@@ -267,7 +268,12 @@ class SessaoUsuario {
   List<AppDestination> get destinos => status.ativo
       ? AppDestination.values
       : status.participante
-      ? const [AppDestination.mapa, AppDestination.feed, AppDestination.perfil]
+      ? const [
+          AppDestination.mapa,
+          AppDestination.missoes,
+          AppDestination.feed,
+          AppDestination.perfil,
+        ]
       : const [AppDestination.mapa, AppDestination.perfil];
 
   bool get podeCandidatarPadrinho =>
@@ -679,6 +685,7 @@ class SessaoUsuario {
   }
 
   void limpar() {
+    CentralNotificacoes.atual.limpar();
     _limparConta();
     dados = null;
     identidade = null;
