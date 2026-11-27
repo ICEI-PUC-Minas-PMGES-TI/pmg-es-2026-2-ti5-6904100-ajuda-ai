@@ -35,6 +35,7 @@ function encontroAgora(extra: Record<string, unknown> = {}) {
     aceito: false,
     distancia: 12,
     dentro: true,
+    vinculado: true,
     ...extra,
   };
 }
@@ -194,6 +195,50 @@ describe(EncontrosPresencaService.name, () => {
     await expect(
       servico.confirmar(PADRINHO, ENCONTRO, leitura),
     ).rejects.toMatchObject({ response: { motivo: 'fora-da-janela' } });
+  });
+
+  it.each([
+    ['padrinho com participação encerrada', PADRINHO, {}],
+    [
+      'apadrinhado com vínculo encerrado',
+      APADRINHADO,
+      { convidado: true, aceito: true },
+    ],
+  ])('recusa %s sem gravar presença', async (_caso, usuario, extra) => {
+    const { query, creditados, servico } = prepararServico({
+      encontro: encontroAgora({ ...extra, vinculado: false }),
+    });
+
+    await expect(
+      servico.confirmar(usuario, ENCONTRO, leitura),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { motivo: 'nao-vinculado' },
+    });
+    expect(
+      query.mock.calls.some(([sql]) =>
+        sql.includes('INSERT INTO "feed"."encontro_presencas"'),
+      ),
+    ).toBe(false);
+    expect(creditados).toEqual([]);
+  });
+
+  it('só credita na realização quem continua no programa e no vínculo', async () => {
+    const { query, servico } = prepararServico({
+      encontro: encontroAgora({ convidado: true, aceito: true }),
+      convidadoPresente: true,
+      presentes: [PADRINHO, APADRINHADO],
+    });
+
+    await servico.confirmar(APADRINHADO, ENCONTRO, leitura);
+
+    const [sql, params] = query.mock.calls.find(([s]) =>
+      s.includes('ORDER BY "usuario_id"'),
+    )!;
+    expect(sql).toContain('"termino_em" IS NULL');
+    expect(sql).toContain('mv."ativo"');
+    expect(sql).toContain(`"etapa_atual" <> 'encerramento'`);
+    expect(params).toEqual([ENCONTRO, expect.stringMatching(/^\d{4}\/[12]$/)]);
   });
 
   it('recusa convidado que não aceitou o convite', async () => {

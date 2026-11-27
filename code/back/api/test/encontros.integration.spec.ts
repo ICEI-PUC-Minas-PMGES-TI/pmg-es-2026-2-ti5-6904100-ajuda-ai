@@ -661,6 +661,66 @@ describe.skipIf(!URL_TESTE)('Encontros com banco real', () => {
     ).rejects.toMatchObject({ response: { motivo: 'fora-do-local' } });
   });
 
+  it('recusa presença e XP depois que o vínculo ou a participação termina', async () => {
+    const criado = await encontros.criar(padrinho, dadosDoEncontro());
+    await encontros.responder(apadrinhado, criado.id, { resposta: 'aceito' });
+    const vinculo = `UPDATE feed.matching_vinculos SET ativo = $1
+      WHERE apadrinhado_participacao_id = (
+        SELECT p.id FROM feed.participacoes p JOIN feed.usuarios u ON lower(u.email) = lower(p.usuario_id)
+        WHERE u.id = $2)`;
+    const termino = `UPDATE feed.participacoes p SET termino_em = $1
+      FROM feed.usuarios u WHERE lower(u.email) = lower(p.usuario_id) AND u.id = $2`;
+    const etapa = `UPDATE feed.programas SET etapa_atual = $1 WHERE codigo = $2`;
+    const antes = await creditosDoCiclo(apadrinhado);
+    try {
+      await ds.query(etapa, ['encerramento', CICLO]);
+      for (const usuario of [padrinho, apadrinhado]) {
+        await expect(
+          presencas.confirmar(usuario, criado.id, noLocal()),
+        ).rejects.toMatchObject({ response: { motivo: 'nao-vinculado' } });
+      }
+      await ds.query(etapa, ['andamento', CICLO]);
+
+      await ds.query(
+        `UPDATE feed.encontros SET programa = '2025/2' WHERE id = $1`,
+        [criado.id],
+      );
+      await expect(
+        presencas.confirmar(padrinho, criado.id, noLocal()),
+      ).rejects.toMatchObject({ response: { motivo: 'nao-vinculado' } });
+      await ds.query(`UPDATE feed.encontros SET programa = $2 WHERE id = $1`, [
+        criado.id,
+        CICLO,
+      ]);
+
+      await ds.query(termino, [new Date(), padrinho]);
+      await expect(
+        presencas.confirmar(padrinho, criado.id, noLocal()),
+      ).rejects.toMatchObject({ response: { motivo: 'nao-vinculado' } });
+      await ds.query(termino, [null, padrinho]);
+
+      await presencas.confirmar(padrinho, criado.id, noLocal());
+      await ds.query(vinculo, [false, apadrinhado]);
+      await expect(
+        presencas.confirmar(apadrinhado, criado.id, noLocal()),
+      ).rejects.toMatchObject({
+        status: 403,
+        response: { motivo: 'nao-vinculado' },
+      });
+      const [{ total }] = (await ds.query(
+        `SELECT count(*)::int AS total FROM feed.encontro_presencas WHERE encontro_id = $1`,
+        [criado.id],
+      )) as Array<{ total: number }>;
+      expect(total).toBe(1);
+      expect(await creditosDoCiclo(apadrinhado)).toBe(antes);
+    } finally {
+      await ds.query(etapa, ['andamento', CICLO]);
+      await ds.query(termino, [null, padrinho]);
+      await ds.query(vinculo, [true, apadrinhado]);
+      await encontros.cancelar(padrinho, criado.id, 'teste@pucminas.edu.br');
+    }
+  });
+
   it('respeita o contrato HTTP e reenvia a presença gravada após a janela', async () => {
     const modulo = await Test.createTestingModule({
       imports: [JwtModule.register({ secret: 'segredo-teste-encontros' })],
@@ -732,10 +792,6 @@ describe.skipIf(!URL_TESTE)('Encontros com banco real', () => {
       const visitante = {
         Authorization: alunoForaDoCiclo(outroAluno, 'bruno@pucminas.edu.br'),
       };
-      await ds.query(
-        `UPDATE feed.encontros SET programa = '2025/2' WHERE id = $1`,
-        [id],
-      );
       await http.post(rota).set(visitante).send(noLocal()).expect(404);
       await http
         .post(`${base}/${id}/responder`)
@@ -1008,5 +1064,60 @@ describe.skipIf(!URL_TESTE)('Encontros com banco real', () => {
       ]);
       await adminMissoes.definirAtiva(missao.id, false);
     }
+  });
+  it('regra MISSAO_ENCONTRO desativada volta a pagar o XP da própria missão', async () => {
+    await ds.query(
+      `UPDATE gamificacao.regras_xp SET ativo = false WHERE acao IN ($1, 'MISSAO_ENCONTRO')`,
+      [ACAO_XP_ENCONTRO],
+    );
+    const desativada = await regras.criar(
+      { acao: 'MISSAO_ENCONTRO', valorXp: 5, elegibilidade: 'padrinho' },
+      COORDENADORA,
+    );
+    await regras.definirAtivo(desativada.id, false);
+    const adminMissoes = new MissoesAdminService(ds);
+    const missao = await adminMissoes.criar(
+      {
+        titulo: 'Encontro sem regra ativa',
+        descricao: 'Confirme presença.',
+        tipo: 'UNICA',
+        xp: 60,
+        requisito: 'ENCONTRO',
+        ativar: true,
+      },
+      null,
+    );
+    const missoes = new MissoesService(ds, new NotificacoesService(ds), regras);
+    const lista = await missoes.listar(apadrinhado, new Date(), {
+      podePublicar: false,
+      temPar: true,
+      papel: 'apadrinhado',
+    });
+    expect(lista.missoes.find((m) => m.id === missao.id)).toMatchObject({
+      xp: 60,
+    });
+
+    const evento = await encontros.criar(padrinho, dadosDoEncontro());
+    await encontros.responder(apadrinhado, evento.id, { resposta: 'aceito' });
+    await presencas.confirmar(padrinho, evento.id, noLocal());
+    await presencas.confirmar(apadrinhado, evento.id, noLocal());
+    const concluidas = (await ds.query(
+      `SELECT usuario_id, xp_configurado, xp_creditado, evidencia->'regraXpId' AS regra
+       FROM gamificacao.missoes_conclusoes WHERE missao_id = $1 ORDER BY usuario_id`,
+      [missao.id],
+    )) as Array<{
+      usuario_id: number;
+      xp_configurado: number;
+      xp_creditado: number;
+      regra: number | null;
+    }>;
+    expect(
+      concluidas.map((c) => [c.usuario_id, c.xp_configurado, c.regra]),
+    ).toEqual([
+      [padrinho, 60, null],
+      [apadrinhado, 60, null],
+    ]);
+    expect(concluidas.every((c) => c.xp_creditado > 0)).toBe(true);
+    await adminMissoes.definirAtiva(missao.id, false);
   });
 });

@@ -64,6 +64,14 @@ const g = `"${SCHEMA_GAMIFICACAO}"`;
 const mp = `"${SCHEMA_MAPA}"`;
 
 const SEM_ACESSO_EXTRA: AcessoMissoes = { podePublicar: false, temPar: false };
+const ACAO_DA_MISSAO: Record<string, string> = {
+  ENCONTRO: 'MISSAO_ENCONTRO',
+  PUCSTOPS: 'MISSAO_PUCSTOPS',
+};
+
+function acaoDaMissao(requisito: string | null): string | null {
+  return (requisito && ACAO_DA_MISSAO[requisito]) ?? null;
+}
 
 interface LinhaMissaoAluno {
   id: string;
@@ -80,6 +88,7 @@ interface LinhaMissaoAluno {
   conclusao_id: string | null;
   xp_configurado: number | null;
   xp_creditado: number | null;
+  xp_devido: number | null;
   concluida_em: Date | null;
   alvo_id: string | null;
   alvo_nome: string | null;
@@ -219,6 +228,7 @@ export class MissoesService {
           `(${sqlProgresso('m', this.u)})::int AS progresso, ` +
           `(CASE WHEN m."requisito" = 'PUCSTOPS' THEN ${sqlPucstopsDisponiveis('m')} ELSE 0 END)::int AS disponiveis, ` +
           `c."id" AS conclusao_id, c."xp_configurado", c."xp_creditado", c."criado_em" AS concluida_em, ` +
+          `(c."evidencia"->>'xpDevido')::int AS xp_devido, ` +
           `COALESCE(ps."nome", ev."titulo") AS alvo_nome, ev."inicio" AS alvo_inicio, ev."fim" AS alvo_fim, ` +
           `COALESCE(ps."ativo", ev."ativo") AS alvo_ativo, ${centro('Y')} AS alvo_latitude, ${centro('X')} AS alvo_longitude, ` +
           `COALESCE(lp."nome", la."nome") AS alvo_local ` +
@@ -239,35 +249,64 @@ export class MissoesService {
       ) as Promise<LinhaMissaoAluno[]>,
       usoDoCiclo(this.dataSource, usuarioId, ciclo),
     ]);
-    const [regraEncontro] = linhas.some(
-      (m) => m.requisito === 'ENCONTRO' && m.conclusao_id === null,
-    )
+    const acoesPendentes = [
+      ...new Set(
+        linhas
+          .filter((m) => m.conclusao_id === null)
+          .map((m) => acaoDaMissao(m.requisito))
+          .filter((acao): acao is string => acao !== null),
+      ),
+    ];
+    const regrasDaMissao = acoesPendentes.length
       ? await this.regrasXp.configuracoesVigentes(
-          ['MISSAO_ENCONTRO'],
+          acoesPendentes,
           this.dataSource,
         )
       : [];
-    const podeGanharPorEncontro =
-      !regraEncontro ||
-      ((regraEncontro.elegibilidade === 'todos' ||
-        regraEncontro.elegibilidade === acesso.papel) &&
-        (await this.dentroDoLimiteDaRegra(
+    const bloqueadas = new Set<string>();
+    for (const regra of regrasDaMissao) {
+      if (
+        !(await this.regraPermite(
           this.dataSource,
           usuarioId,
           ciclo,
-          regraEncontro,
-        )));
+          regra,
+          acesso.papel,
+        ))
+      ) {
+        bloqueadas.add(regra.acao);
+      }
+    }
+    const efetivoDePucStop = new Map<string, number>();
+    for (const l of linhas) {
+      if (l.requisito !== 'PUCSTOPS' || l.conclusao_id !== null) continue;
+      const meta = metaEfetiva(
+        l.requisito,
+        l.quantidade,
+        Number(l.progresso),
+        Number(l.disponiveis),
+      );
+      if (Number(l.progresso) < meta) continue;
+      const recompensa = await this.xpDaMissaoDePucStop(
+        this.dataSource,
+        usuarioId,
+        { id: l.id, ciclo, xp: l.xp },
+        meta,
+        acesso.papel,
+      );
+      efetivoDePucStop.set(l.id, recompensa.xp);
+    }
     const instante = agora.getTime();
     const missoes = linhas.map((l): MissaoAlunoDto => {
       const concluida = l.conclusao_id !== null;
       const deEncontro = l.requisito === 'ENCONTRO';
-      const xp = deEncontro
-        ? (l.xp_configurado ?? regraEncontro?.valorXp ?? l.xp)
-        : l.xp;
+      const acao = acaoDaMissao(l.requisito);
+      const regra = regrasDaMissao.find((r) => r.acao === acao);
+      const xp = acao ? (l.xp_configurado ?? regra?.valorXp ?? l.xp) : l.xp;
       const previsto =
-        concluida || (deEncontro && !podeGanharPorEncontro)
+        concluida || (acao !== null && bloqueadas.has(acao))
           ? 0
-          : xpPrevisto(xp, l.tipo, uso);
+          : xpPrevisto(efetivoDePucStop.get(l.id) ?? xp, l.tipo, uso);
       const contada = REQUISITOS_CONTADOS.includes(l.requisito);
       const meta = metaEfetiva(
         l.requisito,
@@ -322,7 +361,7 @@ export class MissoesService {
               id: l.conclusao_id!,
               xp: l.xp_creditado!,
               moedas: moedasPorXp(l.xp_creditado!),
-              limitado: l.xp_creditado! < l.xp_configurado!,
+              limitado: l.xp_creditado! < (l.xp_devido ?? l.xp_configurado!),
               concluidaEm: l.concluida_em!.toISOString(),
             }
           : null,
@@ -435,6 +474,19 @@ export class MissoesService {
     }
   }
 
+  private async regraPermite(
+    executor: Pick<DataSource, 'query'>,
+    usuarioId: number,
+    ciclo: string,
+    regra: RegraVigente,
+    papel: AcessoMissoes['papel'],
+  ): Promise<boolean> {
+    return (
+      (regra.elegibilidade === 'todos' || regra.elegibilidade === papel) &&
+      (await this.dentroDoLimiteDaRegra(executor, usuarioId, ciclo, regra))
+    );
+  }
+
   async dentroDoLimiteDaRegra(
     executor: Pick<DataSource, 'query'>,
     usuarioId: number,
@@ -451,11 +503,17 @@ export class MissoesService {
   }
 
   private async xpDaMissaoDePucStop(
-    qr: QueryRunner,
+    qr: Pick<DataSource, 'query'>,
     usuarioId: number,
     missao: { id: string; ciclo: string; xp: number },
     meta: number,
-  ): Promise<{ xp: number; coletaId: string }> {
+    papel: AcessoMissoes['papel'] = null,
+  ): Promise<{
+    xp: number;
+    xpConfigurado: number;
+    coletaId: string;
+    regra: RegraVigente | null;
+  }> {
     const [coleta] = (await qr.query(
       `SELECT c."id"::text AS id, c."xp" FROM ${g}."pucstop_coletas" c
        JOIN ${g}."missoes" m ON m."id" = $2 AND c."ciclo" = m."ciclo"
@@ -473,9 +531,18 @@ export class MissoesService {
        WHERE "usuario_id" = $1 AND "ciclo" = $2 AND "evidencia"->>'coletaId' = $3`,
       [usuarioId, missao.ciclo, coleta.id],
     )) as Array<{ jaCreditado: number }>;
+    const regra = regras.find((r) => r.acao === acoes[1]) ?? null;
+    const xpConfigurado = regra?.valorXp ?? missao.xp;
+    const permitida =
+      !regra ||
+      (await this.regraPermite(qr, usuarioId, missao.ciclo, regra, papel));
     return {
-      xp: Math.max(0, missao.xp - (combina ? 0 : coleta.xp) - jaCreditado),
+      xp: permitida
+        ? Math.max(0, xpConfigurado - (combina ? 0 : coleta.xp) - jaCreditado)
+        : 0,
+      xpConfigurado,
       coletaId: coleta.id,
+      regra,
     };
   }
 
@@ -606,6 +673,7 @@ export class MissoesService {
 
       let evidencia: Record<string, unknown>;
       let xp = missao.xp;
+      let xpConfigurado = missao.xp;
       const conferirCodigo = async () => {
         exigirCodigoLiberado(missao);
         await exigirTentativasDeCodigo(qr, missao.id, usuarioId);
@@ -666,9 +734,16 @@ export class MissoesService {
             usuarioId,
             missao,
             contagem.meta,
+            acesso.papel,
           );
           xp = recompensa.xp;
+          xpConfigurado = recompensa.xpConfigurado;
           evidencia.coletaId = recompensa.coletaId;
+          evidencia.xpDevido = recompensa.xp;
+          if (recompensa.regra) {
+            evidencia.regraXpId = recompensa.regra.regraId;
+            evidencia.regraXpVersao = recompensa.regra.versao;
+          }
         }
       }
 
@@ -684,7 +759,7 @@ export class MissoesService {
       const conclusao = await this.registrarConclusao(
         qr,
         usuarioId,
-        missao,
+        { ...missao, xp: xpConfigurado },
         semana,
         ganho,
         {
@@ -694,7 +769,7 @@ export class MissoesService {
       );
       await qr.commitTransaction();
       this.logger.log(
-        `conclusao missao=${missao.id} usuario=${usuarioId} ciclo=${ciclo} requisito=${missao.requisito} xp=${ganho?.xp ?? 0}/${missao.xp}`,
+        `conclusao missao=${missao.id} usuario=${usuarioId} ciclo=${ciclo} requisito=${missao.requisito} xp=${ganho?.xp ?? 0}/${xpConfigurado}`,
       );
 
       const xpAcumulado = ganho?.movimentacao?.xpAcumulado ?? xpAntes;
@@ -703,7 +778,7 @@ export class MissoesService {
       return {
         missaoId: missao.id,
         conclusaoId: conclusao.id,
-        xpConfigurado: missao.xp,
+        xpConfigurado,
         xp: ganho?.xp ?? 0,
         moedas: ganho?.moedas ?? 0,
         limitado: ganho?.limitado ?? false,

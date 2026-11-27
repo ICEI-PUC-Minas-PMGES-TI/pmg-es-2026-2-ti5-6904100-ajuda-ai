@@ -1614,6 +1614,17 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       }
     });
 
+    async function xpEsperado(a: Aluno, corpo: CorpoMissao): Promise<number> {
+      if (corpo.requisito !== 'PUCSTOPS') return corpo.xp;
+      const [coleta] = (await ds.query(
+        `SELECT xp FROM gamificacao.pucstop_coletas
+         WHERE usuario_id = $1 AND ($2::uuid IS NULL OR pucstop_id = $2)
+         ORDER BY coletado_em, id OFFSET $3 LIMIT 1`,
+        [a.id, corpo.alvoId ?? null, (corpo.quantidade ?? 1) - 1],
+      )) as Array<{ xp: number }>;
+      return Math.max(0, corpo.xp - coleta.xp);
+    }
+
     it.each(CATEGORIAS.map((c) => [c.categoria, c] as const))(
       '%s: aparece, recusa sem a prova, mostra o progresso, conclui com a prova e não repete',
       async (_nome, c) => {
@@ -1662,15 +1673,16 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         if (contada) expect(pronta!.progresso).toEqual({ atual: meta, meta });
 
         const xpTotensAntes = (await carteira(a)).xp_acumulado;
+        const xp = await xpEsperado(a, corpo);
         const r = await concluir(a, id, leituraDe(c, 1));
         expect(r.status, JSON.stringify(r.body)).toBe(201);
         expect(r.body).toMatchObject({
           missaoId: id,
           xpConfigurado: corpo.xp,
-          xp: corpo.xp,
-          moedas: corpo.xp,
+          xp,
+          moedas: xp,
           limitado: false,
-          xpAcumulado: xpTotensAntes + corpo.xp,
+          xpAcumulado: xpTotensAntes + xp,
           ciclo: CICLO,
         });
 
@@ -1691,7 +1703,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
           [a.id],
         )) as Array<Record<string, unknown>>;
         expect(mov).toMatchObject({
-          quantidade: corpo.xp,
+          quantidade: xp,
           tipo: 'MISSAO',
           referencia_id: id,
           descricao: `Missão: ${corpo.titulo}`,
@@ -1700,15 +1712,15 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         expect(await itemDe(a, id)).toMatchObject({
           status: 'concluida',
           pronta: false,
-          conclusao: { id: r.body.conclusaoId, xp: corpo.xp, limitado: false },
+          conclusao: { id: r.body.conclusaoId, xp, limitado: false },
         });
 
         const repetida = await concluir(a, id, leituraDe(c, 2)).expect(409);
         expect(repetida.body).toMatchObject({
           motivo: 'ja-concluida',
-          conclusao: { id: r.body.conclusaoId, xp: corpo.xp },
+          conclusao: { id: r.body.conclusaoId, xp },
         });
-        expect((await carteira(a)).xp_acumulado).toBe(xpTotensAntes + corpo.xp);
+        expect((await carteira(a)).xp_acumulado).toBe(xpTotensAntes + xp);
       },
       30_000,
     );
@@ -1833,9 +1845,12 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       for (const r of respostas) expect(r.body.limitado).toBe(false);
 
       for (const { a } of turma) {
+        let esperado = XP_TOTENS_DA_ROTINA;
+        for (const c of CATEGORIAS) esperado += await xpEsperado(a, c.corpo());
+        expect(esperado).toBeLessThan(XP_TODAS + XP_TOTENS_DA_ROTINA);
         expect(await carteira(a)).toEqual({
-          saldo: XP_TODAS + XP_TOTENS_DA_ROTINA,
-          xp_acumulado: XP_TODAS + XP_TOTENS_DA_ROTINA,
+          saldo: esperado,
+          xp_acumulado: esperado,
         });
         const avisos = (await ds.query(
           `SELECT chave FROM feed.notificacoes WHERE usuario_id = $1 AND tipo = 'NIVEL_SUBIU' ORDER BY chave`,
@@ -1912,6 +1927,131 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         expect(resultado.body.xp).toBe(15);
       } finally {
         await regras.definirAtivo(regra.id, false);
+      }
+    });
+
+    it('regra MISSAO_PUCSTOPS ativa define valor e elegibilidade da missão', async () => {
+      const regras = new RegrasXpService(ds);
+      const regra = await regras.criar(
+        { acao: 'MISSAO_PUCSTOPS', valorXp: 90, elegibilidade: 'padrinho' },
+        'coordenacao@pucminas.br',
+      );
+      await regras.definirAtivo(regra.id, true);
+      try {
+        const m = await criarMissao({
+          titulo: 'Colete o Teatro com regra de missão',
+          tipo: 'UNICA',
+          xp: 15,
+          requisito: 'PUCSTOPS',
+          alvoId: totens.TEATRO.id,
+        });
+        const padrinho = await novoAluno({ papel: 'padrinho' });
+        const apadrinhado = await novoAluno({ papel: 'apadrinhado' });
+        const coleta = await coletar(padrinho, totens.TEATRO).expect(201);
+        await coletar(apadrinhado, totens.TEATRO).expect(201);
+        expect(await itemDe(padrinho, m.id)).toMatchObject({
+          xp: 90,
+          xpPrevisto: 90 - coleta.body.xpGanho,
+        });
+        expect((await itemDe(apadrinhado, m.id))!.xpPrevisto).toBe(0);
+
+        const doPadrinho = await concluir(padrinho, m.id).expect(201);
+        expect(doPadrinho.body).toMatchObject({
+          xpConfigurado: 90,
+          xp: 90 - coleta.body.xpGanho,
+        });
+        const outra = await criarMissao({
+          titulo: 'Volte ao Teatro com a mesma coleta',
+          tipo: 'UNICA',
+          xp: 15,
+          requisito: 'PUCSTOPS',
+          alvoId: totens.TEATRO.id,
+        });
+        expect((await itemDe(padrinho, outra.id))!.xpPrevisto).toBe(0);
+        expect((await concluir(padrinho, outra.id).expect(201)).body.xp).toBe(
+          0,
+        );
+        const doApadrinhado = await concluir(apadrinhado, m.id).expect(201);
+        expect(doApadrinhado.body.xp).toBe(0);
+        const registradas = await ds.query(
+          `SELECT usuario_id, xp_configurado, (evidencia->>'regraXpId')::int AS regra
+           FROM gamificacao.missoes_conclusoes WHERE missao_id = $1 ORDER BY usuario_id`,
+          [m.id],
+        );
+        expect(registradas).toEqual(
+          [padrinho.id, apadrinhado.id]
+            .sort((x, y) => x - y)
+            .map((usuario_id) => ({
+              usuario_id,
+              xp_configurado: 90,
+              regra: regra.id,
+            })),
+        );
+      } finally {
+        await regras.definirAtivo(regra.id, false);
+      }
+    });
+
+    it('limite da regra MISSAO_PUCSTOPS vale com conclusões simultâneas e sem XP duplicado', async () => {
+      const regras = new RegrasXpService(ds);
+      const missao = await regras.criar(
+        {
+          acao: 'MISSAO_PUCSTOPS',
+          valorXp: 90,
+          elegibilidade: 'todos',
+          limiteRepeticoes: 1,
+          combinavelCom: ['VISITA_PUCSTOP'],
+        },
+        'coordenacao@pucminas.br',
+      );
+      await regras.definirAtivo(missao.id, true);
+      try {
+        const a = await novoAluno();
+        const alvos = [totens.BIBLIOTECA, totens.PREDIO24];
+        const coletas = [];
+        for (const totem of alvos)
+          coletas.push(await coletar(a, totem).expect(201));
+        const missoes = [];
+        for (const [n, totem] of alvos.entries()) {
+          missoes.push(
+            await criarMissao({
+              titulo: `Colete o totem ${n + 1} com limite`,
+              tipo: 'UNICA',
+              xp: 15,
+              requisito: 'PUCSTOPS',
+              alvoId: totem.id,
+            }),
+          );
+        }
+        const [antes] = (await ds.query(
+          `SELECT xp_acumulado FROM gamificacao.xp_carteiras WHERE usuario_id = $1`,
+          [a.id],
+        )) as Array<{ xp_acumulado: number }>;
+        const respostas = await Promise.all(
+          missoes.map((m) => concluir(a, m.id)),
+        );
+        expect(respostas.map((r) => r.status)).toEqual([201, 201]);
+        expect(respostas.map((r) => r.body.xp).sort((x, y) => x - y)).toEqual([
+          0, 90,
+        ]);
+        const [depois] = (await ds.query(
+          `SELECT xp_acumulado FROM gamificacao.xp_carteiras WHERE usuario_id = $1`,
+          [a.id],
+        )) as Array<{ xp_acumulado: number }>;
+        expect(depois.xp_acumulado - antes.xp_acumulado).toBe(90);
+
+        const repetidas = await Promise.all(
+          missoes.map((m) => concluir(a, m.id)),
+        );
+        expect(repetidas.map((r) => r.status)).toEqual([409, 409]);
+        const [final] = (await ds.query(
+          `SELECT xp_acumulado FROM gamificacao.xp_carteiras WHERE usuario_id = $1`,
+          [a.id],
+        )) as Array<{ xp_acumulado: number }>;
+        expect(final.xp_acumulado).toBe(depois.xp_acumulado);
+        expect(coletas.every((c) => c.body.xpGanho > 0)).toBe(true);
+      } finally {
+        await regras.definirAtivo(missao.id, false);
       }
     });
 

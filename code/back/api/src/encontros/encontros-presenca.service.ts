@@ -23,6 +23,7 @@ import {
 } from '../gamificacao/missoes/missoes.js';
 import { MissoesService } from '../gamificacao/missoes/missoes.service.js';
 import { PRECISAO_MAXIMA_METROS } from '../gamificacao/pucstops/pucstops.service.js';
+import { ParticipacoesService } from '../participacoes/participacoes.service.js';
 import { RegrasXpService } from '../gamificacao/regras-xp/regras-xp.service.js';
 import { SRID, schemaPostgis } from '../mapa/postgis.js';
 import { notificacaoNivel } from '../notificacoes/notificacoes.js';
@@ -37,6 +38,26 @@ import {
 
 const g = `"${SCHEMA_GAMIFICACAO}"`;
 const ACAO_XP_MISSAO = 'MISSAO_ENCONTRO';
+
+function sqlParticipanteAtivo(
+  u: string,
+  usuario: string,
+  cicloVigente: string,
+): string {
+  const participacao = (alias: string, papel: string, id: string) =>
+    `JOIN ${u}."usuarios" ${alias}u ON ${alias}u."id" = ${id} ` +
+    `JOIN ${u}."participacoes" ${alias} ON lower(${alias}."usuario_id") = lower(${alias}u."email") ` +
+    `AND ${alias}."programa" = e."programa" AND ${alias}."papel" = '${papel}' AND ${alias}."termino_em" IS NULL`;
+  return (
+    `(e."programa" = ${cicloVigente} AND EXISTS (SELECT 1 FROM ${u}."programas" pg ` +
+    `${participacao('pp', 'padrinho', 'e."organizador_id"')} ` +
+    `WHERE pg."codigo" = e."programa" AND pg."etapa_atual" <> 'encerramento' ` +
+    `AND (${usuario} = e."organizador_id" OR EXISTS (SELECT 1 FROM ${u}."matching_vinculos" mv ` +
+    `${participacao('pa', 'apadrinhado', usuario)} ` +
+    `WHERE mv."padrinho_participacao_id" = pp."id" AND mv."apadrinhado_participacao_id" = pa."id" ` +
+    `AND mv."ativo" AND mv."programa_id" = pg."id"))))`
+  );
+}
 
 export interface PresencaDto {
   encontroId: string;
@@ -74,6 +95,7 @@ interface EncontroParaPresenca {
   distancia: number | null;
   dentro: boolean;
   presenca: boolean;
+  vinculado: boolean;
 }
 
 @Injectable()
@@ -244,6 +266,7 @@ export class EncontrosPresencaService {
           `(c."encontro_id" IS NOT NULL) AS "convidado", ` +
           `(c."resposta" = 'aceito') AS "aceito", ` +
           `EXISTS (SELECT 1 FROM ${u}."encontro_presencas" p WHERE p."encontro_id" = e."id" AND p."usuario_id" = $2) AS "presenca", ` +
+          `${sqlParticipanteAtivo(u, '$2::int', '$6')} AS "vinculado", ` +
           `${geo}.ST_Distance(e."local_posicao"::${geo}.geography, ${ponto}) AS "distancia", ` +
           `${geo}.ST_DWithin(e."local_posicao"::${geo}.geography, ${ponto}, $5) AS "dentro" ` +
           `FROM ${u}."encontros" e ` +
@@ -256,6 +279,7 @@ export class EncontrosPresencaService {
           leitura.longitude ?? null,
           leitura.latitude ?? null,
           RAIO_EVENTO_METROS,
+          ParticipacoesService.programaAtual(),
         ],
       )
       .catch((erro: unknown) => {
@@ -273,6 +297,12 @@ export class EncontrosPresencaService {
   }
 
   private exigirElegivel(encontro: EncontroParaPresenca): void {
+    if (!encontro.vinculado) {
+      throw recusa(
+        'nao-vinculado',
+        'Sua participação ou o vínculo deste encontro foi encerrado: a presença não pode mais ser confirmada.',
+      );
+    }
     if (encontro.convidado && !encontro.aceito) {
       throw recusa(
         'convite-nao-aceito',
@@ -349,9 +379,11 @@ export class EncontrosPresencaService {
       daMissao?.combinavelCom.includes(ACAO_XP_ENCONTRO) === true;
     const presentes = novo
       ? ((await qr.query(
-          `SELECT "usuario_id" FROM ${this.u}."encontro_presencas"
-          WHERE "encontro_id" = $1 ORDER BY "usuario_id"`,
-          [encontro.id],
+          `SELECT p."usuario_id" FROM ${this.u}."encontro_presencas" p
+          JOIN ${this.u}."encontros" e ON e."id" = p."encontro_id"
+          WHERE p."encontro_id" = $1 AND ${sqlParticipanteAtivo(this.u, 'p."usuario_id"', '$2')}
+          ORDER BY "usuario_id"`,
+          [encontro.id, ParticipacoesService.programaAtual()],
         )) as Array<{ usuario_id: number }>)
       : [{ usuario_id: usuarioAtual }];
     let meuGanho = null;
