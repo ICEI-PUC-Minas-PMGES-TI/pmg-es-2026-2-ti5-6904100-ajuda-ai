@@ -6,6 +6,7 @@ import '../services/lojinha_api.dart';
 import '../services/notificacoes_api.dart';
 import '../sessao_usuario.dart';
 import '../status_participacao.dart';
+import '../tela_conquistas.dart';
 import '../tela_padrinho_definido.dart';
 import '../tela_resgates.dart';
 import '../tela_status_candidatura.dart';
@@ -189,6 +190,14 @@ class _PainelNotificacoesState extends State<_PainelNotificacoes> {
           aba,
           atual: AppShell.of(pai)?.atual ?? AppDestination.inicio,
         );
+      }
+      return;
+    }
+    if (caminho == '/conquistas') {
+      Navigator.of(context).pop();
+      if (pai.mounted) {
+        Navigator.of(pai)
+            .push(MaterialPageRoute(builder: (_) => const TelaConquistas()));
       }
       return;
     }
@@ -429,6 +438,11 @@ class _ItemNotificacao extends StatelessWidget {
         Icons.emoji_events_outlined,
         AppAccents.tileVerde,
         AppAccents.iconeVerde,
+      ),
+      'CONQUISTA_DESBLOQUEADA' => (
+        Icons.military_tech_outlined,
+        AppAccents.tileLilas,
+        AppColors.primary,
       ),
       'RESGATE_ENTREGUE' => (
         Icons.card_giftcard_rounded,

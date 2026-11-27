@@ -6,6 +6,7 @@ export const ICONE_NOTIFICACAO = {
   CANDIDATURA_APROVADA: 'checkCircle',
   CANDIDATURA_NAO_APROVADA: 'info',
   VINCULO_CONFIRMADO: 'users',
+  CONQUISTA_DESBLOQUEADA: 'trophy',
 };
 
 /** Link da notificação (o mesmo do app) para a rota do portal. */
@@ -13,6 +14,7 @@ const ROTAS_WEB = {
   '/perfil': '/aluno/perfil',
   '/candidatura': '/aluno/candidatura',
   '/dupla': '/aluno/padrinho',
+  '/conquistas': '/aluno/conquistas',
 };
 
 function partesDoLink(link) {

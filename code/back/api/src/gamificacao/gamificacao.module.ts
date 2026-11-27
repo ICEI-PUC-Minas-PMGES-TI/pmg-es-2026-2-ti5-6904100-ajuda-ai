@@ -2,6 +2,12 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module.js';
 import { ParticipacoesModule } from '../participacoes/participacoes.module.js';
+import {
+  ConquistasAdminController,
+  ConquistasController,
+} from './conquistas/conquistas.controller.js';
+import { ConquistasAdminService } from './conquistas/conquistas-admin.service.js';
+import { ConquistasService } from './conquistas/conquistas.service.js';
 import { LojinhaController } from './lojinha/lojinha.controller.js';
 import { LojinhaService } from './lojinha/lojinha.service.js';
 import { LimpezaTentativasService } from './missoes/limpeza-tentativas.service.js';
@@ -33,7 +39,8 @@ import { XpService } from './xp/xp.service.js';
  * LojinhaResgates/LojinhaRecompensas. Lojinha: cadastro (F27) em
  * `/coordenacao/recompensas` e consulta/resgate do aluno (F28) em `/me/lojinha`.
  * Entrega e cancelamento (F29) em `/coordenacao/resgates`; saldo e ajustes de
- * XP pela coordenação (F26) em `/coordenacao/xp`.
+ * XP pela coordenação (F26) em `/coordenacao/xp`. Conquistas (F32): cadastro em
+ * `/coordenacao/conquistas` e coleção do aluno em `/me/conquistas`.
  */
 @Module({
   imports: [AuthModule, ParticipacoesModule, NotificacoesModule],
@@ -49,6 +56,8 @@ import { XpService } from './xp/xp.service.js';
     XpAdminController,
     MissoesController,
     MissoesAdminController,
+    ConquistasController,
+    ConquistasAdminController,
   ],
   providers: [
     PucStopsService,
@@ -61,6 +70,8 @@ import { XpService } from './xp/xp.service.js';
     MissoesService,
     MissoesAdminService,
     LimpezaTentativasService,
+    ConquistasService,
+    ConquistasAdminService,
   ],
 })
 export class GamificacaoModule {}

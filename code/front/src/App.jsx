@@ -6,6 +6,7 @@ import FeedPage from './pages/FeedPage';
 import AlunoLayout from './pages/aluno/AlunoLayout';
 import ConfiguracoesAlunoPage from './pages/aluno/ConfiguracoesAlunoPage';
 import EditarCandidaturaPage from './pages/aluno/EditarCandidaturaPage';
+import ConquistasAlunoPage from './pages/aluno/ConquistasAlunoPage';
 import HistoricoPage from './pages/aluno/HistoricoPage';
 import PadrinhoPage from './pages/aluno/PadrinhoPage';
 import PerfilEditarPage from './pages/aluno/PerfilEditarPage';
@@ -24,6 +25,7 @@ import FormularioRespostasPage from './pages/coordenacao/FormularioRespostasPage
 import FormulariosPage from './pages/coordenacao/FormulariosPage';
 import MatchingPage from './pages/coordenacao/MatchingPage';
 import MatchingManualPage from './pages/coordenacao/MatchingManualPage';
+import ConquistasPage from './pages/coordenacao/ConquistasPage';
 import MissoesPage from './pages/coordenacao/MissoesPage';
 import ProgramasPage from './pages/coordenacao/ProgramasPage';
 import PucStopsPage from './pages/coordenacao/PucStopsPage';
@@ -53,6 +55,7 @@ export default function App() {
               <Route path="padrinho" element={<PadrinhoPage />} />
               <Route path="chat" element={<ChatPage />} />
               <Route path="historico" element={<HistoricoPage />} />
+              <Route path="conquistas" element={<ConquistasAlunoPage />} />
               <Route path="configuracoes" element={<ConfiguracoesAlunoPage />} />
               <Route path="mapa" element={<CampusMapPage />} />
             </Route>
@@ -73,6 +76,7 @@ export default function App() {
               <Route path="resgates" element={<ResgatesPage />} />
               <Route path="xp" element={<XpPage />} />
               <Route path="missoes" element={<MissoesPage />} />
+              <Route path="conquistas" element={<ConquistasPage />} />
               <Route path="eventos" element={<EventosPage />} />
               <Route path="restaurantes" element={<RestaurantesPage />} />
               <Route path="comunicados" element={<ComunicadosPage />} />

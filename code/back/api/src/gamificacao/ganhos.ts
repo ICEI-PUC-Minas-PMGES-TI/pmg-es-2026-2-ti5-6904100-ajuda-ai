@@ -9,17 +9,26 @@ import {
 const g = `"${SCHEMA_GAMIFICACAO}"`;
 
 /** Origem de um ganho de atividade (decide qual teto se aplica). */
-export type FonteGanho = 'TOTEM' | 'MISSAO';
+export type FonteGanho = 'TOTEM' | 'MISSAO' | 'CONQUISTA';
 
-/** XP de atividades: totens e missões (ajustes e resgates ficam de fora). */
-const TIPOS_ATIVIDADE = `('PUCSTOP_CLAIM', 'MISSAO')`;
+/**
+ * XP de atividades: totens, missões e conquistas (ajustes e resgates ficam
+ * de fora). A conquista entra no teto geral do ciclo como as outras.
+ */
+const TIPOS_ATIVIDADE = `('PUCSTOP_CLAIM', 'MISSAO', 'CONQUISTA')`;
 const efeitoXp = `COALESCE(mv."xp_quantidade", CASE WHEN mv."tipo" = 'RECOMPENSA' THEN 0 ELSE mv."quantidade" END)`;
+
+const TIPO_DA_FONTE = {
+  TOTEM: 'PUCSTOP_CLAIM',
+  MISSAO: 'MISSAO',
+  CONQUISTA: 'CONQUISTA',
+} as const satisfies Record<FonteGanho, string>;
 
 export interface UsoDoCiclo {
   ciclo: string;
   /** XP de totens creditado neste ciclo. */
   totens: number;
-  /** XP de todas as atividades creditado neste ciclo. */
+  /** XP de todas as atividades (totens, missões, conquistas) creditado neste ciclo. */
   geral: number;
   /** XP de missões recorrentes nesta semana (Brasília). */
   missoesSemana: number;
@@ -100,6 +109,9 @@ export async function creditarGanho(
   if (pedido.fonte === 'MISSAO' && pedido.xp > LIMITES.porMissao) {
     throw new Error(`Missão limitada a ${LIMITES.porMissao} XP.`);
   }
+  if (pedido.fonte === 'CONQUISTA' && pedido.xp > LIMITES.porConquista) {
+    throw new Error(`Conquista limitada a ${LIMITES.porConquista} XP.`);
+  }
   const uso = await usoDoCiclo(qr, pedido.usuarioId, pedido.ciclo);
   const restantes: Array<[GanhoCreditado['teto'], number]> = [
     ['ciclo', LIMITES.geralPorCiclo - uso.geral],
@@ -134,7 +146,7 @@ export async function creditarGanho(
     quantidade: moedas,
     xp,
     ciclo: pedido.ciclo,
-    tipo: pedido.fonte === 'TOTEM' ? 'PUCSTOP_CLAIM' : 'MISSAO',
+    tipo: TIPO_DA_FONTE[pedido.fonte],
     referenciaTipo: pedido.referenciaTipo,
     referenciaId: pedido.referenciaId,
     descricao: pedido.descricao,

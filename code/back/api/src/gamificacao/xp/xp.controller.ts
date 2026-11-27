@@ -1,7 +1,17 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Optional,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import type { AuthenticatedRequest } from '../../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
+import { PermissoesAlunoService } from '../../participacoes/permissoes-aluno.service.js';
+import { acessoConquistas } from '../conquistas/conquistas.controller.js';
+import { ConquistasService } from '../conquistas/conquistas.service.js';
 import { usuarioDoToken } from '../gamificacao.js';
 import { MovimentacoesXpQuery } from './xp.dto.js';
 import { XpService } from './xp.service.js';
@@ -24,13 +34,26 @@ export class XpController {
   constructor(
     private readonly xp: XpService,
     private readonly dataSource: DataSource,
+    @Optional() private readonly permissoes?: PermissoesAlunoService,
+    @Optional() private readonly conquistas?: ConquistasService,
   ) {}
 
   @Get()
   async resumo(@Req() requisicao: AuthenticatedRequest) {
-    return this.xp.resumo(
-      await usuarioDoToken(this.dataSource, requisicao.user),
-    );
+    const usuarioId = await usuarioDoToken(this.dataSource, requisicao.user);
+    // Web e app leem o XP ao abrir Início e Perfil: é quando o nível e o
+    // feed (sem gancho próprio) liberam conquistas (F32). Antes do resumo,
+    // para o XP de uma conquista já aparecer.
+    if (this.permissoes && this.conquistas) {
+      const permissoes = await this.permissoes
+        .doUsuario(requisicao.user)
+        .catch(() => null);
+      await this.conquistas.sincronizarComSeguranca(
+        usuarioId,
+        acessoConquistas(permissoes),
+      );
+    }
+    return this.xp.resumo(usuarioId);
   }
 
   @Get('movimentacoes')

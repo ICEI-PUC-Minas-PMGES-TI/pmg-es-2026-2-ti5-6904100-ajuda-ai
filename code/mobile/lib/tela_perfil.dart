@@ -8,6 +8,7 @@ import 'sessao_usuario.dart';
 import 'status_participacao.dart';
 import 'tela_cadastro_padrinho.dart';
 import 'tela_cadastro_perfil.dart';
+import 'tela_conquistas.dart';
 import 'tela_feed.dart';
 import 'tela_historico.dart';
 import 'tela_login.dart';
@@ -592,6 +593,12 @@ class _ProfilePageState extends State<ProfilePage> {
         'Feed do campus',
         () => _abrir(const FeedPage()),
       ),
+    // Coleção de conquistas (F32): obtidas e o que falta, com o critério.
+    ItemAcessoRapido(
+      Icons.emoji_events_outlined,
+      'Minhas conquistas',
+      () => _abrir(const TelaConquistas()),
+    ),
     ItemAcessoRapido(
       Icons.map_outlined,
       'Explorar mapa',

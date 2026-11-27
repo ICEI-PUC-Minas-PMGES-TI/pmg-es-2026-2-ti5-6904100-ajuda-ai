@@ -85,6 +85,8 @@ describe('economia', () => {
       geralPorCiclo: 1500,
       porMissao: 100,
       missoesSemanais: 60,
+      // F32: XP opcional da conquista (0 = só a medalha); proposto no PR.
+      porConquista: 50,
       ajusteAdmin: 200,
     });
   });

@@ -8,6 +8,7 @@ export const TIPOS_NOTIFICACAO = [
   'CANDIDATURA_APROVADA',
   'CANDIDATURA_NAO_APROVADA',
   'VINCULO_CONFIRMADO',
+  'CONQUISTA_DESBLOQUEADA',
 ] as const;
 export type TipoNotificacao = (typeof TIPOS_NOTIFICACAO)[number];
 
@@ -87,6 +88,29 @@ export function notificacaoResgate(
       : `Seu resgate de ${resgate.nome} foi cancelado e as moedas voltaram para a sua carteira.`,
     link: `/lojinha/resgates/${resgate.id}`,
     chave: `resgate-${desfecho}:${resgate.id}`,
+  };
+}
+
+/**
+ * Conquista desbloqueada (F32). Um aviso por desbloqueio: a chave repete o
+ * contexto do UNIQUE (`conquistas_desbloqueios`), então o mesmo desbloqueio
+ * nunca avisa duas vezes e o de outro semestre avisa de novo.
+ */
+export function notificacaoConquista(conquista: {
+  id: string;
+  nome: string;
+  contexto: string;
+  xp: number;
+}): NovaNotificacao {
+  return {
+    tipo: 'CONQUISTA_DESBLOQUEADA',
+    titulo: 'Conquista desbloqueada!',
+    mensagem:
+      conquista.xp > 0
+        ? `${conquista.nome} · +${conquista.xp} XP`
+        : conquista.nome,
+    link: '/conquistas',
+    chave: `conquista:${conquista.id}:${conquista.contexto}`,
   };
 }
 

@@ -21,8 +21,13 @@ export const TIPOS_MOVIMENTACAO_XP = [
   'AJUSTE_ADMIN',
 ] as const;
 
-/** Tipos aceitos hoje pelo ledger (CHECK da migration 1794000000000). */
-export const TIPOS_MOVIMENTACAO = [...TIPOS_MOVIMENTACAO_XP, 'MISSAO'] as const;
+/** Tipos aceitos hoje pelo ledger (CHECK das migrations 1794000000000 e 1795300000000). */
+/** `CONQUISTA` entrou com a migration 1795300000000 (F32). */
+export const TIPOS_MOVIMENTACAO = [
+  ...TIPOS_MOVIMENTACAO_XP,
+  'MISSAO',
+  'CONQUISTA',
+] as const;
 export type TipoMovimentacaoXp = (typeof TIPOS_MOVIMENTACAO)[number];
 
 /**
