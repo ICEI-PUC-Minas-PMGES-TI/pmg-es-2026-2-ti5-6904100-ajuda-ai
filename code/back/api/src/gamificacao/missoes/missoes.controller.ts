@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Optional,
   Param,
   ParseUUIDPipe,
   Post,
@@ -12,6 +13,7 @@ import { DataSource } from 'typeorm';
 import type { AuthenticatedRequest } from '../../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
 import { PermissoesAlunoService } from '../../participacoes/permissoes-aluno.service.js';
+import { ConquistasService } from '../conquistas/conquistas.service.js';
 import { usuarioDoToken } from '../gamificacao.js';
 import { ConcluirMissaoDto } from './missoes.dto.js';
 import type { AcessoMissoes } from './missoes.js';
@@ -26,6 +28,7 @@ export class MissoesController {
     private readonly missoes: MissoesService,
     private readonly dataSource: DataSource,
     private readonly permissoes: PermissoesAlunoService,
+    @Optional() private readonly conquistas?: ConquistasService,
   ) {}
 
   private async participante(
@@ -59,6 +62,19 @@ export class MissoesController {
     @Body() leitura: ConcluirMissaoDto,
   ) {
     const { usuarioId, acesso } = await this.participante(req);
-    return this.missoes.concluir(usuarioId, id, new Date(), leitura, acesso);
+    const resultado = await this.missoes.concluir(
+      usuarioId,
+      id,
+      new Date(),
+      leitura,
+      acesso,
+    );
+    // Depois do commit da missão: conquistas de missões concluídas (F32).
+    await this.conquistas?.sincronizarComSeguranca(usuarioId, {
+      participante: true,
+      papel: acesso.papel ?? null,
+      podePublicar: acesso.podePublicar,
+    });
+    return resultado;
   }
 }

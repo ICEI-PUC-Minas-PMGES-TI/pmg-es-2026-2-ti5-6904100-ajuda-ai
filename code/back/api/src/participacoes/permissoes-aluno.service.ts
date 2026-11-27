@@ -51,12 +51,16 @@ export class PermissoesAlunoService {
   /**
    * Calculado a cada chamada (sem cache): uma participação encerrada no meio
    * da sessão corta o acesso na hora, sem esperar o JWT expirar.
+   *
+   * `programa` (padrão: o ciclo atual) resolve as permissões de outro ciclo:
+   * as conquistas do feed usam o ciclo da atividade, não o da conferência.
    */
   async doUsuario(
     usuario: AccessTokenPayload,
     manager?: EntityManager,
+    programa: string = ParticipacoesService.programaAtual(),
   ): Promise<PermissoesAluno> {
-    return (await this.contexto(usuario, manager)).permissoes;
+    return (await this.contexto(usuario, manager, programa)).permissoes;
   }
 
   async exigir(
@@ -91,8 +95,11 @@ export class PermissoesAlunoService {
     return (await this.contexto(usuario)).apadrinhados;
   }
 
-  async contexto(usuario: AccessTokenPayload, manager?: EntityManager) {
-    const programa = ParticipacoesService.programaAtual();
+  async contexto(
+    usuario: AccessTokenPayload,
+    manager?: EntityManager,
+    programa: string = ParticipacoesService.programaAtual(),
+  ) {
     // O papel de coordenador vem da lista de coordenadores no login (não de
     // `tipoParticipacao`), por isso ainda pode vir do token.
     if (usuario.perfil === 'coordenador')

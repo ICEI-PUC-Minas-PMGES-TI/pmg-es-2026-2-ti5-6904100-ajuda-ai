@@ -99,6 +99,8 @@ export const LIMITES = {
   porMissao: 100,
   /** XP de missões recorrentes por aluno e semana. */
   missoesSemanais: 60,
+  /** XP opcional de uma conquista (F32); 0 = só a medalha. */
+  porConquista: 50,
   /** Ajuste administrativo individual (positivo ou negativo). */
   ajusteAdmin: 200,
 } as const;

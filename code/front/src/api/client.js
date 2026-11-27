@@ -532,6 +532,44 @@ export const api = {
   excluirMissao(id) {
     return request(`/coordenacao/missoes/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
+  /* ===== Conquistas (F32) ===== */
+  /** Coordenação: `estado` opcional (rascunho, publicada, arquivada). */
+  conquistasCoordenacao(estado) {
+    return request(`/coordenacao/conquistas${query({ estado })}`);
+  },
+  /** Condições suportadas: critério, rótulo, escopo e faixa da meta. */
+  criteriosConquista() {
+    return request('/coordenacao/conquistas/criterios');
+  },
+  criarConquista(dados) {
+    return request('/coordenacao/conquistas', { method: 'POST', body: dados });
+  },
+  /** `dados.atualizadoEm` é o que a tela mostrava (409 se outra pessoa editou). */
+  atualizarConquista(id, dados) {
+    return request(`/coordenacao/conquistas/${encodeURIComponent(id)}`, { method: 'PATCH', body: dados });
+  },
+  publicarConquista(id) {
+    return request(`/coordenacao/conquistas/${encodeURIComponent(id)}/publicar`, { method: 'POST' });
+  },
+  arquivarConquista(id) {
+    return request(`/coordenacao/conquistas/${encodeURIComponent(id)}/arquivar`, { method: 'POST' });
+  },
+  /** Só sem uso; com desbloqueios a API responde 409 `conquista-em-uso`. */
+  excluirConquista(id) {
+    return request(`/coordenacao/conquistas/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  /** Aluno: coleção (obtidas, disponíveis com progresso e as desbloqueadas agora). */
+  conquistasAluno(email = getAlunoSession()?.email) {
+    return request('/me/conquistas', { aluno: email || '__sem_sessao__' });
+  },
+  /**
+   * Confirma que o aviso "Nova!" destes desbloqueios ({ id, contexto }) foi
+   * exibido. `email`: a conta que carregou a coleção (obrigatório). Se a
+   * sessão ativa for de outra conta, o pedido é recusado antes de sair.
+   */
+  confirmarConquistasVistas(vistas, email) {
+    return request('/me/conquistas/vistas', { method: 'POST', body: { vistas }, aluno: email || '__sem_sessao__' });
+  },
   /** `antes`: id da última notificação carregada, para buscar as mais antigas. */
   notificacoes(limite, antes) {
     return request(`/me/notificacoes${query({ limite, antes })}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });

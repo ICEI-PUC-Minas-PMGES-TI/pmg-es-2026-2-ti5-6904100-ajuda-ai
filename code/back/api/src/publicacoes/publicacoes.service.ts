@@ -32,6 +32,11 @@ interface DadosPublicacao {
   imagens?: string[];
 }
 
+/** O que foi gravado no feed, entregue a quem reage ao commit (F32). */
+export type AoGravarNoFeed = (gravado: {
+  programa: string | null;
+}) => Promise<unknown>;
+
 @Injectable()
 export class PublicacoesService {
   constructor(
@@ -95,7 +100,17 @@ export class PublicacoesService {
     );
   }
 
-  async criar(corpo: DadosPublicacao, usuario: AccessTokenPayload) {
+  /**
+   * `aoGravar`: chamado logo depois do commit, com o que foi gravado, antes
+   * de reler a publicação para a resposta. Quem chama (conquistas, F32)
+   * reage ao que foi persistido mesmo que a releitura falhe (ex.: o ciclo
+   * fechou no intervalo).
+   */
+  async criar(
+    corpo: DadosPublicacao,
+    usuario: AccessTokenPayload,
+    aoGravar?: AoGravarNoFeed,
+  ) {
     await this.policy.exigirPublicacao(usuario);
     const valores = this.validar(corpo);
     await this.midias.validar(valores.imagens, usuario.email);
@@ -103,7 +118,7 @@ export class PublicacoesService {
       buscarCoordenadorPorEmail(usuario.email) ??
       (await this.usuarios.buscarPorEmail(usuario.email));
     if (!autor) throw new ForbiddenException('Autor não encontrado.');
-    const id = await this.dados.transaction(async (manager) => {
+    const gravado = await this.dados.transaction(async (manager) => {
       await this.bloquearCiclo(manager, usuario);
       await this.policy.exigirPublicacao(usuario, manager);
       const repo = manager.getRepository(PublicacaoEntity);
@@ -131,9 +146,10 @@ export class PublicacoesService {
         item.id,
         item.programaCodigo,
       );
-      return item.id;
+      return { id: item.id, programa: item.programaCodigo ?? null };
     });
-    return this.obter(id, usuario);
+    await aoGravar?.({ programa: gravado.programa });
+    return this.obter(gravado.id, usuario);
   }
 
   async atualizar(
@@ -180,11 +196,13 @@ export class PublicacoesService {
     return { removido: true };
   }
 
+  /** `aoGravar`: como em `criar`, com o ciclo do post comentado. */
   async comentar(
     id: number,
     texto: string,
     usuario: AccessTokenPayload,
     paiId?: number,
+    aoGravar?: AoGravarNoFeed,
   ) {
     await this.policy.exigirInteracao(usuario);
     const comentario = texto?.trim();
@@ -192,31 +210,39 @@ export class PublicacoesService {
       throw new BadRequestException(
         'O comentário deve ter entre 1 e 2000 caracteres.',
       );
-    await this.alterar(id, 'feed.comment.created', usuario, async (manager) => {
-      const repo = manager.getRepository(ComentarioEntity);
-      let raiz: number | null = null;
-      if (paiId != null) {
-        if (!Number.isSafeInteger(paiId) || paiId < 1)
-          throw new BadRequestException('Comentário pai inválido.');
-        const pai = await repo.findOne({
-          where: { id: paiId, publicacaoId: id },
-        });
-        if (!pai)
-          throw new NotFoundException(
-            'Comentário pai não encontrado nesta publicação.',
-          );
-        // Responder a uma resposta mantém a profundidade em apenas um nível.
-        raiz = pai.paiId ?? pai.id;
-      }
-      await repo.save(
-        repo.create({
-          publicacaoId: id,
-          autorId: usuario.email,
-          texto: comentario,
-          paiId: raiz,
-        }),
-      );
-    });
+    let programa: string | null = null;
+    await this.alterar(
+      id,
+      'feed.comment.created',
+      usuario,
+      async (manager, item) => {
+        programa = item.programaCodigo ?? null;
+        const repo = manager.getRepository(ComentarioEntity);
+        let raiz: number | null = null;
+        if (paiId != null) {
+          if (!Number.isSafeInteger(paiId) || paiId < 1)
+            throw new BadRequestException('Comentário pai inválido.');
+          const pai = await repo.findOne({
+            where: { id: paiId, publicacaoId: id },
+          });
+          if (!pai)
+            throw new NotFoundException(
+              'Comentário pai não encontrado nesta publicação.',
+            );
+          // Responder a uma resposta mantém a profundidade em apenas um nível.
+          raiz = pai.paiId ?? pai.id;
+        }
+        await repo.save(
+          repo.create({
+            publicacaoId: id,
+            autorId: usuario.email,
+            texto: comentario,
+            paiId: raiz,
+          }),
+        );
+      },
+    );
+    await aoGravar?.({ programa });
     return this.obter(id, usuario);
   }
 

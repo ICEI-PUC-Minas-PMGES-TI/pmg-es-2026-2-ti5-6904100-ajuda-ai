@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   Param,
+  Optional,
   ParseIntPipe,
   Patch,
   Post,
@@ -18,6 +19,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { AuthenticatedRequest } from '../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { ConquistasService } from '../gamificacao/conquistas/conquistas.service.js';
 import {
   FeedAdminGuard,
   FeedLeituraGuard,
@@ -38,6 +40,7 @@ export class PublicacoesController {
     private readonly stream: FeedStreamService,
     private readonly midias: FeedMidiasService,
     private readonly policy: FeedPolicy,
+    @Optional() private readonly conquistas?: ConquistasService,
   ) {}
   @Get()
   @UseGuards(FeedLeituraGuard)
@@ -97,8 +100,15 @@ export class PublicacoesController {
   }
   @Post()
   @UseGuards(FeedPublishGuard)
-  criar(@Body() corpo: PublicacaoDto, @Req() req: AuthenticatedRequest) {
-    return this.publicacoes.criar(corpo, req.user);
+  async criar(@Body() corpo: PublicacaoDto, @Req() req: AuthenticatedRequest) {
+    // Elegibilidade de quando a ação é aceita (F32): um encerramento do
+    // ciclo logo depois do commit não tira a conquista.
+    const aceita = await this.conquistas?.elegibilidadeNoFeed(req.user);
+    // Logo depois do commit, com o ciclo gravado (F32: FEED_PUBLICACOES),
+    // antes e independente da releitura da resposta.
+    return this.publicacoes.criar(corpo, req.user, ({ programa }) =>
+      this.conferirConquistas(req, programa, aceita),
+    );
   }
   @Patch(':id')
   @UseGuards(FeedAdminGuard)
@@ -117,12 +127,32 @@ export class PublicacoesController {
     return this.publicacoes.remover(id, req.user);
   }
   @Post(':id/comentarios')
-  comentar(
+  async comentar(
     @Param('id', ParseIntPipe) id: number,
     @Body() corpo: ComentarioDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.publicacoes.comentar(id, corpo.texto, req.user, corpo.paiId);
+    const aceita = await this.conquistas?.elegibilidadeNoFeed(req.user);
+    // Logo depois do commit, com o ciclo do post comentado (F32:
+    // FEED_COMENTARIOS): se a releitura falhar (ciclo fechou no
+    // intervalo), o comentário gravado ainda conta.
+    return this.publicacoes.comentar(
+      id,
+      corpo.texto,
+      req.user,
+      corpo.paiId,
+      ({ programa }) => this.conferirConquistas(req, programa, aceita),
+    );
+  }
+
+  /** Conquistas do feed (F32). Nunca falha: a ação já foi gravada. */
+  private async conferirConquistas(
+    req: AuthenticatedRequest,
+    programa: string | null,
+    aceita:
+      Awaited<ReturnType<ConquistasService['elegibilidadeNoFeed']>> | undefined,
+  ): Promise<void> {
+    await this.conquistas?.aposAtividadeNoFeed(req.user, programa, aceita);
   }
   @Delete(':id/comentarios/:comentarioId')
   removerComentario(

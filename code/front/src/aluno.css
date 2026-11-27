@@ -1270,3 +1270,17 @@ html.a11y-sem-animacao *, html.a11y-sem-animacao *::before, html.a11y-sem-animac
 }
 .barra-nivel { height: 10px; border-radius: 999px; background: #f5f2fb; overflow: hidden; }
 .barra-nivel > span { display: block; height: 100%; background: #420594; border-radius: inherit; transition: width .4s ease; }
+
+/* ===== Conquistas do aluno (F32) ===== */
+.conquistas-grade { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 12px; }
+.conquista-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; padding: 16px; border: 1px solid var(--border); border-radius: 16px; background: #fff; }
+.conquista-card > div { display: grid; gap: 6px; min-width: 0; }
+.conquista-card strong { color: #1d1a5c; font-size: .98rem; }
+.conquista-card p { margin: 0; color: #4a4870; font-size: .86rem; }
+.conquista-card small { color: var(--muted); font-size: .78rem; }
+.conquista-card .flag { justify-self: start; }
+.conquista-card.obtida { border-color: #d9cdfb; background: linear-gradient(180deg, #fff, #faf8ff); }
+.conquista-card.nova { box-shadow: 0 0 0 2px #b9a6f7, 0 8px 22px rgba(74, 52, 207, .12); }
+.conquista-medalha { width: 56px; height: 56px; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: #f0eaff; color: var(--purple); border: 2px solid #cdbdf8; }
+.conquista-medalha img { width: 100%; height: 100%; object-fit: cover; }
+.conquista-medalha.bloqueada { background: #f3f2f8; color: #8a86a6; border-color: #e2e0ee; filter: grayscale(1); opacity: .85; }

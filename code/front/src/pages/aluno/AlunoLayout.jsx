@@ -118,6 +118,7 @@ export default function AlunoLayout() {
     ...(resolucao.candidatura ? [{to: '/aluno/candidatura', label: 'Status da candidatura', icon: 'clipboard'}] : []),
     ...(resolucao.ativo ? [{to: '/aluno/padrinho', label: papel === 'padrinho' ? 'Meus apadrinhados' : situacao?.padrinhos?.length > 1 ? 'Meus padrinhos' : 'Meu padrinho', icon: 'users'}] : []),
     {to: '/aluno/chat', label: 'Conversas', icon: 'chat'},
+    {to: '/aluno/conquistas', label: 'Conquistas', icon: 'trophy'},
     {to: '/aluno/historico', label: 'Histórico', icon: 'history'},
     {to: '/aluno/configuracoes', label: 'Configurações', icon: 'settings'},
   ];

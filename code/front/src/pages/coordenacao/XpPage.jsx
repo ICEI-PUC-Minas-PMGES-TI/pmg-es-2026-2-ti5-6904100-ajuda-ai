@@ -21,6 +21,7 @@ export const ROTULO_TIPO_MOVIMENTACAO = {
   RECOMPENSA: 'Lojinha',
   AJUSTE_ADMIN: 'Ajuste da coordenação',
   MISSAO: 'Missão',
+  CONQUISTA: 'Conquista',
 };
 
 const novaChave = () =>

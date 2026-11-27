@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Optional,
   Param,
   Post,
   Req,
@@ -11,6 +12,8 @@ import { DataSource } from 'typeorm';
 import type { AuthenticatedRequest } from '../../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
 import { PermissoesAlunoService } from '../../participacoes/permissoes-aluno.service.js';
+import { acessoConquistas } from '../conquistas/conquistas.controller.js';
+import { ConquistasService } from '../conquistas/conquistas.service.js';
 import { usuarioDoToken } from '../gamificacao.js';
 import { ColetarPucStopDto } from './pucstops.dto.js';
 import { PucStopsService } from './pucstops.service.js';
@@ -25,6 +28,7 @@ export class PucStopsController {
     private readonly pucstops: PucStopsService,
     private readonly dataSource: DataSource,
     private readonly permissoes: PermissoesAlunoService,
+    @Optional() private readonly conquistas?: ConquistasService,
   ) {}
 
   @Get()
@@ -46,16 +50,19 @@ export class PucStopsController {
     @Body() leitura: ColetarPucStopDto,
   ) {
     // Só participantes do ciclo ganham XP (DP-07), inclusive aprovados sem par (DP-22).
-    await this.permissoes.exigir(
+    const permissoes = await this.permissoes.exigir(
       requisicao.user,
       'podeColetarTotens',
       'Os totens dão XP só para participantes do apadrinhamento deste semestre.',
     );
-    return this.pucstops.coletar(
-      await usuarioDoToken(this.dataSource, requisicao.user),
-      id,
-      leitura,
+    const usuarioId = await usuarioDoToken(this.dataSource, requisicao.user);
+    const resultado = await this.pucstops.coletar(usuarioId, id, leitura);
+    // Depois do commit da coleta: conquistas de totens coletados (F32).
+    await this.conquistas?.sincronizarComSeguranca(
+      usuarioId,
+      acessoConquistas(permissoes),
     );
+    return resultado;
   }
 }
 
