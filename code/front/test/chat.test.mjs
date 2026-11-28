@@ -265,6 +265,64 @@ test("conexão SSE usa token no header e encerra ao sair da tela", async () => {
   }
 });
 
+test("fluxo SSE preserva eventos, dados e estado de conexão", async () => {
+  const anterior = globalThis.fetch;
+  const email = "bia@pucminas.edu.br";
+  cliente.persistAlunoSession({
+    accessToken: "jwt-sse",
+    usuario: { email },
+  });
+  const bytes = new TextEncoder().encode(
+    'id: 1\r\nevent: chat.ready\r\ndata: {"revisao":1}\r\n\r\n' +
+      'id: 2\r\nevent: chat.changed\r\ndata: {"chatId":7,"revisao":2}\r\n\r\n' +
+      'event: chat.access\r\ndata: {"chatId":7,"podeEnviar":false}\r\n\r\n' +
+      'event: chat.heartbeat\r\ndata: {"chatId":7}\r\n\r\n',
+  );
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(c) {
+          for (const byte of bytes) c.enqueue(new Uint8Array([byte]));
+          c.close();
+        },
+      }),
+      { status: 200 },
+    );
+  const eventos = [];
+  const status = [];
+  try {
+    await cliente.streamChatMessages(
+      7,
+      email,
+      (evento) => eventos.push(evento),
+      new AbortController().signal,
+      (conectado) => status.push(conectado),
+    );
+    assert.deepEqual(eventos, [
+      { tipo: "chat.ready", id: "1", dados: { revisao: 1 } },
+      {
+        tipo: "chat.changed",
+        id: "2",
+        dados: { chatId: 7, revisao: 2 },
+      },
+      {
+        tipo: "chat.access",
+        id: undefined,
+        dados: { chatId: 7, podeEnviar: false },
+      },
+      {
+        tipo: "chat.heartbeat",
+        id: undefined,
+        dados: { chatId: 7 },
+      },
+    ]);
+    assert.deepEqual(status, [true, true, false]);
+  } finally {
+    globalThis.fetch = anterior;
+    cliente.clearAlunoSession();
+  }
+});
+
 test('500 mensagens em memória: uma nova mensagem exige uma única página, a partir da mais recente', async () => {
  const pedidos=[], recebidas=[];
  const resultado=await buscarPaginasChat({

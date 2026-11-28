@@ -1,3 +1,5 @@
+import { consumirEventosChat } from './chatStream';
+
 const API_BASE =
   import.meta.env.VITE_API_URL?.replace(/\/$/, '') || 'http://localhost:3000';
 
@@ -207,40 +209,18 @@ export async function streamChatMessages(chatId, email, onEvent, signal, onStatu
     throw Object.assign(new Error(message), { status: response.status });
   }
   if (!response.body) throw new Error('O servidor não iniciou o fluxo de mensagens.');
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  const cancelar = () => {
-    reader.cancel().catch(() => {});
-  };
-  if (signal?.aborted) cancelar();
-  else signal?.addEventListener('abort', cancelar, { once: true });
   try {
-    while (!signal?.aborted) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
-      let limite;
-      while ((limite = buffer.indexOf('\n\n')) >= 0) {
-        const bloco = buffer.slice(0, limite);
-        buffer = buffer.slice(limite + 2);
-        const tipo = bloco.match(/^event:\s*(.+)$/m)?.[1];
-        const dados = [...bloco.matchAll(/^data:\s?(.*)$/gm)].map((linha) => linha[1]).join('\n');
-        if (dados && tipo === 'chat.message') onEvent(JSON.parse(dados));
-        else if (dados && tipo === 'chat.access')
-          onEvent({ ...JSON.parse(dados), tipo });
-        else if (dados && (tipo === 'chat.ready' || tipo === 'chat.heartbeat'))
-          onStatus(JSON.parse(dados).conectado === true);
-      }
-    }
+    await consumirEventosChat(
+      response,
+      (evento) => {
+        if (evento.tipo === 'chat.ready' || evento.tipo === 'chat.heartbeat')
+          onStatus(true);
+        onEvent(evento);
+      },
+      signal,
+    );
   } finally {
-    signal?.removeEventListener('abort', cancelar);
-    await reader.cancel().catch(() => {});
-    try {
-      onStatus(false);
-    } finally {
-      reader.releaseLock();
-    }
+    onStatus(false);
   }
 }
 

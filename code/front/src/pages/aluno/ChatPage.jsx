@@ -224,12 +224,19 @@ function Thread({ chat, email, onVoltar, onAtualizarLista }) {
                 setMensagens([]);
               } else carregar();
               onAtualizarLista();
-            } else if (["chat.ready", "chat.changed"].includes(event.tipo)) {
+            } else if (
+              ["chat.ready", "chat.changed", "chat.message"].includes(
+                event.tipo,
+              )
+            ) {
               setConectado(true);
               carregar();
             }
           },
           controller.signal,
+          (status) => {
+            if (!cancelado && !parar) setConectado(status);
+          },
         );
       } catch (error) {
         if (!cancelado && [401, 403, 404].includes(error.status)) {
