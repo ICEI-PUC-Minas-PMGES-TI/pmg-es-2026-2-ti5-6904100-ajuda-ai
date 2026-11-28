@@ -30,7 +30,8 @@
   --purple: #4a34cf;
   --purple-deep: #241783;
   --ink: #17125e;
-  --muted: #76799d;
+  /* Texto secundário: 6,9:1 sobre branco (o antigo #76799d tinha 4,2:1, abaixo do AA). */
+  --muted: #5c5678;
   --lavender: #f2f0ff;
   --border: #e4e3fb;
   --green: #159b73;
@@ -43,7 +44,8 @@ body { margin: 0; min-width: 340px; min-height: 100vh; }
 button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
-  outline: 3px solid #9f8bff;
+  /* 7,8:1 sobre branco; o antigo #9f8bff tinha 2,8:1 (indicador de foco pede 3:1). */
+  outline: 3px solid var(--purple);
   outline-offset: 2px;
 }
 
@@ -285,7 +287,7 @@ select:not([multiple]):not([size]):disabled {
 .campus-shape i:nth-child(1) { left: 36px; }.campus-shape i:nth-child(2) { left: 88px; height: 72px; }.campus-shape i:nth-child(3) { right: 34px; }
 .campus-shape b { position: absolute; right: 32px; top: 39px; color: #4f45ad; font-size: 7px; letter-spacing: .2px; }
 .footer-note { margin-left: auto; color: var(--purple); font-family: Poppins, sans-serif; font-size: 13px; font-style: italic; font-weight: 800; line-height: 1.3; letter-spacing: 0; text-align: right; transform: rotate(-7deg); }
-.toast { position: fixed; z-index: 10; right: 24px; bottom: 24px; max-width: min(420px, calc(100vw - 48px)); padding: 13px 18px; border-radius: 10px; color: white; background: #28217c; box-shadow: 0 8px 28px #1b155033; font-size: 12px; }
+.toast { position: fixed; z-index: 10; right: 24px; bottom: 24px; max-width: min(420px, calc(100vw - 48px)); padding: 13px 18px; border-radius: 10px; color: white; background: #28217c; box-shadow: 0 8px 28px #1b155033; font-size: 13px; line-height: 1.4; }
 
 @media (min-width: 1500px) {
   .signup-layout { grid-template-columns: minmax(320px, 34%) minmax(0, 1fr); }

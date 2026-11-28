@@ -505,11 +505,11 @@ void main() {
 
     expect(find.textContaining('TimeoutException'), findsNothing);
     expect(
-      find.textContaining('Não foi possível conectar ao servidor'),
+      find.textContaining('Não foi possível conectar ao Ajuda-aí'),
       findsOneWidget,
     );
     expect(
-      find.textContaining('Verifique se a API está rodando'),
+      find.textContaining('Verifique sua conexão com a internet'),
       findsOneWidget,
     );
   });

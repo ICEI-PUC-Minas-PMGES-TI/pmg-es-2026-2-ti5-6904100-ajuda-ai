@@ -144,8 +144,8 @@ async function request(path, { method = 'GET', body, token, aluno, anonimo = fal
     });
   } catch (causa) {
     const mensagem = causa?.name === 'AbortError'
-      ? 'O servidor demorou para responder. Verifique se o backend está em execução.'
-      : 'Não foi possível conectar ao servidor. Verifique se o backend está em execução.';
+      ? 'O Ajuda-aí demorou para responder. Tente novamente em instantes.'
+      : 'Não foi possível conectar ao Ajuda-aí. Verifique sua conexão com a internet e tente novamente.';
     const error = new Error(mensagem);
     error.status = 0;
     throw error;
@@ -481,8 +481,30 @@ export const api = {
     return requestMapa('/coordenacao/pucstops/orcamento');
   },
   /** Progresso do aluno logado: nível, XP acumulado, moedas e tetos (BL-50). */
-  progressoAluno() {
-    return request('/me/xp', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  progressoAluno(email) {
+    return request('/me/xp', { aluno: email || getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  /**
+   * A animação do nível foi exibida: não volta a aparecer (só avança, nunca concede XP).
+   * `email` prende a chamada à conta que viu a animação: com outra conta logada
+   * a requisição é recusada (401) em vez de confirmar na sessão errada.
+   */
+  confirmarCelebracaoNivel(nivel, email) {
+    return request('/me/xp/celebracoes', { method: 'POST', body: { nivel }, aluno: email || getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  /** Pede ao servidor a vez de exibir a animação (só um aparelho recebe `autorizado`). */
+  reivindicarCelebracaoNivel(nivel, dispositivo, email) {
+    return request('/me/xp/celebracoes/reivindicar', { method: 'POST', body: { nivel, dispositivo }, aluno: email || getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  /** Painel de QA da gamificação: 200 só para contas autorizadas no servidor. */
+  qaGamificacaoAcesso() {
+    return request('/qa/gamificacao/acesso', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  /** Perfil simulado de um nível (cálculo do servidor, nada é gravado). */
+  qaGamificacaoSimulacao(nivel, progresso) {
+    const consulta = new URLSearchParams({ nivel: String(nivel) });
+    if (progresso !== undefined) consulta.set('progresso', String(progresso));
+    return request(`/qa/gamificacao/simulacao?${consulta}`, { aluno: getAlunoSession()?.email || '__sem_sessao__' });
   },
   /** Área do campus onde o servidor aceita PucStops (limite, bbox e centro). */
   campusPucStops() {

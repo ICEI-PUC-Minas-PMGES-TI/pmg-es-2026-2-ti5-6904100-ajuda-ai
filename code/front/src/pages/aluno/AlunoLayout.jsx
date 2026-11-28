@@ -9,6 +9,7 @@ import {
   lerPreferencias,
 } from '../../auth/sessaoAluno';
 import Icon from '../../components/Icon';
+import CelebracaoAutomatica from '../../components/levelup/CelebracaoAutomatica';
 import { formatarData } from './util';
 import {
   ICONE_NOTIFICACAO,
@@ -54,10 +55,22 @@ export default function AlunoLayout() {
   const [erroAtualizacao, setErroAtualizacao] = useState('');
   const [podeLerFeed, setPodeLerFeed] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
+  // Painel de QA da gamificação: só aparece se o SERVIDOR liberar esta conta.
+  const [qa, setQa] = useState({ email: '', liberado: false, conferido: false });
   const consultaAtual = useRef(0);
   const confirmada = useRef(false);
   const emVoo = useRef(null);
   const email = sessao?.email || '';
+  useEffect(() => {
+    if (!email || sessao?.onboardingToken) return undefined;
+    let ativo = true;
+    api.qaGamificacaoAcesso()
+      .then(() => { if (ativo) setQa({ email, liberado: true, conferido: true }); })
+      .catch(() => { if (ativo) setQa({ email, liberado: false, conferido: true }); });
+    return () => { ativo = false; };
+  }, [email, sessao?.onboardingToken]);
+  const qaLiberado = qa.email === email && qa.liberado;
+  const qaConferido = qa.email === email && qa.conferido;
   const token = sessao?.accessToken;
   const escopo = `${email}:${token}:${codigo}`;
   const escopoAtual = useRef(escopo);
@@ -120,8 +133,9 @@ export default function AlunoLayout() {
     {to: '/aluno/chat', label: 'Conversas', icon: 'chat'},
     {to: '/aluno/historico', label: 'Histórico', icon: 'history'},
     {to: '/aluno/configuracoes', label: 'Configurações', icon: 'settings'},
+    ...(qaLiberado ? [{to: '/aluno/testes-gamificacao', label: 'Testes de gamificação', icon: 'trophy'}] : []),
   ];
-  const contexto = {email, sessao, perfil, situacao, carregando, erro, recarregar, papel, resolucao, programa: codigo,
+  const contexto = {email, sessao, perfil, situacao, carregando, erro, recarregar, papel, resolucao, programa: codigo, qaLiberado, qaConferido,
     atualizarSessao: parcial => setSessao(atual => ({...atual, ...parcial}))};
   function trocarCiclo(novo) {
     if (novo === codigo) return;
@@ -151,7 +165,9 @@ export default function AlunoLayout() {
       {erroAtualizacao && <p role="alert">Não foi possível atualizar sua participação: {erroAtualizacao} <button type="button" onClick={() => recarregar({silencioso: true})}>Tentar novamente</button></p>}
       {erro ? <div className="aluno-state error" role="alert"><p>{erro}</p><button type="button" className="outline-button" onClick={recarregar}>Tentar novamente</button></div>
         : carregando ? <p className="aluno-loading" role="status">Carregando perfil e situação…</p> : <Outlet context={contexto}/>}
-    </main></div></div>;
+    </main></div>
+    <CelebracaoAutomatica email={email} />
+  </div>;
 }
 
 const ROTULO_TIPO = { padrinho: 'padrinho', apadrinhado: 'apadrinhado' };

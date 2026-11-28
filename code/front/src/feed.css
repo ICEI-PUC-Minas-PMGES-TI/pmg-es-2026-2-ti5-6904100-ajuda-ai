@@ -5,6 +5,9 @@
 }
 .feed-list {
   display: grid;
+  /* Coluna com mínimo 0: sem isso a trilha automática do grid crescia até o
+     conteúdo mínimo do post e o cartão passava da tela em 375 px. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
   margin-top: 24px;
 }
@@ -24,6 +27,7 @@
 }
 .feed-post {
   padding: 24px;
+  min-width: 0;
 }
 .feed-post > header {
   display: flex;
@@ -213,6 +217,15 @@
   }
   .feed-post > header {
     flex-wrap: wrap;
+  }
+  /* Nome e cargo do autor ocupam a linha inteira; a categoria desce para a
+     linha de baixo, alinhada ao texto (avatar 44 px + espaço 12 px). Antes o
+     selo espremia o nome em duas ou três linhas. */
+  .feed-post > header > div {
+    flex-basis: calc(100% - 56px);
+  }
+  .feed-post > header .feed-category {
+    margin-left: 56px;
   }
 }
 

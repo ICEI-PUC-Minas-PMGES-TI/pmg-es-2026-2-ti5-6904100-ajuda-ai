@@ -162,6 +162,13 @@ describe('AuthService', () => {
     expect(camila.situacao).toBe('autenticado');
   });
 
+  it('conta demo da gamificação fora do banco aponta o seed certo', async () => {
+    process.env.AUTH_DEMO_ENABLED = 'true';
+    await expect(
+      service.autenticarDemo('demo.sofia.martins@pucminas.edu.br'),
+    ).rejects.toThrow('npm run seed:demo-gamificacao');
+  });
+
   it('login demo recusado em produção', async () => {
     process.env.AUTH_DEMO_ENABLED = 'true';
     const ambiente = process.env.NODE_ENV;

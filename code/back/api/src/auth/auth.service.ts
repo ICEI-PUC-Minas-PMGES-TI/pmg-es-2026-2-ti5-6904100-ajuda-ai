@@ -186,14 +186,17 @@ export class AuthService {
     // Contas demo antigas (dados.ts) e as da gamificação (demo-gamificacao.ts).
     // Mesmas proteções: só com AUTH_DEMO_ENABLED, nunca em produção, e só
     // para e-mails da lista fixa.
-    const demo =
-      buscarUsuarioPorEmail(emailInformado) ?? buscarContaDemo(emailInformado);
+    const antiga = buscarUsuarioPorEmail(emailInformado);
+    const demo = antiga ?? buscarContaDemo(emailInformado);
     if (!demo) {
       throw new UnauthorizedException('Usuário demo não autorizado.');
     }
+    // Cada base tem o próprio seed: a mensagem aponta o comando certo.
     return this.entrar(
       demo.email,
-      'Usuário demo ainda não está no banco. Execute npm run seed:demo uma vez.',
+      antiga
+        ? 'Usuário demo ainda não está no banco. Execute npm run seed:demo uma vez.'
+        : 'Conta demo da gamificação ainda não está no banco. Execute npm run seed:demo-gamificacao (em banco compartilhado, com --compartilhado e autorização da equipe).',
     );
   }
 

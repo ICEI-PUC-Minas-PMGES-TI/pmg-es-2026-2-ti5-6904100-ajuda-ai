@@ -96,8 +96,8 @@ class ApiIndisponivelException implements Exception {
 
   @override
   String toString() =>
-      'Não foi possível conectar ao servidor.\n'
-      'Verifique se a API está rodando e tente novamente.';
+      'Não foi possível conectar ao Ajuda-aí.\n'
+      'Verifique sua conexão com a internet e tente novamente.';
 }
 
 /// Extrai a mensagem legível do corpo `{message, error, statusCode}`.

@@ -68,6 +68,66 @@ class TetoGamificacao {
   }
 }
 
+/// Conquista de nível ainda não celebrada (`GET /me/xp` → `celebracao`).
+/// Subir vários níveis de uma vez gera uma só conquista, do nível final.
+class ConquistaNivel {
+  const ConquistaNivel({
+    required this.de,
+    required this.para,
+    required this.nome,
+    this.niveisAvancados = 1,
+  });
+
+  /// Último nível já celebrado.
+  final int de;
+
+  /// Nível conquistado.
+  final int para;
+  final String nome;
+  final int niveisAvancados;
+
+  static ConquistaNivel? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final de = json['de'];
+    final para = json['para'];
+    final nome = json['nome'];
+    if (de is! int || para is! int || nome is! String || para <= de) {
+      return null;
+    }
+    final avancados = json['niveisAvancados'];
+    return ConquistaNivel(
+      de: de,
+      para: para,
+      nome: nome,
+      niveisAvancados: avancados is int && avancados > 0
+          ? avancados
+          : para - de,
+    );
+  }
+}
+
+/// Linha da tabela de níveis (`GET /qa/gamificacao/acesso` → `niveis`).
+class NivelTabela {
+  const NivelTabela({
+    required this.numero,
+    required this.nome,
+    required this.xpMinimo,
+  });
+
+  final int numero;
+  final String nome;
+  final int xpMinimo;
+
+  static NivelTabela? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final numero = json['numero'];
+    final nome = json['nome'];
+    final xp = json['xpMinimo'];
+    if (numero is! int || nome is! String || xp is! int) return null;
+    return NivelTabela(numero: numero, nome: nome, xpMinimo: xp);
+  }
+}
+
 /// `GET /me/xp`: XP acumulado (nível), moedas (lojinha) e tetos do ciclo.
 class ResumoGamificacao {
   const ResumoGamificacao({
@@ -77,6 +137,8 @@ class ResumoGamificacao {
     this.ciclo,
     this.tetoTotens,
     this.tetoCiclo,
+    this.celebracao,
+    this.simulado = false,
   });
 
   final int xpAcumulado;
@@ -85,6 +147,12 @@ class ResumoGamificacao {
   final String? ciclo;
   final TetoGamificacao? tetoTotens;
   final TetoGamificacao? tetoCiclo;
+
+  /// Conquista pendente de animação (só no progresso real).
+  final ConquistaNivel? celebracao;
+
+  /// Perfil simulado pelo painel de QA (`GET /qa/gamificacao/simulacao`).
+  final bool simulado;
 
   /// Resposta fora do contrato → `null` (quem chama trata como falha, nunca
   /// como "zero XP").
@@ -108,6 +176,8 @@ class ResumoGamificacao {
       tetoCiclo: limites is Map
           ? TetoGamificacao.fromJson(limites['ciclo'])
           : null,
+      celebracao: ConquistaNivel.fromJson(json['celebracao']),
+      simulado: json['simulado'] == true,
     );
   }
 }

@@ -12,6 +12,7 @@ import PerfilEditarPage from './pages/aluno/PerfilEditarPage';
 import PerfilAlunoPage from './pages/aluno/PerfilAlunoPage';
 import StatusCandidaturaPage from './pages/aluno/StatusCandidaturaPage';
 import ChatPage from './pages/aluno/ChatPage';
+import QaGamificacaoPage from './pages/aluno/QaGamificacaoPage';
 import CadastroPage from './pages/cadastro/CadastroPage';
 import CandidaturasPage from './pages/coordenacao/CandidaturasPage';
 import RedirectCadastros from './pages/coordenacao/RedirectCadastros';
@@ -55,6 +56,7 @@ export default function App() {
               <Route path="historico" element={<HistoricoPage />} />
               <Route path="configuracoes" element={<ConfiguracoesAlunoPage />} />
               <Route path="mapa" element={<CampusMapPage />} />
+              <Route path="testes-gamificacao" element={<QaGamificacaoPage />} />
             </Route>
             <Route path="/coordenacao" element={<CoordLayout />}>
               <Route index element={<DashboardPage />} />

@@ -903,6 +903,9 @@ describe.skipIf(!URL_TESTE)('PucStops e XP com PostGIS real', () => {
           ciclo: { ganho: total, limite: 1500 },
         },
         atualizadoEm: expect.any(String),
+        // Banco sem a migration CelebracoesNivel: a API segue funcionando,
+        // sem celebração (test/celebracoes.integration.spec.ts cobre o resto).
+        celebracao: null,
       });
 
       const pagina1 = await http()

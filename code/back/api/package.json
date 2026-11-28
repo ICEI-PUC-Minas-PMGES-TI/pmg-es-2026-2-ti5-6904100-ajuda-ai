@@ -23,6 +23,7 @@
     "db:verificar": "nest build && node scripts/verificar-banco.mjs",
     "seed:demo": "nest build && node dist/scripts/seed-demo.js",
     "seed:demo-gamificacao": "nest build && node dist/scripts/seed-demo-gamificacao.js",
+    "celebracoes:aplicar": "nest build && node dist/scripts/aplicar-celebracoes-nivel.js",
     "migration:show": "nest build && typeorm migration:show -d dist/database/data-source.js",
     "db:preparar": "nest build && node dist/scripts/preparar-schema.js",
     "migration:run": "nest build && node dist/scripts/preparar-schema.js && typeorm migration:run -d dist/database/data-source.js",

@@ -6,7 +6,8 @@ abstract final class AppColors {
   static const Color background = Colors.white;
   static const Color lavender = Color(0xFFF5F2FB);
   static const Color ink = Color(0xFF1B1340);
-  static const Color muted = Color(0xFF7C8598);
+  // Texto secundário: 6,9:1 sobre branco (o antigo #7C8598 tinha 3,7:1, abaixo do AA).
+  static const Color muted = Color(0xFF5C5678);
 }
 
 abstract final class AppAccents {
@@ -14,7 +15,8 @@ abstract final class AppAccents {
   static const Color headerBottom = Color(0xFF2C1565);
   static const Color navigationMuted = Color(0xFF8B8995);
   static const Color star = Color(0xFFFBBF24);
-  static const Color success = Color(0xFF16A34A);
+  // Verde de texto/selo: 4,6:1 sobre successBg (o antigo #16A34A tinha 3,0:1).
+  static const Color success = Color(0xFF15803D);
   static const Color successBg = Color(0xFFE8F8EE);
   static const Color cardBg = Color(0xFFFBFAFE);
   static const Color cardBorder = Color(0xFFEFEDF6);
@@ -25,4 +27,6 @@ abstract final class AppAccents {
   static const Color iconeAzul = Color(0xFF3B82F6);
   static const Color iconeLaranja = Color(0xFFF59E0B);
   static const Color iconeVerde = Color(0xFF22A06B);
+  // Texto de selo de alerta ("Em análise"): 6,2:1 sobre tileLaranja.
+  static const Color textoAlerta = Color(0xFF92400E);
 }

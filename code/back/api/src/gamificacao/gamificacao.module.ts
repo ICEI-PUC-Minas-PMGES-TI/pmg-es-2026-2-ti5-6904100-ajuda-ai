@@ -16,6 +16,9 @@ import {
   PucStopsController,
 } from './pucstops/pucstops.controller.js';
 import { PucStopsService } from './pucstops/pucstops.service.js';
+import { QaGamificacaoController } from './qa/qa-gamificacao.controller.js';
+import { QaGamificacaoGuard } from './qa/qa-gamificacao.guard.js';
+import { QaGamificacaoService } from './qa/qa-gamificacao.service.js';
 import { RecompensasAdminController } from './recompensas/recompensas-admin.controller.js';
 import { RecompensasAdminService } from './recompensas/recompensas-admin.service.js';
 import { ResgatesAdminController } from './resgates/resgates-admin.controller.js';
@@ -32,6 +35,8 @@ import { XpService } from './xp/xp.service.js';
  * nem altera essas tabelas; só as migrations PucStopsEXpGlobal,
  * LojinhaResgates/LojinhaRecompensas. Lojinha: cadastro (F27) em
  * `/coordenacao/recompensas` e consulta/resgate do aluno (F28) em `/me/lojinha`.
+ * Painel de QA (só leitura/simulação) em `/qa/gamificacao`, restrito por
+ * `GAMIFICACAO_QA_EMAILS`.
  * Entrega e cancelamento (F29) em `/coordenacao/resgates`; saldo e ajustes de
  * XP pela coordenação (F26) em `/coordenacao/xp`.
  */
@@ -49,6 +54,7 @@ import { XpService } from './xp/xp.service.js';
     XpAdminController,
     MissoesController,
     MissoesAdminController,
+    QaGamificacaoController,
   ],
   providers: [
     PucStopsService,
@@ -61,6 +67,8 @@ import { XpService } from './xp/xp.service.js';
     MissoesService,
     MissoesAdminService,
     LimpezaTentativasService,
+    QaGamificacaoService,
+    QaGamificacaoGuard,
   ],
 })
 export class GamificacaoModule {}

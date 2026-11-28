@@ -159,7 +159,7 @@ export default function CampusMapPage({ coordenador = false }) {
 
   return <section className="campus-map-page"><header><h1>Mapa do campus</h1><p>Selecione um prédio para ver informações, imagens e rota.</p></header>
     {erro && <p className="dash-inline-error" role="alert">{erro}</p>}
-    {!TOKEN.startsWith('pk.') && <p role="alert">Configure VITE_MAPBOX_ACCESS_TOKEN para carregar o mapa.</p>}
+    {!TOKEN.startsWith('pk.') && <p role="status">O mapa interativo não está disponível neste ambiente no momento.</p>}
     <div className="campus-map-shell"><div ref={container} className="campus-map-canvas" aria-label="Mapa de locais da PUC Minas" />
       {(local || carregando) && <aside className="campus-place-panel" aria-live="polite">{carregando ? <p>Carregando local…</p> : <>
         <button className="campus-place-close" type="button" onClick={() => setLocal(null)} aria-label="Fechar"><Icon name="close" /></button>

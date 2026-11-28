@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ParticipacoesService } from '../../participacoes/participacoes.service.js';
+import {
+  celebracaoPara,
+  confirmarCelebracao,
+  nivelCelebrado,
+  reivindicarCelebracao,
+} from '../celebracoes.js';
 import { LIMITES, NIVEIS, nivelDe } from '../economia.js';
 import { SCHEMA_GAMIFICACAO, type TipoMovimentacaoXp } from '../gamificacao.js';
 import { usoDoCiclo } from '../ganhos.js';
@@ -24,7 +30,7 @@ export class XpService {
    */
   async resumo(usuarioId: number): Promise<XpResumoDto> {
     const ciclo = ParticipacoesService.programaAtual();
-    const [[carteira], uso] = await Promise.all([
+    const [[carteira], uso, celebrado] = await Promise.all([
       this.dataSource.query(
         `SELECT "saldo", "xp_acumulado", "atualizado_em" FROM ${g}."xp_carteiras" WHERE "usuario_id" = $1`,
         [usuarioId],
@@ -32,21 +38,40 @@ export class XpService {
         Array<{ saldo: number; xp_acumulado: number; atualizado_em: Date }>
       >,
       usoDoCiclo(this.dataSource, usuarioId, ciclo),
+      nivelCelebrado(this.dataSource, usuarioId),
     ]);
     const moedas = carteira?.saldo ?? 0;
     const xpAcumulado = carteira?.xp_acumulado ?? 0;
+    const nivel = nivelDe(xpAcumulado);
     return {
       saldo: moedas,
       moedas,
       xpAcumulado,
-      nivel: nivelDe(xpAcumulado),
+      nivel,
       ciclo,
       limites: {
         totens: { ganho: uso.totens, limite: LIMITES.totensPorCiclo },
         ciclo: { ganho: uso.geral, limite: LIMITES.geralPorCiclo },
       },
       atualizadoEm: carteira?.atualizado_em.toISOString() ?? null,
+      celebracao: celebracaoPara(nivel.numero, celebrado),
     };
+  }
+
+  /**
+   * O cliente exibiu a animação do nível `nivel`. Idempotente; nunca grava
+   * acima do nível real nem concede XP, moedas ou recompensa.
+   */
+  confirmarCelebracao(usuarioId: number, nivel: number) {
+    return confirmarCelebracao(this.dataSource, usuarioId, nivel);
+  }
+
+  /**
+   * Reserva, de forma atômica, a vez deste aparelho exibir a animação do
+   * nível `nivel`: só um aparelho por vez recebe `autorizado`.
+   */
+  reivindicarCelebracao(usuarioId: number, nivel: number, dispositivo: string) {
+    return reivindicarCelebracao(this.dataSource, usuarioId, nivel, dispositivo);
   }
 
   /** Tabela pública dos níveis (os apps não guardam os limiares). */
