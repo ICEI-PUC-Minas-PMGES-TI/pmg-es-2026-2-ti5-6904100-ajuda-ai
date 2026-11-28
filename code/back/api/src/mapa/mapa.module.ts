@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
-import { DelegacoesModule } from '../coordenacao/delegacoes/delegacoes.module.js';
 import { StorageModule } from '../storage/storage.module.js';
 import { LocalConteudoService } from './local-conteudo.service.js';
 import {
@@ -19,7 +18,7 @@ import { RotasService } from './rotas/rotas.service.js';
  * carregam o grafo da versão ativa em memória e calculam sem gravar nada.
  */
 @Module({
-  imports: [AuthModule, StorageModule, DelegacoesModule],
+  imports: [AuthModule, StorageModule],
   controllers: [MapaController, MapaLocaisAdminController, RotasController],
   providers: [MapaService, LocalConteudoService, RotasService],
 })

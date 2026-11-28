@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
-import { DelegacoesModule } from '../coordenacao/delegacoes/delegacoes.module.js';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module.js';
 import { ParticipacoesModule } from '../participacoes/participacoes.module.js';
 import { LojinhaController } from './lojinha/lojinha.controller.js';
@@ -43,7 +42,6 @@ import { XpService } from './xp/xp.service.js';
     AuthModule,
     ParticipacoesModule,
     NotificacoesModule,
-    DelegacoesModule,
   ],
   controllers: [
     PucStopsController,

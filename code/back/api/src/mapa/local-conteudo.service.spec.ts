@@ -1,11 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
-import { GUARDS_METADATA } from '@nestjs/common/constants.js';
 import type { DataSource } from 'typeorm';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
-import {
-  DELEGACAO_KEY,
-  DelegacaoGuard,
-} from '../coordenacao/delegacoes/delegacao.guard.js';
+import { ROLES_KEY } from '../auth/roles.decorator.js';
 import type { AzureBlobStorageService } from '../storage/azure-blob-storage.service.js';
 import { MapaLocaisAdminController } from './mapa.controller.js';
 import { LocalConteudoService } from './local-conteudo.service.js';
@@ -55,17 +50,10 @@ function cenario({ falharUpdate = false, total = 0 } = {}) {
 }
 
 describe('informações e imagens dos locais', () => {
-  // Desde a F03 a porta é o DelegacaoGuard: coordenação passa sempre, e um
-  // aluno só passa com a delegação de `mapa` concedida. Sem o decorator o
-  // guard barra todo mundo que não é coordenação, então os dois metadados
-  // precisam continuar casados.
-  it('todas as mutações ficam atrás do guard de delegação de mapa', () => {
-    expect(Reflect.getMetadata(DELEGACAO_KEY, MapaLocaisAdminController)).toBe(
-      'mapa',
-    );
-    expect(
-      Reflect.getMetadata(GUARDS_METADATA, MapaLocaisAdminController),
-    ).toEqual([JwtAuthGuard, DelegacaoGuard]);
+  it('todas as mutações carregam a role coordenador', () => {
+    expect(Reflect.getMetadata(ROLES_KEY, MapaLocaisAdminController)).toEqual([
+      'coordenador',
+    ]);
   });
 
   it('confere o formato real e recusa PDF no fluxo de imagens', async () => {
