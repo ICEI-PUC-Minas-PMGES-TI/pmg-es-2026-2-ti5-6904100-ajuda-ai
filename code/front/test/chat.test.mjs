@@ -251,8 +251,9 @@ test("conexão SSE usa token no header e encerra ao sair da tela", async () => {
     await cliente.streamChatMessages(
       7,
       "bia@pucminas.edu.br",
-      () => controller.abort(),
+      () => {},
       controller.signal,
+      () => controller.abort(),
     );
     assert.ok(pedido.url.endsWith("/chats/7/events"));
     assert.ok(!pedido.url.includes("jwt-sse"));

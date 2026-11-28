@@ -210,6 +210,11 @@ export async function streamChatMessages(chatId, email, onEvent, signal, onStatu
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  const cancelar = () => {
+    reader.cancel().catch(() => {});
+  };
+  if (signal?.aborted) cancelar();
+  else signal?.addEventListener('abort', cancelar, { once: true });
   try {
     while (!signal?.aborted) {
       const { value, done } = await reader.read();
@@ -229,8 +234,13 @@ export async function streamChatMessages(chatId, email, onEvent, signal, onStatu
       }
     }
   } finally {
-    onStatus(false);
-    reader.releaseLock();
+    signal?.removeEventListener('abort', cancelar);
+    await reader.cancel().catch(() => {});
+    try {
+      onStatus(false);
+    } finally {
+      reader.releaseLock();
+    }
   }
 }
 
