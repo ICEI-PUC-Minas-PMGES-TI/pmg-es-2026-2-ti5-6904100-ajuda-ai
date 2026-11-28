@@ -251,7 +251,10 @@ describe('MissoesService.concluir', () => {
       '99',
     ]);
     // A evidência identifica o código aceito sem guardá-lo.
-    const evidencia = JSON.parse(gravada[7] as string) as Record<string, unknown>;
+    const evidencia = JSON.parse(gravada[7] as string) as Record<
+      string,
+      unknown
+    >;
     expect(evidencia).toEqual({
       requisito: 'CODIGO',
       codigo: true,
@@ -578,28 +581,247 @@ describe('MissoesService.listar', () => {
     const depois = new Date(AGORA.getTime() + 10 * 60_000);
     const antes = new Date(AGORA.getTime() - 60_000);
     const { service } = bancoComLinhas([
-      { id: 'aberto', titulo: 'A', requisito: 'CODIGO', quantidade: 1, progresso: 0, codigo_liberado_ate: depois },
-      { id: 'vencido', titulo: 'B', requisito: 'CODIGO', quantidade: 1, progresso: 0, codigo_liberado_ate: antes },
-      { id: 'fechado', titulo: 'C', requisito: 'CODIGO', quantidade: 1, progresso: 0 },
+      {
+        id: 'aberto',
+        titulo: 'A',
+        requisito: 'CODIGO',
+        quantidade: 1,
+        progresso: 0,
+        codigo_liberado_ate: depois,
+      },
+      {
+        id: 'vencido',
+        titulo: 'B',
+        requisito: 'CODIGO',
+        quantidade: 1,
+        progresso: 0,
+        codigo_liberado_ate: antes,
+      },
+      {
+        id: 'fechado',
+        titulo: 'C',
+        requisito: 'CODIGO',
+        quantidade: 1,
+        progresso: 0,
+      },
     ]);
     const r = await service.listar(USUARIO, AGORA);
-    expect(r.missoes.map((m) => [m.id, m.codigoLiberadoAte, m.pronta])).toEqual([
-      ['aberto', depois.toISOString(), true],
-      ['vencido', null, true],
-      ['fechado', null, true],
-    ]);
+    expect(r.missoes.map((m) => [m.id, m.codigoLiberadoAte, m.pronta])).toEqual(
+      [
+        ['aberto', depois.toISOString(), true],
+        ['vencido', null, true],
+        ['fechado', null, true],
+      ],
+    );
   });
 });
 
 describe('metaEfetiva', () => {
   it.each([
     ['sem ponto desativado, vale a quantidade', 'PUCSTOPS', 3, 1, 5, 3],
-    ['roteiro: ponto desativado e não coletado sai da meta', 'PUCSTOPS', 3, 1, 1, 2],
+    [
+      'roteiro: ponto desativado e não coletado sai da meta',
+      'PUCSTOPS',
+      3,
+      1,
+      1,
+      2,
+    ],
     ['ponto já coletado continua contando', 'PUCSTOPS', 3, 2, 0, 2],
-    ['quaisquer: faltam menos totens ativos do que a meta', 'PUCSTOPS', 5, 2, 1, 3],
-    ['nenhum ponto ativo nem coletado: não se cumpre sozinha', 'PUCSTOPS', 3, 0, 0, 1],
+    [
+      'quaisquer: faltam menos totens ativos do que a meta',
+      'PUCSTOPS',
+      5,
+      2,
+      1,
+      3,
+    ],
+    [
+      'nenhum ponto ativo nem coletado: não se cumpre sozinha',
+      'PUCSTOPS',
+      3,
+      0,
+      0,
+      1,
+    ],
     ['outros requisitos não mudam', 'FEED_COMENTARIOS', 4, 1, 0, 4],
-  ] as const)('%s', (_caso, requisito, quantidade, atual, disponiveis, meta) => {
-    expect(metaEfetiva(requisito, quantidade, atual, disponiveis)).toBe(meta);
+  ] as const)(
+    '%s',
+    (_caso, requisito, quantidade, atual, disponiveis, meta) => {
+      expect(metaEfetiva(requisito, quantidade, atual, disponiveis)).toBe(meta);
+    },
+  );
+});
+
+describe('MissoesService.xpDaMissaoDePucStop', () => {
+  const VISITA = 'VISITA_PUCSTOP';
+  const MISSAO = 'MISSAO_PUCSTOPS';
+
+  type Papel = 'padrinho' | 'apadrinhado' | null;
+
+  function regra(acao: string, extra: Record<string, unknown> = {}) {
+    return {
+      acao,
+      regraId: acao === VISITA ? 1 : 2,
+      versao: 1,
+      valorXp: 80,
+      elegibilidade: 'todos',
+      limiteRepeticoes: null,
+      combinavelCom: [] as string[],
+      ...extra,
+    };
+  }
+
+  function servico(
+    regras: Array<ReturnType<typeof regra>>,
+    coletaXp: number,
+    { jaCreditado = 0, usosDaRegra = 0 } = {},
+  ) {
+    const consultas: Array<[string, unknown[]]> = [];
+    const qr = {
+      query: async (sql: string, params: unknown[] = []) => {
+        consultas.push([sql, params]);
+        if (sql.includes('"pucstop_coletas" c'))
+          return [{ id: '41', xp: coletaXp }];
+        if (sql.includes('"jaCreditado"')) return [{ jaCreditado }];
+        if (sql.includes(`'regraXpId'`)) return [{ total: usosDaRegra }];
+        return [];
+      },
+    } as unknown as QueryRunner;
+    const regrasXp = {
+      configuracoesVigentes: async () => regras,
+    } as unknown as ConstructorParameters<typeof MissoesService>[2];
+    const s = new MissoesService(
+      { options: { schema: 'feed' } } as unknown as DataSource,
+      notificacoesFalsas().servico,
+      regrasXp,
+    );
+    const calcular = (meta: number, papel: Papel = 'apadrinhado') =>
+      (
+        s as unknown as {
+          xpDaMissaoDePucStop: (
+            qr: QueryRunner,
+            usuarioId: number,
+            missao: { id: string; ciclo: string; xp: number },
+            meta: number,
+            papel: Papel,
+          ) => Promise<{
+            xp: number;
+            xpConfigurado: number;
+            coletaId: string;
+            regra: { regraId: number } | null;
+          }>;
+        }
+      ).xpDaMissaoDePucStop(
+        qr,
+        USUARIO,
+        { id: ID, ciclo: CICLO, xp: 80 },
+        meta,
+        papel,
+      );
+    return { calcular, consultas };
+  }
+
+  it('sem combinação configurada, desconta o XP já pago pela coleta', async () => {
+    const { calcular } = servico([regra(VISITA), regra(MISSAO)], 30);
+    expect(await calcular(1)).toMatchObject({
+      xp: 50,
+      xpConfigurado: 80,
+      coletaId: '41',
+    });
+  });
+
+  it('sem regras vigentes, usa o XP da missão e não soma a visita', async () => {
+    const { calcular } = servico([], 30);
+    expect(await calcular(1)).toMatchObject({
+      xp: 50,
+      xpConfigurado: 80,
+      regra: null,
+    });
+  });
+
+  it.each([
+    ['a visita', VISITA, MISSAO],
+    ['a missão', MISSAO, VISITA],
+  ])(
+    'combinação declarada pela regra d%s soma os dois ganhos',
+    async (_c, acao, outra) => {
+      const { calcular } = servico(
+        [regra(acao, { combinavelCom: [outra] }), regra(outra)],
+        30,
+      );
+      expect((await calcular(1)).xp).toBe(80);
+    },
+  );
+
+  it('o valor da regra MISSAO_PUCSTOPS substitui o XP da missão', async () => {
+    const { calcular } = servico([regra(MISSAO, { valorXp: 45 })], 30);
+    expect(await calcular(1)).toMatchObject({
+      xp: 15,
+      xpConfigurado: 45,
+      regra: { regraId: 2 },
+    });
+  });
+
+  it('com combinação, paga o valor da regra uma vez só, sem duplicar', async () => {
+    const { calcular } = servico(
+      [regra(MISSAO, { valorXp: 45, combinavelCom: [VISITA] })],
+      30,
+      { jaCreditado: 45 },
+    );
+    expect((await calcular(1)).xp).toBe(0);
+  });
+
+  it.each([
+    ['apadrinhado', 'apadrinhado', 0],
+    ['padrinho', 'padrinho', 50],
+    ['sem papel no ciclo', null, 0],
+  ] as const)(
+    'regra só para padrinhos: %s recebe %s',
+    async (_c, papel, esperado) => {
+      const { calcular } = servico(
+        [regra(MISSAO, { elegibilidade: 'padrinho' })],
+        30,
+      );
+      expect((await calcular(1, papel)).xp).toBe(esperado);
+    },
+  );
+
+  it.each([
+    [1, 0, 50],
+    [2, 2, 0],
+  ])(
+    'limite de %s repetições com %s já pagas',
+    async (limiteRepeticoes, usosDaRegra, esperado) => {
+      const { calcular, consultas } = servico(
+        [regra(MISSAO, { limiteRepeticoes })],
+        30,
+        { usosDaRegra },
+      );
+      expect((await calcular(1)).xp).toBe(esperado);
+      const [, params] = consultas.find(([sql]) =>
+        sql.includes(`'regraXpId'`),
+      )!;
+      expect(params).toEqual([USUARIO, CICLO, '2']);
+    },
+  );
+
+  it('desconta o que outra missão já creditou pela mesma coleta', async () => {
+    const { calcular } = servico([], 30, { jaCreditado: 20 });
+    expect((await calcular(1)).xp).toBe(30);
+  });
+
+  it('coleta que já pagou mais que a missão não gera XP negativo', async () => {
+    const { calcular } = servico([], 120);
+    expect((await calcular(1)).xp).toBe(0);
+  });
+
+  it('usa a coleta que completou a meta', async () => {
+    const { calcular, consultas } = servico([], 30);
+    await calcular(3);
+    const [, params] = consultas.find(([sql]) =>
+      sql.includes('"pucstop_coletas" c'),
+    )!;
+    expect(params).toEqual([USUARIO, ID, 2]);
   });
 });

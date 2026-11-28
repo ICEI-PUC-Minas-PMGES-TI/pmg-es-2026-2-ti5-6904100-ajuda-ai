@@ -67,6 +67,11 @@ export function sqlProgresso(m: string, u: string): string {
     `WHEN 'CHAT_MENSAGENS' THEN (SELECT count(*) FROM ${u}."mensagens_chat" x JOIN ${u}."participacoes" pa ON pa."id" = x."remetente_participacao_id" ` +
     `WHERE lower(pa."usuario_id") = $2 AND pa."programa" = ${m}."ciclo" AND char_length(btrim(x."texto")) >= ${MENSAGEM_MISSAO_MIN} ` +
     `AND ${janela(m, 'x."criada_em"')}) ` +
+    `WHEN 'ENCONTRO' THEN (SELECT count(DISTINCT r."encontro_id") FROM ${u}."encontro_realizacoes" r ` +
+    `JOIN ${u}."encontro_presencas" pr ON pr."encontro_id" = r."encontro_id" AND pr."usuario_id" = $1 ` +
+    `JOIN ${u}."encontros" e ON e."id" = r."encontro_id" ` +
+    `WHERE e."programa" = ${m}."ciclo" ` +
+    `AND ${janela(m, 'r."realizado_em"')}) ` +
     `ELSE 0 END`
   );
 }
@@ -128,7 +133,9 @@ const FALTA: Record<
       ? 'Comente em mais 1 post de colegas.'
       : `Comente em mais ${n} posts diferentes de colegas.`,
   FEED_CURTIDAS: (n, semanal) => {
-    const desta = semanal ? (n === 1 ? ' feita' : ' feitas') + ' nesta semana' : '';
+    const desta = semanal
+      ? (n === 1 ? ' feita' : ' feitas') + ' nesta semana'
+      : '';
     return n === 1
       ? `Curta mais 1 publicação de colegas${desta}.`
       : `Curta mais ${n} publicações de colegas${desta}.`;
@@ -137,6 +144,10 @@ const FALTA: Record<
     n === 1
       ? 'Envie mais 1 mensagem no chat do grupo.'
       : `Envie mais ${n} mensagens no chat do grupo.`,
+  ENCONTRO: (n) =>
+    n === 1
+      ? 'Participe de mais 1 encontro confirmado.'
+      : `Participe de mais ${n} encontros confirmados.`,
 };
 
 export interface MissaoParaVerificar {
@@ -195,9 +206,13 @@ export async function verificarContagem(
   if (atual < meta) {
     const requisito = missao.requisito as keyof typeof FALTA;
     const semanal = missao.tipo === 'SEMANAL';
-    throw recusa('requisito-pendente', FALTA[requisito](meta - atual, semanal), {
-      progresso: { atual, meta },
-    });
+    throw recusa(
+      'requisito-pendente',
+      FALTA[requisito](meta - atual, semanal),
+      {
+        progresso: { atual, meta },
+      },
+    );
   }
   return { atual: Math.min(atual, meta), meta };
 }

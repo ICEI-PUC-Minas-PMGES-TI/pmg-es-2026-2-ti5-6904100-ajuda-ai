@@ -353,7 +353,7 @@ test('excluir só existe para rascunho e explica que apaga de vez', () => {
 
 test('formulário não oferece requisito que o app ainda não permite cumprir', () => {
   assert.equal(m.REQUISITOS_NO_APP.includes('CHAT_MENSAGENS'), false);
-  assert.deepEqual(m.REQUISITOS_NO_APP, ['PUCSTOPS', 'EVENTO', 'FEED_COMENTARIOS', 'FEED_CURTIDAS', 'FEED_PUBLICACOES', 'CODIGO']);
+  assert.deepEqual(m.REQUISITOS_NO_APP, ['PUCSTOPS', 'EVENTO', 'FEED_COMENTARIOS', 'FEED_CURTIDAS', 'FEED_PUBLICACOES', 'ENCONTRO', 'CODIGO']);
 });
 
 test('editar missão de requisito fora do painel mostra o requisito real', () => {

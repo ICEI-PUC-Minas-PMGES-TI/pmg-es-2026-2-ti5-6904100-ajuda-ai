@@ -209,6 +209,15 @@ function query(params) {
 }
 
 export const api = {
+  regrasXp() { return request('/coordenacao/regras-xp'); },
+  regraXp(id) { return request(`/coordenacao/regras-xp/${encodeURIComponent(id)}`); },
+  criarRegraXp(body) { return request('/coordenacao/regras-xp', { method: 'POST', body }); },
+  editarRegraXp(id, body) {
+    return request(`/coordenacao/regras-xp/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+  },
+  definirStatusRegraXp(id, ativo) {
+    return request(`/coordenacao/regras-xp/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { ativo } });
+  },
   feed(email, programa) { return request(`/publicacoes${programa ? `?programa=${encodeURIComponent(programa)}` : ''}`, { aluno: email }); },
   feedCiclos() { return request('/publicacoes/ciclos'); },
   permissoesFeed(email) { return request('/publicacoes/permissoes', { aluno: email }); },

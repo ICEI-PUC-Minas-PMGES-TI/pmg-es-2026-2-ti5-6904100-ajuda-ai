@@ -18,6 +18,8 @@ import {
 import { PucStopsService } from './pucstops/pucstops.service.js';
 import { RecompensasAdminController } from './recompensas/recompensas-admin.controller.js';
 import { RecompensasAdminService } from './recompensas/recompensas-admin.service.js';
+import { RegrasXpController } from './regras-xp/regras-xp.controller.js';
+import { RegrasXpService } from './regras-xp/regras-xp.service.js';
 import { ResgatesAdminController } from './resgates/resgates-admin.controller.js';
 import { ResgatesAdminService } from './resgates/resgates-admin.service.js';
 import { XpAdminController } from './xp/xp-admin.controller.js';
@@ -36,7 +38,11 @@ import { XpService } from './xp/xp.service.js';
  * XP pela coordenação (F26) em `/coordenacao/xp`.
  */
 @Module({
-  imports: [AuthModule, ParticipacoesModule, NotificacoesModule],
+  imports: [
+    AuthModule,
+    ParticipacoesModule,
+    NotificacoesModule,
+  ],
   controllers: [
     PucStopsController,
     MinhasColetasController,
@@ -49,6 +55,7 @@ import { XpService } from './xp/xp.service.js';
     XpAdminController,
     MissoesController,
     MissoesAdminController,
+    RegrasXpController,
   ],
   providers: [
     PucStopsService,
@@ -61,6 +68,8 @@ import { XpService } from './xp/xp.service.js';
     MissoesService,
     MissoesAdminService,
     LimpezaTentativasService,
+    RegrasXpService,
   ],
+  exports: [MissoesService, RegrasXpService],
 })
 export class GamificacaoModule {}

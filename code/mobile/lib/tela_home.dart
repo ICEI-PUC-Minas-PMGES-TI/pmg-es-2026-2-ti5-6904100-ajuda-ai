@@ -5,6 +5,7 @@ import 'models/notificacao.dart';
 import 'models/situacao_participacao.dart';
 import 'services/notificacoes_api.dart';
 import 'sessao_usuario.dart';
+import 'tela_encontros.dart';
 import 'tela_resgatar.dart';
 import 'main.dart' show estiloBarraClara;
 import 'theme/colors.dart';
@@ -466,12 +467,26 @@ class _Painel extends StatelessWidget {
           _CardPontos(),
           SizedBox(height: 16),
           _CardVinculo(),
+          SizedBox(height: 16),
+          _AtalhoEncontros(),
           SizedBox(height: 24),
           _ExplorarMapa(),
         ],
       ),
     );
   }
+}
+
+class _AtalhoEncontros extends StatelessWidget {
+  const _AtalhoEncontros();
+
+  @override
+  Widget build(BuildContext context) => OutlinedButton.icon(
+    icon: const Icon(Icons.event_outlined),
+    label: const Text('Encontros'),
+    onPressed: () => Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => const TelaEncontros())),
+  );
 }
 
 class _Cartao extends StatelessWidget {

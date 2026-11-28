@@ -42,6 +42,7 @@ export const REQUISITOS_MISSAO = [
   'FEED_CURTIDAS',
   'CHAT_MENSAGENS',
   'CODIGO',
+  'ENCONTRO',
 ] as const;
 export type RequisitoMissao = (typeof REQUISITOS_MISSAO)[number];
 
@@ -51,6 +52,7 @@ export const REQUISITOS_CONTADOS: readonly RequisitoMissao[] = [
   'FEED_COMENTARIOS',
   'FEED_CURTIDAS',
   'CHAT_MENSAGENS',
+  'ENCONTRO',
 ];
 
 export const QUANTIDADE_MISSAO_MAX = 20;

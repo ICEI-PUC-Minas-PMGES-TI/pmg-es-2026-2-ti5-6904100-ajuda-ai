@@ -6,7 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { DataSource } from 'typeorm';
+import { DataSource, type QueryRunner } from 'typeorm';
 import { SCHEMA_MAPA, schemaPostgis } from '../../mapa/postgis.js';
 import { notificacaoNivel } from '../../notificacoes/notificacoes.js';
 import { NotificacoesService } from '../../notificacoes/notificacoes.service.js';
@@ -18,7 +18,11 @@ import {
   schemaUsuarios,
   travarCarteira,
 } from '../gamificacao.js';
-import { creditarGanho, usoDoCiclo } from '../ganhos.js';
+import { creditarGanho, usoDoCiclo, type GanhoCreditado } from '../ganhos.js';
+import {
+  RegrasXpService,
+  type RegraVigente,
+} from '../regras-xp/regras-xp.service.js';
 import type {
   AlvoMissaoDto,
   ConclusaoMissaoDto,
@@ -60,6 +64,14 @@ const g = `"${SCHEMA_GAMIFICACAO}"`;
 const mp = `"${SCHEMA_MAPA}"`;
 
 const SEM_ACESSO_EXTRA: AcessoMissoes = { podePublicar: false, temPar: false };
+const ACAO_DA_MISSAO: Record<string, string> = {
+  ENCONTRO: 'MISSAO_ENCONTRO',
+  PUCSTOPS: 'MISSAO_PUCSTOPS',
+};
+
+function acaoDaMissao(requisito: string | null): string | null {
+  return (requisito && ACAO_DA_MISSAO[requisito]) ?? null;
+}
 
 interface LinhaMissaoAluno {
   id: string;
@@ -76,6 +88,7 @@ interface LinhaMissaoAluno {
   conclusao_id: string | null;
   xp_configurado: number | null;
   xp_creditado: number | null;
+  xp_devido: number | null;
   concluida_em: Date | null;
   alvo_id: string | null;
   alvo_nome: string | null;
@@ -93,6 +106,16 @@ interface ConclusaoAnterior {
   id: string;
   xp_creditado: number;
   criado_em: Date;
+}
+
+interface MissaoDeEncontro {
+  id: string;
+  titulo: string;
+  tipo: TipoMissao;
+  xp: number;
+  quantidade: number;
+  ciclo: string;
+  semana: string | null;
 }
 
 function jaConcluida(tipo: TipoMissao, anterior?: ConclusaoAnterior) {
@@ -150,6 +173,9 @@ export class MissoesService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly notificacoes: NotificacoesService,
+    private readonly regrasXp: RegrasXpService = new RegrasXpService(
+      dataSource,
+    ),
   ) {}
 
   private async geo(
@@ -202,6 +228,7 @@ export class MissoesService {
           `(${sqlProgresso('m', this.u)})::int AS progresso, ` +
           `(CASE WHEN m."requisito" = 'PUCSTOPS' THEN ${sqlPucstopsDisponiveis('m')} ELSE 0 END)::int AS disponiveis, ` +
           `c."id" AS conclusao_id, c."xp_configurado", c."xp_creditado", c."criado_em" AS concluida_em, ` +
+          `(c."evidencia"->>'xpDevido')::int AS xp_devido, ` +
           `COALESCE(ps."nome", ev."titulo") AS alvo_nome, ev."inicio" AS alvo_inicio, ev."fim" AS alvo_fim, ` +
           `COALESCE(ps."ativo", ev."ativo") AS alvo_ativo, ${centro('Y')} AS alvo_latitude, ${centro('X')} AS alvo_longitude, ` +
           `COALESCE(lp."nome", la."nome") AS alvo_local ` +
@@ -222,10 +249,65 @@ export class MissoesService {
       ) as Promise<LinhaMissaoAluno[]>,
       usoDoCiclo(this.dataSource, usuarioId, ciclo),
     ]);
+    const acoesPendentes = [
+      ...new Set(
+        linhas
+          .filter((m) => m.conclusao_id === null)
+          .map((m) => acaoDaMissao(m.requisito))
+          .filter((acao): acao is string => acao !== null),
+      ),
+    ];
+    const regrasDaMissao = acoesPendentes.length
+      ? await this.regrasXp.configuracoesVigentes(
+          acoesPendentes,
+          this.dataSource,
+          ciclo,
+        )
+      : [];
+    const bloqueadas = new Set<string>();
+    for (const regra of regrasDaMissao) {
+      if (
+        !(await this.regraPermite(
+          this.dataSource,
+          usuarioId,
+          ciclo,
+          regra,
+          acesso.papel,
+        ))
+      ) {
+        bloqueadas.add(regra.acao);
+      }
+    }
+    const efetivoDePucStop = new Map<string, number>();
+    for (const l of linhas) {
+      if (l.requisito !== 'PUCSTOPS' || l.conclusao_id !== null) continue;
+      const meta = metaEfetiva(
+        l.requisito,
+        l.quantidade,
+        Number(l.progresso),
+        Number(l.disponiveis),
+      );
+      if (Number(l.progresso) < meta) continue;
+      const recompensa = await this.xpDaMissaoDePucStop(
+        this.dataSource,
+        usuarioId,
+        { id: l.id, ciclo, xp: l.xp },
+        meta,
+        acesso.papel,
+      );
+      efetivoDePucStop.set(l.id, recompensa.xp);
+    }
     const instante = agora.getTime();
     const missoes = linhas.map((l): MissaoAlunoDto => {
       const concluida = l.conclusao_id !== null;
-      const previsto = concluida ? 0 : xpPrevisto(l.xp, l.tipo, uso);
+      const deEncontro = l.requisito === 'ENCONTRO';
+      const acao = acaoDaMissao(l.requisito);
+      const regra = regrasDaMissao.find((r) => r.acao === acao);
+      const xp = acao ? (l.xp_configurado ?? regra?.valorXp ?? l.xp) : l.xp;
+      const previsto =
+        concluida || (acao !== null && bloqueadas.has(acao))
+          ? 0
+          : xpPrevisto(efetivoDePucStop.get(l.id) ?? xp, l.tipo, uso);
       const contada = REQUISITOS_CONTADOS.includes(l.requisito);
       const meta = metaEfetiva(
         l.requisito,
@@ -238,6 +320,7 @@ export class MissoesService {
       const comCodigo = l.requisito === 'CODIGO' || l.requisito === 'EVENTO';
       const pronta =
         !concluida &&
+        !deEncontro &&
         (contada
           ? atual >= meta
           : l.requisito === 'EVENTO'
@@ -254,12 +337,12 @@ export class MissoesService {
         descricao: l.descricao,
         tipo: l.tipo,
         requisito: l.requisito,
-        xp: l.xp,
-        moedas: moedasPorXp(l.xp),
+        xp,
+        moedas: moedasPorXp(xp),
         fim: l.fim?.toISOString() ?? null,
         status: concluida
           ? 'concluida'
-          : previsto < l.xp
+          : previsto < xp
             ? 'limitada'
             : 'disponivel',
         xpPrevisto: previsto,
@@ -279,7 +362,7 @@ export class MissoesService {
               id: l.conclusao_id!,
               xp: l.xp_creditado!,
               moedas: moedasPorXp(l.xp_creditado!),
-              limitado: l.xp_creditado! < l.xp_configurado!,
+              limitado: l.xp_creditado! < (l.xp_devido ?? l.xp_configurado!),
               concluidaEm: l.concluida_em!.toISOString(),
             }
           : null,
@@ -323,6 +406,197 @@ export class MissoesService {
       );
     }
     return resultado;
+  }
+
+  async missoesCumpridasPorEncontro(
+    qr: QueryRunner,
+    usuarioId: number,
+    encontroId: string,
+    ciclo: string,
+    papel: NonNullable<AcessoMissoes['papel']>,
+  ): Promise<MissaoDeEncontro[]> {
+    const semana = semanaDe(new Date());
+    const publico = sqlMissaoAlcancavel('m', {
+      podePublicar: false,
+      temPar: true,
+      papel,
+    });
+    return (await qr.query(
+      `SELECT m."id", m."titulo", m."tipo", m."xp", m."quantidade", m."ciclo",
+        CASE WHEN m."tipo" = 'SEMANAL' THEN $3::text END AS "semana"
+       FROM ${g}."missoes" m
+       JOIN ${this.u}."encontro_realizacoes" r ON r."encontro_id" = $5
+       WHERE m."ciclo" = $4 AND m."requisito" = 'ENCONTRO'
+         AND ${sqlMissaoVisivel('m')} AND ${publico}
+         AND r."realizado_em" >= GREATEST(m."inicio", m."publicada_em",
+           CASE WHEN m."tipo" = 'SEMANAL' THEN $3::date::timestamp AT TIME ZONE 'America/Sao_Paulo' END)
+         AND (${sqlProgresso('m', this.u)}) >= m."quantidade"
+         AND NOT EXISTS (
+           SELECT 1 FROM ${g}."missoes_conclusoes" c
+           WHERE c."missao_id" = m."id" AND c."usuario_id" = $1 AND c."ciclo" = $4
+             AND c."semana" IS NOT DISTINCT FROM
+               (CASE WHEN m."tipo" = 'SEMANAL' THEN $3::date END)
+         )
+       ORDER BY m."xp" DESC, m."id" FOR SHARE OF m`,
+      [usuarioId, '', semana, ciclo, encontroId],
+    )) as MissaoDeEncontro[];
+  }
+
+  async registrarMissoesDeEncontro(
+    qr: QueryRunner,
+    usuarioId: number,
+    encontroId: string,
+    missoes: readonly MissaoDeEncontro[],
+    recompensar: boolean,
+    regra: RegraVigente | null,
+  ): Promise<void> {
+    for (const [indice, missao] of missoes.entries()) {
+      const ganho =
+        recompensar && indice === 0
+          ? await this.creditarMissao(qr, usuarioId, missao, missao.semana)
+          : null;
+      await this.registrarConclusao(
+        qr,
+        usuarioId,
+        missao,
+        missao.semana,
+        ganho,
+        {
+          requisito: 'ENCONTRO',
+          encontroId,
+          atual: missao.quantidade,
+          meta: missao.quantidade,
+          ...(regra && {
+            regraXpId: regra.regraId,
+            regraXpVersao: regra.versao,
+          }),
+        },
+      );
+    }
+  }
+
+  private async regraPermite(
+    executor: Pick<DataSource, 'query'>,
+    usuarioId: number,
+    ciclo: string,
+    regra: RegraVigente,
+    papel: AcessoMissoes['papel'],
+  ): Promise<boolean> {
+    return (
+      (regra.elegibilidade === 'todos' || regra.elegibilidade === papel) &&
+      (await this.dentroDoLimiteDaRegra(executor, usuarioId, ciclo, regra))
+    );
+  }
+
+  async dentroDoLimiteDaRegra(
+    executor: Pick<DataSource, 'query'>,
+    usuarioId: number,
+    ciclo: string,
+    regra: RegraVigente,
+  ): Promise<boolean> {
+    if (regra.limiteRepeticoes === null) return true;
+    const [{ total }] = (await executor.query(
+      `SELECT count(*)::int AS total FROM ${g}."missoes_conclusoes"
+       WHERE "usuario_id" = $1 AND "ciclo" = $2 AND "evidencia"->>'regraXpId' = $3 AND "xp_creditado" > 0`,
+      [usuarioId, ciclo, String(regra.regraId)],
+    )) as Array<{ total: number }>;
+    return total < regra.limiteRepeticoes;
+  }
+
+  private async xpDaMissaoDePucStop(
+    qr: Pick<DataSource, 'query'>,
+    usuarioId: number,
+    missao: { id: string; ciclo: string; xp: number },
+    meta: number,
+    papel: AcessoMissoes['papel'] = null,
+  ): Promise<{
+    xp: number;
+    xpConfigurado: number;
+    coletaId: string;
+    regra: RegraVigente | null;
+  }> {
+    const [coleta] = (await qr.query(
+      `SELECT c."id"::text AS id, c."xp" FROM ${g}."pucstop_coletas" c
+       JOIN ${g}."missoes" m ON m."id" = $2 AND c."ciclo" = m."ciclo"
+       WHERE c."usuario_id" = $1 AND (m."pucstops" IS NULL OR c."pucstop_id" = ANY(m."pucstops"))
+       ORDER BY c."coletado_em", c."id" LIMIT 1 OFFSET $3`,
+      [usuarioId, missao.id, meta - 1],
+    )) as Array<{ id: string; xp: number }>;
+    const acoes = ['VISITA_PUCSTOP', 'MISSAO_PUCSTOPS'] as const;
+    const regras = await this.regrasXp.configuracoesVigentes(
+      acoes,
+      qr,
+      missao.ciclo,
+    );
+    const combina = regras.some((r) =>
+      r.combinavelCom.includes(r.acao === acoes[0] ? acoes[1] : acoes[0]),
+    );
+    const [{ jaCreditado }] = (await qr.query(
+      `SELECT COALESCE(sum("xp_creditado"), 0)::int AS "jaCreditado" FROM ${g}."missoes_conclusoes"
+       WHERE "usuario_id" = $1 AND "ciclo" = $2 AND "evidencia"->>'coletaId' = $3`,
+      [usuarioId, missao.ciclo, coleta.id],
+    )) as Array<{ jaCreditado: number }>;
+    const regra = regras.find((r) => r.acao === acoes[1]) ?? null;
+    const xpConfigurado = regra?.valorXp ?? missao.xp;
+    const permitida =
+      !regra ||
+      (await this.regraPermite(qr, usuarioId, missao.ciclo, regra, papel));
+    return {
+      xp: permitida
+        ? Math.max(0, xpConfigurado - (combina ? 0 : coleta.xp) - jaCreditado)
+        : 0,
+      xpConfigurado,
+      coletaId: coleta.id,
+      regra,
+    };
+  }
+
+  private creditarMissao(
+    qr: QueryRunner,
+    usuarioId: number,
+    missao: { id: string; titulo: string; xp: number; ciclo: string },
+    semana: string | null,
+  ) {
+    return creditarGanho(qr, {
+      usuarioId,
+      fonte: 'MISSAO',
+      xp: missao.xp,
+      recorrenteSemanal: semana !== null,
+      ciclo: missao.ciclo,
+      referenciaTipo: semana ? 'MISSAO_SEMANAL' : 'MISSAO',
+      referenciaId: missao.id,
+      descricao: `Missão: ${missao.titulo}`.slice(0, 200),
+      chaveIdempotencia: chaveConclusao(
+        missao.id,
+        usuarioId,
+        semana ?? missao.ciclo,
+      ),
+    });
+  }
+
+  private async registrarConclusao(
+    qr: QueryRunner,
+    usuarioId: number,
+    missao: { id: string; xp: number; ciclo: string },
+    semana: string | null,
+    ganho: GanhoCreditado | null,
+    evidencia: Record<string, unknown>,
+  ) {
+    const [conclusao] = (await qr.query(
+      `INSERT INTO ${g}."missoes_conclusoes" ("missao_id", "usuario_id", "ciclo", "semana", "xp_configurado", "xp_creditado", "movimentacao_id", "evidencia") ` +
+        `VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8::jsonb) RETURNING "id", "criado_em"`,
+      [
+        missao.id,
+        usuarioId,
+        missao.ciclo,
+        semana,
+        missao.xp,
+        ganho?.xp ?? 0,
+        ganho?.movimentacao?.movimentacaoId ?? null,
+        JSON.stringify(evidencia),
+      ],
+    )) as Array<{ id: string; criado_em: Date }>;
+    return conclusao;
   }
 
   private async concluirNaTransacao(
@@ -395,8 +669,16 @@ export class MissoesService {
         [missao.id, usuarioId, semanal ? semana : ciclo],
       )) as ConclusaoAnterior[];
       if (anterior) throw jaConcluida(missao.tipo, anterior);
+      if (missao.requisito === 'ENCONTRO') {
+        throw recusa(
+          'presenca-necessaria',
+          'Confirme a presença pelo encontro para concluir esta missão.',
+        );
+      }
 
       let evidencia: Record<string, unknown>;
+      let xp = missao.xp;
+      let xpConfigurado = missao.xp;
       const conferirCodigo = async () => {
         exigirCodigoLiberado(missao);
         await exigirTentativasDeCodigo(qr, missao.id, usuarioId);
@@ -442,7 +724,7 @@ export class MissoesService {
         evidencia = { codigo: true, codigoUsado };
       } else {
         const email = await this.emailDe((s, p) => qr.query(s, p), usuarioId);
-        evidencia = await verificarContagem(
+        const contagem = await verificarContagem(
           qr,
           this.u,
           missao,
@@ -450,6 +732,24 @@ export class MissoesService {
           email,
           semanaAtual,
         );
+        evidencia = contagem;
+        if (missao.requisito === 'PUCSTOPS') {
+          const recompensa = await this.xpDaMissaoDePucStop(
+            qr,
+            usuarioId,
+            missao,
+            contagem.meta,
+            acesso.papel,
+          );
+          xp = recompensa.xp;
+          xpConfigurado = recompensa.xpConfigurado;
+          evidencia.coletaId = recompensa.coletaId;
+          evidencia.xpDevido = recompensa.xp;
+          if (recompensa.regra) {
+            evidencia.regraXpId = recompensa.regra.regraId;
+            evidencia.regraXpVersao = recompensa.regra.versao;
+          }
+        }
       }
 
       const [{ xp_acumulado: xpAntes }] = (await qr.query(
@@ -457,52 +757,38 @@ export class MissoesService {
         [usuarioId],
       )) as Array<{ xp_acumulado: number }>;
 
-      const ganho = await creditarGanho(qr, {
+      const ganho =
+        xp > 0
+          ? await this.creditarMissao(qr, usuarioId, { ...missao, xp }, semana)
+          : null;
+      const conclusao = await this.registrarConclusao(
+        qr,
         usuarioId,
-        fonte: 'MISSAO',
-        xp: missao.xp,
-        recorrenteSemanal: semanal,
-        ciclo,
-        referenciaTipo: semanal ? 'MISSAO_SEMANAL' : 'MISSAO',
-        referenciaId: missao.id,
-        descricao: `Missão: ${missao.titulo}`.slice(0, 200),
-        chaveIdempotencia: chaveConclusao(
-          missao.id,
-          usuarioId,
-          semanal ? semana! : ciclo,
-        ),
-      });
-      const [conclusao] = (await qr.query(
-        `INSERT INTO ${g}."missoes_conclusoes" ("missao_id", "usuario_id", "ciclo", "semana", "xp_configurado", "xp_creditado", "movimentacao_id", "evidencia") ` +
-          `VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8::jsonb) RETURNING "id", "criado_em"`,
-        [
-          missao.id,
-          usuarioId,
-          ciclo,
-          semana,
-          missao.xp,
-          ganho.xp,
-          ganho.movimentacao?.movimentacaoId ?? null,
-          JSON.stringify({ requisito: missao.requisito, ...evidencia }),
-        ],
-      )) as Array<{ id: string; criado_em: Date }>;
+        { ...missao, xp: xpConfigurado },
+        semana,
+        ganho,
+        {
+          requisito: missao.requisito,
+          ...evidencia,
+        },
+      );
       await qr.commitTransaction();
       this.logger.log(
-        `conclusao missao=${missao.id} usuario=${usuarioId} ciclo=${ciclo} requisito=${missao.requisito} xp=${ganho.xp}/${missao.xp}`,
+        `conclusao missao=${missao.id} usuario=${usuarioId} ciclo=${ciclo} requisito=${missao.requisito} xp=${ganho?.xp ?? 0}/${xpConfigurado}`,
       );
 
-      const xpAcumulado = ganho.movimentacao?.xpAcumulado ?? xpAntes;
+      const xpAcumulado = ganho?.movimentacao?.xpAcumulado ?? xpAntes;
       const nivel = nivelDe(xpAcumulado);
       const subiuDeNivel = nivel.numero > nivelDe(xpAntes).numero;
       return {
         missaoId: missao.id,
         conclusaoId: conclusao.id,
-        xpConfigurado: ganho.xpConfigurado,
-        xp: ganho.xp,
-        moedas: ganho.moedas,
-        limitado: ganho.limitado,
-        teto: ganho.teto === 'totens' ? null : ganho.teto,
-        saldoMoedas: ganho.movimentacao?.saldo ?? saldoAntes,
+        xpConfigurado,
+        xp: ganho?.xp ?? 0,
+        moedas: ganho?.moedas ?? 0,
+        limitado: ganho?.limitado ?? false,
+        teto: ganho?.teto === 'totens' ? null : (ganho?.teto ?? null),
+        saldoMoedas: ganho?.movimentacao?.saldo ?? saldoAntes,
         xpAcumulado,
         nivel,
         subiuDeNivel,

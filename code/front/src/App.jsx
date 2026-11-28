@@ -32,6 +32,7 @@ import ResgatesPage from './pages/coordenacao/ResgatesPage';
 import XpPage from './pages/coordenacao/XpPage';
 import RestaurantesPage from './pages/coordenacao/RestaurantesPage';
 import UsuariosPage from './pages/coordenacao/UsuariosPage';
+import RegrasXpPage from './pages/coordenacao/RegrasXpPage';
 import CampusMapPage from './pages/CampusMapPage';
 
 export default function App() {
@@ -63,6 +64,7 @@ export default function App() {
               <Route path="candidaturas" element={<CandidaturasPage />} />
               <Route path="matching" element={<MatchingPage />} />
               <Route path="usuarios" element={<UsuariosPage />} />
+              <Route path="regras-xp" element={<RegrasXpPage />} />
               <Route path="programas" element={<ProgramasPage />} />
               <Route path="matching" element={<MatchingPage />} />
               <Route path="matching/manual" element={<MatchingManualPage />} />
