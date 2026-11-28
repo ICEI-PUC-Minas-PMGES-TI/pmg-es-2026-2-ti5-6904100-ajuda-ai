@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../models/resumo_gamificacao.dart';
 import '../sessao_usuario.dart';
 import '../tela_feed.dart';
 import '../tela_home.dart';
@@ -79,27 +80,55 @@ class AppShellState extends State<AppShell>
   /// Conquista real de nível (valor do servidor): mostra a animação sobre a
   /// aba atual e confirma no servidor assim que ela aparece (não repete em
   /// outra tela, outro aparelho ou ao reabrir o app).
+  ///
+  /// Uma atualização que chega com uma celebração em andamento (na espera ou
+  /// na tela) nunca se perde: ao terminar, a rodada recomeça com o valor novo.
   Future<void> _aoConquistar() async {
-    final sessao = SessaoUsuario.atual;
-    final conquista = sessao.conquistaPendente.value;
-    if (conquista == null || _celebrando || !mounted) return;
+    if (_celebrando || !mounted) return;
     _celebrando = true;
+    var reavaliar = false;
     try {
-      // Um instante para a recompensa da coleta ("+30 XP") aparecer antes.
-      await Future<void>.delayed(const Duration(milliseconds: 900));
-      if (!mounted || sessao.conquistaPendente.value != conquista) return;
-      unawaited(sessao.confirmarConquista(conquista.para));
-      await mostrarCelebracaoNivel(
-        context,
-        numero: conquista.para,
-        nome: conquista.nome,
-        niveisAvancados: conquista.niveisAvancados,
-      );
+      reavaliar = await _celebrarPendente();
     } finally {
       _celebrando = false;
     }
+    if (reavaliar && mounted) unawaited(_aoConquistar());
+  }
+
+  static bool _mesmaConquista(ConquistaNivel a, ConquistaNivel b) =>
+      a.de == b.de && a.para == b.para && a.niveisAvancados == b.niveisAvancados;
+
+  /// Uma rodada. Devolve `true` se o estado pedir outra (a conquista mudou
+  /// enquanto esta corria); `false` se terminou ou se a vez ficou com outro
+  /// aparelho (a próxima leitura do progresso tenta de novo).
+  Future<bool> _celebrarPendente() async {
+    final sessao = SessaoUsuario.atual;
+    final conquista = sessao.conquistaPendente.value;
+    if (conquista == null) return false;
+    // Um instante para a recompensa da coleta ("+30 XP") aparecer antes.
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (!mounted) return false;
+    var atual = sessao.conquistaPendente.value;
+    if (atual == null) return false;
+    // Mudou durante a espera (comparar por valor: a leitura traz um objeto
+    // novo a cada vez): recomeça com a conquista atual.
+    if (!_mesmaConquista(atual, conquista)) return true;
+    // O servidor dá a vez a UM aparelho: sem ela, nada é exibido aqui.
+    if (!await sessao.reivindicarConquista(conquista.para) || !mounted) {
+      return false;
+    }
+    atual = sessao.conquistaPendente.value;
+    if (atual == null) return false;
+    if (!_mesmaConquista(atual, conquista)) return true;
+    unawaited(sessao.confirmarConquista(conquista.para));
+    await mostrarCelebracaoNivel(
+      context,
+      numero: conquista.para,
+      nome: conquista.nome,
+      niveisAvancados: conquista.niveisAvancados,
+    );
     // Outra conquista chegou enquanto esta estava na tela.
-    if (mounted && sessao.conquistaPendente.value != null) _aoConquistar();
+    return mounted && sessao.conquistaPendente.value != null;
   }
 
   AppDestination get atual => _atual;

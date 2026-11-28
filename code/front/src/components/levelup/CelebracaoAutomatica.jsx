@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import CelebracaoNivel from './CelebracaoNivel';
-import { deveCelebrar, enviarConfirmacao, lerGuarda, marcarExibida } from './celebracaoAluno';
-import { lerProgresso } from './progressoAluno';
+import { deveCelebrar, enviarConfirmacao, idDispositivo, lerGuarda, marcarExibida } from './celebracaoAluno';
+import { chaveSessao, lerProgresso } from './progressoAluno';
 
 /** Intervalo mínimo entre releituras ao voltar para a aba. */
 const RELEITURA_MS = 60 * 1000;
@@ -21,24 +21,38 @@ export default function CelebracaoAutomatica({ email }) {
     if (!email) return undefined;
     let ativo = true;
     let atraso;
-    const confirmar = () => enviarConfirmacao(email, (nivel) => api.confirmarCelebracaoNivel(nivel));
+    // Tudo preso à conta (`email`): com outra conta logada a chamada é
+    // recusada, nunca confirmada na sessão errada.
+    const confirmar = () => enviarConfirmacao(email, (nivel) => api.confirmarCelebracaoNivel(nivel, email));
+    const mesmaSessao = (chave) => ativo && chaveSessao() === chave;
 
     async function verificar() {
+      const chave = chaveSessao();
       ultimaLeitura.current = Date.now();
       await confirmar();
       let dados;
       try {
-        dados = await lerProgresso();
+        dados = await lerProgresso(() => api.progressoAluno(email), chave);
       } catch {
         return; // offline/servidor fora: a conquista continua pendente no servidor
       }
       const c = dados?.celebracao;
-      if (!ativo || !deveCelebrar(c, lerGuarda(email))) return;
+      // Resposta de outra sessão (logout/login durante a requisição): descarta.
+      if (!mesmaSessao(chave) || !deveCelebrar(c, lerGuarda(email))) return;
       // Um instante para a página por trás já mostrar o nível novo. A marca
       // e a confirmação acontecem só quando a animação aparece de fato.
       clearTimeout(atraso);
-      atraso = setTimeout(() => {
-        if (!ativo || !deveCelebrar(c, lerGuarda(email))) return;
+      atraso = setTimeout(async () => {
+        if (!mesmaSessao(chave) || !deveCelebrar(c, lerGuarda(email))) return;
+        // O servidor dá a vez a UM aparelho; os outros esperam (e, se ele
+        // fechar antes de exibir, a reserva expira e a vez volta).
+        try {
+          const vez = await api.reivindicarCelebracaoNivel(c.para, idDispositivo(), email);
+          if (vez?.autorizado !== true) return;
+        } catch {
+          return; // sem vez, sem animação: continua pendente no servidor
+        }
+        if (!mesmaSessao(chave) || !deveCelebrar(c, lerGuarda(email))) return;
         marcarExibida(email, c.para);
         confirmar();
         setCelebracao(c);

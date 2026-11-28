@@ -38,10 +38,29 @@ Fonte de verdade: o servidor.
   `GREATEST(atual, min(pedido, nível real))`: idempotente, nunca retrocede,
   nunca passa do XP real e não mexe em XP, moedas, ledger ou coletas.
 
+- `POST /me/xp/celebracoes/reivindicar { nivel, dispositivo }` reserva, de
+  forma atômica, a vez de exibir (migration
+  `1795600000000-ReivindicacaoCelebracoesNivel`: colunas `reivindicado_por` e
+  `reivindicado_ate`). Um único `INSERT … ON CONFLICT DO UPDATE … WHERE`
+  decide: ganha quem encontra a conquista não confirmada e sem reserva vigente
+  de OUTRO aparelho (o mesmo aparelho renova). A resposta é `{ autorizado }`; os
+  clientes só exibem a animação quando `true`. A reserva dura 120 s: se o app
+  fechar antes de exibir, ela expira e outro aparelho recupera a conquista. A
+  confirmação encerra de vez. Sem a migration responde 503 e ninguém exibe.
+
 Consequências:
 
 - recarregar a página ou reabrir o app não repete a animação;
 - quem viu no app não vê de novo na web (e vice-versa);
+- dois aparelhos que leem a mesma conquista antes de qualquer confirmação não
+  exibem a animação duplicada (só o que ganhar a reserva);
+- na web, progresso e confirmação ficam presos à sessão que os iniciou: trocar
+  de conta com uma requisição em andamento não reaproveita nem entrega o
+  progresso da conta anterior, e a confirmação é recusada (401) se a conta
+  logada não for a que viu a animação;
+- no app, uma atualização da conquista durante a espera de 900 ms (ou com a
+  animação na tela) reinicia a rodada com o valor novo, sem ficar pendente até
+  a próxima leitura;
 - subir vários níveis de uma vez gera uma só animação, do nível final, com
   "Você avançou N níveis de uma vez";
 - XP reduzido por correção administrativa não gera nova celebração ao

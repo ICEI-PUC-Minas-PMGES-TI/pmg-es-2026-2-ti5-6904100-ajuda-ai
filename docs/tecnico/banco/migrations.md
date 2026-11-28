@@ -93,6 +93,14 @@ Migrations não publicam GLBs nem importam conteúdo administrativo.
   Sprint-6. Num banco que já a aplicou com o nome antigo, adota a tabela só se
   a estrutura for idêntica (mesma conferência de `EntregaResgatesEAjustesXp`)
   e não refaz o backfill; o `down` mantém a tabela adotada.
+- `ReivindicacaoCelebracoesNivel` (`1795600000000`): duas colunas anuláveis em
+  `gamificacao.celebracoes_nivel` (`reivindicado_por`, `reivindicado_ate`) para
+  a reserva atômica da vez de exibir a celebração entre aparelhos. Sem default
+  nem reescrita de linhas; `IF NOT EXISTS` a torna repetível. Roda depois de
+  `CelebracoesNivel` (rode com `migration:run`; o script `celebracoes:aplicar`
+  aplica só a anterior). Antes dela, a reivindicação responde 503 e a
+  animação não aparece (continua pendente no servidor). Validar com PostgreSQL
+  antes de produção (`test/celebracoes.integration.spec.ts`).
 
 `ProgramaRecompensasFk` e `EntregaResgatesEAjustesXp` foram criadas como
 `1793700000000` e `1793600000000`, os mesmos timestamps de

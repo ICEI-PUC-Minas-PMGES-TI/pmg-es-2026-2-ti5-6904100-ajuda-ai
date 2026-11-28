@@ -231,6 +231,32 @@ class XpApi {
     );
   }
 
+  /// Pede a vez de exibir a animação (`POST /me/xp/celebracoes/reivindicar`).
+  /// O servidor reserva a conquista a UM aparelho por vez (a reserva expira se
+  /// ele não confirmar). `false` = outro aparelho está com ela agora.
+  Future<bool> reivindicarCelebracao(
+    String accessToken,
+    int nivel,
+    String dispositivo,
+  ) async {
+    final corpo = decodificarJson(
+      await executarRequisicao(
+        () => _client.post(
+          Uri.parse('$baseUrl/me/xp/celebracoes/reivindicar'),
+          headers: {
+            'accept': 'application/json',
+            'content-type': 'application/json',
+            'authorization': 'Bearer $accessToken',
+          },
+          body: jsonEncode({'nivel': nivel, 'dispositivo': dispositivo}),
+        ),
+        erroPadrao: 'Não foi possível reservar a conquista',
+        timeout: const Duration(seconds: 5),
+      ),
+    );
+    return corpo is Map && corpo['autorizado'] == true;
+  }
+
   /// Painel de QA: tabela real de níveis, só para contas liberadas pela API
   /// (403/404 para as demais → [ApiException]).
   Future<List<NivelTabela>> qaAcesso(String accessToken) async {

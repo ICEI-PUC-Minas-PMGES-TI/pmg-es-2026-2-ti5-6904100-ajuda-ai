@@ -44,6 +44,7 @@ import { CriaTabelasMapa1792263378657 } from '../src/migrations/1792263378657-Cr
 import { PucStopsEXpGlobal1792279161187 } from '../src/migrations/1792279161187-PucStopsEXpGlobal.js';
 import { GamificacaoNiveisMoedasCiclos1794000000000 } from '../src/migrations/1794000000000-GamificacaoNiveisMoedasCiclos.js';
 import { CelebracoesNivel1795500000000 } from '../src/migrations/1795500000000-CelebracoesNivel.js';
+import { ReivindicacaoCelebracoesNivel1795600000000 } from '../src/migrations/1795600000000-ReivindicacaoCelebracoesNivel.js';
 
 const URL_TESTE = process.env.MAPA_TEST_DB_URL;
 const SEGREDO = 'segredo-de-teste-celebracoes';
@@ -113,6 +114,11 @@ describe.skipIf(!URL_TESTE)('Celebração de nível com PostgreSQL real', () => 
   const resumo = async (conta: Conta) =>
     (await http().get('/me/xp').set('Authorization', token(conta)).expect(200))
       .body;
+  const reivindicar = (conta: Conta, nivel: number, dispositivo: string) =>
+    http()
+      .post('/me/xp/celebracoes/reivindicar')
+      .set('Authorization', token(conta))
+      .send({ nivel, dispositivo });
   const confirmar = (conta: Conta, nivel: number) =>
     http()
       .post('/me/xp/celebracoes')
@@ -191,7 +197,14 @@ describe.skipIf(!URL_TESTE)('Celebração de nível com PostgreSQL real', () => 
     await qr.connect();
     await qr.startTransaction();
     try {
-      await new CelebracoesNivel1795500000000()[sentido](qr);
+      // up: tabela e depois as colunas de reivindicação; down: o inverso.
+      if (sentido === 'up') {
+        await new CelebracoesNivel1795500000000().up(qr);
+        await new ReivindicacaoCelebracoesNivel1795600000000().up(qr);
+      } else {
+        await new ReivindicacaoCelebracoesNivel1795600000000().down(qr);
+        await new CelebracoesNivel1795500000000().down(qr);
+      }
       await qr.commitTransaction();
     } catch (e) {
       await qr.rollbackTransaction();
@@ -299,6 +312,8 @@ describe.skipIf(!URL_TESTE)('Celebração de nível com PostgreSQL real', () => 
       'usuario_id',
       'nivel_celebrado',
       'atualizado_em',
+      'reivindicado_por',
+      'reivindicado_ate',
     ]);
     // Backfill: só quem tem XP ≥ 50, com o nível que nivelDe calcula.
     expect(await celebrados()).toEqual({
@@ -385,6 +400,45 @@ describe.skipIf(!URL_TESTE)('Celebração de nível com PostgreSQL real', () => 
       [ids.concorrente],
     )) as Array<{ n: number }>;
     expect(n).toBe(1);
+  });
+
+  it('dois aparelhos disputam a mesma conquista: um só recebe a vez; expira e confirma', async () => {
+    await ajustar('limite', 100, 'disputa'); // 50 → 150: nível 3, celebrado 2
+    expect((await resumo('limite')).celebracao?.para).toBe(3);
+    const respostas = await Promise.all(
+      Array.from({ length: 12 }, (_, i) =>
+        reivindicar('limite', 3, `aparelho-${i % 2 === 0 ? 'A' : 'B'}-xxxx`),
+      ),
+    );
+    const donos = respostas.filter((r) => r.body.autorizado === true);
+    expect(respostas.every((r) => r.status === 200)).toBe(true);
+    // Todas as autorizadas são do MESMO aparelho (o dono da reserva).
+    const [{ reivindicado_por: dono }] = (await ds.query(
+      `SELECT reivindicado_por FROM gamificacao.celebracoes_nivel WHERE usuario_id = $1`,
+      [ids.limite],
+    )) as Array<{ reivindicado_por: string }>;
+    expect(donos.length).toBeGreaterThan(0);
+    const outro = dono.startsWith('aparelho-A') ? 'aparelho-B-xxxx' : 'aparelho-A-xxxx';
+    expect((await reivindicar('limite', 3, outro).expect(200)).body.autorizado).toBe(false);
+    expect((await reivindicar('limite', 3, dono).expect(200)).body.autorizado).toBe(true);
+    // App fechado antes de exibir: a reserva vence e o outro aparelho assume.
+    await ds.query(
+      `UPDATE gamificacao.celebracoes_nivel SET reivindicado_ate = now() - interval '1 second' WHERE usuario_id = $1`,
+      [ids.limite],
+    );
+    expect((await reivindicar('limite', 3, outro).expect(200)).body.autorizado).toBe(true);
+    expect((await reivindicar('limite', 3, dono).expect(200)).body.autorizado).toBe(false);
+    // Confirmada: ninguém mais recebe a vez; nível acima do real nunca.
+    await confirmar('limite', 3).expect(200);
+    expect((await reivindicar('limite', 3, outro).expect(200)).body.autorizado).toBe(false);
+    expect((await reivindicar('limite', 3, dono).expect(200)).body.autorizado).toBe(false);
+    expect((await reivindicar('limite', 9, dono).expect(200)).body.autorizado).toBe(false);
+    await http()
+      .post('/me/xp/celebracoes/reivindicar')
+      .set('Authorization', token('limite'))
+      .send({ nivel: 3 })
+      .expect(400);
+    await semCelebracaoAcimaDoReal();
   });
 
   it('coletas e confirmação ao mesmo tempo: nunca celebra acima do XP real', async () => {

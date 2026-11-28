@@ -5,6 +5,7 @@ import {
   celebracaoPara,
   confirmarCelebracao,
   nivelCelebrado,
+  reivindicarCelebracao,
 } from '../celebracoes.js';
 import { LIMITES, NIVEIS, nivelDe } from '../economia.js';
 import { SCHEMA_GAMIFICACAO, type TipoMovimentacaoXp } from '../gamificacao.js';
@@ -63,6 +64,14 @@ export class XpService {
    */
   confirmarCelebracao(usuarioId: number, nivel: number) {
     return confirmarCelebracao(this.dataSource, usuarioId, nivel);
+  }
+
+  /**
+   * Reserva, de forma atômica, a vez deste aparelho exibir a animação do
+   * nível `nivel`: só um aparelho por vez recebe `autorizado`.
+   */
+  reivindicarCelebracao(usuarioId: number, nivel: number, dispositivo: string) {
+    return reivindicarCelebracao(this.dataSource, usuarioId, nivel, dispositivo);
   }
 
   /** Tabela pública dos níveis (os apps não guardam os limiares). */

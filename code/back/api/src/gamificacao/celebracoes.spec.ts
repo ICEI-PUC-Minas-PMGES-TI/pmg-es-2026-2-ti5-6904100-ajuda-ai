@@ -3,6 +3,8 @@ import {
   celebracaoPara,
   confirmarCelebracao,
   nivelCelebrado,
+  RESERVA_CELEBRACAO_SEGUNDOS,
+  reivindicarCelebracao,
 } from './celebracoes.js';
 import { NIVEIS, nivelDe } from './economia.js';
 import { XpService } from './xp/xp.service.js';
@@ -16,13 +18,28 @@ import type { DataSource, QueryRunner } from 'typeorm';
  */
 function bancoFalso(xp: Record<number, number>, celebrados: Record<number, number> = {}) {
   const sqls: string[] = [];
+  /** Reservas vigentes (a regra do `ON CONFLICT … WHERE` da reivindicação). */
+  const reservas: Record<number, { por: string; ate: number }> = {};
+  const relogio = { agora: 1_000_000 };
   const executor = {
     sqls,
     celebrados,
     xp,
+    reservas,
+    relogio,
     query: vi.fn(async (sql: string, params: unknown[] = []) => {
       sqls.push(sql);
       const [id, valor] = params as [number, number];
+      if (sql.includes('"reivindicado_por"')) {
+        const [, por, alvo, segundos] = params as [number, string, number, number];
+        const r = reservas[id];
+        const livre = !r || r.ate <= relogio.agora || r.por === por;
+        if ((celebrados[id] ?? 1) < alvo && livre) {
+          reservas[id] = { por, ate: relogio.agora + segundos * 1000 };
+          return [{ usuario_id: id }];
+        }
+        return [];
+      }
       if (sql.includes('FROM "gamificacao"."xp_carteiras"')) {
         return id in xp ? [{ xp_acumulado: xp[id], saldo: xp[id], atualizado_em: new Date() }] : [];
       }
@@ -205,5 +222,71 @@ describe('migration CelebracoesNivel', () => {
     executado.length = 0;
     await migration.down(qr);
     expect(executado).toEqual(['DROP TABLE "gamificacao"."celebracoes_nivel"']);
+  });
+});
+
+describe('reivindicação atômica da celebração (aparelhos diferentes)', () => {
+  it('dois aparelhos com a mesma conquista pendente: só um recebe a vez', async () => {
+    const banco = bancoFalso({ 7: 160 }, { 7: 1 }); // nível 3, nada celebrado
+    const [a, b] = await Promise.all([
+      reivindicarCelebracao(banco, 7, 3, 'aparelho-A'),
+      reivindicarCelebracao(banco, 7, 3, 'aparelho-B'),
+    ]);
+    expect([a.autorizado, b.autorizado].filter(Boolean)).toHaveLength(1);
+  });
+
+  it('o aparelho dono pode repetir; o outro continua esperando', async () => {
+    const banco = bancoFalso({ 7: 160 }, { 7: 1 });
+    expect((await reivindicarCelebracao(banco, 7, 3, 'aparelho-A')).autorizado).toBe(true);
+    expect((await reivindicarCelebracao(banco, 7, 3, 'aparelho-A')).autorizado).toBe(true);
+    expect((await reivindicarCelebracao(banco, 7, 3, 'aparelho-B')).autorizado).toBe(false);
+  });
+
+  it('app fechado antes de exibir: a reserva expira e o outro aparelho recupera a conquista', async () => {
+    const banco = bancoFalso({ 7: 160 }, { 7: 1 });
+    await reivindicarCelebracao(banco, 7, 3, 'aparelho-A');
+    banco.relogio.agora += (RESERVA_CELEBRACAO_SEGUNDOS - 1) * 1000;
+    expect((await reivindicarCelebracao(banco, 7, 3, 'aparelho-B')).autorizado).toBe(false);
+    banco.relogio.agora += 2000;
+    expect((await reivindicarCelebracao(banco, 7, 3, 'aparelho-B')).autorizado).toBe(true);
+  });
+
+  it('depois de confirmada, ninguém mais recebe a vez', async () => {
+    const banco = bancoFalso({ 7: 160 }, { 7: 1 });
+    await reivindicarCelebracao(banco, 7, 3, 'aparelho-A');
+    await confirmarCelebracao(banco, 7, 3);
+    expect((await reivindicarCelebracao(banco, 7, 3, 'aparelho-A')).autorizado).toBe(false);
+    expect((await reivindicarCelebracao(banco, 7, 3, 'aparelho-B')).autorizado).toBe(false);
+  });
+
+  it('nível acima do real, nível 1 ou sem carteira: nada a reivindicar (sem tocar no banco)', async () => {
+    const banco = bancoFalso({ 7: 60 }, { 7: 1 }); // nível 2
+    expect((await reivindicarCelebracao(banco, 7, 5, 'aparelho-A')).autorizado).toBe(false);
+    expect((await reivindicarCelebracao(banco, 7, 1, 'aparelho-A')).autorizado).toBe(false);
+    expect((await reivindicarCelebracao(banco, 99, 2, 'aparelho-A')).autorizado).toBe(false);
+    expect(banco.sqls.some((s) => s.includes('"reivindicado_por"'))).toBe(false);
+  });
+
+  it('a reivindicação não toca em XP, moedas nem ledger', async () => {
+    const banco = bancoFalso({ 7: 160 }, { 7: 1 });
+    await reivindicarCelebracao(banco, 7, 3, 'aparelho-A');
+    const escrita = banco.sqls.filter((s) => !s.startsWith('SELECT'));
+    expect(escrita).toHaveLength(1);
+    expect(escrita[0]).toMatch(/ON CONFLICT[\s\S]*WHERE/);
+    expect(escrita.join()).not.toMatch(/xp_carteiras|xp_movimentacoes|pucstop_coletas/);
+  });
+
+  it('migration pendente (tabela ou colunas ausentes) vira indisponibilidade', async () => {
+    for (const code of ['42P01', '42703']) {
+      const banco = {
+        query: async (sql: string) =>
+          sql.startsWith('SELECT')
+            ? [{ xp_acumulado: 100 }]
+            : Promise.reject({ driverError: { code } }),
+      };
+      await expect(reivindicarCelebracao(banco, 1, 2, 'aparelho-A')).rejects.toBeInstanceOf(
+        CelebracaoIndisponivelError,
+      );
+    }
   });
 });

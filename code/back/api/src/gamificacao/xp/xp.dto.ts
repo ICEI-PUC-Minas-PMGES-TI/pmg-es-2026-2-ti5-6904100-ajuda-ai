@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsDefined, IsInt, IsOptional, Max, Min } from 'class-validator';
+import {
+  IsDefined,
+  IsInt,
+  IsOptional,
+  IsString,
+  Length,
+  Max,
+  Min,
+} from 'class-validator';
 import type { CelebracaoNivelDto } from '../celebracoes.js';
 import type { NivelDto } from '../economia.js';
 import type { TipoMovimentacaoXp } from '../gamificacao.js';
@@ -41,6 +49,20 @@ export class ConfirmarCelebracaoDto {
   @Min(1)
   @Max(1000)
   nivel!: number;
+}
+
+/** Corpo de `POST /me/xp/celebracoes/reivindicar`. */
+export class ReivindicarCelebracaoDto {
+  @IsDefined()
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  nivel!: number;
+
+  /** Identifica o aparelho/aba que quer exibir a animação (gerado pelo cliente). */
+  @IsString()
+  @Length(8, 64)
+  dispositivo!: string;
 }
 
 /** Item de `GET /gamificacao/niveis`. */

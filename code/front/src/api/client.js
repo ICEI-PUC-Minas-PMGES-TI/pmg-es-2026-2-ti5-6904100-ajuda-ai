@@ -481,12 +481,20 @@ export const api = {
     return requestMapa('/coordenacao/pucstops/orcamento');
   },
   /** Progresso do aluno logado: nível, XP acumulado, moedas e tetos (BL-50). */
-  progressoAluno() {
-    return request('/me/xp', { aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  progressoAluno(email) {
+    return request('/me/xp', { aluno: email || getAlunoSession()?.email || '__sem_sessao__' });
   },
-  /** A animação do nível foi exibida: não volta a aparecer (só avança, nunca concede XP). */
-  confirmarCelebracaoNivel(nivel) {
-    return request('/me/xp/celebracoes', { method: 'POST', body: { nivel }, aluno: getAlunoSession()?.email || '__sem_sessao__' });
+  /**
+   * A animação do nível foi exibida: não volta a aparecer (só avança, nunca concede XP).
+   * `email` prende a chamada à conta que viu a animação: com outra conta logada
+   * a requisição é recusada (401) em vez de confirmar na sessão errada.
+   */
+  confirmarCelebracaoNivel(nivel, email) {
+    return request('/me/xp/celebracoes', { method: 'POST', body: { nivel }, aluno: email || getAlunoSession()?.email || '__sem_sessao__' });
+  },
+  /** Pede ao servidor a vez de exibir a animação (só um aparelho recebe `autorizado`). */
+  reivindicarCelebracaoNivel(nivel, dispositivo, email) {
+    return request('/me/xp/celebracoes/reivindicar', { method: 'POST', body: { nivel, dispositivo }, aluno: email || getAlunoSession()?.email || '__sem_sessao__' });
   },
   /** Painel de QA da gamificação: 200 só para contas autorizadas no servidor. */
   qaGamificacaoAcesso() {

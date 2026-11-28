@@ -40,6 +40,22 @@ function gravarGuarda(email, dados, armazenamento = globalThis.localStorage) {
   }
 }
 
+let idInstancia = null;
+
+/**
+ * Identifica esta aba/instância perante o servidor na reivindicação da
+ * celebração (dois aparelhos ou abas nunca compartilham o id).
+ */
+export function idDispositivo(armazenamento = globalThis.sessionStorage) {
+  try {
+    const salvo = armazenamento?.getItem(PREFIXO + 'dispositivo');
+    if (salvo) return salvo;
+  } catch { /* sem sessionStorage: vale o da instância */ }
+  idInstancia ??= (globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`);
+  try { armazenamento?.setItem(PREFIXO + 'dispositivo', idInstancia); } catch { /* idem */ }
+  return idInstancia;
+}
+
 /** A celebração devolvida pelo servidor deve ser exibida agora? */
 export function deveCelebrar(celebracao, guarda, agora = Date.now()) {
   if (!celebracao || !Number.isInteger(celebracao.para) || celebracao.para <= (celebracao.de ?? 0)) return false;
@@ -69,8 +85,9 @@ export async function enviarConfirmacao(email, enviar, armazenamento) {
     gravarGuarda(email, { ...guarda, pendente: false }, armazenamento);
     return true;
   } catch (erro) {
-    // 4xx (ex.: conta sem XP): não adianta insistir.
-    if (erro?.status >= 400 && erro.status < 500) {
+    // 4xx (ex.: conta sem XP): não adianta insistir. 401 não conta: é sessão
+    // expirada ou de outra conta, e a confirmação continua valendo depois.
+    if (erro?.status >= 400 && erro.status < 500 && erro.status !== 401) {
       gravarGuarda(email, { ...guarda, pendente: false }, armazenamento);
     }
     return false;

@@ -29,6 +29,12 @@ function tabelaAusente(erro: unknown): boolean {
   return (e as { code?: string })?.code === '42P01';
 }
 
+/** Coluna ainda não criada (migration ReivindicacaoCelebracoesNivel pendente). */
+function colunaAusente(erro: unknown): boolean {
+  const e = (erro as { driverError?: unknown })?.driverError ?? erro;
+  return (e as { code?: string })?.code === '42703';
+}
+
 /**
  * Último nível celebrado; sem linha = 1. `null` se a tabela não existe
  * (backend novo em banco antigo): sem celebração, nada quebra.
@@ -69,6 +75,55 @@ export function celebracaoPara(
 }
 
 export class CelebracaoIndisponivelError extends Error {}
+
+/** Quanto tempo a vez de exibir fica reservada a um aparelho (segundos). */
+export const RESERVA_CELEBRACAO_SEGUNDOS = 120;
+
+/**
+ * Reivindica, de forma atômica, a vez de exibir a celebração. Um único
+ * `INSERT … ON CONFLICT DO UPDATE … WHERE` decide: só ganha quem encontra a
+ * conquista ainda não confirmada E sem reserva vigente de OUTRO aparelho. O
+ * mesmo aparelho pode renovar a própria reserva. A reserva expira em
+ * {@link RESERVA_CELEBRACAO_SEGUNDOS}, então um app fechado antes de exibir
+ * não perde a conquista (ela volta a ser reivindicável); a confirmação a
+ * encerra de vez. Nunca toca em XP nem moedas e nunca autoriza acima do nível real.
+ */
+export async function reivindicarCelebracao(
+  executor: Executor,
+  usuarioId: number,
+  nivelPedido: number,
+  dispositivo: string,
+): Promise<{ autorizado: boolean }> {
+  const [carteira] = (await executor.query(
+    `SELECT "xp_acumulado" FROM ${g}."xp_carteiras" WHERE "usuario_id" = $1`,
+    [usuarioId],
+  )) as Array<{ xp_acumulado: number }>;
+  const real = nivelDe(carteira?.xp_acumulado ?? 0).numero;
+  const alvo = Math.floor(nivelPedido);
+  // Sem conquista real a celebrar (nível pedido além do real ou o 1): nada a reivindicar.
+  if (alvo < 2 || alvo > real) return { autorizado: false };
+  const t = `${g}."celebracoes_nivel"`;
+  try {
+    const linhas = (await executor.query(
+      `INSERT INTO ${t} ("usuario_id", "nivel_celebrado", "reivindicado_por", "reivindicado_ate") ` +
+        `VALUES ($1, 1, $2, now() + make_interval(secs => $4)) ` +
+        `ON CONFLICT ("usuario_id") DO UPDATE SET ` +
+        `"reivindicado_por" = EXCLUDED."reivindicado_por", ` +
+        `"reivindicado_ate" = EXCLUDED."reivindicado_ate" ` +
+        `WHERE ${t}."nivel_celebrado" < $3 ` +
+        `AND (${t}."reivindicado_ate" IS NULL OR ${t}."reivindicado_ate" <= now() ` +
+        `OR ${t}."reivindicado_por" = EXCLUDED."reivindicado_por") ` +
+        `RETURNING "usuario_id"`,
+      [usuarioId, dispositivo, alvo, RESERVA_CELEBRACAO_SEGUNDOS],
+    )) as Array<{ usuario_id: number }>;
+    return { autorizado: linhas.length > 0 };
+  } catch (erro) {
+    if (!tabelaAusente(erro) && !colunaAusente(erro)) throw erro;
+    throw new CelebracaoIndisponivelError(
+      'Celebração de nível indisponível (migration pendente).',
+    );
+  }
+}
 
 /**
  * Confirma que a conquista foi exibida. Idempotente e monotônico: grava

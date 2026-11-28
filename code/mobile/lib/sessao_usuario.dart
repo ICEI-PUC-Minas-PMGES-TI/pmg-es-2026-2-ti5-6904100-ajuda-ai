@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 
 import 'dados_cadastro.dart';
@@ -152,6 +154,18 @@ class SessaoUsuario {
   /// vezes, mesmo se a confirmação ainda não chegou ao servidor.
   int _nivelExibido = 0;
 
+  /// Identifica este aparelho (esta execução do app) perante o servidor na
+  /// reivindicação da celebração; dois aparelhos nunca compartilham o id.
+  final String _idDispositivo = _novoIdDispositivo();
+
+  static String _novoIdDispositivo() {
+    final aleatorio = Random.secure();
+    return List.generate(
+      16,
+      (_) => aleatorio.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+  }
+
   /// Confirmação que falhou (sem rede): reenviada na próxima leitura.
   int? _confirmacaoPendente;
 
@@ -171,6 +185,26 @@ class SessaoUsuario {
       if (versao == _versaoConta) qaGamificacao.value = true;
     } catch (_) {
       if (versao == _versaoConta) qaGamificacao.value = false;
+    }
+  }
+
+  /// Pede ao servidor a vez de exibir a animação do nível [nivel]. Só um
+  /// aparelho por vez recebe; qualquer falha (sem rede, conta trocada, servidor
+  /// sem a reserva) vale como "não": a conquista segue pendente no servidor e
+  /// é tentada de novo na próxima leitura, sem animação duplicada.
+  Future<bool> reivindicarConquista(int nivel) async {
+    final token = accessToken;
+    if (token == null) return false;
+    final versao = _versaoConta;
+    try {
+      final vez = await _xpApi.reivindicarCelebracao(
+        token,
+        nivel,
+        _idDispositivo,
+      );
+      return vez && versao == _versaoConta && accessToken == token;
+    } catch (_) {
+      return false;
     }
   }
 

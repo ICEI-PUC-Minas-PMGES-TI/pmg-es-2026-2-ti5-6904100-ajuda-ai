@@ -73,6 +73,14 @@ class _Servidor {
   int celebrado = 1;
   int xp = 60;
   final confirmacoes = <int>[];
+
+  /// Níveis para os quais este aparelho pediu a vez de exibir.
+  final reivindicacoes = <int>[];
+
+  /// Outro aparelho está com a vez (a reserva dele ainda vale).
+  final dispositivos = <String>[];
+  bool outroAparelhoComAVez = false;
+  bool reivindicacaoFalha = false;
   final simulacoes = <Uri>[];
   final escritas = <String>[];
 
@@ -95,6 +103,13 @@ class _Servidor {
               : null,
         ),
       );
+    }
+    if (r.url.path == '/me/xp/celebracoes/reivindicar') {
+      if (reivindicacaoFalha) throw http.ClientException('sem rede');
+      final corpo = jsonDecode(r.body) as Map;
+      reivindicacoes.add(corpo['nivel'] as int);
+      dispositivos.add(corpo['dispositivo'] as String);
+      return _json({'autorizado': !outroAparelhoComAVez});
     }
     if (r.url.path == '/me/xp/celebracoes') {
       if (confirmacaoFalha) throw http.ClientException('sem rede');
@@ -138,6 +153,25 @@ class _Servidor {
 }
 
 Widget _app(Widget filho) => MaterialApp(home: filho);
+
+/// Passa a espera de 900 ms, deixa a reivindicação (HTTP) responder e mostra
+/// a animação.
+Future<void> _esperarCelebracao(WidgetTester tester) async {
+  // A leitura do progresso também responde pelo laço de eventos real.
+  await tester.runAsync(
+    () => Future<void>.delayed(const Duration(milliseconds: 50)),
+  );
+  await tester.pump(const Duration(milliseconds: 10));
+  await tester.pump(const Duration(milliseconds: 950));
+  // A resposta HTTP do servidor falso usa o laço de eventos real.
+  for (var i = 0; i < 3; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump(const Duration(milliseconds: 10));
+  }
+  await tester.pump(const Duration(milliseconds: 2500));
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -251,6 +285,84 @@ void main() {
       },
     );
 
+    test('reivindicar: só autoriza quando o servidor dá a vez; falha = não', () async {
+      final servidor = _Servidor()..instalar();
+      final sessao = SessaoUsuario.atual;
+      expect(await sessao.reivindicarConquista(2), isTrue);
+      // O id do aparelho é longo e estável durante a execução do app.
+      expect(servidor.dispositivos.single.length, greaterThanOrEqualTo(8));
+      servidor.outroAparelhoComAVez = true;
+      expect(await sessao.reivindicarConquista(2), isFalse);
+      servidor
+        ..outroAparelhoComAVez = false
+        ..reivindicacaoFalha = true;
+      expect(await sessao.reivindicarConquista(2), isFalse);
+      // A reivindicação não confirma nem concede nada.
+      expect(servidor.confirmacoes, isEmpty);
+      expect(servidor.dispositivos.toSet(), hasLength(1));
+      expect(servidor.escritas.toSet(), {'POST /me/xp/celebracoes/reivindicar'});
+    });
+
+    testWidgets(
+      'outro aparelho está com a vez: não exibe nem confirma; exibe quando a vez volta',
+      (tester) async {
+        final servidor = _Servidor()..instalar();
+        servidor.outroAparelhoComAVez = true;
+        await tester.pumpWidget(
+          _app(AppShell(construtorDePagina: (d) => Text(d.name))),
+        );
+        SessaoUsuario.atual.atualizarXp();
+        await tester.pump();
+        await tester.pump();
+        await _esperarCelebracao(tester);
+        expect(servidor.reivindicacoes, [2]);
+        expect(find.text(tituloCelebracao), findsNothing);
+        expect(servidor.confirmacoes, isEmpty);
+        // Continua pendente no servidor e na sessão (nada se perde).
+        expect(SessaoUsuario.atual.conquistaPendente.value?.para, 2);
+
+        // A reserva do outro aparelho venceu: a próxima leitura tenta de novo.
+        servidor.outroAparelhoComAVez = false;
+        SessaoUsuario.atual.atualizarXp();
+        await tester.pump();
+        await tester.pump();
+        await _esperarCelebracao(tester);
+        expect(find.text(tituloCelebracao), findsOneWidget);
+        expect(servidor.confirmacoes, [2]);
+      },
+    );
+
+    testWidgets(
+      'conquista muda durante a espera de 900 ms: a rodada recomeça com a nova',
+      (tester) async {
+        final servidor = _Servidor()..instalar();
+        SessaoUsuario.atual.conquistaPendente.value = const ConquistaNivel(
+          de: 1,
+          para: 2,
+          nome: 'Curiosidade',
+        );
+        await tester.pumpWidget(
+          _app(AppShell(construtorDePagina: (d) => Text(d.name))),
+        );
+        await tester.pump(); // quadro inicial: começa a espera
+        await tester.pump(const Duration(milliseconds: 400));
+        // Atualização no meio da espera: outro objeto, subiu mais níveis.
+        SessaoUsuario.atual.conquistaPendente.value = const ConquistaNivel(
+          de: 1,
+          para: 3,
+          nome: 'Exploração',
+          niveisAvancados: 2,
+        );
+        await tester.pump(const Duration(milliseconds: 600)); // fim da 1ª espera
+        // Nada foi reivindicado/exibido da conquista velha.
+        expect(servidor.reivindicacoes, isEmpty);
+        await _esperarCelebracao(tester); // 2ª espera
+        expect(servidor.reivindicacoes, [3]);
+        expect(find.text('Nível 3 · Exploração'), findsOneWidget);
+        expect(find.text('Nível 2 · Curiosidade'), findsNothing);
+      },
+    );
+
     test('painel liberado só quando a API autoriza', () async {
       _Servidor().instalar();
       await SessaoUsuario.atual.verificarQaGamificacao();
@@ -273,8 +385,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(SessaoUsuario.atual.conquistaPendente.value?.para, 2);
-      await tester.pump(const Duration(milliseconds: 950));
-      await tester.pump(const Duration(milliseconds: 2500));
+      await _esperarCelebracao(tester);
       expect(find.text(tituloCelebracao), findsOneWidget);
       expect(find.text('Nível 2 · Curiosidade'), findsOneWidget);
       expect(find.text('Pré-visualização · sem XP real'), findsNothing);

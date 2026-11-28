@@ -14,7 +14,11 @@ import type { AuthenticatedRequest } from '../../auth/authenticated-request.js';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
 import { CelebracaoIndisponivelError } from '../celebracoes.js';
 import { usuarioDoToken } from '../gamificacao.js';
-import { ConfirmarCelebracaoDto, MovimentacoesXpQuery } from './xp.dto.js';
+import {
+  ConfirmarCelebracaoDto,
+  MovimentacoesXpQuery,
+  ReivindicarCelebracaoDto,
+} from './xp.dto.js';
 import { XpService } from './xp.service.js';
 
 /** Tabela dos 10 níveis (pública: só nomes e limiares). */
@@ -56,6 +60,31 @@ export class XpController {
       consulta.limite === undefined ? undefined : Number(consulta.limite),
       consulta.antes === undefined ? undefined : Number(consulta.antes),
     );
+  }
+
+  /**
+   * Pede a vez de exibir a animação de conquista. Responde `autorizado: true`
+   * a um único aparelho por vez (reserva curta que expira se ele não
+   * confirmar); os demais esperam. Não concede XP nem moedas.
+   */
+  @Post('celebracoes/reivindicar')
+  @HttpCode(200)
+  async reivindicarCelebracao(
+    @Req() requisicao: AuthenticatedRequest,
+    @Body() corpo: ReivindicarCelebracaoDto,
+  ) {
+    const usuarioId = await usuarioDoToken(this.dataSource, requisicao.user);
+    try {
+      return await this.xp.reivindicarCelebracao(
+        usuarioId,
+        Number(corpo.nivel),
+        corpo.dispositivo,
+      );
+    } catch (erro) {
+      if (erro instanceof CelebracaoIndisponivelError)
+        throw new ServiceUnavailableException(erro.message);
+      throw erro;
+    }
   }
 
   /**

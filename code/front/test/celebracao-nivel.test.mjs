@@ -16,7 +16,7 @@ const {
   default: CelebracaoNivel, gerarParticulas, TEMPOS_CELEBRACAO, TITULO_CELEBRACAO,
 } = await server.ssrLoadModule('/src/components/levelup/CelebracaoNivel.jsx');
 const {
-  deveCelebrar, marcarExibida, enviarConfirmacao, lerGuarda, VALIDADE_GUARDA_MS,
+  deveCelebrar, marcarExibida, enviarConfirmacao, lerGuarda, idDispositivo, VALIDADE_GUARDA_MS,
 } = await server.ssrLoadModule('/src/components/levelup/celebracaoAluno.js');
 const { lerProgresso, ouvirProgresso } = await server.ssrLoadModule('/src/components/levelup/progressoAluno.js');
 const { SONS_CONQUISTA, somSilenciado, definirSomSilenciado, ouvirSilenciado } = await server.ssrLoadModule('/src/components/levelup/sonsConquista.js');
@@ -151,6 +151,64 @@ test('leituras simultâneas do progresso viram uma requisição e avisam quem ou
   assert.equal(chamadas, 1);
   assert.equal(a, b);
   assert.deepEqual(recebidos, [60]);
+});
+
+test('troca de conta com requisição em andamento: não reaproveita nem entrega o progresso da anterior', async () => {
+  const recebidoA = [];
+  const recebidoB = [];
+  const pararA = ouvirProgresso((d) => recebidoA.push(d.xpAcumulado), 'a@puc.br|tokenA');
+  const pararB = ouvirProgresso((d) => recebidoB.push(d.xpAcumulado), 'b@puc.br|tokenB');
+  let liberarA;
+  let chamadas = 0;
+  const lentaDaA = () => { chamadas += 1; return new Promise((r) => { liberarA = () => r({ xpAcumulado: 100 }); }); };
+  const daB = () => { chamadas += 1; return Promise.resolve({ xpAcumulado: 5 }); };
+  const a = lerProgresso(lentaDaA, 'a@puc.br|tokenA');
+  // A conta B entra enquanto a requisição da A ainda não voltou.
+  const b = await lerProgresso(daB, 'b@puc.br|tokenB');
+  assert.equal(chamadas, 2); // a promessa da A NÃO foi reaproveitada pela B
+  assert.equal(b.xpAcumulado, 5);
+  assert.deepEqual(recebidoB, [5]);
+  liberarA();
+  await a;
+  pararA(); pararB();
+  assert.deepEqual(recebidoA, [100]);
+  assert.deepEqual(recebidoB, [5]); // a resposta da A nunca chega a quem ouve pela B
+});
+
+test('chamadas de progresso e confirmação ficam presas à conta: sem sessão dela, recusa sem rede', async () => {
+  const { api } = await server.ssrLoadModule('/src/api/client.js');
+  const chamadas = [];
+  const fetchOriginal = globalThis.fetch;
+  globalThis.fetch = async (...args) => { chamadas.push(args); throw new Error('não devia chamar a rede'); };
+  try {
+    for (const chamar of [
+      () => api.progressoAluno('anterior@puc.br'),
+      () => api.confirmarCelebracaoNivel(3, 'anterior@puc.br'),
+      () => api.reivindicarCelebracaoNivel(3, 'dispositivo-1', 'anterior@puc.br'),
+    ]) {
+      await assert.rejects(chamar, (e) => e.status === 401);
+    }
+  } finally {
+    globalThis.fetch = fetchOriginal;
+  }
+  assert.equal(chamadas.length, 0);
+});
+
+test('401 na confirmação (sessão trocada/expirada) mantém a pendência; outros 4xx descartam', async () => {
+  const armazenamento = memoria();
+  marcarExibida('a@puc.br', 3, armazenamento);
+  const nao = (status) => async () => { throw Object.assign(new Error('x'), { status }); };
+  assert.equal(await enviarConfirmacao('a@puc.br', nao(401), armazenamento), false);
+  assert.equal(lerGuarda('a@puc.br', armazenamento).pendente, true);
+  assert.equal(await enviarConfirmacao('a@puc.br', nao(400), armazenamento), false);
+  assert.equal(lerGuarda('a@puc.br', armazenamento).pendente, false);
+});
+
+test('id do dispositivo é estável na sessão e distinto entre instâncias de armazenamento', () => {
+  const a = memoria();
+  const primeiro = idDispositivo(a);
+  assert.ok(primeiro.length >= 8);
+  assert.equal(idDispositivo(a), primeiro);
 });
 
 test('painel de QA: faixa de XP de qualquer nível da tabela real', () => {
