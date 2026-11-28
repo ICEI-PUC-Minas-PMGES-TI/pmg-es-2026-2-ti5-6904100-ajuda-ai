@@ -11,6 +11,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { MatchingVinculoEntity } from '../../matching/entities/matching.entity.js';
+import { MatchingGrupoEntity } from '../../matching/entities/grupo.entity.js';
 import { ParticipacaoEntity } from '../../participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../../programas/entities/programa.entity.js';
 
@@ -18,6 +19,14 @@ export type EstadoMensagemChat = 'enviada' | 'entregue' | 'lida';
 
 @Entity({ name: 'chats' })
 @Index('idx_chat_programa_atualizado', ['programaId', 'atualizadoEm'])
+@Index('uq_chat_matching_vinculo', ['matchingVinculoId'], {
+  unique: true,
+  where: '"matching_vinculo_id" IS NOT NULL',
+})
+@Index('uq_chat_grupo', ['grupoId'], {
+  unique: true,
+  where: '"grupo_id" IS NOT NULL',
+})
 export class ChatEntity {
   @PrimaryGeneratedColumn()
   id!: number;
@@ -38,6 +47,18 @@ export class ChatEntity {
   })
   @JoinColumn({ name: 'matching_vinculo_id' })
   matchingVinculo!: MatchingVinculoEntity | null;
+
+  @Column({ type: 'varchar', length: 20, default: 'legado' })
+  tipo!: 'privado' | 'coletivo' | 'legado';
+  @Column({ name: 'grupo_id', type: 'int', nullable: true }) grupoId!:
+    number | null;
+  @ManyToOne(() => MatchingGrupoEntity, {
+    nullable: true,
+    onDelete: 'RESTRICT',
+  })
+  @JoinColumn({ name: 'grupo_id' })
+  grupo!: MatchingGrupoEntity | null;
+  @Column({ type: 'int', default: 0 }) revisao!: number;
 
   @Column({ type: 'varchar', length: 120, nullable: true })
   titulo!: string | null;
@@ -83,6 +104,11 @@ export class ChatParticipanteEntity {
 }
 
 @Entity({ name: 'mensagens_chat' })
+@Index(
+  'uq_chat_mensagem_cliente',
+  ['chatId', 'remetenteParticipacaoId', 'clientId'],
+  { unique: true, where: '"client_id" IS NOT NULL' },
+)
 @Index('idx_mensagem_chat_criada', ['chatId', 'criadaEm'])
 @Index('idx_mensagem_chat_estado', ['chatId', 'estado'])
 export class MensagemChatEntity {
@@ -105,6 +131,16 @@ export class MensagemChatEntity {
 
   @Column({ type: 'text' })
   texto!: string;
+  @Column({
+    name: 'remetente_nome',
+    type: 'varchar',
+    length: 160,
+    nullable: true,
+  })
+  remetenteNome!: string | null;
+
+  @Column({ name: 'client_id', type: 'uuid', nullable: true }) clientId!:
+    string | null;
 
   @Column({ name: 'estado', type: 'varchar', length: 20, default: 'enviada' })
   estado!: EstadoMensagemChat;
@@ -117,4 +153,56 @@ export class MensagemChatEntity {
 
   @CreateDateColumn({ name: 'criada_em', type: 'timestamptz' })
   criadaEm!: Date;
+}
+
+/** Uma saída encerra o intervalo; uma volta cria outro, sem revelar o intervalo ausente. */
+@Entity({ name: 'chat_periodos' })
+@Index('idx_chat_periodo_pessoa', ['participacaoId', 'chatId'])
+@Index('uq_chat_periodo_aberto', ['chatId', 'participacaoId'], {
+  unique: true,
+  where: '"ate_mensagem_id" IS NULL',
+})
+export class ChatPeriodoEntity {
+  @PrimaryGeneratedColumn() id!: number;
+  @Column({ name: 'chat_id', type: 'int' }) chatId!: number;
+  @ManyToOne(() => ChatEntity, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'chat_id' })
+  chat!: ChatEntity;
+  @Column({ name: 'participacao_id', type: 'int' }) participacaoId!: number;
+  @ManyToOne(() => ParticipacaoEntity, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'participacao_id' })
+  participacao!: ParticipacaoEntity;
+  @Column({ name: 'apos_mensagem_id', type: 'int', default: 0 })
+  aposMensagemId!: number;
+  @Column({ name: 'ate_mensagem_id', type: 'int', nullable: true })
+  ateMensagemId!: number | null;
+  @CreateDateColumn({ name: 'entrou_em', type: 'timestamptz' }) entrouEm!: Date;
+  @Column({ name: 'saiu_em', type: 'timestamptz', nullable: true })
+  saiuEm!: Date | null;
+}
+
+/** Recibo de cada destinatário presente no envio; o grupo não tem uma única leitura global. */
+@Entity({ name: 'chat_destinatarios' })
+@Unique('uq_chat_destinatario', ['mensagemId', 'participacaoId'])
+@Index('idx_chat_destinatario_pessoa', ['participacaoId', 'mensagemId'])
+@Index('idx_chat_destinatario_revisao', ['chatId', 'revisao'])
+export class ChatDestinatarioEntity {
+  @PrimaryGeneratedColumn() id!: number;
+  @Column({ type: 'int', default: 0 }) revisao!: number;
+  @Column({ name: 'chat_id', type: 'int' }) chatId!: number;
+  @ManyToOne(() => ChatEntity, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'chat_id' })
+  chat!: ChatEntity;
+  @Column({ name: 'mensagem_id', type: 'int' }) mensagemId!: number;
+  @ManyToOne(() => MensagemChatEntity, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'mensagem_id' })
+  mensagem!: MensagemChatEntity;
+  @Column({ name: 'participacao_id', type: 'int' }) participacaoId!: number;
+  @ManyToOne(() => ParticipacaoEntity, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'participacao_id' })
+  participacao!: ParticipacaoEntity;
+  @Column({ name: 'entregue_em', type: 'timestamptz', nullable: true })
+  entregueEm!: Date | null;
+  @Column({ name: 'lida_em', type: 'timestamptz', nullable: true })
+  lidaEm!: Date | null;
 }

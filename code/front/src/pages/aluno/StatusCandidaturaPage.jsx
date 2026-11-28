@@ -162,6 +162,7 @@ export default function StatusCandidaturaPage() {
         <div className="timeline-card-head">
           <div>
             <h2>{titulo}</h2>
+            <p>{dados.programa?.titulo || dados.programa?.codigo}</p>
             <p>{ehApadrinhado ? 'Do cadastro até a definição do seu padrinho.' : 'Do envio até o início das atividades.'}</p>
           </div>
           <Link to="/aluno/configuracoes#suporte" className="help-inline">Ajuda</Link>

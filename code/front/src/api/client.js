@@ -1,7 +1,32 @@
+import { consumirEventosChat } from './chatStream';
+
 const API_BASE =
   import.meta.env.VITE_API_URL?.replace(/\/$/, '') || 'http://localhost:3000';
 
 export const feedEventsUrl = `${API_BASE}/publicacoes/events`;
+export async function streamChatMessages(chatId, email, onEvent, signal) {
+  const token = getAlunoToken(email);
+  if (!token) throw Object.assign(new Error('Sua sessão expirou. Entre novamente.'), { status: 401 });
+  const controller = new AbortController();
+  const cancelar = () => controller.abort();
+  if (signal?.aborted) cancelar();
+  signal?.addEventListener('abort', cancelar, { once: true });
+  const prazo = setTimeout(cancelar,12000);
+  try {
+    const response = await fetch(`${API_BASE}/chats/${chatId}/events`, { headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` }, signal: controller.signal });
+    clearTimeout(prazo);
+    if (!response.ok) throw Object.assign(new Error('Não foi possível atualizar a conversa.'), { status: response.status });
+    await consumirEventosChat(response, onEvent, controller.signal);
+  } finally {
+    clearTimeout(prazo); signal?.removeEventListener('abort',cancelar); controller.abort();
+  }
+}
+
+function exigirEmailChat(email) {
+  const alvo = email || getAlunoSession()?.email;
+  if (!alvo) throw Object.assign(new Error('Entre na sua conta de aluno.'), {status:401});
+  return alvo;
+}
 
 const TOKEN_KEY = 'ajudaai.accessToken';
 const USER_KEY = 'ajudaai.usuario';
@@ -341,8 +366,8 @@ export const api = {
   liberarMatching(codigo) {
     return request(`/coordenacao/programas/liberar-matching${query({ codigo })}`, { method: 'POST' });
   },
-  executarMatching(programa) {
-    return request('/coordenacao/matching/executar', { method: 'POST', body: { programa } });
+  executarMatching(programa, operacaoId) {
+    return request('/coordenacao/matching/executar', { method: 'POST', body: { programa, operacaoId } });
   },
   execucoesMatching(programa) {
     return request(`/coordenacao/matching/execucoes${query({ programa })}`);
@@ -358,6 +383,33 @@ export const api = {
   },
   recusarSugestaoMatching(id, motivo) {
     return request(`/coordenacao/matching/sugestao/${id}/recusar`, { method: 'POST', body: { motivo } });
+  },
+  paresRecusadosMatching(programa) {
+    return request(`/coordenacao/matching/pares/recusados${query({programa})}`);
+  },
+  chats(email, programa, signal) {
+    return request(`/chats${query({ programa })}`, { aluno: exigirEmailChat(email), signal });
+  },
+  mensagensChat(id, email, { antesDe, depoisDe, signal } = {}) {
+    return request(`/chats/${id}/mensagens${query({ antesDe, depoisDe })}`, { aluno: exigirEmailChat(email), signal });
+  },
+  recibosChat(id, email, depoisDaRevisao, ateMensagemId) {
+    return request(`/chats/${id}/recibos${query({ depoisDaRevisao, ateMensagemId })}`, { aluno: exigirEmailChat(email) });
+  },
+  enviarMensagemChat(id, texto, email, clientId) {
+    return request(`/chats/${id}/mensagens`, { method: 'POST', body: { texto, clientId }, aluno: exigirEmailChat(email) });
+  },
+  gruposMatching(programa) {
+    return request(`/coordenacao/matching/grupos${query({ programa })}`);
+  },
+  destinosMatching(apadrinhadoId, vinculoOrigemId) {
+    return request(`/coordenacao/matching/destinos${query({ apadrinhadoId, vinculoOrigemId })}`);
+  },
+  transferirVinculoMatching(id, dados) {
+    return request(`/coordenacao/matching/vinculos/${id}/transferir`, { method: 'POST', body: dados });
+  },
+  reconsiderarParMatching(id, justificativa) {
+    return request(`/coordenacao/matching/pares/${id}/reconsiderar`, {method: 'POST', body: {justificativa}});
   },
   criteriosMatching(busca) {
     return request(`/coordenacao/matching/criterios${query({ busca })}`);

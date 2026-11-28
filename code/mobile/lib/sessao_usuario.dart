@@ -10,9 +10,9 @@ import 'services/notificacoes_api.dart';
 import 'services/participacoes_api.dart';
 import 'services/pucstops_api.dart';
 import 'status_participacao.dart';
-import 'tela_participacao.dart';
-import 'widgets/app_bottom_navigation.dart';
-import 'widgets/navegacao_app.dart' show diagNav;
+import 'models/participacao.dart';
+import 'models/app_destination.dart';
+import 'services/diagnostico_navegacao.dart';
 
 /// Estado da consulta de participação, separado do valor dela. Um valor nulo,
 /// uma consulta em andamento ou uma falha nunca significam "sem participação".
@@ -93,6 +93,7 @@ class SessaoUsuario {
 
   /// Onde está a consulta de participação (ver [EstadoSituacao]).
   EstadoSituacao estadoSituacao = EstadoSituacao.desconhecido;
+  String? erroSituacao;
   DateTime? _ultimaSincronizacao;
   Future<bool>? _emVoo;
   int _emVooVersao = -1;
@@ -247,6 +248,7 @@ class SessaoUsuario {
   int get periodo => dados?.periodo ?? 1;
 
   PessoaVinculo? get padrinho => situacao?.padrinho;
+  List<PessoaVinculo> get padrinhos => situacao?.padrinhosAtuais ?? const [];
 
   List<PessoaVinculo> get apadrinhados => situacao?.apadrinhados ?? const [];
 
@@ -288,6 +290,7 @@ class SessaoUsuario {
       dados!.periodo > 0;
 
   void _limparConta() {
+    erroSituacao = null;
     _versaoConta++;
     gamificacao.value = null;
     gamificacaoFalhou.value = false;
@@ -615,22 +618,36 @@ class SessaoUsuario {
           turno: perfil.turno,
           interesses: perfil.interesses,
         );
-      } else if (status.candidatura && resposta.respostas != null) {
-        dados = dados?.comRespostas(resposta.respostas!, padrinho: true);
+      } else if (resposta.respostas != null) {
+        dados = dados?.comRespostas(
+          resposta.respostas!,
+          padrinho:
+              status.candidatura || status == StatusParticipacao.padrinhoAtivo,
+        );
       }
       candidaturaEnviadaEm = resposta.criadoEm;
       estadoSituacao = EstadoSituacao.confirmada;
+      erroSituacao = null;
       _ultimaSincronizacao = DateTime.now();
       _mudancas.avisar();
       return true;
-    } catch (_) {
+    } catch (erro) {
       if (versao != _versaoConta ||
           ciclo != _api.programa ||
           seq != _seqSituacao) {
         return false;
       }
+      if (erro is ApiException && [401, 403].contains(erro.statusCode)) {
+        limpar();
+        erroSituacao = 'Sessão expirada ou sem acesso. Entre novamente.';
+        estadoSituacao = EstadoSituacao.erro;
+        _mudancas.avisar();
+        return false;
+      }
       // Mantém o último valor confirmado; sem nenhum, segue sem situação.
       estadoSituacao = EstadoSituacao.erro;
+      erroSituacao =
+          'Não foi possível atualizar sua participação. Tente novamente.';
       _mudancas.avisar();
       return false;
     }

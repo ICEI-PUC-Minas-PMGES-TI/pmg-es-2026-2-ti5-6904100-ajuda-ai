@@ -1,7 +1,7 @@
+import { cenarioMatching } from '../../test/helpers/matching-cenario.js';
 import { ParticipacaoEntity } from './entities/participacao.entity.js';
 import {
   repositorioEmMemoria,
-  conectarRepositorios,
 } from '../../test/helpers/repositorio-memoria.js';
 import { conferirTudo } from '../../test/helpers/conferencia-academica.js';
 import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
@@ -30,13 +30,16 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
 
   beforeEach(() => {
     registros = [];
-    const repo = repositorioEmMemoria(registros);
-    const programas = ciclos();
-    conectarRepositorios({
-      ParticipacaoEntity: repo,
-      ProgramaEntity: programas,
+    const c = cenarioMatching({
+      participantes: registros,
+      programas: (ciclos() as any)._registros,
     });
-    service = new ParticipacoesService(repo, programas);
+    service = new ParticipacoesService(
+      c.repos.ParticipacaoEntity,
+      c.repos.ProgramaEntity,
+      undefined,
+      c.operacoes,
+    );
   });
 
   it('cadastra apadrinhado pendente de aprovação e limpa respostas', async () => {
@@ -220,14 +223,20 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       statusInicial: 'em_andamento',
       respostas: { periodo: 1, declaraPrimeiroPeriodo: true },
     });
-    await service.vincular(apadrinhado.id, padrinho.id);
+    for (const p of registros)
+      p.respostas = { ...p.respostas, areas: ['Tecnologia'] };
+    await service.vincular(
+      apadrinhado.id,
+      padrinho.id,
+      'coord@pucminas.edu.br',
+    );
 
     await expect(
       service.revogarAprovacao(apadrinhado.id, 'erro de análise'),
     ).rejects.toThrow(/Desfaça o vínculo/);
 
     const { apadrinhado: solto, padrinho: candidato } =
-      await service.desvincular(apadrinhado.id);
+      await service.desvincular(apadrinhado.id, 'coord@pucminas.edu.br');
     expect(solto.grupo).toBeFalsy();
     expect(candidato?.papel).toBe('candidato');
     expect(candidato?.status).toBe('aprovado');
@@ -277,10 +286,13 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
       statusInicial: 'em_andamento',
     });
 
-    await service.vincular(a1.id, padrinho.id);
+    for (const p of registros)
+      p.respostas = { ...p.respostas, areas: ['Tecnologia'] };
+    await service.vincular(a1.id, padrinho.id, 'coord@pucminas.edu.br');
     const { apadrinhado, padrinho: atualizado } = await service.vincular(
       a2.id,
       padrinho.id,
+      'coord@pucminas.edu.br',
     );
 
     expect(atualizado.grupo).toBe('Grupo-1');
@@ -304,7 +316,7 @@ describe('ParticipacoesService (fluxo da coordenação)', () => {
 
     await expect(
       service.vincular(apadrinhado.id, candidatura.id),
-    ).rejects.toThrow(/candidato aprovado/);
+    ).rejects.toThrow(/padrinho aprovado/);
   });
 
   it('registro principal prioriza padrinho sobre apadrinhado', async () => {

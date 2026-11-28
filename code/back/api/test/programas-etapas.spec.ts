@@ -1,3 +1,4 @@
+import { moduloMatchingMemoria } from './helpers/modulo-matching-memoria.js';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { JwtModule, JwtService } from '@nestjs/jwt';
@@ -36,6 +37,7 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
   let programasService: ProgramasService;
   let participacoesService: ParticipacoesService;
   let coordenacao: CoordenacaoService;
+  let matching: ReturnType<typeof moduloMatchingMemoria>;
 
   beforeEach(() => {
     programas = [];
@@ -43,15 +45,18 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
     const repoProgramas = repositorioEmMemoria(programas);
     const repoParticipacoes = repositorioEmMemoria(participacoes);
     const repoUsuarios = repositorioEmMemoria<UsuarioEntity>();
-    conectarRepositorios({
+    const repos = conectarRepositorios({
       ProgramaEntity: repoProgramas,
       ParticipacaoEntity: repoParticipacoes,
       UsuarioEntity: repoUsuarios,
     });
-    programasService = new ProgramasService(repoProgramas);
+    matching = moduloMatchingMemoria(repos);
+    programasService = new ProgramasService(repos.ProgramaEntity);
     participacoesService = new ParticipacoesService(
-      repoParticipacoes,
-      repoProgramas,
+      repos.ParticipacaoEntity,
+      repos.ProgramaEntity,
+      matching.dados,
+      matching.operacoes,
     );
     coordenacao = new CoordenacaoService(
       programasService,
@@ -67,7 +72,21 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
   });
 
   async function cicloAberto(codigo = '2027/1') {
-    return programasService.criarNovoCiclo(codigo, cronograma);
+    const programa = await programasService.criarNovoCiclo(codigo, cronograma);
+    await matching.service.salvarConfiguracao(
+      {
+        programa: codigo,
+        versaoBase: 0,
+        liberado: false,
+        capacidadePorPadrinho: 3,
+        capacidadePorApadrinhado: 1,
+        criterios: [
+          { campoCadastro: 'areas', operacao: 'intersecao', peso: 100 },
+        ],
+      },
+      'coord@pucminas.edu.br',
+    );
+    return programa;
   }
 
   async function prepararAprovados(codigo = '2027/1') {
@@ -84,6 +103,8 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
     });
     await conferirTudo(participacoesService, apadrinhado.id);
     await participacoesService.aprovarCandidatura(apadrinhado.id);
+    candidato.respostas = { ...candidato.respostas, areas: ['Tecnologia'] };
+    apadrinhado.respostas = { ...apadrinhado.respostas, areas: ['Tecnologia'] };
     return { candidato, apadrinhado };
   }
 
@@ -115,7 +136,10 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
 
   it('impede candidatura fora do período e associa a inscrição ao ciclo informado', async () => {
     await cicloAberto();
-    programasService.validarInscricoes(programas[0], new Date('2027-02-10T15:00:00-03:00'));
+    programasService.validarInscricoes(
+      programas[0],
+      new Date('2027-02-10T15:00:00-03:00'),
+    );
     expect(() =>
       programasService.validarInscricoes(
         programas[0],
@@ -148,7 +172,9 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
     expect(programas[0].inscricoesAbertas).toBe(true);
     await participacoesService.marcarEmAnalise(candidato.id);
     await conferirTudo(participacoesService, candidato.id);
-    const aprovado = await participacoesService.aprovarCandidatura(candidato.id);
+    const aprovado = await participacoesService.aprovarCandidatura(
+      candidato.id,
+    );
     expect(aprovado).toMatchObject({
       papel: 'candidato',
       status: 'aprovado',
@@ -182,12 +208,16 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
       /Encerre as inscrições/,
     );
     await expect(
-      participacoesService.vincular(apadrinhado.id, candidato.id),
-    ).rejects.toThrow(/não foi liberado/);
+      participacoesService.vincular(
+        apadrinhado.id,
+        candidato.id,
+        'coord@pucminas.edu.br',
+      ),
+    ).rejects.toThrow(/Ciclo indisponível/);
     await programasService.encerrarInscricoes('2027/1');
-    await expect(
-      coordenacao.obterMatching('2027/1'),
-    ).rejects.toThrow(/não foi liberado/);
+    await expect(coordenacao.obterMatching('2027/1')).rejects.toThrow(
+      /não foi liberado/,
+    );
     const semAprovados = await cicloAberto('2027/2');
     await programasService.encerrarInscricoes(semAprovados.codigo);
     await expect(programasService.liberarMatching('2027/2')).rejects.toThrow(
@@ -202,11 +232,12 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
         usuarioId: 'pendente@pucminas.edu.br',
         programa: '2027/1',
       });
-    const apadrinhadoPendente =
-      await participacoesService.cadastrarApadrinhado({
+    const apadrinhadoPendente = await participacoesService.cadastrarApadrinhado(
+      {
         usuarioId: 'outro-calouro@pucminas.edu.br',
         programa: '2027/1',
-      });
+      },
+    );
 
     await conferirTudo(participacoesService, apadrinhadoPendente.id);
     await programasService.encerrarInscricoes('2027/1');
@@ -247,6 +278,7 @@ describe('programas por semestre, inscrições e liberação das etapas', () => 
     const vinculo = await participacoesService.vincular(
       apadrinhado.id,
       candidato.id,
+      'coord@pucminas.edu.br',
     );
     expect(vinculo.padrinho.papel).toBe('padrinho');
     expect(vinculo.apadrinhado.programa).toBe('2027/1');
@@ -288,14 +320,17 @@ describe('coordenação: rotas de etapa e permissão', () => {
     const participacoes: ParticipacaoEntity[] = [];
     const repoProgramas = repositorioEmMemoria(programas);
     const repoParticipacoes = repositorioEmMemoria(participacoes);
-    conectarRepositorios({
+    const repos = conectarRepositorios({
       ProgramaEntity: repoProgramas,
       ParticipacaoEntity: repoParticipacoes,
     });
-    programasService = new ProgramasService(repoProgramas);
+    const matching = moduloMatchingMemoria(repos);
+    programasService = new ProgramasService(repos.ProgramaEntity);
     participacoesService = new ParticipacoesService(
-      repoParticipacoes,
-      repoProgramas,
+      repos.ParticipacaoEntity,
+      repos.ProgramaEntity,
+      matching.dados,
+      matching.operacoes,
     );
     const coordenacao = new CoordenacaoService(
       programasService,

@@ -10,6 +10,7 @@ import {
   MatchingCriterioVersaoEntity,
 } from './entities/criterio-catalogo.entity.js';
 import { MatchingConfiguracaoEntity } from './entities/matching.entity.js';
+import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { FormularioEntity } from '../formularios/entities/formulario.entity.js';
 
 type Registro = Record<string, unknown> & { id?: number };
@@ -95,6 +96,7 @@ describe('CriterioCatalogoService', () => {
   let versoes: MatchingCriterioVersaoEntity[];
   let formularios: FormularioEntity[];
   let configs: MatchingConfiguracaoEntity[];
+  let participacoes: ParticipacaoEntity[];
   let service: CriterioCatalogoService;
 
   beforeEach(() => {
@@ -102,11 +104,19 @@ describe('CriterioCatalogoService', () => {
     versoes = [];
     formularios = [];
     configs = [];
+    participacoes = [];
     const repos = new Map<unknown, unknown>([
-      [MatchingCriterioEntity, repoMemoria(criterios as Registro[])],
-      [MatchingCriterioVersaoEntity, repoMemoria(versoes as Registro[])],
-      [FormularioEntity, repoMemoria(formularios as Registro[])],
-      [MatchingConfiguracaoEntity, repoMemoria(configs as Registro[])],
+      [MatchingCriterioEntity, repoMemoria(criterios as unknown as Registro[])],
+      [
+        MatchingCriterioVersaoEntity,
+        repoMemoria(versoes as unknown as Registro[]),
+      ],
+      [FormularioEntity, repoMemoria(formularios as unknown as Registro[])],
+      [ParticipacaoEntity, repoMemoria(participacoes as unknown as Registro[])],
+      [
+        MatchingConfiguracaoEntity,
+        repoMemoria(configs as unknown as Registro[]),
+      ],
     ]);
     const manager = {
       getRepository: (entity: unknown) => repos.get(entity),
@@ -281,7 +291,7 @@ describe('CriterioCatalogoService', () => {
     },
   );
 
-  it('mantém a versão ao editar apenas enunciado e rótulos de alternativas', async () => {
+  it('preserva a versão usada ao editar enunciado e rótulos de alternativas', async () => {
     const criado = await service.criar(
       {
         nome: 'Turno preferido',
@@ -305,8 +315,11 @@ describe('CriterioCatalogoService', () => {
       },
       'coord@pucminas.edu.br',
     );
-    expect(atualizado.versaoAtual).toBe(1);
-    expect(atualizado.versoes).toHaveLength(1);
+    expect(atualizado.versaoAtual).toBe(2);
+    expect(atualizado.versoes).toHaveLength(2);
+    expect(
+      atualizado.versoes.find((v) => v.versao === 1)?.alternativas[0].rotulo,
+    ).toBe('Manhã');
     expect(atualizado.versao!.alternativas[0].rotulo).toBe('Matutino');
   });
 
@@ -340,6 +353,43 @@ describe('CriterioCatalogoService', () => {
       'coord@pucminas.edu.br',
     );
     expect(desativado.ativo).toBe(false);
+  });
+
+  it('referência apenas em candidatura histórica impede exclusão e preserva versões', async () => {
+    const criado = await service.criar(
+      {
+        nome: 'Apoio adicional',
+        enunciadoPadrao: 'Precisa de apoio?',
+        tipo: 'sim_nao',
+      },
+      'coord',
+    );
+    participacoes.push({
+      id: 1,
+      programa: '2026/2',
+      papel: 'apadrinhado',
+      respostas: {
+        _servidor: {
+          formulario: {
+            id: 1,
+            programa: '2026/2',
+            tipo: 'apadrinhado',
+            versao: 1,
+            atualizadoEm: null,
+            perguntas: [{ criterioId: criado.id, criterioVersao: 1 }],
+          },
+        },
+      },
+    } as ParticipacaoEntity);
+    await expect(service.excluir(criado.id)).rejects.toThrow(/em uso/);
+    const original = structuredClone(versoes[0]);
+    const atualizado = await service.atualizar(
+      criado.id,
+      { enunciadoPadrao: 'Qual apoio precisa?' },
+      'coord',
+    );
+    expect(atualizado.versaoAtual).toBe(2);
+    expect(versoes.find((v) => v.versao === 1)).toEqual(original);
   });
 
   it('exclui critério sem usos', async () => {

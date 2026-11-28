@@ -1,3 +1,4 @@
+import { moduloMatchingMemoria } from './helpers/modulo-matching-memoria.js';
 import { FormularioEntity } from '../src/formularios/entities/formulario.entity.js';
 import {
   INestApplication,
@@ -28,8 +29,9 @@ describe('Autenticação (e2e)', () => {
       ProgramaEntity: repositorioEmMemoria<ProgramaEntity>(),
       FormularioEntity: repositorioEmMemoria<FormularioEntity>(),
     });
+    const matching = moduloMatchingMemoria(repos);
     const modulo = await Test.createTestingModule({
-      imports: [AuthModule, CadastroModule],
+      imports: [matching.modulo, AuthModule, CadastroModule],
     })
       .overrideProvider(getRepositoryToken(UsuarioEntity))
       .useValue(repos.UsuarioEntity)

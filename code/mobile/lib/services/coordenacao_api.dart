@@ -243,6 +243,48 @@ class CoordenacaoApi {
     ),
   );
 
+  Future<Map<String, dynamic>> gruposMatching(String programa) async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/matching/grupos',
+      query: {'programa': programa},
+      erro: 'Falha ao carregar grupos',
+    ),
+  );
+
+  Future<Map<String, dynamic>> destinosMatching(
+    int apadrinhadoId, {
+    int? vinculoOrigemId,
+  }) async => _mapa(
+    await _enviar(
+      'GET',
+      '/coordenacao/matching/destinos',
+      query: {
+        'apadrinhadoId': '$apadrinhadoId',
+        'vinculoOrigemId': vinculoOrigemId?.toString(),
+      },
+      erro: 'Falha ao consultar destinos',
+    ),
+  );
+
+  Future<Map<String, dynamic>> transferirVinculoMatching(
+    int id, {
+    required int padrinhoDestinoId,
+    required String motivo,
+    required String operacaoId,
+  }) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/matching/vinculos/$id/transferir',
+      corpo: {
+        'padrinhoDestinoId': padrinhoDestinoId,
+        'motivo': motivo,
+        'operacaoId': operacaoId,
+      },
+      erro: 'Falha ao transferir apadrinhado',
+    ),
+  );
+
   Future<Map<String, dynamic>> matchingVisao(String programa) async => _mapa(
     await _enviar(
       'GET',
@@ -345,6 +387,7 @@ class CoordenacaoApi {
 
   Future<Map<String, dynamic>> salvarMatchingConfiguracao({
     required String programa,
+    int? versaoBase,
     required bool liberado,
     required int capacidadePorPadrinho,
     required int capacidadePorApadrinhado,
@@ -355,6 +398,7 @@ class CoordenacaoApi {
       '/coordenacao/matching/config',
       corpo: {
         'programa': programa,
+        'versaoBase': ?versaoBase,
         'liberado': liberado,
         'capacidadePorPadrinho': capacidadePorPadrinho,
         'capacidadePorApadrinhado': capacidadePorApadrinhado,
@@ -420,6 +464,29 @@ class CoordenacaoApi {
       '/coordenacao/matching/sugestao/$id/recusar',
       corpo: {'motivo': motivo},
       erro: 'Falha ao recusar a sugestão',
+    ),
+  );
+
+  Future<List<Map<String, dynamic>>> paresRecusadosMatching(
+    String programa,
+  ) async => _lista(
+    await _enviar(
+      'GET',
+      '/coordenacao/matching/pares/recusados',
+      query: {'programa': programa},
+      erro: 'Falha ao consultar os pares recusados',
+    ),
+  );
+
+  Future<Map<String, dynamic>> reconsiderarParMatching(
+    int id,
+    String justificativa,
+  ) async => _mapa(
+    await _enviar(
+      'POST',
+      '/coordenacao/matching/pares/$id/reconsiderar',
+      corpo: {'justificativa': justificativa},
+      erro: 'Falha ao reconsiderar o par',
     ),
   );
 

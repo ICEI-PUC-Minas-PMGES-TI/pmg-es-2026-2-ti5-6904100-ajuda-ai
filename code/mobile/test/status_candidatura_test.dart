@@ -164,8 +164,11 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: PadrinhoDefinidoPage()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Seu padrinho ainda não foi definido'), findsOneWidget);
-    expect(find.textContaining('formando os grupos'), findsOneWidget);
+    expect(
+      find.text('Participação aprovada. Aguardando a definição dos vínculos.'),
+      findsOneWidget,
+    );
+    expect(find.text('Ver conversas e histórico'), findsOneWidget);
     expect(find.text('Seu padrinho foi definido!'), findsNothing);
   });
 }

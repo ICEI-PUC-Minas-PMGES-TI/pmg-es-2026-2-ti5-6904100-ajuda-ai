@@ -1,3 +1,4 @@
+import PreferenciaGenero from '../../components/PreferenciaGenero';
 import Icon from '../../components/Icon';
 import MultiSelect from '../../components/MultiSelect';
 import PerguntasAdicionais from '../../components/PerguntasAdicionais';
@@ -15,6 +16,7 @@ export default function ApadrinhadoStep({ profile, errors, onUpdate, onToggle, o
             {GENEROS.map((g) => <option key={g}>{g}</option>)}
           </select>
         </Field>
+        <PreferenciaGenero valor={profile.preferenciaGenero} onChange={v => onUpdate('preferenciaGenero', v)} erro={errors.preferenciaGenero} />
         <Field label="É bolsista ProUni?" icon="school" error={errors.prouni}>
           <select value={profile.prouni} onChange={(event) => onUpdate('prouni', event.target.value)} aria-invalid={errors.prouni || undefined}><option value="">Selecione</option><option>Sim</option><option>Não</option></select>
         </Field>

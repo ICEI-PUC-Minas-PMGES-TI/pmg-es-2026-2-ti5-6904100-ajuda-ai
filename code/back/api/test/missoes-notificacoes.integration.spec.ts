@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { VinculosService } from '../src/matching/vinculos.service.js';
 /**
  * Missões e notificações contra PostgreSQL/PostGIS REAL, sem dublês:
  *
@@ -437,16 +438,52 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     };
   }
 
+  async function participacaoDe(a: Aluno): Promise<number> {
+    const [{ id }] = (await ds.query(
+      `SELECT id FROM feed.participacoes WHERE usuario_id = $1 AND programa = $2`,
+      [a.email, CICLO],
+    )) as Array<{ id: number }>;
+    return Number(id);
+  }
+
+  async function ligar(padrinho: Aluno, apadrinhado: Aluno) {
+    await ds.query(
+      'UPDATE feed.programas SET inscricoes_abertas = false WHERE codigo = $1',
+      [CICLO],
+    );
+    const matching = new MatchingService(ds, chats);
+    if (!(await matching.obterConfiguracao(CICLO))) {
+      await matching.salvarConfiguracao(
+        {
+          programa: CICLO,
+          versaoBase: 0,
+          liberado: false,
+          capacidadePorPadrinho: 3,
+          capacidadePorApadrinhado: 1,
+          criterios: [
+            { campoCadastro: 'areas', operacao: 'intersecao', peso: 100 },
+          ],
+        },
+        'renata.coordenacao@pucminas.br',
+      );
+    }
+    await ds.query(
+      `UPDATE feed.participacoes SET respostas = respostas || '{"areas":["Tecnologia"]}'::jsonb WHERE usuario_id = ANY($1) AND programa = $2`,
+      [[padrinho.email, apadrinhado.email], CICLO],
+    );
+    const vinculo = await new VinculosService(ds, matching, chats).vincular(
+      await participacaoDe(apadrinhado),
+      await participacaoDe(padrinho),
+      'renata.coordenacao@pucminas.br',
+    );
+    return vinculo;
+  }
+
   async function formarDupla(): Promise<Dupla> {
     const padrinho = await novoAluno({ papel: 'padrinho' });
     const apadrinhado = await novoAluno({ papel: 'apadrinhado' });
-    const [{ id: vinculoId }] = (await ds.query(
-      `INSERT INTO feed.matching_vinculos (programa_id, padrinho_participacao_id, apadrinhado_participacao_id, origem, confirmado_por) ` +
-        `VALUES ((SELECT id FROM feed.programas WHERE codigo = $1), ` +
-        `(SELECT id FROM feed.participacoes WHERE usuario_id = $2 AND programa = $1), ` +
-        `(SELECT id FROM feed.participacoes WHERE usuario_id = $3 AND programa = $1), 'manual', 'renata.coordenacao@pucminas.br') RETURNING id`,
-      [CICLO, padrinho.email, apadrinhado.email],
-    )) as Array<{ id: number }>;
+    const vinculo = await ligar(padrinho, apadrinhado);
+    const vinculoId = vinculo.vinculo.id;
     const chat = await ds.transaction((m) =>
       chats.criarParaVinculo(m, vinculoId),
     );
@@ -547,7 +584,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
     const r = await http()
       .post(`/chats/${chatId}/mensagens`)
       .set('Authorization', a.auth)
-      .send({ texto });
+      .send({ texto, clientId: crypto.randomUUID() });
     expect(r.status, JSON.stringify(r.body)).toBe(201);
   }
 
@@ -661,6 +698,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         FormulariosService,
         AvisosService,
         MatchingService,
+        VinculosService,
         CriterioCatalogoService,
         JwtAuthGuard,
         RolesGuard,
@@ -2789,7 +2827,7 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
       await http()
         .post(`/chats/${d.chatId}/mensagens`)
         .set('Authorization', d.apadrinhado.auth)
-        .send({ texto: 'Ainda está aí?' })
+        .send({ texto: 'Ainda está aí?', clientId: crypto.randomUUID() })
         .expect(409);
       expect(await itemDe(d.apadrinhado, m.id)).toBeUndefined();
       await concluir(d.apadrinhado, m.id).expect(404);
@@ -4328,26 +4366,6 @@ describe.skipIf(!URL_TESTE)('Missões e notificações com banco real', () => {
         `SELECT titulo, link, chave FROM feed.notificacoes WHERE usuario_id = $1 AND tipo = $2 ORDER BY criado_em, chave`,
         [a.id, tipo],
       )) as Array<{ titulo: string; link: string; chave: string }>;
-    }
-
-    async function participacaoDe(a: Aluno): Promise<number> {
-      const [{ id }] = (await ds.query(
-        `SELECT id FROM feed.participacoes WHERE usuario_id = $1 AND programa = $2`,
-        [a.email, CICLO],
-      )) as Array<{ id: number }>;
-      return Number(id);
-    }
-
-    async function ligar(padrinho: Aluno, apadrinhado: Aluno): Promise<void> {
-      await ds.query(
-        `INSERT INTO feed.matching_vinculos (programa_id, padrinho_participacao_id, apadrinhado_participacao_id, origem, confirmado_por) ` +
-          `VALUES ((SELECT id FROM feed.programas WHERE codigo = $1), $2, $3, 'manual', 'renata.coordenacao@pucminas.br')`,
-        [
-          CICLO,
-          await participacaoDe(padrinho),
-          await participacaoDe(apadrinhado),
-        ],
-      );
     }
 
     const sino = (a: Aluno) =>

@@ -17,8 +17,8 @@ export function permissoesPeloToken() {
         ? { papel: perfil, status: 'em_andamento', terminoEm: null }
         : null;
     },
-    situacaoDoRegistro: async (registro: { papel: string } | null) =>
-      registro ? `${registro.papel}_ativo` : 'nenhuma',
+    vinculosAtuais: async (registro: unknown) =>
+      registro ? [{ participacao: { usuarioId: 'par@teste.local' } }] : [],
   } as unknown as ParticipacoesService;
   const programas = {
     buscarPorCodigo: async () => ({ etapaAtual: 'andamento' }),

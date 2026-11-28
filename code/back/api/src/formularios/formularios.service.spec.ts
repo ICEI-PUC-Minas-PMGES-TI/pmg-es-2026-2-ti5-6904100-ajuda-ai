@@ -5,6 +5,10 @@ import {
 import type { ProgramaEntity } from '../programas/entities/programa.entity.js';
 import type { ProgramasService } from '../programas/programas.service.js';
 import type { FormularioEntity } from './entities/formulario.entity.js';
+import {
+  MatchingCriterioEntity,
+  MatchingCriterioVersaoEntity,
+} from '../matching/entities/criterio-catalogo.entity.js';
 import { FormulariosService } from './formularios.service.js';
 
 const CICLO = '2099/1';
@@ -14,9 +18,48 @@ describe('FormulariosService', () => {
   let registros: FormularioEntity[];
   let programas: ProgramaEntity[];
   let service: FormulariosService;
+  let catalogo: MatchingCriterioEntity[];
+  let versoes: MatchingCriterioVersaoEntity[];
 
   beforeEach(() => {
     registros = [];
+    catalogo = [
+      { id: 7, ativo: true, versaoAtual: 1 },
+      { id: 3, ativo: true, versaoAtual: 2 },
+      { id: 4, ativo: true, versaoAtual: 1 },
+    ] as MatchingCriterioEntity[];
+    versoes = [
+      {
+        id: 1,
+        criterioId: 7,
+        versao: 1,
+        tipo: 'sim_nao',
+        alternativas: [
+          { id: 'true', rotulo: 'Sim' },
+          { id: 'false', rotulo: 'Não' },
+        ],
+      },
+      {
+        id: 2,
+        criterioId: 3,
+        versao: 2,
+        tipo: 'escolha_unica',
+        alternativas: [
+          { id: 'cat_a', rotulo: 'A' },
+          { id: 'cat_b', rotulo: 'B' },
+        ],
+      },
+      {
+        id: 3,
+        criterioId: 4,
+        versao: 1,
+        tipo: 'multipla_escolha',
+        alternativas: [
+          { id: 'i1', rotulo: 'Esporte' },
+          { id: 'i2', rotulo: 'Música' },
+        ],
+      },
+    ] as MatchingCriterioVersaoEntity[];
     programas = [
       { id: 1, codigo: CICLO, etapaAtual: 'inscricoes' } as ProgramaEntity,
       { id: 2, codigo: OUTRO, etapaAtual: 'inscricoes' } as ProgramaEntity,
@@ -26,6 +69,8 @@ describe('FormulariosService', () => {
     conectarRepositorios({
       FormularioEntity: formularios,
       ProgramaEntity: repoProgramas,
+      MatchingCriterioEntity: repositorioEmMemoria(catalogo),
+      MatchingCriterioVersaoEntity: repositorioEmMemoria(versoes),
     });
     const programasService = {
       resolverConsulta: async (codigo?: string) => {
@@ -177,6 +222,74 @@ describe('FormulariosService', () => {
         ['apadrinhado', false],
         ['padrinho', true],
       ]);
+    });
+  });
+
+  describe('integridade do catálogo', () => {
+    const q = (dados: Record<string, unknown> = {}) => ({
+      id: 'q-catalogo',
+      enunciado: 'Categoria',
+      tipo: 'escolha_unica',
+      criterioId: 3,
+      criterioVersao: 2,
+      alternativas: [
+        { id: 'cat_a', rotulo: 'A' },
+        { id: 'cat_b', rotulo: 'B' },
+      ],
+      opcoes: [],
+      ...dados,
+    });
+    it.each([
+      { criterioId: 999999 },
+      { criterioVersao: 888 },
+      { tipo: 'multipla_escolha' },
+      { alternativas: [{ id: 'inventado', rotulo: 'A' }] },
+      {
+        alternativas: [
+          { id: 'cat_a', rotulo: 'A' },
+          { id: 'cat_a', rotulo: 'B' },
+        ],
+      },
+      {
+        alternativas: [
+          { id: 'cat_a', rotulo: 'Rótulo inventado' },
+          { id: 'cat_b', rotulo: 'B' },
+        ],
+      },
+    ])('recusa referência ou alternativas inválidas: %j', async (dados) => {
+      await expect(salvar({ perguntas: [q(dados)] })).rejects.toThrow();
+      expect(registros).toHaveLength(0);
+    });
+    it('preserva pergunta já usada de critério inativo, sem permitir novas inclusões', async () => {
+      await salvar({ perguntas: [q()], publicado: true });
+      catalogo.find((c) => c.id === 3)!.ativo = false;
+      const anterior = structuredClone(registros[0]);
+      await salvar({ perguntas: [q({ ajuda: 'Explicação' })] });
+      expect(registros[0].perguntas![0].criterioVersao).toBe(2);
+      await expect(
+        service.salvar('padrinho', { programa: CICLO, perguntas: [q()] }),
+      ).rejects.toThrow(/ativo/);
+      expect(anterior.perguntas![0].alternativas).toEqual(q().alternativas);
+    });
+    it('retém versão anterior e exige versão atual para novas perguntas', async () => {
+      await salvar({ perguntas: [q()], publicado: true });
+      catalogo.find((c) => c.id === 3)!.versaoAtual = 3;
+      versoes.push({ ...versoes[1], id: 4, versao: 3 });
+      await expect(salvar({ perguntas: [q()] })).resolves.toMatchObject({
+        versao: 1,
+      });
+      await expect(
+        service.duplicar('apadrinhado', {
+          programaOrigem: CICLO,
+          programaDestino: OUTRO,
+        }),
+      ).rejects.toThrow(/versão atual/);
+      await expect(
+        service.salvar('padrinho', {
+          programa: CICLO,
+          perguntas: [q({ criterioVersao: 3 })],
+        }),
+      ).resolves.toBeDefined();
     });
   });
 

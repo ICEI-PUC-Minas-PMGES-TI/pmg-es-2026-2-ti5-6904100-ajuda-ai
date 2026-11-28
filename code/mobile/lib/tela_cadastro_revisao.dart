@@ -65,6 +65,11 @@ class _RevisaoCadastroPageState extends State<RevisaoCadastroPage> {
     final itens = [
       (Icons.person_outline, 'Gênero', dados.genero),
       (
+        Icons.person_outline,
+        'Preferência de gênero',
+        dados.preferenciaGenero?.descricao ?? 'Não informado',
+      ),
+      (
         Icons.school_outlined,
         'É bolsista ProUni?',
         _simNao(dados.bolsistaProuni),

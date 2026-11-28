@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Navigate, useOutletContext } from "react-router-dom";
 import {
   api,
   feedEventsUrl,
@@ -7,6 +6,7 @@ import {
   getStoredToken,
 } from "../api/client";
 import { abrirFeedStream } from "../api/feed-stream";
+import { consultarFeedAutorizado } from "../api/feed-access";
 import Icon from "../components/Icon";
 import Modal from "../components/Modal";
 import "../feed.css";
@@ -26,19 +26,22 @@ export function filtrarPublicacoes(itens, categoria) {
 
 /** Aluno que não participa do ciclo não abre o feed, nem por URL direta. */
 export default function FeedPage({ coordenacao = false }) {
-  const contexto = useOutletContext();
-  if (!coordenacao && contexto?.resolucao && !contexto.resolucao.participante)
-    return <Navigate to="/aluno/perfil" replace />;
-  return <FeedConteudo coordenacao={coordenacao} />;
+  const sessao = getAlunoSession();
+  const identidade = coordenacao
+    ? getStoredToken()
+    : `${sessao?.email}:${sessao?.accessToken}`;
+  return <FeedConteudo key={identidade} coordenacao={coordenacao} />;
 }
 
 function FeedConteudo({ coordenacao }) {
   const email = coordenacao ? undefined : getAlunoSession()?.email;
+  const token = coordenacao ? getStoredToken() : getAlunoSession()?.accessToken;
   const [itens, setItens] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [estado, setEstado] = useState("Conectando às atualizações…");
   const [podePublicar, setPodePublicar] = useState(false);
+  const [podeLer, setPodeLer] = useState(null);
   const [editor, setEditor] = useState(null);
   const [ocupado, setOcupado] = useState(false);
   const [confirmar, setConfirmar] = useState(null);
@@ -47,6 +50,25 @@ function FeedConteudo({ coordenacao }) {
   const [semestre, setSemestre] = useState("");
   const [ciclos, setCiclos] = useState(null);
   const sequencia = useRef(0);
+  const escopo = `${coordenacao}:${email}:${token}:${semestre}`;
+  const escopoAtual = useRef(escopo);
+  escopoAtual.current = escopo;
+  const identidadeAtual = useCallback(
+    () =>
+      token ===
+        (coordenacao ? getStoredToken() : getAlunoSession()?.accessToken) &&
+      (coordenacao || email === getAlunoSession()?.email),
+    [token, coordenacao, email],
+  );
+  const limparAcesso = useCallback(() => {
+    sequencia.current++;
+    setPodeLer(false);
+    setPodePublicar(false);
+    setItens([]);
+    setEditor(null);
+    setConfirmar(null);
+    setCarregando(false);
+  }, []);
 
   useEffect(() => {
     if (!coordenacao) return undefined;
@@ -61,19 +83,44 @@ function FeedConteudo({ coordenacao }) {
   }, [coordenacao]);
 
   const carregar = useCallback(async () => {
+    if (escopoAtual.current !== escopo) return;
+    if (!token || !identidadeAtual()) {
+      limparAcesso();
+      return;
+    }
     const consulta = ++sequencia.current;
     try {
-      const lista = await api.feed(email, coordenacao ? semestre : undefined);
-      if (consulta === sequencia.current) {
+      const lista = await consultarFeedAutorizado({
+        permissoes: () => api.permissoesFeed(email),
+        listar: () => api.feed(email, coordenacao ? semestre : undefined),
+        vigente: () =>
+          consulta === sequencia.current &&
+          identidadeAtual() &&
+          escopoAtual.current === escopo,
+        aoPermissoes: (p) => {
+          setPodeLer(p.podeLer === true);
+          setPodePublicar(p.podePublicar === true);
+          if (!p.podePublicar) setEditor(null);
+          if (!p.podeLer) limparAcesso();
+        },
+      });
+      if (lista !== null) {
         setItens(lista);
         setErro("");
       }
     } catch (e) {
-      if (consulta === sequencia.current) setErro(e.message);
+      if (
+        consulta === sequencia.current &&
+        identidadeAtual() &&
+        escopoAtual.current === escopo
+      ) {
+        if ([401, 403].includes(e.status)) limparAcesso();
+        setErro(e.message);
+      }
     } finally {
       if (consulta === sequencia.current) setCarregando(false);
     }
-  }, [email, coordenacao, semestre]);
+  }, [email, coordenacao, semestre, identidadeAtual, limparAcesso, escopo]);
 
   useEffect(() => {
     let ativo = true;
@@ -92,42 +139,68 @@ function FeedConteudo({ coordenacao }) {
       atualizando = false;
     };
     void sincronizar();
-    api
-      .permissoesFeed(email)
-      .then((p) => {
-        if (ativo) setPodePublicar(p.podePublicar);
-      })
-      .catch(() => {});
-    const fechar = abrirFeedStream({
-      url: feedEventsUrl,
-      token: () =>
-        coordenacao ? getStoredToken() : getAlunoSession()?.accessToken,
-      onEstado: (valor) => {
-        if (ativo) setEstado(valor);
-      },
-      onEvento: (evento) => {
-        if (ativo && evento.type !== "feed.heartbeat") void sincronizar();
-      },
-    });
+    const atualizarVisivel = () => {
+      if (document.visibilityState !== "hidden") void sincronizar();
+    };
+    const timer = setInterval(atualizarVisivel, 10000);
+    window.addEventListener("focus", atualizarVisivel);
+    document.addEventListener("visibilitychange", atualizarVisivel);
+    const fechar =
+      podeLer === false
+        ? () => {}
+        : abrirFeedStream({
+            url: `${feedEventsUrl}${coordenacao && semestre ? `?programa=${encodeURIComponent(semestre)}` : ""}`,
+            token: () => (identidadeAtual() ? token : null),
+            onEstado: (valor) => {
+              if (ativo) setEstado(valor);
+            },
+            onEvento: (evento) => {
+              if (!ativo || !identidadeAtual()) return;
+              if (evento.type === "feed.access") {
+                limparAcesso();
+                return;
+              }
+              if (evento.type !== "feed.heartbeat") void sincronizar();
+            },
+            onSemAcesso: () => {
+              if (ativo) limparAcesso();
+            },
+          });
     return () => {
       ativo = false;
       sequencia.current++;
       fechar();
+      clearInterval(timer);
+      window.removeEventListener("focus", atualizarVisivel);
+      document.removeEventListener("visibilitychange", atualizarVisivel);
     };
-  }, [carregar, coordenacao, email]);
+  }, [
+    carregar,
+    coordenacao,
+    email,
+    token,
+    identidadeAtual,
+    limparAcesso,
+    podeLer,
+    semestre,
+  ]);
 
   async function executar(acao) {
+    if (!identidadeAtual() || podeLer === false) return false;
     setOcupado(true);
     setErro("");
     try {
       await acao();
+      if (escopoAtual.current !== escopo || !identidadeAtual()) return false;
       await carregar();
       return true;
     } catch (e) {
+      if (escopoAtual.current !== escopo || !identidadeAtual()) return false;
+      if ([401, 403].includes(e.status)) await carregar();
       setErro(e.message);
       return false;
     } finally {
-      setOcupado(false);
+      if (escopoAtual.current === escopo) setOcupado(false);
     }
   }
 
@@ -164,6 +237,7 @@ function FeedConteudo({ coordenacao }) {
         )
           throw new Error("Envie PNG, JPEG ou WebP de até 5 MB.");
         const midia = await api.uploadFeed(arquivo, email);
+        if (escopoAtual.current !== escopo || !identidadeAtual()) return;
         setEditor(
           (atual) =>
             atual && {
@@ -174,12 +248,23 @@ function FeedConteudo({ coordenacao }) {
         );
       }
     } catch (e) {
-      setErro(e.message);
+      if (escopoAtual.current === escopo && identidadeAtual())
+        setErro(e.message);
     } finally {
-      setOcupado(false);
+      if (escopoAtual.current === escopo) setOcupado(false);
     }
   }
 
+  if (podeLer === false)
+    return (
+      <section className="feed-page" role="status">
+        <h1>Feed indisponível</h1>
+        <p>{erro || "O feed é dos participantes aprovados do ciclo atual."}</p>
+        <button type="button" onClick={carregar}>
+          Atualizar acesso
+        </button>
+      </section>
+    );
   return (
     <FeedView
       {...{
@@ -195,7 +280,15 @@ function FeedConteudo({ coordenacao }) {
         setCategoria,
         ciclos,
         semestre,
-        setSemestre,
+        setSemestre: (valor) => {
+          sequencia.current++;
+          setItens([]);
+          setEditor(null);
+          setConfirmar(null);
+          setOcupado(false);
+          setCarregando(true);
+          setSemestre(valor);
+        },
         setEditor,
         setConfirmar,
         executar,
