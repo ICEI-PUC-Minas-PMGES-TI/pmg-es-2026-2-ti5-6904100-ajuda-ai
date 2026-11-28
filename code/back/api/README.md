@@ -70,6 +70,14 @@ A API não cria containers. Upload direto pelo navegador exige CORS na conta de
 armazenamento (origem do front, `PUT` e `OPTIONS`); o app mobile nativo não
 depende desse CORS, e esta API não altera a conta.
 
+Mensagens usam o container privado `chat`, com imagens limitadas a 5 MB
+(PNG/JPEG/WebP). O envio passa pela API e não precisa de CORS do Azure. A
+conversa, as mensagens e os eventos pendentes são persistidos no PostgreSQL;
+RabbitMQ publica eventos para atualização ao vivo via SSE autenticado. Configure
+`RABBITMQ_URL` e inicie o serviço local com `docker compose up -d rabbitmq`
+(a partir de `code`). Se o broker estiver indisponível, a API mantém os eventos
+na outbox e os publica após a reconexão; a interface também sincroniza pela API.
+
 ```bash
 npm run start:dev
 ```
@@ -92,6 +100,18 @@ A API fica disponível em `http://localhost:3000`.
 | `POST` | `/participacoes/confirmar`            | Confirmação manual de ingresso. Exige JWT de coordenador.                                                                     |
 | `POST` | `/participacoes/rejeitar-candidatura` | Rejeição manual por e-mail. Exige JWT de coordenador.                                                                         |
 | `GET`  | `/formularios/:tipo`                  | Perguntas extras publicadas para `padrinho` ou `apadrinhado`.                                                                 |
+| `GET`  | `/chats`                              | Conversas do aluno autenticado, com participantes, última mensagem e não lidas.                                                |
+| `GET`  | `/chats/:id/mensagens`                | Últimas 50 mensagens; aceita `?antesDe=<id>` para histórico anterior.                                                          |
+| `POST` | `/chats/:id/mensagens`                | Envia `{ "texto": "..." }` para uma conversa da qual o aluno participa.                                                       |
+| `POST` | `/chats/:id/imagens`                  | Envia multipart (`arquivo`) PNG/JPEG/WebP de até 5 MB ao storage privado.                                                     |
+| `GET`  | `/chats/:id/events`                   | Fluxo SSE autenticado; RabbitMQ transmite novas mensagens entre instâncias da API.                                             |
+
+O chat é criado na mesma transação que aprova uma sugestão do matching (ou
+confirma um vínculo manual), com as participações de padrinho e apadrinhado.
+Depois de atualizar a API, aplique a migration com `npm run migration:run`;
+nenhuma alteração manual no schema é necessária. O container `chat` precisa
+existir na conta Azure, e a API precisa de permissão de escrita/leitura nesse
+container.
 
 ### Coordenação (exige JWT com perfil `coordenador`)
 

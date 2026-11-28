@@ -456,4 +456,41 @@ describe('Chat integrado ao domínio de vínculos', () => {
       c.servicoChat.listarMensagens(chat, email(c, 100), 1, 2),
     ).rejects.toThrow(/Cursor/);
   });
+  it('envia imagens verificadas ao armazenamento privado e cria recibos', async () => {
+    const c = cenario();
+    await c.operacoes.vincular(100, 1, autor);
+    const chat = grupo(c).id;
+    const imagem = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    const enviarBlob = vi.spyOn(c.armazenamento, 'enviar');
+
+    const enviada = await c.servicoChat.enviarImagem(
+      chat,
+      email(c, 100),
+      imagem,
+    );
+
+    expect(enviarBlob).toHaveBeenCalledWith(
+      'chat',
+      expect.stringMatching(new RegExp(`^chats/${chat}/.+\\.png$`)),
+      imagem,
+      'image/png',
+      { cacheControl: 'private, no-store' },
+    );
+    expect(c.mensagens[0].imagemChave).toMatch(
+      new RegExp(`^chat/chats/${chat}/.+\\.png$`),
+    );
+    expect(enviada.imagemUrl).toContain(`https://storage.test/chat/chats/${chat}/`);
+    expect(enviada).not.toHaveProperty('imagemChave');
+    expect(c.recibos).toHaveLength(1);
+  });
+
+  it('recusa conteúdo que não seja PNG, JPEG ou WebP antes do upload', async () => {
+    const c = cenario();
+    const enviarBlob = vi.spyOn(c.armazenamento, 'enviar');
+
+    await expect(
+      c.servicoChat.enviarImagem(1, email(c, 100), Buffer.from('not an image')),
+    ).rejects.toThrow(/PNG, JPEG ou WebP/);
+    expect(enviarBlob).not.toHaveBeenCalled();
+  });
 });

@@ -66,6 +66,13 @@ test("mensagens usam a identidade da participação e os recibos reais", () => {
           remetenteNome: "Ana",
           texto: "Resposta",
         },
+        {
+          id: 3,
+          remetenteParticipacaoId: 1,
+          remetenteNome: "Ana",
+          imagemUrl: "https://storage.test/chat/image.png",
+          texto: "Imagem",
+        },
       ],
       meusIds: [100],
     }),
@@ -75,6 +82,8 @@ test("mensagens usam a identidade da participação e os recibos reais", () => {
   assert.match(html, /1\/2 leitura/);
   assert.ok(html.includes("Ana"));
   assert.doesNotMatch(html, /Lida por todos/);
+  assert.match(html, /alt="Imagem enviada na conversa"/);
+  assert.match(html, /https:\/\/storage\.test\/chat\/image\.png/);
 });
 test("confirmação de leitura do grupo indica todos os destinatários", () => {
   const html = renderToStaticMarkup(
@@ -183,6 +192,11 @@ test("API usa JWT do aluno, cursor e UUID de envio sem publicar autoria fornecid
     const id = "63be4551-9576-48ef-9dd8-d0ede2e7ab8e";
     await cliente.api.enviarMensagemChat(7, "Olá", "bia@pucminas.edu.br", id);
     await cliente.api.enviarMensagemChat(7, "Olá", "bia@pucminas.edu.br", id);
+    await cliente.api.enviarImagemChat(
+      7,
+      new Blob(["imagem"], { type: "image/png" }),
+      "bia@pucminas.edu.br",
+    );
     assert.ok(pedidos[0].url.includes("programa=2026%2F2"));
     assert.ok(pedidos[1].url.includes("depoisDe=0"));
     assert.ok(
@@ -193,6 +207,10 @@ test("API usa JWT do aluno, cursor e UUID de envio sem publicar autoria fornecid
       texto: "Olá",
       clientId: id,
     });
+    assert.ok(pedidos[4].url.endsWith("/chats/7/imagens"));
+    assert.ok(pedidos[4].body instanceof FormData);
+    assert.equal(pedidos[4].headers.Authorization, "Bearer jwt-aluno");
+    assert.equal(pedidos[4].body.get("arquivo").type, "image/png");
     await assert.rejects(cliente.api.chats("outra@pucminas.edu.br"), {
       status: 401,
     });
@@ -233,13 +251,72 @@ test("conexão SSE usa token no header e encerra ao sair da tela", async () => {
     await cliente.streamChatMessages(
       7,
       "bia@pucminas.edu.br",
-      () => controller.abort(),
+      () => {},
       controller.signal,
+      () => controller.abort(),
     );
     assert.ok(pedido.url.endsWith("/chats/7/events"));
     assert.ok(!pedido.url.includes("jwt-sse"));
     assert.equal(pedido.options.headers.Authorization, "Bearer jwt-sse");
     assert.equal(cancelou, true);
+  } finally {
+    globalThis.fetch = anterior;
+    cliente.clearAlunoSession();
+  }
+});
+
+test("fluxo SSE preserva eventos, dados e estado de conexão", async () => {
+  const anterior = globalThis.fetch;
+  const email = "bia@pucminas.edu.br";
+  cliente.persistAlunoSession({
+    accessToken: "jwt-sse",
+    usuario: { email },
+  });
+  const bytes = new TextEncoder().encode(
+    'id: 1\r\nevent: chat.ready\r\ndata: {"revisao":1}\r\n\r\n' +
+      'id: 2\r\nevent: chat.changed\r\ndata: {"chatId":7,"revisao":2}\r\n\r\n' +
+      'event: chat.access\r\ndata: {"chatId":7,"podeEnviar":false}\r\n\r\n' +
+      'event: chat.heartbeat\r\ndata: {"chatId":7}\r\n\r\n',
+  );
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(c) {
+          for (const byte of bytes) c.enqueue(new Uint8Array([byte]));
+          c.close();
+        },
+      }),
+      { status: 200 },
+    );
+  const eventos = [];
+  const status = [];
+  try {
+    await cliente.streamChatMessages(
+      7,
+      email,
+      (evento) => eventos.push(evento),
+      new AbortController().signal,
+      (conectado) => status.push(conectado),
+    );
+    assert.deepEqual(eventos, [
+      { tipo: "chat.ready", id: "1", dados: { revisao: 1 } },
+      {
+        tipo: "chat.changed",
+        id: "2",
+        dados: { chatId: 7, revisao: 2 },
+      },
+      {
+        tipo: "chat.access",
+        id: undefined,
+        dados: { chatId: 7, podeEnviar: false },
+      },
+      {
+        tipo: "chat.heartbeat",
+        id: undefined,
+        dados: { chatId: 7 },
+      },
+    ]);
+    assert.deepEqual(status, [true, true, false]);
   } finally {
     globalThis.fetch = anterior;
     cliente.clearAlunoSession();

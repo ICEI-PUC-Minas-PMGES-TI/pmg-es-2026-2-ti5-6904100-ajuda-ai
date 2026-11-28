@@ -2,8 +2,12 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
   type MessageEvent,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -16,8 +20,10 @@ import {
   MoreThan,
 } from 'typeorm';
 import { Observable } from 'rxjs';
+import { detectarTipoCardapio } from '../campus/cardapios/cardapio-arquivo.js';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
+import { AzureBlobStorageService } from '../storage/azure-blob-storage.service.js';
 import {
   ChatEntity,
   ChatPeriodoEntity,
@@ -35,10 +41,29 @@ import {
 } from './chat.historico.js';
 
 type Contexto = Awaited<ReturnType<ChatService['contexto']>>;
+type ChatImageStorage = Pick<
+  AzureBlobStorageService,
+  'enviar' | 'excluir' | 'sasLeitura'
+>;
 
 @Injectable()
 export class ChatService {
-  constructor(@InjectDataSource() private readonly dados: DataSource) {}
+  private readonly logger = new Logger(ChatService.name);
+
+  constructor(
+    @InjectDataSource() private readonly dados: DataSource,
+    @Optional()
+    @Inject(AzureBlobStorageService)
+    private readonly storage?: ChatImageStorage,
+  ) {}
+
+  private exigirStorage(): ChatImageStorage {
+    if (!this.storage)
+      throw new ServiceUnavailableException(
+        'Armazenamento de imagens do chat não está disponível.',
+      );
+    return this.storage;
+  }
 
   private async contexto(
     manager: EntityManager,
@@ -186,8 +211,20 @@ export class ChatService {
           : destinados.length && entregues === destinados.length
             ? 'entregue'
             : 'enviada';
+      const imagemUrl = m.imagemChave
+        ? this.exigirStorage()
+            .sasLeitura('chat', m.imagemChave.slice('chat/'.length))
+            .url
+        : null;
       return {
-        ...m,
+        id: m.id,
+        chatId: m.chatId,
+        remetenteParticipacaoId: m.remetenteParticipacaoId,
+        texto: m.texto,
+        imagemUrl,
+        remetenteNome: m.remetenteNome,
+        clientId: m.clientId,
+        criadaEm: m.criadaEm,
         estado,
         recibos: { total: destinados.length, entregues, lidas },
       };
@@ -481,6 +518,90 @@ export class ChatService {
         );
       return (await this.serializar(manager, [mensagem]))[0];
     });
+  }
+
+  async enviarImagem(
+    chatId: number,
+    email: string,
+    arquivo: Buffer | undefined,
+  ) {
+    if (!arquivo?.length || arquivo.length > 5 * 1024 * 1024)
+      throw new BadRequestException('Envie uma imagem de até 5 MB.');
+    const tipo = detectarTipoCardapio(arquivo);
+    if (tipo !== 'image/png' && tipo !== 'image/jpeg' && tipo !== 'image/webp')
+      throw new BadRequestException('Envie uma imagem PNG, JPEG ou WebP.');
+    const extensao =
+      tipo === 'image/png' ? 'png' : tipo === 'image/jpeg' ? 'jpg' : 'webp';
+    const storage = this.exigirStorage();
+
+    await this.comAcesso(chatId, email, true, async (_manager, contexto) => {
+      if (!contexto.podeEnviar)
+        throw new ConflictException(contexto.motivoBloqueio!);
+    });
+
+    const nome = `chats/${chatId}/${randomUUID()}.${extensao}`;
+    const blob = await storage.enviar('chat', nome, arquivo, tipo, {
+      cacheControl: 'private, no-store',
+    });
+
+    try {
+      return await this.comAcesso(chatId, email, true, async (manager, c) => {
+        if (!c.podeEnviar)
+          throw new ConflictException(c.motivoBloqueio!);
+        const mensagem = await manager
+          .getRepository(MensagemChatEntity)
+          .save(
+            manager.getRepository(MensagemChatEntity).create({
+              chatId,
+              remetenteParticipacaoId: c.minhaParticipacaoId,
+              texto: 'Imagem',
+              imagemChave: blob.chave,
+              remetenteNome: (
+                c.atuais.find((p) => p.id === c.minhaParticipacaoId)?.respostas
+                  ?.nome || email
+              ).slice(0, 160),
+              clientId: randomUUID(),
+              criadaEm: new Date(),
+              estado: 'enviada',
+              entregueEm: null,
+              lidaEm: null,
+            }),
+          );
+        const destinatarios = c.atuais.filter(
+          (p) => p.id !== c.minhaParticipacaoId,
+        );
+        const recibos = manager.getRepository(ChatDestinatarioEntity);
+        if (destinatarios.length)
+          await recibos.save(
+            destinatarios.map((p) =>
+              recibos.create({
+                chatId,
+                mensagemId: mensagem.id,
+                participacaoId: p.id,
+                entregueEm: null,
+                lidaEm: null,
+              }),
+            ),
+          );
+        await manager
+          .getRepository(ChatEntity)
+          .update({ id: chatId }, { atualizadoEm: new Date() });
+        c.chat.revisao = await avancarRevisao(manager, chatId);
+        if (destinatarios.length)
+          await recibos.update(
+            { mensagemId: mensagem.id },
+            { revisao: c.chat.revisao },
+          );
+        return (await this.serializar(manager, [mensagem]))[0];
+      });
+    } catch (erro) {
+      try {
+        await storage.excluir('chat', nome);
+      } catch {
+        this.logger.warn(`Não foi possível remover imagem órfã do chat ${chatId}.`);
+      }
+      throw erro;
+    }
   }
 
   async observarMensagens(chatId: number, email: string, expiraEm: number) {

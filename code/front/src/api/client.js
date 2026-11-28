@@ -4,24 +4,6 @@ const API_BASE =
   import.meta.env.VITE_API_URL?.replace(/\/$/, '') || 'http://localhost:3000';
 
 export const feedEventsUrl = `${API_BASE}/publicacoes/events`;
-export async function streamChatMessages(chatId, email, onEvent, signal) {
-  const token = getAlunoToken(email);
-  if (!token) throw Object.assign(new Error('Sua sessão expirou. Entre novamente.'), { status: 401 });
-  const controller = new AbortController();
-  const cancelar = () => controller.abort();
-  if (signal?.aborted) cancelar();
-  signal?.addEventListener('abort', cancelar, { once: true });
-  const prazo = setTimeout(cancelar,12000);
-  try {
-    const response = await fetch(`${API_BASE}/chats/${chatId}/events`, { headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` }, signal: controller.signal });
-    clearTimeout(prazo);
-    if (!response.ok) throw Object.assign(new Error('Não foi possível atualizar a conversa.'), { status: response.status });
-    await consumirEventosChat(response, onEvent, controller.signal);
-  } finally {
-    clearTimeout(prazo); signal?.removeEventListener('abort',cancelar); controller.abort();
-  }
-}
-
 function exigirEmailChat(email) {
   const alvo = email || getAlunoSession()?.email;
   if (!alvo) throw Object.assign(new Error('Entre na sua conta de aluno.'), {status:401});
@@ -208,6 +190,40 @@ function query(params) {
   return texto ? `?${texto}` : '';
 }
 
+export async function streamChatMessages(chatId, email, onEvent, signal, onStatus = () => {}) {
+  const token = getAlunoToken(email);
+  if (!token) throw Object.assign(new Error('Sua sessão expirou. Entre novamente.'), { status: 401 });
+  const response = await fetch(`${API_BASE}/chats/${chatId}/events`, {
+    headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
+    signal,
+  });
+  if (!response.ok) {
+    let message = `Erro ${response.status}`;
+    try {
+      const data = await response.json();
+      message = data.message || data.error || message;
+      if (Array.isArray(message)) message = message.join(', ');
+    } catch {
+      /* Mantém a resposta HTTP como erro quando o corpo não for JSON. */
+    }
+    throw Object.assign(new Error(message), { status: response.status });
+  }
+  if (!response.body) throw new Error('O servidor não iniciou o fluxo de mensagens.');
+  try {
+    await consumirEventosChat(
+      response,
+      (evento) => {
+        if (evento.tipo === 'chat.ready' || evento.tipo === 'chat.heartbeat')
+          onStatus(true);
+        onEvent(evento);
+      },
+      signal,
+    );
+  } finally {
+    onStatus(false);
+  }
+}
+
 export const api = {
   feed(email, programa) { return request(`/publicacoes${programa ? `?programa=${encodeURIComponent(programa)}` : ''}`, { aluno: email }); },
   feedCiclos() { return request('/publicacoes/ciclos'); },
@@ -389,6 +405,11 @@ export const api = {
   },
   enviarMensagemChat(id, texto, email, clientId) {
     return request(`/chats/${id}/mensagens`, { method: 'POST', body: { texto, clientId }, aluno: exigirEmailChat(email) });
+  },
+  enviarImagemChat(id, arquivo, email) {
+    const body = new FormData();
+    body.append('arquivo', arquivo);
+    return requestMapa(`/chats/${id}/imagens`, { method: 'POST', body, aluno: exigirEmailChat(email) });
   },
   gruposMatching(programa) {
     return request(`/coordenacao/matching/grupos${query({ programa })}`);

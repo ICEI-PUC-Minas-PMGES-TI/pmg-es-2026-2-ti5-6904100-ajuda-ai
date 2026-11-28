@@ -131,6 +131,8 @@ export class MensagemChatEntity {
 
   @Column({ type: 'text' })
   texto!: string;
+  @Column({ name: 'imagem_chave', type: 'varchar', length: 1024, nullable: true })
+  imagemChave!: string | null;
   @Column({
     name: 'remetente_nome',
     type: 'varchar',

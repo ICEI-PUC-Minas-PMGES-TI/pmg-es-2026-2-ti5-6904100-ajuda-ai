@@ -5,6 +5,7 @@ import { MatchingVinculoEntity } from '../matching/entities/matching.entity.js';
 import { MatchingGrupoEntity } from '../matching/entities/grupo.entity.js';
 import { ParticipacaoEntity } from '../participacoes/entities/participacao.entity.js';
 import { ProgramaEntity } from '../programas/entities/programa.entity.js';
+import { StorageModule } from '../storage/storage.module.js';
 import {
   ChatEntity,
   ChatParticipanteEntity,
@@ -26,6 +27,7 @@ export const ENTIDADES_CHAT = [
 @Module({
   imports: [
     AuthModule,
+    StorageModule,
     TypeOrmModule.forFeature([
       ...ENTIDADES_CHAT,
       MatchingVinculoEntity,
