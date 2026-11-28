@@ -10,7 +10,6 @@ const NAV = [
   { to: '/coordenacao/candidaturas', label: 'Candidaturas', icon: 'clipboard' },
   { to: '/coordenacao/matching', label: 'Matching', icon: 'spark' },
   { to: '/coordenacao/usuarios', label: 'Usuários', icon: 'users' },
-  { to: '/coordenacao/alunos', label: 'Alunos', icon: 'users' },
   { to: '/coordenacao/programas', label: 'Programas', icon: 'calendar' },
   { to: '/coordenacao/matching', label: 'Matching', icon: 'link' },
   { to: '/coordenacao/formularios', label: 'Formulários', icon: 'form' },
@@ -27,9 +26,9 @@ const NAV = [
 ];
 
 /** Páginas que não dependem do programa/ciclo selecionado. */
-const SEM_PROGRAMA = ['/coordenacao/alunos', '/coordenacao/regras-xp', '/coordenacao/feed', '/coordenacao/comunicados', '/coordenacao/configuracoes', '/coordenacao/programas', '/coordenacao/pucstops', '/coordenacao/mapa', '/coordenacao/lojinha', '/coordenacao/resgates', '/coordenacao/xp', '/coordenacao/missoes', '/coordenacao/eventos', '/coordenacao/restaurantes'];
+const SEM_PROGRAMA = ['/coordenacao/regras-xp', '/coordenacao/feed', '/coordenacao/comunicados', '/coordenacao/configuracoes', '/coordenacao/programas', '/coordenacao/pucstops', '/coordenacao/mapa', '/coordenacao/lojinha', '/coordenacao/resgates', '/coordenacao/xp', '/coordenacao/missoes', '/coordenacao/eventos', '/coordenacao/restaurantes'];
 /** Dentre elas, as que nem usam o seletor de programa (valem para todos os ciclos). */
-const SEM_SELETOR = ['/coordenacao/alunos', '/coordenacao/regras-xp', '/coordenacao/feed', '/coordenacao/comunicados', '/coordenacao/configuracoes', '/coordenacao/pucstops', '/coordenacao/mapa', '/coordenacao/lojinha', '/coordenacao/resgates', '/coordenacao/xp', '/coordenacao/missoes', '/coordenacao/eventos', '/coordenacao/restaurantes'];
+const SEM_SELETOR = ['/coordenacao/regras-xp', '/coordenacao/feed', '/coordenacao/comunicados', '/coordenacao/configuracoes', '/coordenacao/pucstops', '/coordenacao/mapa', '/coordenacao/lojinha', '/coordenacao/resgates', '/coordenacao/xp', '/coordenacao/missoes', '/coordenacao/eventos', '/coordenacao/restaurantes'];
 
 export default function CoordLayout() {
   const { autenticado, ehCoordenador, usuario, logout } = useAuth();
